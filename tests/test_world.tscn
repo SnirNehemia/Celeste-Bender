@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
 [ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
@@ -13,6 +13,9 @@
 [ext_resource type="PackedScene" path="res://tests/rooms/room_g.tscn" id="11_room_g"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_h.tscn" id="12_room_h"]
 [ext_resource type="PackedScene" path="res://scenes/ui/room_picker.tscn" id="13_picker"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_i.tscn" id="14_room_i"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_j.tscn" id="15_room_j"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_k.tscn" id="16_room_k"]
 
 [node name="TestWorld" type="Node2D" node_paths=PackedStringArray("player", "camera")]
 script = ExtResource("1_manager")
@@ -41,6 +44,15 @@ position = Vector2(2000, -180)
 
 [node name="RoomH" parent="." instance=ExtResource("12_room_h")]
 position = Vector2(2320, -180)
+
+[node name="RoomI" parent="." instance=ExtResource("14_room_i")]
+position = Vector2(2640, -180)
+
+[node name="RoomJ" parent="." instance=ExtResource("15_room_j")]
+position = Vector2(3120, -180)
+
+[node name="RoomK" parent="." instance=ExtResource("16_room_k")]
+position = Vector2(4080, -180)
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 position = Vector2(24, 160)

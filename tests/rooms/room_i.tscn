@@ -1,0 +1,35 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_zone.tscn" id="3_wind"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="4_crystal"]
+
+[node name="RoomI" type="Node2D"]
+editor_description = "Glide & wind test (Stage 5). Glide over the spike pit, ride the updraft to the high ledge, walk right against the head-wind to the crystal."
+script = ExtResource("1_room")
+display_title = "I - Glide & Wind"
+room_size = Vector2(480, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 480, 8), Rect2(0, 0, 8, 180), Rect2(472, 0, 8, 180), Rect2(0, 140, 64, 40), Rect2(64, 172, 128, 8), Rect2(192, 140, 168, 40), Rect2(360, 48, 112, 132)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 140)
+
+[node name="SpikesPit" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(64, 164)
+tile_count = 16
+
+[node name="Updraft" parent="." instance=ExtResource("3_wind")]
+position = Vector2(296, 8)
+zone_size = Vector2(64, 132)
+wind_direction = Vector2(0, -1)
+wind_strength = 60.0
+
+[node name="HeadWind" parent="." instance=ExtResource("3_wind")]
+position = Vector2(360, 8)
+zone_size = Vector2(112, 40)
+wind_direction = Vector2(-1, 0)
+wind_strength = 50.0
+
+[node name="WindCrystal" parent="." instance=ExtResource("4_crystal")]
+position = Vector2(456, 36)

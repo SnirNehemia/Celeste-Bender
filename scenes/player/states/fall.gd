@@ -6,6 +6,7 @@ extends PlayerState
 ##     buffered press (pressed jump just before touching down)
 ##   - wall jump, if a wall is within reach
 ##   - start a wall slide, if holding into a wall
+##   - start a glide, by pressing jump again (when no jump uses the press)
 
 func physics_update(delta: float) -> void:
 	# Dash beats everything else this frame (Dash.enter() sets the velocity).
@@ -23,6 +24,10 @@ func physics_update(delta: float) -> void:
 	elif player.can_wall_jump():
 		player.start_wall_jump(player.get_wall_direction())
 		transition_requested.emit(&"Jump")
+	elif player.wants_to_glide():
+		# Spend the press so landing right after doesn't trigger a buffered jump.
+		player.consume_jump_press()
+		transition_requested.emit(&"Glide")
 	elif player.is_on_floor():
 		# Landed. Go to Run if still moving sideways, otherwise Idle.
 		if absf(player.velocity.x) > 0.0:

@@ -12,7 +12,12 @@ extends CharacterBody2D
 ##   ├─ Visual (ColorRect) white 8x11 rectangle
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
 ##   ├─ AirDashAbility     dash charges, aim, dash effects (abilities/air_dash_ability.gd)
-##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Dead (one script each)
+##   ├─ GlideAbility       glide stamina, stamina bar, glide effects (abilities/glide_ability.gd)
+##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide, Dead
+##
+## Wind: WindZone areas call enter_wind_zone()/exit_wind_zone() on the player.
+## get_wind_velocity() sums every zone we're in; the movement helpers below shift
+## their target speeds by it (see apply_horizontal_movement / apply_gravity).
 ##
 ## Collision: the player is on physics layer 2 ("player") and collides with layer 1
 ## ("world"). Hazards (spikes) look for layer 2 to find the player.
@@ -40,6 +45,7 @@ signal died
 @onready var visual: ColorRect = $Visual
 @onready var death_burst: CPUParticles2D = $DeathBurst
 @onready var air_dash: AirDashAbility = $AirDashAbility
+@onready var glide: GlideAbility = $GlideAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -55,6 +61,8 @@ var facing_direction: float = 1.0
 ## Experimental "Ride the Current" (tuning.ride_current_enabled): counts down after a
 ## dash ends. While > 0, gravity is lighter and air control stronger. Set by the Dash state.
 var ride_current_remaining: float = 0.0
+## Wind zones the player is currently inside. Filled by the zones themselves.
+var active_wind_zones: Array[WindZone] = []
 
 
 func _ready() -> void:
@@ -134,6 +142,7 @@ func respawn_at(spawn_position: Vector2) -> void:
 	wall_jump_lock_remaining = 0.0
 	ride_current_remaining = 0.0
 	air_dash.refill()
+	glide.refill()
 	# Idle switches to Fall by itself on the next frame if there's no floor below.
 	state_machine.transition_to(&"Idle")
 
@@ -169,13 +178,13 @@ func can_wall_jump() -> bool:
 
 ## Launches a normal jump. The Jump state then holds this upward speed while jump is held.
 func start_ground_jump() -> void:
-	_consume_jump()
+	consume_jump_press()
 	velocity.y = tuning.jump_velocity
 
 
 ## Launches a wall jump away from the wall on side `wall_direction` (-1 left, +1 right).
 func start_wall_jump(wall_direction: float) -> void:
-	_consume_jump()
+	consume_jump_press()
 	velocity.x = -wall_direction * tuning.wall_jump_horizontal_speed
 	facing_direction = -wall_direction
 	velocity.y = tuning.wall_jump_vertical_speed
@@ -185,7 +194,8 @@ func start_wall_jump(wall_direction: float) -> void:
 
 
 ## Uses up the buffered press and the coyote window so one press = one jump.
-func _consume_jump() -> void:
+## Public because Fall also spends the press when it starts a glide.
+func consume_jump_press() -> void:
 	jump_buffer_remaining = 0.0
 	coyote_time_remaining = 0.0
 
@@ -200,6 +210,35 @@ func wants_to_dash() -> bool:
 
 func is_dashing() -> bool:
 	return state_machine.current_state.name == &"Dash"
+
+
+# --- Glide -------------------------------------------------------------------
+
+## True when jump was pressed recently (buffered) and is still held, in the air,
+## with stamina left. Fall checks this AFTER the coyote/wall jump checks, so a
+## press that could jump still jumps. Holding jump from the original jump does
+## NOT glide: that press was already spent by the jump.
+func wants_to_glide() -> bool:
+	return jump_buffer_remaining > 0.0 		and Input.is_action_pressed("jump") 		and not is_on_floor() 		and glide.can_glide()
+
+
+# --- Wind --------------------------------------------------------------------
+
+func enter_wind_zone(zone: WindZone) -> void:
+	if not active_wind_zones.has(zone):
+		active_wind_zones.append(zone)
+
+
+func exit_wind_zone(zone: WindZone) -> void:
+	active_wind_zones.erase(zone)
+
+
+## Sum of the wind from every zone we're in, px/s. Overlapping zones add up.
+func get_wind_velocity() -> Vector2:
+	var total_wind: Vector2 = Vector2.ZERO
+	for zone: WindZone in active_wind_zones:
+		total_wind += zone.get_wind_velocity()
+	return total_wind
 
 
 # --- Walls -------------------------------------------------------------------
@@ -252,6 +291,9 @@ func apply_gravity(delta: float) -> void:
 	var fall_speed_cap: float = tuning.max_fall_speed
 	if Input.is_action_pressed("move_down"):
 		fall_speed_cap = tuning.fast_fall_max_speed
+	# Wind shifts the terminal speed: an updraft (negative y) lowers it a little.
+	# Without gliding that only softens a fall; the Glide state is what rides it.
+	fall_speed_cap += get_wind_velocity().y
 
 	velocity.y = move_toward(velocity.y, fall_speed_cap, tuning.gravity * gravity_scale * delta)
 
@@ -270,14 +312,20 @@ func apply_horizontal_movement(delta: float) -> void:
 	if ride_current_remaining > 0.0 and not is_on_floor():
 		air_multiplier *= tuning.ride_current_air_control_multiplier
 
+	# Wind shifts the speed we settle at instead of adding a raw force. Standing
+	# still in a 50 px/s current you drift at 50 px/s; running against it you make
+	# 90 - 50 = 40 px/s; with it, 140 px/s. Air control still decides how fast we
+	# get there, so wind catches you gradually.
+	var wind_speed_x: float = get_wind_velocity().x
+
 	if input_direction != 0.0:
 		# Speed up toward full speed in the held direction. Reversing direction passes
 		# through zero, so turning around happens at the same acceleration rate.
-		var target_speed: float = input_direction * tuning.max_run_speed
+		var target_speed: float = input_direction * tuning.max_run_speed + wind_speed_x
 		velocity.x = move_toward(velocity.x, target_speed, tuning.run_acceleration * air_multiplier * delta)
 	else:
-		# Nothing held: slow toward zero.
-		velocity.x = move_toward(velocity.x, 0.0, tuning.run_deceleration_ground * air_multiplier * delta)
+		# Nothing held: slow toward the wind's speed (zero when there's no wind).
+		velocity.x = move_toward(velocity.x, wind_speed_x, tuning.run_deceleration_ground * air_multiplier * delta)
 
 
 ## Ceiling corner correction: if we're moving up and this frame's motion would hit a

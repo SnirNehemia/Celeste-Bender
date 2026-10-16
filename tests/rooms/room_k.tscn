@@ -1,0 +1,115 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_zone.tscn" id="3_wind"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="4_crystal"]
+
+[node name="RoomK" type="Node2D"]
+editor_description = "HARD glide gauntlet, steady version (Stage 5). Same layout as Room J, but ONE constant updraft (60 px/s) over the whole pit: the bobbing rhythm is even, so the challenge is pure timing around the spiked blocks."
+script = ExtResource("1_room")
+display_title = "K - Hard: Steady Gauntlet"
+room_size = Vector2(960, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 960, 8), Rect2(0, 0, 8, 180), Rect2(952, 0, 8, 180), Rect2(0, 140, 48, 40), Rect2(48, 172, 856, 8), Rect2(904, 120, 48, 60), Rect2(152, 96, 40, 8), Rect2(264, 48, 48, 8), Rect2(264, 128, 32, 8), Rect2(432, 80, 40, 8), Rect2(600, 32, 48, 8), Rect2(600, 128, 48, 8), Rect2(776, 88, 48, 8)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 140)
+
+[node name="FloorSpikes1" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(48, 164)
+tile_count = 40
+
+[node name="CeilingSpikes1" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(48, 8)
+facing = 1
+tile_count = 40
+
+[node name="FloorSpikes2" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(368, 164)
+tile_count = 40
+
+[node name="CeilingSpikes2" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(368, 8)
+facing = 1
+tile_count = 40
+
+[node name="FloorSpikes3" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(688, 164)
+tile_count = 27
+
+[node name="CeilingSpikes3" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(688, 8)
+facing = 1
+tile_count = 27
+
+[node name="Block1Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(152, 88)
+tile_count = 5
+
+[node name="Block1Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(152, 104)
+facing = 1
+tile_count = 5
+
+[node name="Block2Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(264, 40)
+tile_count = 6
+
+[node name="Block2Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(264, 56)
+facing = 1
+tile_count = 6
+
+[node name="Block3Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(264, 120)
+tile_count = 4
+
+[node name="Block3Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(264, 136)
+facing = 1
+tile_count = 4
+
+[node name="Block4Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(432, 72)
+tile_count = 5
+
+[node name="Block4Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(432, 88)
+facing = 1
+tile_count = 5
+
+[node name="Block5Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(600, 24)
+tile_count = 6
+
+[node name="Block5Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(600, 40)
+facing = 1
+tile_count = 6
+
+[node name="Block6Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(600, 120)
+tile_count = 6
+
+[node name="Block6Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(600, 136)
+facing = 1
+tile_count = 6
+
+[node name="Block7Top" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(776, 80)
+tile_count = 6
+
+[node name="Block7Bottom" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(776, 96)
+facing = 1
+tile_count = 6
+
+[node name="Updraft" parent="." instance=ExtResource("3_wind")]
+position = Vector2(48, 8)
+zone_size = Vector2(856, 164)
+wind_direction = Vector2(0, -1)
+wind_strength = 60.0
+
+[node name="GoalCrystal" parent="." instance=ExtResource("4_crystal")]
+position = Vector2(928, 100)

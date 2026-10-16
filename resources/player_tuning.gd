@@ -105,6 +105,24 @@ extends Resource
 ## Air acceleration multiplier during the riding window (>1 = more steering).
 @export var ride_current_air_control_multiplier: float = 1.6
 
+@export_group("Glide")
+## Fall speed while gliding, px/s (GAME_DESIGN.md §5.2: 30).
+@export var glide_max_fall_speed: float = 30.0
+## How fast vertical speed blends toward the glide speed, px/s². High = the glide
+## "catches" you almost at once; low = a softer, floatier catch.
+@export var glide_vertical_acceleration: float = 900.0
+## Seconds of gliding per airtime. Refills on the ground.
+@export var glide_stamina_time: float = 1.5
+## In an updraft, the zone's upward wind speed is multiplied by this while gliding.
+## Example: updraft strength 60 x 2.0 = 120 px/s of lift, minus the 30 px/s glide fall
+## = rising at 90 px/s.
+@export var glide_updraft_lift_multiplier: float = 2.0
+## Stamina drain multiplier inside an updraft (0 = riding an updraft is free, so
+## updrafts work as "elevators" of any height; 1 = drains like normal gliding).
+@export var glide_updraft_stamina_drain: float = 0.0
+## Seconds between the curved gust arcs drawn under the player while gliding.
+@export var glide_gust_interval: float = 0.09
+
 @export_group("Death & rooms")
 ## How long the death effect plays before the player reappears at the spawn, seconds.
 ## Short on purpose: dying should cost almost nothing (design pillar "fail fast").
