@@ -4,7 +4,9 @@ extends Node2D
 ##   Player > GlideAbility
 ##
 ## Responsibilities (and only these):
-##   - glide STAMINA: seconds of gliding left this airtime, refilled on the ground
+##   - glide STAMINA: seconds of gliding left this airtime, refilled on the ground.
+##     With tuning.dash_uses_stamina on, the dash spends it too (see AirDashAbility):
+##     one shared "breath" bar, with a notch marking the dash cost.
 ##   - the small stamina bar above the player's head (drawn by this node)
 ##   - the glide's look. It should read as AIR BENDING: the player pushes air DOWN
 ##     to hold themself up:
@@ -29,6 +31,8 @@ const BAR_FULL_COLOR: Color = Color(0.6, 0.9, 1.0)
 const BAR_LOW_COLOR: Color = Color(1.0, 0.35, 0.3)
 ## Below this fraction of stamina, the bar blinks as a warning.
 const BAR_LOW_FRACTION: float = 0.3
+## The dash-cost notch on the bar (shared stamina mode).
+const BAR_NOTCH_COLOR: Color = Color(1, 1, 1, 0.9)
 ## Where the player's feet are, relative to this node (this node sits 15 px above them).
 const FEET_OFFSET: Vector2 = Vector2(0, 15)
 
@@ -62,7 +66,9 @@ func _ready() -> void:
 ## Runs every physics frame, after the player's move_and_slide() (children run after
 ## their parent), so is_on_floor() is up to date.
 func _physics_process(delta: float) -> void:
-	if player.is_on_floor():
+	# Same rule as dash charges: no ground refill mid-dash, otherwise a dash along
+	# the floor would cost nothing.
+	if player.is_on_floor() and not player.is_dashing():
 		refill()
 	blink_time += delta
 	# queue_redraw() asks Godot to call _draw() again this frame.
@@ -75,10 +81,19 @@ func can_glide() -> bool:
 	return stamina_remaining > 0.0
 
 
-func refill() -> void:
+## Fills the bar. Returns true if anything was restored (a wind crystal is only
+## used up if it actually helped).
+func refill() -> bool:
 	if stamina_remaining >= player.tuning.glide_stamina_time:
-		return
+		return false
 	stamina_remaining = player.tuning.glide_stamina_time
+	stamina_changed.emit(stamina_remaining)
+	return true
+
+
+## Spends a lump of stamina at once (used by the dash in shared stamina mode).
+func spend(amount: float) -> void:
+	stamina_remaining = maxf(stamina_remaining - amount, 0.0)
 	stamina_changed.emit(stamina_remaining)
 
 
@@ -142,6 +157,11 @@ func _draw() -> void:
 	draw_rect(Rect2(bar_origin, BAR_SIZE), BAR_BACK_COLOR)
 	var fill_color: Color = BAR_LOW_COLOR.lerp(BAR_FULL_COLOR, fraction)
 	draw_rect(Rect2(bar_origin, Vector2(BAR_SIZE.x * fraction, BAR_SIZE.y)), fill_color)
+	# Shared stamina: a notch where the dash cost is. Fill right of the notch = you
+	# can dash; left of it = glide only. Drawn 1 px taller than the bar to stand out.
+	if player.tuning.dash_uses_stamina and max_stamina > 0.0:
+		var notch_x: float = bar_origin.x + BAR_SIZE.x * (player.tuning.dash_stamina_cost / max_stamina)
+		draw_rect(Rect2(notch_x, -1.0, 1.0, BAR_SIZE.y + 2.0), BAR_NOTCH_COLOR)
 
 
 # --- Effect builders ----------------------------------------------------------

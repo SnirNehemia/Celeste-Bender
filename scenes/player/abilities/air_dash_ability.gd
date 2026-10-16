@@ -18,6 +18,11 @@ extends Node
 ## abilities own resources and effects. The Dash state calls the begin/trail/end
 ## functions below at the right moments. Wind crystals call refill().
 ##
+## Shared stamina mode (tuning.dash_uses_stamina): charges are ignored and a dash
+## spends GlideAbility stamina instead (tuning.dash_stamina_cost). can_dash() and
+## refill() hide the difference, so the states and wind crystals don't care which
+## mode is on.
+##
 ## All effects are built in code from placeholder shapes (Line2D, CPUParticles2D),
 ## per CLAUDE.md. Effects are added to the player's PARENT (the world) so they stay
 ## where they were made while the player moves on.
@@ -61,12 +66,26 @@ func _physics_process(_delta: float) -> void:
 # --- Charges ---------------------------------------------------------------
 
 func can_dash() -> bool:
+	if player.tuning.dash_uses_stamina:
+		return player.glide.stamina_remaining >= player.tuning.dash_stamina_cost
 	return dashes_remaining > 0
+
+
+## How many dashes could be done right now (for the debug overlay).
+func get_dashes_available() -> int:
+	if player.tuning.dash_uses_stamina:
+		return floori(player.glide.stamina_remaining / player.tuning.dash_stamina_cost)
+	return dashes_remaining
 
 
 ## Restores all charges. Returns true if anything was actually restored, so a
 ## wind crystal only gets used up when you needed it.
+## In shared stamina mode this refills the stamina bar instead.
 func refill() -> bool:
+	if player.tuning.dash_uses_stamina:
+		var stamina_restored: bool = player.glide.refill()
+		_update_tint()
+		return stamina_restored
 	if dashes_remaining >= player.tuning.max_dash_charges:
 		return false
 	dashes_remaining = player.tuning.max_dash_charges
@@ -91,8 +110,11 @@ func get_aim_direction() -> Vector2:
 
 ## Spends a charge and plays all dash-start effects for a dash toward `direction`.
 func begin_dash(direction: Vector2) -> void:
-	dashes_remaining -= 1
-	charges_changed.emit(dashes_remaining)
+	if player.tuning.dash_uses_stamina:
+		player.glide.spend(player.tuning.dash_stamina_cost)
+	else:
+		dashes_remaining -= 1
+		charges_changed.emit(dashes_remaining)
 	_update_tint()
 
 	var tuning: PlayerTuning = player.tuning

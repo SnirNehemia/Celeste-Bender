@@ -120,6 +120,13 @@ extends Resource
 ## Stamina drain multiplier inside an updraft (0 = riding an updraft is free, so
 ## updrafts work as "elevators" of any height; 1 = drains like normal gliding).
 @export var glide_updraft_stamina_drain: float = 0.0
+## Shared air stamina (experimental): when on, the dash costs glide stamina instead
+## of using dash charges. Dash and glide then spend ONE "breath" bar; wind crystals
+## and the ground refill it. Off = classic GAME_DESIGN.md §5.1 dash charges.
+@export var dash_uses_stamina: bool = true
+## Stamina one dash costs, in glide-seconds (0.9 of 1.5 = 60% of the bar, so only
+## one dash fits in a full bar; a second needs a crystal or the ground).
+@export var dash_stamina_cost: float = 0.9
 ## Seconds between the curved gust arcs drawn under the player while gliding.
 @export var glide_gust_interval: float = 0.09
 

@@ -40,7 +40,7 @@ func _process(_delta: float) -> void:
 		player.coyote_time_remaining,
 		player.jump_buffer_remaining,
 		player.wall_jump_lock_remaining,
-		player.air_dash.dashes_remaining,
+		player.air_dash.get_dashes_available(),
 		int(player.facing_direction),
 		player.glide.stamina_remaining,
 		player.get_wind_velocity().x,

@@ -83,13 +83,21 @@ Each ability lists its movement, puzzle and combat use.
 - **Puzzle:** dashing *through* a wind zone briefly doubles the dash distance.
 - **Combat:** dashing into a stunned enemy defeats it.
 
-### 5.2 Glide (hold Jump while falling)
+### 5.2 Glide (press Jump again while falling, hold to keep gliding)
+- Started by a *fresh* Jump press in the air (not by holding the original jump), so normal jumps keep their feel.
 - Fall speed capped at 30 px/s; horizontal control unchanged.
 - **Stamina:** 1.5 s per airtime, refills on ground (shown as a small bar above the player).
 - Inside an **updraft** zone, gliding lifts you upward instead.
 - **Movement:** long horizontal drifts, ride updrafts.
 - **Puzzle:** updrafts are the "elevators" of the level.
 - **Combat:** float over ground enemies and their attacks.
+- Riding an updraft costs no stamina (`glide_updraft_stamina_drain = 0`).
+
+### 5.2b Shared air stamina ("breath") — experimental, on by default
+- Toggle: `PlayerTuning.dash_uses_stamina`. When on, the dash spends **0.9 s of glide stamina** (60% of the bar) instead of a charge. A full bar buys one dash plus a short glide, or a long glide; a second dash needs a wind crystal or the ground.
+- The bar shows a white notch at the dash cost. The player still turns pale blue when there isn't enough for a dash.
+- Wind crystals and the ground refill the whole bar.
+- Future elements: plan is **one bar per element, showing only the active element's bar**, rather than one global bar.
 
 ### 5.3 Gust (Z)
 - Short-range blast (a cone ~32 px long) in the aimed direction. 0.6 s cooldown.
