@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="PlayerTuning" load_steps=2 format=3 uid="uid://yibhoebsywfy"]
+
+[ext_resource type="Script" uid="uid://b40m5jxtkrypo" path="res://resources/player_tuning.gd" id="1_tuning"]
+
+[resource]
+script = ExtResource("1_tuning")
+max_run_speed = 90.0
+run_acceleration = 1000.0
+run_deceleration_ground = 400.0
+air_acceleration_multiplier = 0.65
+gravity = 900.0
+max_fall_speed = 300.0
+fast_fall_max_speed = 500.0
+jump_velocity = -105.0
+variable_jump_time = 0.2
+apex_gravity_threshold = 40.0
+apex_gravity_multiplier = 0.5
+coyote_time = 0.1
+jump_buffer_time = 0.1
+wall_slide_max_speed = 40.0
+wall_jump_horizontal_speed = 130.0
+wall_jump_vertical_speed = -105.0
+wall_jump_input_lock_time = 0.15
+wall_jump_check_distance = 2.0
+corner_correction_pixels = 4
