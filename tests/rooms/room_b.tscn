@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+
+[node name="RoomB" type="Node2D"]
+editor_description = "Entered from below (upward transition). Exit right into RoomC."
+script = ExtResource("1_room")
+room_size = Vector2(320, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 8, 180), Rect2(0, 0, 320, 8), Rect2(0, 172, 160, 8), Rect2(192, 172, 128, 8), Rect2(312, 0, 8, 140), Rect2(216, 96, 48, 8)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(144, 172)
+
+[node name="SpikesFloor" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(24, 164)
+tile_count = 4
+
+[node name="SpikesCeiling" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(216, 104)
+facing = 1
+tile_count = 6

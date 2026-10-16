@@ -62,6 +62,17 @@ extends Resource
 ## slides, so you don't need pixel-perfect contact (or to press into the wall).
 @export var wall_jump_check_distance: float = 2.0
 
+@export_group("Death & rooms")
+## How long the death effect plays before the player reappears at the spawn, seconds.
+## Short on purpose: dying should cost almost nothing (design pillar "fail fast").
+@export var death_respawn_delay: float = 0.4
+## How long the camera takes to slide to a new room, seconds. The player is frozen
+## during the slide.
+@export var room_transition_time: float = 0.3
+## Upward speed given when entering a room ABOVE (like Celeste), px/s. Without it you
+## would arrive at the very top of your jump and drop straight back into the old room.
+@export var room_transition_up_boost: float = -160.0
+
 @export_group("Assists")
 ## How many pixels we may nudge sideways to slip around a ceiling corner
 ## instead of bonking our head on it.

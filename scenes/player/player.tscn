@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -8,11 +8,14 @@
 [ext_resource type="Script" path="res://scenes/player/states/jump.gd" id="6_jump"]
 [ext_resource type="Script" path="res://scenes/player/states/fall.gd" id="7_fall"]
 [ext_resource type="Script" path="res://scenes/player/states/wall_slide.gd" id="8_wall_slide"]
+[ext_resource type="Script" path="res://scenes/player/states/dead.gd" id="9_dead"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(8, 11)
 
 [node name="Player" type="CharacterBody2D"]
+collision_layer = 2
+collision_mask = 1
 script = ExtResource("1_player")
 tuning = ExtResource("2_tuning")
 
@@ -25,6 +28,24 @@ offset_left = -4.0
 offset_top = -11.0
 offset_right = 4.0
 offset_bottom = 0.0
+color = Color(1, 1, 1, 1)
+
+[node name="DeathBurst" type="CPUParticles2D" parent="."]
+position = Vector2(0, -5.5)
+emitting = false
+amount = 16
+lifetime = 0.4
+one_shot = true
+explosiveness = 1.0
+direction = Vector2(0, -1)
+spread = 180.0
+gravity = Vector2(0, 0)
+initial_velocity_min = 40.0
+initial_velocity_max = 90.0
+damping_min = 60.0
+damping_max = 120.0
+scale_amount_min = 2.0
+scale_amount_max = 3.0
 color = Color(1, 1, 1, 1)
 
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
@@ -45,3 +66,6 @@ script = ExtResource("7_fall")
 
 [node name="WallSlide" type="Node" parent="StateMachine"]
 script = ExtResource("8_wall_slide")
+
+[node name="Dead" type="Node" parent="StateMachine"]
+script = ExtResource("9_dead")

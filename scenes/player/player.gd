@@ -10,7 +10,15 @@ extends CharacterBody2D
 ##   Player (this script)
 ##   ├─ CollisionShape2D   8x11 hitbox
 ##   ├─ Visual (ColorRect) white 8x11 rectangle
-##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide (one script each)
+##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
+##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dead (one script each)
+##
+## Collision: the player is on physics layer 2 ("player") and collides with layer 1
+## ("world"). Hazards (spikes) look for layer 2 to find the player.
+##
+## Death: anything deadly calls die(). The player switches to the Dead state and
+## emits `died`. It does NOT respawn itself: RoomManager listens to `died`, waits,
+## and calls respawn_at() with the current room's spawn point.
 ##
 ## The origin (0,0) of this node is at the player's FEET, centered horizontally.
 ## That makes placing the player on a surface trivial: put it at the surface's y.
@@ -23,7 +31,13 @@ extends CharacterBody2D
 ## in the Inspector, even while the game runs (Remote tab).
 @export var tuning: PlayerTuning
 
+## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
+signal died
+
 @onready var state_machine: PlayerStateMachine = $StateMachine
+@onready var hitbox: CollisionShape2D = $CollisionShape2D
+@onready var visual: ColorRect = $Visual
+@onready var death_burst: CPUParticles2D = $DeathBurst
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -69,6 +83,50 @@ func _update_timers(delta: float) -> void:
 		jump_buffer_remaining = maxf(jump_buffer_remaining - delta, 0.0)
 
 	wall_jump_lock_remaining = maxf(wall_jump_lock_remaining - delta, 0.0)
+
+
+# --- Death, respawn, freezing -------------------------------------------------
+
+## Kills the player. Safe to call repeatedly (e.g. spikes touching every frame):
+## only the first call does anything until the player respawns.
+func die() -> void:
+	if is_dead():
+		return
+	state_machine.transition_to(&"Dead")
+	died.emit()
+
+
+## The middle of the hitbox in world coordinates (the node's origin is at the feet).
+func get_center() -> Vector2:
+	return hitbox.global_position
+
+
+## The hitbox as a rectangle in world coordinates (at the player's CURRENT position).
+func get_hitbox_rect() -> Rect2:
+	var hitbox_size: Vector2 = (hitbox.shape as RectangleShape2D).size
+	return Rect2(get_center() - hitbox_size / 2.0, hitbox_size)
+
+
+func is_dead() -> bool:
+	return state_machine.current_state.name == &"Dead"
+
+
+## Puts the player back at `spawn_position` (feet position), standing still, alive.
+func respawn_at(spawn_position: Vector2) -> void:
+	global_position = spawn_position
+	velocity = Vector2.ZERO
+	coyote_time_remaining = 0.0
+	jump_buffer_remaining = 0.0
+	wall_jump_lock_remaining = 0.0
+	# Idle switches to Fall by itself on the next frame if there's no floor below.
+	state_machine.transition_to(&"Idle")
+
+
+## Stops (or resumes) all player movement and input, keeping the current velocity.
+## Used during room transitions. set_physics_process(false) tells Godot to stop
+## calling this node's _physics_process(), so nothing moves or reads input.
+func set_frozen(frozen: bool) -> void:
+	set_physics_process(not frozen)
 
 
 # --- Input -------------------------------------------------------------------

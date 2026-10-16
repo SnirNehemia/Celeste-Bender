@@ -1,0 +1,31 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
+[ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="3_player"]
+[ext_resource type="PackedScene" path="res://scenes/ui/debug_overlay.tscn" id="4_debug"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_a.tscn" id="5_room_a"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_b.tscn" id="6_room_b"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_c.tscn" id="7_room_c"]
+
+[node name="TestWorld" type="Node2D" node_paths=PackedStringArray("player", "camera")]
+script = ExtResource("1_manager")
+player = NodePath("Player")
+camera = NodePath("RoomCamera")
+
+[node name="RoomA" parent="." instance=ExtResource("5_room_a")]
+
+[node name="RoomB" parent="." instance=ExtResource("6_room_b")]
+position = Vector2(240, -180)
+
+[node name="RoomC" parent="." instance=ExtResource("7_room_c")]
+position = Vector2(560, -180)
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+position = Vector2(24, 160)
+
+[node name="RoomCamera" type="Camera2D" parent="."]
+script = ExtResource("2_camera")
+
+[node name="DebugOverlay" parent="." node_paths=PackedStringArray("player") instance=ExtResource("4_debug")]
+player = NodePath("../Player")

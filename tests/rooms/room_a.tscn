@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+
+[node name="RoomA" type="Node2D"]
+editor_description = "Wide room (480 px): camera scrolls. Jump the floor spikes, climb the shaft on the right up into RoomB."
+script = ExtResource("1_room")
+room_size = Vector2(480, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 8, 180), Rect2(0, 160, 480, 20), Rect2(0, 0, 400, 8), Rect2(432, 0, 48, 8), Rect2(392, 8, 8, 128), Rect2(432, 8, 8, 128), Rect2(472, 0, 8, 180)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 160)
+
+[node name="SpikesFloor" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(184, 152)
+tile_count = 5
+
+[node name="SpikesWall" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(464, 104)
+facing = 2
+tile_count = 4

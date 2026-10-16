@@ -1,7 +1,7 @@
 class_name DebugOverlay
 extends CanvasLayer
-## On-screen debug readout for tuning movement: current state, velocity, and the
-## forgiveness timers. Toggle it with the `debug_toggle` action (F1).
+## On-screen debug readout for tuning movement: current state, velocity, the
+## forgiveness timers, and GameState (deaths, time, current room). Toggle it with the `debug_toggle` action (F1).
 ##
 ## A CanvasLayer draws its children on a separate layer that ignores the game camera,
 ## so the text stays fixed in the corner of the screen (useful once rooms scroll).
@@ -29,7 +29,9 @@ func _process(_delta: float) -> void:
 	if not visible or player == null:
 		return
 	var state_name: String = String(player.state_machine.current_state.name)
-	readout_label.text = "State: %s\nVel: %4.0f, %4.0f\nFloor:%s  Wall:%+d\nCoyote:%.2f  Buffer:%.2f  Lock:%.2f" % [
+	# GameState is the autoload: reachable by name from any script.
+	var room_name: String = String(GameState.current_room.name) if GameState.current_room != null else "-"
+	readout_label.text = "State: %s\nVel: %4.0f, %4.0f\nFloor:%s  Wall:%+d\nCoyote:%.2f  Buffer:%.2f  Lock:%.2f\nDeaths:%d  Time:%s  Room:%s" % [
 		state_name,
 		player.velocity.x,
 		player.velocity.y,
@@ -38,4 +40,7 @@ func _process(_delta: float) -> void:
 		player.coyote_time_remaining,
 		player.jump_buffer_remaining,
 		player.wall_jump_lock_remaining,
+		GameState.death_count,
+		GameState.get_formatted_time(),
+		room_name,
 	]
