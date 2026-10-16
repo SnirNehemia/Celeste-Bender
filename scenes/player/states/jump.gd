@@ -22,6 +22,10 @@ func enter() -> void:
 
 
 func physics_update(delta: float) -> void:
+	# Dash beats everything else this frame (Dash.enter() sets the velocity).
+	if player.wants_to_dash():
+		transition_requested.emit(&"Dash")
+		return
 	player.apply_horizontal_movement(delta)
 
 	# Letting go of jump ends the hold early: this is the variable jump height.

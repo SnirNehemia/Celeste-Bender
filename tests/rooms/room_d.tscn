@@ -1,0 +1,56 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="2_crystal"]
+
+[node name="RoomD" type="Node2D"]
+editor_description = "Crystal playground (480 px, scrolls). Almost no floor over a bottomless pit: chain dashes through the crystals. A low route, a high route, one rest pillar in the middle, a goal ledge on the right that exits into RoomE. Made for testing Ride the Current."
+script = ExtResource("1_room")
+display_title = "D - Crystal Playground"
+room_size = Vector2(480, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 480, 8), Rect2(0, 0, 8, 140), Rect2(0, 172, 40, 8), Rect2(228, 140, 16, 8), Rect2(472, 0, 8, 116), Rect2(424, 140, 48, 8)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 172)
+
+[node name="Low1" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(76, 148)
+
+[node name="Low2" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(120, 132)
+
+[node name="Low3" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(164, 148)
+
+[node name="Low4" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(204, 124)
+
+[node name="High1" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(112, 84)
+
+[node name="High2" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(160, 60)
+
+[node name="High3" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(212, 40)
+
+[node name="Mid1" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(276, 116)
+
+[node name="Mid2" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(316, 92)
+
+[node name="Mid3" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(356, 124)
+
+[node name="Mid4" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(392, 100)
+
+[node name="Top1" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(268, 48)
+
+[node name="Top2" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(328, 36)
+
+[node name="Top3" parent="." instance=ExtResource("2_crystal")]
+position = Vector2(388, 56)

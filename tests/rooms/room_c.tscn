@@ -1,13 +1,21 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
 [ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="3_crystal"]
 
 [node name="RoomC" type="Node2D"]
-editor_description = "Bottomless pit: falling out of the bottom kills (no room below)."
+editor_description = "Dash test over a bottomless pit. The first gap (96 px) is too wide to jump: jump + dash, refill on the crystal, dash again. Exit bottom-right into RoomD."
 script = ExtResource("1_room")
+display_title = "C - First Dash Gap"
 room_size = Vector2(320, 180)
-solid_rects = Array[Rect2]([Rect2(0, 0, 320, 8), Rect2(0, 0, 8, 140), Rect2(0, 172, 80, 8), Rect2(112, 164, 24, 8), Rect2(176, 164, 24, 8), Rect2(240, 172, 80, 8), Rect2(312, 0, 8, 180)])
+solid_rects = Array[Rect2]([Rect2(0, 0, 320, 8), Rect2(0, 0, 8, 140), Rect2(0, 172, 80, 8), Rect2(176, 164, 24, 8), Rect2(240, 172, 80, 8), Rect2(312, 0, 8, 140)])
 
 [node name="SpawnPoint" type="Marker2D" parent="."]
 position = Vector2(24, 172)
+
+[node name="WindCrystal" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(128, 140)
+
+[node name="WindCrystalHigh" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(220, 100)

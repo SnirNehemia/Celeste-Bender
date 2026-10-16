@@ -8,6 +8,10 @@ extends PlayerState
 ##   - start a wall slide, if holding into a wall
 
 func physics_update(delta: float) -> void:
+	# Dash beats everything else this frame (Dash.enter() sets the velocity).
+	if player.wants_to_dash():
+		transition_requested.emit(&"Dash")
+		return
 	# apply_gravity handles apex half-gravity and fast-fall (holding Down).
 	player.apply_gravity(delta)
 	player.apply_horizontal_movement(delta)

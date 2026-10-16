@@ -31,7 +31,7 @@ func _process(_delta: float) -> void:
 	var state_name: String = String(player.state_machine.current_state.name)
 	# GameState is the autoload: reachable by name from any script.
 	var room_name: String = String(GameState.current_room.name) if GameState.current_room != null else "-"
-	readout_label.text = "State: %s\nVel: %4.0f, %4.0f\nFloor:%s  Wall:%+d\nCoyote:%.2f  Buffer:%.2f  Lock:%.2f\nDeaths:%d  Time:%s  Room:%s" % [
+	readout_label.text = "State: %s\nVel: %4.0f, %4.0f\nFloor:%s  Wall:%+d\nCoyote:%.2f  Buffer:%.2f  Lock:%.2f\nDashes:%d  Facing:%+d\nDeaths:%d  Time:%s  Room:%s" % [
 		state_name,
 		player.velocity.x,
 		player.velocity.y,
@@ -40,6 +40,8 @@ func _process(_delta: float) -> void:
 		player.coyote_time_remaining,
 		player.jump_buffer_remaining,
 		player.wall_jump_lock_remaining,
+		player.air_dash.dashes_remaining,
+		int(player.facing_direction),
 		GameState.death_count,
 		GameState.get_formatted_time(),
 		room_name,

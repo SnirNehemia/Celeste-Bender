@@ -62,6 +62,49 @@ extends Resource
 ## slides, so you don't need pixel-perfect contact (or to press into the wall).
 @export var wall_jump_check_distance: float = 2.0
 
+@export_group("Air Dash")
+## Speed of the dash in the aimed direction, px/s. Gravity is ignored during it.
+@export var dash_speed: float = 240.0
+## How long the dash lasts, seconds. Distance = dash_speed * dash_duration (36 px).
+@export var dash_duration: float = 0.15
+## Dashes available per airtime. Refilled on the ground or by a wind crystal.
+@export var max_dash_charges: int = 1
+## When the dash ends, horizontal speed is multiplied by this (1 = keep it all; air
+## control then eases it back to max_run_speed). Keeps the dash flowing into the arc.
+@export var dash_end_horizontal_multiplier: float = 1.0
+## When the dash ends, UPWARD speed is multiplied by this so an up-dash doesn't
+## launch you sky-high but still rises a little before falling.
+@export var dash_end_upward_multiplier: float = 0.6
+## Freeze frames at dash start, seconds (0.05 ≈ 3 frames at 60 fps).
+@export var dash_freeze_time: float = 0.05
+## Screen shake at dash start: max offset in px, and how long it fades, seconds.
+@export var dash_shake_strength: float = 2.0
+@export var dash_shake_duration: float = 0.12
+## Seconds between wind-trail streaks during a dash, and how long each one takes to fade.
+@export var dash_trail_interval: float = 0.03
+@export var dash_trail_lifetime: float = 0.25
+## How much the player's rectangle stretches along the dash (x) and thins across it (y)
+## while dashing, so the body reads as a gust of air rather than a solid block.
+@export var dash_stretch: Vector2 = Vector2(1.6, 0.6)
+## Opacity of the player during the dash (1 = solid). Partly "turns into air".
+@export_range(0.0, 1.0) var dash_body_opacity: float = 0.55
+
+@export_group("Air Dash: Ride the Current (experimental)")
+## EXPERIMENT: the dash bursts out fast and eases off (same total distance), then
+## for a short window afterwards you "ride" your own wind: lighter gravity and more
+## air control. Turn on/off live in the Remote tab to compare with the rigid dash.
+@export var ride_current_enabled: bool = true
+## Dash speed multiplier at the START and END of the dash. The speed slides linearly
+## between them; with an average of 1.0 the dash covers the same distance as normal.
+@export var ride_current_dash_start_multiplier: float = 1.3
+@export var ride_current_dash_end_multiplier: float = 0.7
+## How long the "riding" window lasts after the dash ends, seconds.
+@export var ride_current_time: float = 0.5
+## Gravity multiplier during the riding window (<1 = floatier).
+@export var ride_current_gravity_multiplier: float = 0.4
+## Air acceleration multiplier during the riding window (>1 = more steering).
+@export var ride_current_air_control_multiplier: float = 1.6
+
 @export_group("Death & rooms")
 ## How long the death effect plays before the player reappears at the spawn, seconds.
 ## Short on purpose: dying should cost almost nothing (design pillar "fail fast").

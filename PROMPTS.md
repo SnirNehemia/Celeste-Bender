@@ -10,7 +10,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
-- [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [ ] 4 · [ ] 5 · [ ] 6 · [ ] 7 · [ ] 8 · [ ] 9 · [ ] 10
+- [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [ ] 5 · [ ] 6 · [ ] 7 · [ ] 8 · [ ] 9 · [ ] 10
 
 ---
 

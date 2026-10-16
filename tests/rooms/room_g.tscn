@@ -1,0 +1,63 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="3_crystal"]
+
+[node name="RoomG" type="Node2D"]
+editor_description = "HARD. Climb over two spiked pillars using up- and diagonal dashes, refilling on crystals. Exit is the high ledge top-right."
+script = ExtResource("1_room")
+display_title = "G - Hard: Spike Pillars"
+room_size = Vector2(320, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 320, 8), Rect2(0, 0, 8, 116), Rect2(0, 140, 40, 8), Rect2(128, 72, 16, 108), Rect2(224, 96, 16, 84), Rect2(272, 48, 48, 8), Rect2(312, 56, 8, 124)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(20, 140)
+
+[node name="Spikes1" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(48, 8)
+facing = 1
+tile_count = 28
+
+[node name="Spikes2" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(120, 72)
+facing = 2
+tile_count = 13
+
+[node name="Spikes3" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(144, 72)
+facing = 3
+tile_count = 13
+
+[node name="Spikes4" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(128, 64)
+tile_count = 2
+
+[node name="Spikes5" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(216, 96)
+facing = 2
+tile_count = 10
+
+[node name="Spikes6" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(240, 96)
+facing = 3
+tile_count = 10
+
+[node name="Spikes7" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(224, 88)
+tile_count = 2
+
+[node name="Crystal1" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(72, 104)
+
+[node name="Crystal2" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(100, 48)
+
+[node name="Crystal3" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(172, 96)
+
+[node name="Crystal4" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(196, 52)
+
+[node name="Crystal5" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(256, 76)

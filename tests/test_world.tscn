@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
 [ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
@@ -7,6 +7,12 @@
 [ext_resource type="PackedScene" path="res://tests/rooms/room_a.tscn" id="5_room_a"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_b.tscn" id="6_room_b"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_c.tscn" id="7_room_c"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_d.tscn" id="8_room_d"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_e.tscn" id="9_room_e"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_f.tscn" id="10_room_f"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_g.tscn" id="11_room_g"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_h.tscn" id="12_room_h"]
+[ext_resource type="PackedScene" path="res://scenes/ui/room_picker.tscn" id="13_picker"]
 
 [node name="TestWorld" type="Node2D" node_paths=PackedStringArray("player", "camera")]
 script = ExtResource("1_manager")
@@ -21,6 +27,21 @@ position = Vector2(240, -180)
 [node name="RoomC" parent="." instance=ExtResource("7_room_c")]
 position = Vector2(560, -180)
 
+[node name="RoomD" parent="." instance=ExtResource("8_room_d")]
+position = Vector2(880, -180)
+
+[node name="RoomE" parent="." instance=ExtResource("9_room_e")]
+position = Vector2(1360, -180)
+
+[node name="RoomF" parent="." instance=ExtResource("10_room_f")]
+position = Vector2(1680, -180)
+
+[node name="RoomG" parent="." instance=ExtResource("11_room_g")]
+position = Vector2(2000, -180)
+
+[node name="RoomH" parent="." instance=ExtResource("12_room_h")]
+position = Vector2(2320, -180)
+
 [node name="Player" parent="." instance=ExtResource("3_player")]
 position = Vector2(24, 160)
 
@@ -29,3 +50,6 @@ script = ExtResource("2_camera")
 
 [node name="DebugOverlay" parent="." node_paths=PackedStringArray("player") instance=ExtResource("4_debug")]
 player = NodePath("../Player")
+
+[node name="RoomPicker" parent="." node_paths=PackedStringArray("room_manager") instance=ExtResource("13_picker")]
+room_manager = NodePath("..")

@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -9,6 +9,8 @@
 [ext_resource type="Script" path="res://scenes/player/states/fall.gd" id="7_fall"]
 [ext_resource type="Script" path="res://scenes/player/states/wall_slide.gd" id="8_wall_slide"]
 [ext_resource type="Script" path="res://scenes/player/states/dead.gd" id="9_dead"]
+[ext_resource type="Script" path="res://scenes/player/states/dash.gd" id="10_dash"]
+[ext_resource type="Script" path="res://scenes/player/abilities/air_dash_ability.gd" id="11_air_dash"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(8, 11)
@@ -48,6 +50,9 @@ scale_amount_min = 2.0
 scale_amount_max = 3.0
 color = Color(1, 1, 1, 1)
 
+[node name="AirDashAbility" type="Node" parent="."]
+script = ExtResource("11_air_dash")
+
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
 script = ExtResource("3_machine")
 initial_state = NodePath("Idle")
@@ -66,6 +71,9 @@ script = ExtResource("7_fall")
 
 [node name="WallSlide" type="Node" parent="StateMachine"]
 script = ExtResource("8_wall_slide")
+
+[node name="Dash" type="Node" parent="StateMachine"]
+script = ExtResource("10_dash")
 
 [node name="Dead" type="Node" parent="StateMachine"]
 script = ExtResource("9_dead")

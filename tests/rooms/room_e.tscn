@@ -1,0 +1,24 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="3_crystal"]
+
+[node name="RoomE" type="Node2D"]
+editor_description = "EASY. Enter left, exit right. Two rest platforms and three crystals over a pit; every gap is forgiving."
+script = ExtResource("1_room")
+display_title = "E - Easy: Stepping Stones"
+room_size = Vector2(320, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 320, 8), Rect2(0, 0, 8, 116), Rect2(0, 140, 40, 8), Rect2(120, 132, 24, 8), Rect2(208, 124, 24, 8), Rect2(280, 140, 40, 8), Rect2(312, 0, 8, 116)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(20, 140)
+
+[node name="Crystal1" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(84, 116)
+
+[node name="Crystal2" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(176, 104)
+
+[node name="Crystal3" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(256, 112)

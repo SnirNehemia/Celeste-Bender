@@ -5,6 +5,10 @@ extends PlayerState
 ## naturally and the body keeps pressing into the floor (keeps is_on_floor() stable).
 
 func physics_update(delta: float) -> void:
+	# Dash beats everything else this frame (Dash.enter() sets the velocity).
+	if player.wants_to_dash():
+		transition_requested.emit(&"Dash")
+		return
 	player.apply_gravity(delta)
 	player.apply_horizontal_movement(delta)
 

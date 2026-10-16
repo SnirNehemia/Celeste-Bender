@@ -1,0 +1,36 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="3_crystal"]
+
+[node name="RoomF" type="Node2D"]
+editor_description = "MEDIUM. Crystal chain through a corridor with spikes above and below. Too much float carries you into the ceiling spikes."
+script = ExtResource("1_room")
+display_title = "F - Medium: Spike Corridor"
+room_size = Vector2(320, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 320, 8), Rect2(40, 0, 240, 56), Rect2(0, 0, 8, 116), Rect2(0, 140, 40, 8), Rect2(0, 172, 320, 8), Rect2(280, 140, 40, 8), Rect2(312, 0, 8, 116)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(20, 140)
+
+[node name="Spikes1" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(40, 56)
+facing = 1
+tile_count = 30
+
+[node name="Spikes2" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(40, 164)
+tile_count = 30
+
+[node name="Crystal1" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(84, 112)
+
+[node name="Crystal2" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(132, 92)
+
+[node name="Crystal3" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(180, 124)
+
+[node name="Crystal4" parent="." instance=ExtResource("3_crystal")]
+position = Vector2(228, 100)

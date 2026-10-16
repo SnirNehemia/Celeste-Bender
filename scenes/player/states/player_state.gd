@@ -15,6 +15,8 @@ extends Node
 ## knowing who is listening, which keeps states decoupled from the machine.
 
 ## Emitted by a state to ask the state machine to switch to another state.
+## Only subclasses emit it, so silence Godot's "declared but never used" warning here.
+@warning_ignore("unused_signal")
 signal transition_requested(target_state_name: StringName)
 
 ## Set by PlayerStateMachine.setup() so every state can reach the player.

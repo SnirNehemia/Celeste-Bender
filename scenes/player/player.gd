@@ -11,7 +11,8 @@ extends CharacterBody2D
 ##   ├─ CollisionShape2D   8x11 hitbox
 ##   ├─ Visual (ColorRect) white 8x11 rectangle
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
-##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dead (one script each)
+##   ├─ AirDashAbility     dash charges, aim, dash effects (abilities/air_dash_ability.gd)
+##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Dead (one script each)
 ##
 ## Collision: the player is on physics layer 2 ("player") and collides with layer 1
 ## ("world"). Hazards (spikes) look for layer 2 to find the player.
@@ -38,6 +39,7 @@ signal died
 @onready var hitbox: CollisionShape2D = $CollisionShape2D
 @onready var visual: ColorRect = $Visual
 @onready var death_burst: CPUParticles2D = $DeathBurst
+@onready var air_dash: AirDashAbility = $AirDashAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -47,6 +49,12 @@ var coyote_time_remaining: float = 0.0
 var jump_buffer_remaining: float = 0.0
 ## Counts down after a wall jump. While > 0 horizontal input is ignored.
 var wall_jump_lock_remaining: float = 0.0
+## Which way the player faces: -1 left, +1 right. Follows the last held direction.
+## Used as the dash direction when no arrow is held.
+var facing_direction: float = 1.0
+## Experimental "Ride the Current" (tuning.ride_current_enabled): counts down after a
+## dash ends. While > 0, gravity is lighter and air control stronger. Set by the Dash state.
+var ride_current_remaining: float = 0.0
 
 
 func _ready() -> void:
@@ -83,6 +91,12 @@ func _update_timers(delta: float) -> void:
 		jump_buffer_remaining = maxf(jump_buffer_remaining - delta, 0.0)
 
 	wall_jump_lock_remaining = maxf(wall_jump_lock_remaining - delta, 0.0)
+	ride_current_remaining = maxf(ride_current_remaining - delta, 0.0)
+
+	# Turn to face the held direction (not during the wall-jump lock, where input is ignored).
+	var held_direction: float = signf(get_move_input())
+	if held_direction != 0.0 and wall_jump_lock_remaining <= 0.0:
+		facing_direction = held_direction
 
 
 # --- Death, respawn, freezing -------------------------------------------------
@@ -118,6 +132,8 @@ func respawn_at(spawn_position: Vector2) -> void:
 	coyote_time_remaining = 0.0
 	jump_buffer_remaining = 0.0
 	wall_jump_lock_remaining = 0.0
+	ride_current_remaining = 0.0
+	air_dash.refill()
 	# Idle switches to Fall by itself on the next frame if there's no floor below.
 	state_machine.transition_to(&"Idle")
 
@@ -161,6 +177,7 @@ func start_ground_jump() -> void:
 func start_wall_jump(wall_direction: float) -> void:
 	_consume_jump()
 	velocity.x = -wall_direction * tuning.wall_jump_horizontal_speed
+	facing_direction = -wall_direction
 	velocity.y = tuning.wall_jump_vertical_speed
 	# Ignore input briefly: otherwise holding toward the wall (which you usually are,
 	# since you were sliding on it) would cancel the push away on the very next frame.
@@ -171,6 +188,18 @@ func start_wall_jump(wall_direction: float) -> void:
 func _consume_jump() -> void:
 	jump_buffer_remaining = 0.0
 	coyote_time_remaining = 0.0
+
+
+# --- Dash --------------------------------------------------------------------
+
+## True on the frame dash is pressed, if a charge is left. Every state that allows
+## dashing checks this first and switches to the Dash state.
+func wants_to_dash() -> bool:
+	return Input.is_action_just_pressed("dash") and air_dash.can_dash()
+
+
+func is_dashing() -> bool:
+	return state_machine.current_state.name == &"Dash"
 
 
 # --- Walls -------------------------------------------------------------------
@@ -214,6 +243,9 @@ func apply_gravity(delta: float) -> void:
 	# holding jump, fall more gently. This gives a moment of hang time to line up a landing.
 	if Input.is_action_pressed("jump") and absf(velocity.y) < tuning.apex_gravity_threshold:
 		gravity_scale = tuning.apex_gravity_multiplier
+	# Riding the current after a dash (experimental): the wind we made holds us up a bit.
+	if ride_current_remaining > 0.0:
+		gravity_scale *= tuning.ride_current_gravity_multiplier
 
 	# Fast-fall: holding Down raises the terminal speed. Releasing Down brings it back
 	# down gradually (move_toward approaches max_fall_speed at the gravity rate, no sudden stop).
@@ -234,6 +266,9 @@ func apply_horizontal_movement(delta: float) -> void:
 
 	var input_direction: float = get_move_input()
 	var air_multiplier: float = 1.0 if is_on_floor() else tuning.air_acceleration_multiplier
+	# Riding the current after a dash (experimental): easier to steer in the air.
+	if ride_current_remaining > 0.0 and not is_on_floor():
+		air_multiplier *= tuning.ride_current_air_control_multiplier
 
 	if input_direction != 0.0:
 		# Speed up toward full speed in the held direction. Reversing direction passes

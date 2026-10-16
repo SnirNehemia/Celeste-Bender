@@ -90,6 +90,17 @@ func _transition_to_room(next_room: Room) -> void:
 	is_transitioning = false
 
 
+## Teleports the player to `target_room`'s spawn and snaps the camera there, with no
+## slide and without counting a death. Used by the debug room picker (F2).
+func jump_to_room(target_room: Room) -> void:
+	if is_transitioning:
+		return
+	current_room = target_room
+	GameState.current_room = target_room
+	player.respawn_at(target_room.get_spawn_position())
+	camera.snap_to_room(target_room.get_bounds())
+
+
 func _on_player_died() -> void:
 	GameState.register_death()
 	# create_timer() makes a one-off countdown; awaiting its `timeout` signal pauses

@@ -18,6 +18,8 @@ extends Node2D
 ## Color for solid ground (GAME_DESIGN.md §2: dark gray).
 const SOLID_COLOR: Color = Color(0.25, 0.25, 0.28)
 
+## Human-readable name, e.g. "First Breath". Shown in the debug room picker (F2).
+@export var display_title: String = ""
 ## Size of the room in pixels. 320x180 = exactly one screen (camera stays still);
 ## bigger rooms make the camera scroll inside them.
 @export var room_size: Vector2 = Vector2(320, 180)

@@ -6,6 +6,7 @@
 [node name="RoomB" type="Node2D"]
 editor_description = "Entered from below (upward transition). Exit right into RoomC."
 script = ExtResource("1_room")
+display_title = "B - Ceiling Spikes"
 room_size = Vector2(320, 180)
 solid_rects = Array[Rect2]([Rect2(0, 0, 8, 180), Rect2(0, 0, 320, 8), Rect2(0, 172, 160, 8), Rect2(192, 172, 128, 8), Rect2(312, 0, 8, 140), Rect2(216, 96, 48, 8)])
 

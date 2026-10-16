@@ -6,6 +6,10 @@ extends PlayerState
 ## direction, or slide past the bottom of the wall.
 
 func physics_update(delta: float) -> void:
+	# Dash beats everything else this frame (Dash.enter() sets the velocity).
+	if player.wants_to_dash():
+		transition_requested.emit(&"Dash")
+		return
 	# Keep pressing into the wall: horizontal input stays live so letting go is noticed,
 	# and move_and_slide() stops us at the wall each frame.
 	player.apply_horizontal_movement(delta)
