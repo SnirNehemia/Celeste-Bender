@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -14,6 +14,10 @@
 
 [ext_resource type="Script" path="res://scenes/player/abilities/glide_ability.gd" id="12_glide"]
 [ext_resource type="Script" path="res://scenes/player/states/glide.gd" id="13_glide_state"]
+[ext_resource type="Script" path="res://scenes/player/abilities/gust_ability.gd" id="14_gust"]
+[ext_resource type="Script" path="res://scenes/player/states/gust_recoil.gd" id="15_gust_recoil"]
+[ext_resource type="Script" path="res://scenes/player/states/gust_aim.gd" id="16_gust_aim"]
+[ext_resource type="Script" path="res://scenes/player/abilities/air_blast_debug_draw.gd" id="17_blast_debug"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(8, 11)
@@ -59,6 +63,12 @@ script = ExtResource("11_air_dash")
 [node name="GlideAbility" type="Node2D" parent="."]
 script = ExtResource("12_glide")
 
+[node name="GustAbility" type="Node2D" parent="."]
+script = ExtResource("14_gust")
+
+[node name="AirBlastDebugDraw" type="Node2D" parent="."]
+script = ExtResource("17_blast_debug")
+
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
 script = ExtResource("3_machine")
 initial_state = NodePath("Idle")
@@ -83,6 +93,12 @@ script = ExtResource("10_dash")
 
 [node name="Glide" type="Node" parent="StateMachine"]
 script = ExtResource("13_glide_state")
+
+[node name="GustAim" type="Node" parent="StateMachine"]
+script = ExtResource("16_gust_aim")
+
+[node name="GustRecoil" type="Node" parent="StateMachine"]
+script = ExtResource("15_gust_recoil")
 
 [node name="Dead" type="Node" parent="StateMachine"]
 script = ExtResource("9_dead")

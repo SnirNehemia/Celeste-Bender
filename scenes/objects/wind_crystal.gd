@@ -7,9 +7,10 @@ extends Area2D
 ## Place the node where the CENTER of the diamond should be. Everything (shape,
 ## hitbox) is built in code in _ready(), so wind_crystal.tscn is a single node.
 ##
-## It talks to the player only through AirDashAbility.refill(): if the player
-## already has a full dash, refill() returns false and the crystal is NOT used up
-## (same as Celeste), so you can't waste a crystal by brushing past it.
+## It talks to the player only through Player.refill_from_crystal(), which refills
+## the dash (or breath) AND the gust's down-boosts. If nothing needed refilling it
+## returns false and the crystal is NOT used up (same as Celeste), so you can't
+## waste a crystal by brushing past it.
 ##
 ## Area2D on physics layer 3 ("hazards"/triggers), looking at layer 2 ("player").
 ## @tool so the diamond is visible while placing it in the editor.
@@ -64,7 +65,7 @@ func _physics_process(delta: float) -> void:
 	for body: Node2D in get_overlapping_bodies():
 		var touched_player: Player = body as Player
 		if touched_player != null and not touched_player.is_dead() \
-				and touched_player.air_dash.refill():
+				and touched_player.refill_from_crystal():
 			_use_up()
 			return
 

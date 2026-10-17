@@ -6,7 +6,8 @@ extends Node2D
 ## Responsibilities (and only these):
 ##   - glide STAMINA: seconds of gliding left this airtime, refilled on the ground.
 ##     With tuning.dash_uses_stamina on, the dash spends it too (see AirDashAbility):
-##     one shared "breath" bar, with a notch marking the dash cost.
+##     one shared "breath" bar, with a notch marking the dash cost. With
+##     tuning.gust_uses_stamina the gust spends it too (fainter, shorter notch).
 ##   - the small stamina bar above the player's head (drawn by this node)
 ##   - the glide's look. It should read as AIR BENDING: the player pushes air DOWN
 ##     to hold themself up:
@@ -33,6 +34,8 @@ const BAR_LOW_COLOR: Color = Color(1.0, 0.35, 0.3)
 const BAR_LOW_FRACTION: float = 0.3
 ## The dash-cost notch on the bar (shared stamina mode).
 const BAR_NOTCH_COLOR: Color = Color(1, 1, 1, 0.9)
+## The gust-cost notch: fainter and only bar-high, so the dash notch still stands out.
+const BAR_GUST_NOTCH_COLOR: Color = Color(1, 1, 1, 0.5)
 ## Where the player's feet are, relative to this node (this node sits 15 px above them).
 const FEET_OFFSET: Vector2 = Vector2(0, 15)
 
@@ -162,6 +165,10 @@ func _draw() -> void:
 	if player.tuning.dash_uses_stamina and max_stamina > 0.0:
 		var notch_x: float = bar_origin.x + BAR_SIZE.x * (player.tuning.dash_stamina_cost / max_stamina)
 		draw_rect(Rect2(notch_x, -1.0, 1.0, BAR_SIZE.y + 2.0), BAR_NOTCH_COLOR)
+	# Same idea for the gust cost: fill right of this notch = you can gust.
+	if player.tuning.gust_uses_stamina and max_stamina > 0.0:
+		var gust_notch_x: float = bar_origin.x + BAR_SIZE.x * (player.tuning.gust_stamina_cost / max_stamina)
+		draw_rect(Rect2(gust_notch_x, 0.0, 1.0, BAR_SIZE.y), BAR_GUST_NOTCH_COLOR)
 
 
 # --- Effect builders ----------------------------------------------------------

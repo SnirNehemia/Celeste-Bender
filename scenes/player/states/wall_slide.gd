@@ -10,6 +10,9 @@ func physics_update(delta: float) -> void:
 	if player.wants_to_dash():
 		transition_requested.emit(&"Dash")
 		return
+	if player.wants_to_gust():
+		transition_requested.emit(player.get_gust_start_state())
+		return
 	# Keep pressing into the wall: horizontal input stays live so letting go is noticed,
 	# and move_and_slide() stops us at the wall each frame.
 	player.apply_horizontal_movement(delta)

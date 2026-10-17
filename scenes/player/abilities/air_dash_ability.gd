@@ -5,10 +5,12 @@ extends Node
 ##
 ## Responsibilities (and only these):
 ##   - the dash CHARGES: how many dashes are left, refilling on the ground
-##   - the aim direction (8 directions from the held arrows, default = facing)
+##   (the aim direction is Player.get_aim_direction(), shared with the gust)
 ##   - the dash's look and juice. It should read as AIR BENDING, not a plain dash:
-##       start:  freeze frames + shake (FX autoload), a burst of air pushed BACKWARD
-##               (the player shoves the air to launch) and a shockwave ring
+##       start:  freeze frames + shake (FX autoload), a shockwave ring, and the
+##               WAKE: a small gust blown BACKWARD (the player shoves the air to
+##               launch). With tuning.dash_wake_enabled it pushes Pushable things
+##               behind you, using the same AirBlast helper as the gust.
 ##       during: the body stretches along the dash and turns translucent ("becomes
 ##               air"), leaving curved wind streaks behind
 ##       end:    a soft puff of air; the body eases back to its normal shape
@@ -94,18 +96,6 @@ func refill() -> bool:
 	return true
 
 
-## The 8-way aim from the held arrows, as a unit vector. With nothing held, dash
-## the way the player faces. normalized() makes diagonals the same speed as
-## straight dashes (otherwise (1,1) would be ~1.41x faster).
-func get_aim_direction() -> Vector2:
-	var aim: Vector2 = Vector2(
-		Input.get_axis("move_left", "move_right"),
-		Input.get_axis("move_up", "move_down"))
-	if aim == Vector2.ZERO:
-		return Vector2(player.facing_direction, 0.0)
-	return aim.normalized()
-
-
 # --- Dash lifecycle (called by the Dash state) -----------------------------
 
 ## Spends a charge and plays all dash-start effects for a dash toward `direction`.
@@ -122,8 +112,11 @@ func begin_dash(direction: Vector2) -> void:
 	FX.freeze(tuning.dash_freeze_time)
 
 	# Air shoved backward: the reaction that launches us forward.
-	_spawn_air_burst(player.get_center(), -direction, 35.0, 14, 50.0, 110.0)
-	_spawn_ring(player.get_center(), 3.0, 12.0, 0.2)
+	if tuning.dash_wake_enabled:
+		_blow_wake(-direction)
+	else:
+		_spawn_air_burst(player.get_center(), -direction, 35.0, 14, 50.0, 110.0)
+	AirBlast.spawn_ring(player.get_parent(), player.get_center(), 3.0, 12.0, 0.2)
 	_stretch_body(direction)
 
 
@@ -176,6 +169,26 @@ func restore_body() -> void:
 
 # --- Effect builders --------------------------------------------------------
 
+## The dash WAKE: a smaller gust blown backward (`wake_direction`) from the dash's
+## start point. It looks like the gust (shared AirBlast helper, so both read as one
+## power) and pushes Pushable things behind you, like a gust does.
+func _blow_wake(wake_direction: Vector2) -> void:
+	var tuning: PlayerTuning = player.tuning
+	var origin: Vector2 = player.get_center()
+	var cone_points: PackedVector2Array = AirBlast.build_cone(origin, wake_direction,
+		tuning.dash_wake_range, tuning.gust_cone_half_angle_degrees, tuning.gust_cone_near_half_width)
+	var hit_nodes: Array[Node] = AirBlast.push_in_cone(player, cone_points, wake_direction,
+		tuning.dash_wake_push_strength)
+
+	var world: Node = player.get_parent()
+	var far_half_width: float = tuning.dash_wake_range * tan(deg_to_rad(tuning.gust_cone_half_angle_degrees))
+	AirBlast.spawn_fan(world, origin, wake_direction, tuning.gust_cone_half_angle_degrees,
+		tuning.dash_wake_range, 14)
+	AirBlast.spawn_wave(world, origin, wake_direction, tuning.dash_wake_range,
+		tuning.gust_cone_near_half_width, far_half_width, 0.0)
+	player.blast_debug.record_blast(cone_points, hit_nodes)
+
+
 ## Stretches the player's rectangle along `direction` and makes it translucent.
 ## The visual is a ColorRect (a Control): it scales and rotates around
 ## `pivot_offset`, so we put that at its center.
@@ -219,32 +232,6 @@ func _spawn_air_burst(world_position: Vector2, direction: Vector2, spread_degree
 	# Free it once every particle has died. The timer uses game time, so freeze
 	# frames don't cut the effect short.
 	get_tree().create_timer(burst.lifetime + 0.1, false).timeout.connect(burst.queue_free)
-
-
-## An expanding, fading circle outline: a small shockwave.
-func _spawn_ring(world_position: Vector2, start_radius: float, end_radius: float,
-		duration: float) -> void:
-	var ring: Line2D = Line2D.new()
-	ring.width = 1.0
-	ring.default_color = AIR_COLOR
-	ring.closed = true
-	# A circle of radius 1; growing it is just scaling the node.
-	var circle_points: PackedVector2Array = PackedVector2Array()
-	const SEGMENTS: int = 12
-	for point_index: int in SEGMENTS:
-		circle_points.append(Vector2.from_angle(TAU * point_index / SEGMENTS))
-	ring.points = circle_points
-	ring.scale = Vector2.ONE * start_radius
-	# Line2D width is scaled too; divide so the outline stays ~1 px thick.
-	ring.width = 1.0 / start_radius
-	_add_effect(ring, world_position)
-
-	var grow_tween: Tween = ring.create_tween().set_parallel(true)
-	grow_tween.tween_property(ring, "scale", Vector2.ONE * end_radius, duration) \
-		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
-	grow_tween.tween_property(ring, "width", 1.0 / end_radius, duration)
-	grow_tween.tween_property(ring, "modulate:a", 0.0, duration)
-	grow_tween.chain().tween_callback(ring.queue_free)
 
 
 ## Adds an effect node to the world (the player's parent) at `world_position`.

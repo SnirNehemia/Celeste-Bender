@@ -67,7 +67,7 @@ Starting values in the spirit of Celeste. All of these go in one tuning resource
 | Wall jump reach | 2 px | a wall this close counts as touching; no need to press into it |
 | Corner correction | up to 4 px | nudge around ceiling corners instead of bonking |
 
-The player is a **state machine**: `Idle`, `Run`, `Jump`, `Fall`, `WallSlide`, `Dash`, `Glide`, `GustRecoil`, `Dead`.
+The player is a **state machine**: `Idle`, `Run`, `Jump`, `Fall`, `WallSlide`, `Dash`, `Glide`, `GustAim`, `GustRecoil`, `Dead`.
 
 ---
 
@@ -79,8 +79,9 @@ Each ability lists its movement, puzzle and combat use.
 - Burst of 240 px/s in the aimed direction (8 directions; default = facing) for 0.15 s, ignores gravity during the dash.
 - **1 charge**, refilled on touching ground or touching a **wind crystal** (floating green diamond that respawns after 2.5 s).
 - Brief freeze frame (~3 frames) on dash start + small screen shake + afterimage trail.
+- **Wake:** the dash blows a small gust *backward* from its start point (cone 24 px, push 120 px/s vs the gust's 32 px / 160). It looks like the gust and pushes Pushable things behind you. Toggle: `dash_wake_enabled`.
 - **Movement:** cross gaps, reach ledges, chain off crystals.
-- **Puzzle:** dashing *through* a wind zone briefly doubles the dash distance.
+- **Puzzle:** dashing *through* a wind zone briefly doubles the dash distance. The wake can nudge a crate or leaf you just dashed away from.
 - **Combat:** dashing into a stunned enemy defeats it.
 
 ### 5.2 Glide (press Jump again while falling, hold to keep gliding)
@@ -97,11 +98,18 @@ Each ability lists its movement, puzzle and combat use.
 - Toggle: `PlayerTuning.dash_uses_stamina`. When on, the dash spends **0.9 s of glide stamina** (60% of the bar) instead of a charge. A full bar buys one dash plus a short glide, or a long glide; a second dash needs a wind crystal or the ground.
 - The bar shows a white notch at the dash cost. The player still turns pale blue when there isn't enough for a dash.
 - Wind crystals and the ground refill the whole bar.
+- **The gust spends breath too** (`gust_uses_stamina`, 0.3 s = 20% of the bar, a fainter notch on the bar). Ground gusts are effectively free, since the bar refills on the ground. Pressing gust without enough breath plays a small "fizzle" puff.
 - Future elements: plan is **one bar per element, showing only the active element's bar**, rather than one global bar.
 
 ### 5.3 Gust (Z)
 - Short-range blast (a cone ~32 px long) in the aimed direction. 0.6 s cooldown.
-- **Recoil:** the player is pushed the *opposite* way (120 px/s). Gusting straight down mid-air acts as a small extra jump — *once per airtime*.
+- **Recoil:** the player is pushed the *opposite* way (120 px/s). Gusting down mid-air acts as a small extra jump, up to **2 times per airtime** (`gust_down_boosts_per_airtime`, 0 = unlimited). It sets the upward speed, so it also works mid-fall. Several gusts per jump are allowed; cooldown and breath are the limits. **Wind crystals refill the down-boosts** too. A straight-down gust in the air with no down-boosts left is **ignored entirely** (no air), since it would do nothing; with hold-to-aim the preview turns gray.
+- **Neutral gust (no arrow held):** a burst in *all* directions (circle, 24 px radius) that pushes everything nearby straight away from the player. No recoil: instead it is an **air brake**: for 0.2 s gravity is off and the player's speed slows toward a stop (a hard stop on the ground). Mid-air it is followed by a **float** (0.4 s): quarter gravity, fall capped at 25 px/s, full steering, so the player drifts down gently and is in control when it ends. Glide, dash and jumps can cut the float short.
+- **Hold to aim (experimental, `gust_hold_to_aim`, on by default):** holding Z slows time (×0.25) and the arrows only aim (no steering), with a cone preview. Releasing Z fires; a tap fires almost at once; holding over 0.4 s real time fires by itself. This solves "running right, want to gust left". Off = the gust fires the instant Z is pressed.
+- **Diagonal grace:** after aiming a diagonal, releasing one of its two keys still counts as the diagonal for 0.12 s (`gust_diagonal_grace_time`), so diagonals don't turn sideways when one key comes up a moment before Z.
+- **Gust → glide:** pressing jump during the recoil starts a glide at once, and gliding keeps speed above run speed (it fades at 100 px/s², `glide_overspeed_deceleration`), so a side-gust or dash can launch a long, fast glide.
+- **No damage.** The gust itself never hurts anything; damage comes from what it pushes things *into* (see §7).
+- *Later (not Milestone 1):* with a second element, holding the bend key could open a slow-motion element wheel. With only Air, a wheel would have one option.
 - Gust applies a push force to anything in the cone that is "pushable":
   - **Crates** slide (on ground) or are knocked (in air).
   - **Windmills** spin for 4 s, powering a linked door/platform while spinning.
@@ -137,6 +145,13 @@ Linking: switches emit signals; doors listen. Links are set in the editor with e
 
 - **Wisp** — patrols back and forth on a platform; touching it kills the player. Gust stuns it for 1 s; dashing into a stunned wisp, or knocking it into spikes, defeats it.
 - **Sentry** — stationary; fires a slow orange orb toward the player every 2 s when in line of sight. Gust reflects orbs; a reflected orb destroys the sentry.
+
+**Impact rule (no HP):** the gust (and dash wake) deal no damage, only push. What a pushed enemy *hits* decides the outcome:
+- slammed into a **wall** or solid → stunned longer (e.g. 2 s instead of 1 s)
+- knocked into **spikes** → defeated
+- a **stunned** enemy hit by a dash → defeated
+
+No health bars: every outcome is readable at a glance with placeholder shapes (pillar 4). Stage 8 builds this.
 
 ---
 

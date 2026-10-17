@@ -1,0 +1,37 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="2_spikes"]
+[ext_resource type="PackedScene" path="res://tests/gust_test_target.tscn" id="3_target"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_crystal.tscn" id="4_crystal"]
+
+[node name="RoomL" type="Node2D"]
+editor_description = "Gust playground (Stage 6). Left: floating test targets to gust from every direction (they flash, get knocked away and count hits). Right: a ledge 36 px above the floor, across a spike pit; a full jump (30 px) falls short, a jump + down-gust at the top makes it. A side-gust backward also stretches the jump. The wind crystal over the pit refills dash/breath AND the down-gust boosts. F3 draws the gust hitbox."
+script = ExtResource("1_room")
+display_title = "L - Gust Playground"
+solid_rects = Array[Rect2]([Rect2(0, 0, 320, 8), Rect2(0, 0, 8, 180), Rect2(312, 0, 8, 180), Rect2(0, 152, 128, 28), Rect2(128, 172, 48, 8), Rect2(176, 116, 136, 64)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 152)
+
+[node name="PitSpikes" parent="." instance=ExtResource("2_spikes")]
+position = Vector2(128, 164)
+tile_count = 6
+
+[node name="TargetBeside" parent="." instance=ExtResource("3_target")]
+position = Vector2(56, 144)
+
+[node name="TargetAbove" parent="." instance=ExtResource("3_target")]
+position = Vector2(24, 116)
+
+[node name="TargetHigh" parent="." instance=ExtResource("3_target")]
+position = Vector2(88, 108)
+
+[node name="TargetLedge1" parent="." instance=ExtResource("3_target")]
+position = Vector2(236, 104)
+
+[node name="TargetLedge2" parent="." instance=ExtResource("3_target")]
+position = Vector2(276, 84)
+
+[node name="PitCrystal" parent="." instance=ExtResource("4_crystal")]
+position = Vector2(152, 92)

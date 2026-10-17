@@ -13,7 +13,10 @@ extends CharacterBody2D
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
 ##   ├─ AirDashAbility     dash charges, aim, dash effects (abilities/air_dash_ability.gd)
 ##   ├─ GlideAbility       glide stamina, stamina bar, glide effects (abilities/glide_ability.gd)
-##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide, Dead
+##   ├─ GustAbility        gust cooldown, down-boost, cone hit, gust effects (abilities/gust_ability.gd)
+##   ├─ AirBlastDebugDraw  F3 debug drawing of gust / dash-wake cones (abilities/air_blast_debug_draw.gd)
+##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
+##                         GustAim, GustRecoil, Dead
 ##
 ## Wind: WindZone areas call enter_wind_zone()/exit_wind_zone() on the player.
 ## get_wind_velocity() sums every zone we're in; the movement helpers below shift
@@ -46,6 +49,8 @@ signal died
 @onready var death_burst: CPUParticles2D = $DeathBurst
 @onready var air_dash: AirDashAbility = $AirDashAbility
 @onready var glide: GlideAbility = $GlideAbility
+@onready var gust: GustAbility = $GustAbility
+@onready var blast_debug: AirBlastDebugDraw = $AirBlastDebugDraw
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -56,13 +61,17 @@ var jump_buffer_remaining: float = 0.0
 ## Counts down after a wall jump. While > 0 horizontal input is ignored.
 var wall_jump_lock_remaining: float = 0.0
 ## Which way the player faces: -1 left, +1 right. Follows the last held direction.
-## Used as the dash direction when no arrow is held.
+## Used as the dash/gust direction when no arrow is held.
 var facing_direction: float = 1.0
 ## Experimental "Ride the Current" (tuning.ride_current_enabled): counts down after a
 ## dash ends. While > 0, gravity is lighter and air control stronger. Set by the Dash state.
 var ride_current_remaining: float = 0.0
 ## Wind zones the player is currently inside. Filled by the zones themselves.
 var active_wind_zones: Array[WindZone] = []
+## The last DIAGONAL aim held, and when (real-time ms), for the diagonal grace window
+## (see get_forgiving_aim_input). Updated every physics frame in _update_timers.
+var last_diagonal_aim: Vector2 = Vector2.ZERO
+var last_diagonal_msec: int = -100000
 
 
 func _ready() -> void:
@@ -100,6 +109,13 @@ func _update_timers(delta: float) -> void:
 
 	wall_jump_lock_remaining = maxf(wall_jump_lock_remaining - delta, 0.0)
 	ride_current_remaining = maxf(ride_current_remaining - delta, 0.0)
+
+	# Remember diagonals for the gust's diagonal grace window. Real time (not delta)
+	# because keys are released in real time, also during slow-motion aiming.
+	var aim_input: Vector2 = get_aim_input()
+	if aim_input.x != 0.0 and aim_input.y != 0.0:
+		last_diagonal_aim = aim_input
+		last_diagonal_msec = Time.get_ticks_msec()
 
 	# Turn to face the held direction (not during the wall-jump lock, where input is ignored).
 	var held_direction: float = signf(get_move_input())
@@ -143,6 +159,7 @@ func respawn_at(spawn_position: Vector2) -> void:
 	ride_current_remaining = 0.0
 	air_dash.refill()
 	glide.refill()
+	gust.reset()
 	# Idle switches to Fall by itself on the next frame if there's no floor below.
 	state_machine.transition_to(&"Idle")
 
@@ -159,6 +176,47 @@ func set_frozen(frozen: bool) -> void:
 ## Horizontal input as -1 (left), 0 (none) or +1 (right) from the InputMap actions.
 func get_move_input() -> float:
 	return Input.get_axis("move_left", "move_right")
+
+
+## The 8-way aim from the held arrows, as a unit vector, or ZERO when no arrow is
+## held. normalized() makes diagonals the same length as straight aims (otherwise
+## (1,1) would be ~1.41x stronger). The gust uses ZERO for its all-around burst.
+func get_aim_input() -> Vector2:
+	var aim: Vector2 = Vector2(
+		Input.get_axis("move_left", "move_right"),
+		Input.get_axis("move_up", "move_down"))
+	return aim.normalized()
+
+
+## get_aim_input() with a DIAGONAL GRACE WINDOW, used by the gust. Releasing two keys
+## at exactly the same moment is hard: Down usually comes up a few ms before Right,
+## and the aim would snap to Right. So if a diagonal was held within the last
+## tuning.gust_diagonal_grace_time seconds and only ONE of its two keys is held now,
+## we still answer with the diagonal. Holding that one key longer than the window
+## really switches to it. Nothing held still means ZERO (neutral gust).
+func get_forgiving_aim_input() -> Vector2:
+	var aim: Vector2 = get_aim_input()
+	var is_single_axis: bool = (aim.x == 0.0) != (aim.y == 0.0)  # exactly one axis held
+	if not is_single_axis or last_diagonal_aim == Vector2.ZERO:
+		return aim
+	var seconds_since_diagonal: float = (Time.get_ticks_msec() - last_diagonal_msec) / 1000.0
+	if seconds_since_diagonal > tuning.gust_diagonal_grace_time:
+		return aim
+	# Is the held key one of the diagonal's two keys? (e.g. Right after Down+Right)
+	var shares_horizontal: bool = aim.x != 0.0 and signf(aim.x) == signf(last_diagonal_aim.x)
+	var shares_vertical: bool = aim.y != 0.0 and signf(aim.y) == signf(last_diagonal_aim.y)
+	if shares_horizontal or shares_vertical:
+		return last_diagonal_aim
+	return aim
+
+
+## Like get_aim_input(), but with nothing held, aim the way the player faces.
+## Used by the dash, which always needs a direction.
+func get_aim_direction() -> Vector2:
+	var aim: Vector2 = get_aim_input()
+	if aim == Vector2.ZERO:
+		return Vector2(facing_direction, 0.0)
+	return aim
 
 
 # --- Jumping -----------------------------------------------------------------
@@ -220,6 +278,39 @@ func is_dashing() -> bool:
 ## NOT glide: that press was already spent by the jump.
 func wants_to_glide() -> bool:
 	return jump_buffer_remaining > 0.0 		and Input.is_action_pressed("jump") 		and not is_on_floor() 		and glide.can_glide()
+
+
+# --- Refills ------------------------------------------------------------------
+
+## A wind crystal was touched: refill the dash (or breath, in shared stamina mode)
+## and the gust's down-boosts. Returns true if ANYTHING was restored, so the crystal
+## is only used up when it helped. Lives here so the crystal doesn't need to know
+## about each ability.
+func refill_from_crystal() -> bool:
+	# Both calls must run: `or` would skip the second one if the first returned true.
+	var dash_restored: bool = air_dash.refill()
+	var boosts_restored: bool = gust.refill_down_boosts()
+	return dash_restored or boosts_restored
+
+
+# --- Gust --------------------------------------------------------------------
+
+## True on the frame gust is pressed, if the cooldown is over and there's breath.
+## States that allow gusting check this right after the dash check and switch to
+## get_gust_start_state().
+## Without hold-to-aim the direction is known now, so a gust that would do nothing
+## (straight down in the air with no down-boosts left) is refused here. With
+## hold-to-aim, GustAim makes that check when the key is released.
+func wants_to_gust() -> bool:
+	if not Input.is_action_just_pressed("gust") or not gust.can_gust():
+		return false
+	return tuning.gust_hold_to_aim or gust.is_gust_allowed(get_forgiving_aim_input())
+
+
+## Which state a gust press leads to: GustAim (slow-motion aiming, then fire on
+## release) when tuning.gust_hold_to_aim is on, else straight to GustRecoil (fire now).
+func get_gust_start_state() -> StringName:
+	return &"GustAim" if tuning.gust_hold_to_aim else &"GustRecoil"
 
 
 # --- Wind --------------------------------------------------------------------
@@ -302,11 +393,29 @@ func apply_gravity(delta: float) -> void:
 ## Airborne, acceleration is scaled by air_acceleration_multiplier for less control.
 ## During the wall-jump input lock, horizontal speed is left untouched (the push away
 ## from the wall plays out in full).
-func apply_horizontal_movement(delta: float) -> void:
+## `ignore_input` = behave as if nothing is held (used while aiming a gust, when the
+## arrows aim instead of steering): you slow down on the ground, drift in the air.
+## `overspeed_deceleration` (>= 0, airborne only): speed above max_run_speed fades at
+## this gentler rate instead of normal air control, unless you steer against it.
+## The Glide state uses it so a gust or dash shove carries into the glide.
+func apply_horizontal_movement(delta: float, ignore_input: bool = false,
+		overspeed_deceleration: float = -1.0) -> void:
 	if wall_jump_lock_remaining > 0.0:
 		return
 
-	var input_direction: float = get_move_input()
+	var input_direction: float = 0.0 if ignore_input else get_move_input()
+	var wind_x: float = get_wind_velocity().x
+	if overspeed_deceleration >= 0.0 and not is_on_floor():
+		# Speed relative to the wind, so a current isn't counted as "extra" speed.
+		var own_speed: float = velocity.x - wind_x
+		var is_overspeed: bool = absf(own_speed) > tuning.max_run_speed
+		var is_steering_against: bool = input_direction != 0.0 and signf(input_direction) != signf(own_speed)
+		if is_overspeed and not is_steering_against:
+			# Fade toward run speed in the same direction, gently. Once at run speed,
+			# the normal rules below take over again.
+			var cruise_speed: float = signf(own_speed) * tuning.max_run_speed + wind_x
+			velocity.x = move_toward(velocity.x, cruise_speed, overspeed_deceleration * delta)
+			return
 	var air_multiplier: float = 1.0 if is_on_floor() else tuning.air_acceleration_multiplier
 	# Riding the current after a dash (experimental): easier to steer in the air.
 	if ride_current_remaining > 0.0 and not is_on_floor():

@@ -4,9 +4,14 @@ extends Node
 ## AUTOLOAD (registered in project.godot as `FX`), so any script can call
 ##   FX.shake(2.0, 0.12)     — jiggle the camera for a moment
 ##   FX.freeze(0.05)         — pause the whole game for a few frames ("hit stop")
+##   FX.set_slow_motion(0.25, 0.5) / FX.clear_slow_motion() — slow the game down
 ## without needing a reference to the camera or the scene tree.
 ##
-## Who calls it: AirDashAbility now; gust, enemy hits and death later.
+## Who calls it: AirDashAbility, GustAbility, the GustAim state (slow motion);
+## enemy hits and death later.
+##
+## Freeze and slow motion both use Engine.time_scale. A freeze goes back to the
+## slow-motion speed (not straight to 1.0) when it ends, so they don't fight.
 ## No class_name on purpose (the autoload name `FX` is already global).
 
 ## Current shake strength in pixels (max offset). Fades to 0 over the shake duration.
@@ -18,6 +23,10 @@ var shake_time_remaining: float = 0.0
 var shake_total_time: float = 0.0
 ## True while a freeze is running, so overlapping freezes don't restore time too early.
 var is_frozen: bool = false
+## The game speed when not frozen: 1.0 normally, lower during slow motion.
+var slow_motion_scale: float = 1.0
+## Bumped on every set/clear, so an old safety timer can tell it's out of date.
+var slow_motion_id: int = 0
 
 
 ## Shakes the active camera: random offset up to `strength` px, fading to 0 over
@@ -43,8 +52,32 @@ func freeze(seconds: float) -> void:
 	# the last `true` makes this timer count REAL seconds, otherwise it would
 	# be frozen by the very time_scale it is supposed to restore.
 	await get_tree().create_timer(seconds, true, false, true).timeout
-	Engine.time_scale = 1.0
+	Engine.time_scale = slow_motion_scale
 	is_frozen = false
+
+
+## Slows the whole game to `time_scale` (0.25 = quarter speed) until
+## clear_slow_motion() is called. As a safety net it also ends by itself after
+## `max_real_seconds` of REAL time, so a missed clear can't leave the game slow.
+func set_slow_motion(time_scale: float, max_real_seconds: float) -> void:
+	slow_motion_scale = time_scale
+	slow_motion_id += 1
+	var my_id: int = slow_motion_id
+	if not is_frozen:
+		Engine.time_scale = slow_motion_scale
+	# Real-time timer (last argument): it isn't slowed down by the slow motion itself.
+	await get_tree().create_timer(max_real_seconds, true, false, true).timeout
+	# Only clear if no newer set/clear happened in the meantime.
+	if my_id == slow_motion_id:
+		clear_slow_motion()
+
+
+## Back to normal speed. Safe to call when no slow motion is running.
+func clear_slow_motion() -> void:
+	slow_motion_scale = 1.0
+	slow_motion_id += 1
+	if not is_frozen:
+		Engine.time_scale = 1.0
 
 
 ## _process runs every rendered frame. During a freeze delta is 0, so the shake

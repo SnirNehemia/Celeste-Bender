@@ -26,7 +26,7 @@ var trail_time_remaining: float = 0.0
 
 
 func enter() -> void:
-	dash_direction = player.air_dash.get_aim_direction()
+	dash_direction = player.get_aim_direction()
 	dash_time_remaining = player.tuning.dash_duration
 	trail_time_remaining = 0.0  # first streak right away, at the start point
 	player.ride_current_remaining = 0.0  # a new dash cancels any leftover ride window

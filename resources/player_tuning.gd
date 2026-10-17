@@ -8,8 +8,9 @@ extends Resource
 ## them at startup), so editing them while the game runs takes effect immediately:
 ## in the editor, open the Scene dock's "Remote" tab, select Player, and expand
 ## its `tuning` field in the Inspector.
-## (Editing the .tres file itself while the game runs does NOT reach the running game;
-## use the Remote tab, then copy the values you like back into the .tres.)
+## (Editing the .tres file itself while the game runs does NOT reach the running game,
+## and Remote tab edits are lost when the game stops. To keep them, press F4 in game:
+## the debug overlay writes the live values into player_tuning.tres.)
 
 @export_group("Run")
 ## Top horizontal speed on the ground, px/s.
@@ -88,6 +89,14 @@ extends Resource
 @export var dash_stretch: Vector2 = Vector2(1.6, 0.6)
 ## Opacity of the player during the dash (1 = solid). Partly "turns into air".
 @export_range(0.0, 1.0) var dash_body_opacity: float = 0.55
+## The dash leaves a WAKE: a small gust blown backward from where the dash starts
+## (the air shoved to launch you). When on, it also pushes Pushable things behind you,
+## like a gust. Off = a plain backward puff, no push.
+@export var dash_wake_enabled: bool = true
+## Length of the wake cone, px (the gust's is 32). Same opening angle as the gust.
+@export var dash_wake_range: float = 24.0
+## Push strength of the wake, px/s (the gust's is 160).
+@export var dash_wake_push_strength: float = 120.0
 
 @export_group("Air Dash: Ride the Current (experimental)")
 ## EXPERIMENT: the dash bursts out fast and eases off (same total distance), then
@@ -129,6 +138,80 @@ extends Resource
 @export var dash_stamina_cost: float = 0.9
 ## Seconds between the curved gust arcs drawn under the player while gliding.
 @export var glide_gust_interval: float = 0.09
+## Gliding keeps momentum: horizontal speed ABOVE max_run_speed (from a gust, dash or
+## wind) only fades at this rate, px/s², instead of being pulled back by normal air
+## control (~650 px/s²). Holding the opposite direction still brakes normally.
+## 100 = a 200 px/s gust shove takes ~1.1 s to fade to run speed.
+@export var glide_overspeed_deceleration: float = 100.0
+
+@export_group("Gust")
+## Length of the gust cone from the player's center, px (GAME_DESIGN.md §5.3: ~32).
+@export var gust_range: float = 32.0
+## Half the cone's opening angle, degrees. 30 = a 60° wedge, 37 px wide at the far end.
+@export var gust_cone_half_angle_degrees: float = 30.0
+## Half-width of the cone right at the player, px, so things touching the body
+## still get hit (a pure point would miss them).
+@export var gust_cone_near_half_width: float = 3.0
+## Seconds before the next gust is allowed.
+@export var gust_cooldown: float = 0.6
+## Speed the player is shoved the OPPOSITE way of the gust, px/s.
+@export var gust_recoil_speed: float = 120.0
+## Upward speed from a down-gust in mid-air ("extra jump"), px/s.
+## It SETS the vertical speed (doesn't add to it), so it works even mid-fall.
+## 120 under full gravity rises ~8 px; holding jump (apex half-gravity) gives a bit more.
+@export var gust_down_boost_speed: float = 120.0
+## How many down-gusts per airtime give the extra-jump lift (refilled on the ground).
+## Gusts past this still blow and push things, they just don't lift you.
+## 0 = unlimited (only cooldown and breath limit it).
+@export var gust_down_boosts_per_airtime: int = 2
+## NEUTRAL gust (no arrow held): a burst in ALL directions instead of a cone.
+## Radius of the circle it pushes, px. Things are pushed straight away from you.
+@export var gust_neutral_radius: float = 24.0
+## A neutral gust is an AIR BRAKE: for this long, gravity is off and your speed
+## (both axes) slows toward a stop. Seconds.
+@export var gust_neutral_brake_time: float = 0.2
+## How hard the air brake slows you, px/s². 1500 stops a 300 px/s fall in 0.2 s.
+@export var gust_neutral_brake_deceleration: float = 1500.0
+## After the brake (mid-air only), you FLOAT on the air cushion for this long:
+## light gravity, a slow fall cap, and full steering. Seconds.
+@export var gust_neutral_float_time: float = 0.4
+## Gravity multiplier while floating (0.25 = a quarter of normal gravity).
+@export var gust_neutral_float_gravity_multiplier: float = 0.25
+## Fall speed cap while floating, px/s. At the end of the float you leave at about
+## this speed, so normal gravity picks up from a gentle drift, not a standstill drop.
+@export var gust_neutral_float_max_fall_speed: float = 25.0
+## After a gust, horizontal input is ignored this long so the recoil isn't cancelled
+## at once. (Aiming right means holding Right, which would steer you back right.)
+@export var gust_recoil_input_lock_time: float = 0.12
+## Push strength handed to Pushable objects, px/s. Each object decides what to do with it.
+@export var gust_push_strength: float = 160.0
+## Small screen shake on every gust (GAME_DESIGN.md §9).
+@export var gust_shake_strength: float = 1.0
+@export var gust_shake_duration: float = 0.08
+## Debug hitbox (F3): how long the cone flash stays visible after a gust, seconds.
+@export var gust_debug_flash_time: float = 0.25
+## Gust costs breath: when on, a gust spends gust_stamina_cost of the shared
+## glide/dash stamina bar. The bar refills on the ground, so ground gusts stay free;
+## only airborne gusts compete with dash and glide. Off = gusts are free.
+@export var gust_uses_stamina: bool = true
+## Stamina one gust costs, in glide-seconds (0.3 of 1.5 = 20% of the bar).
+@export var gust_stamina_cost: float = 0.3
+## Diagonal grace, REAL seconds: after aiming a diagonal (e.g. Down+Right), releasing
+## one of its two keys still counts as the diagonal for this long. Fixes diagonals
+## turning sideways because one key came up a moment before the gust key.
+## Hold the remaining key longer than this to really switch to it. 0 = off.
+@export var gust_diagonal_grace_time: float = 0.12
+
+@export_group("Gust: Hold to Aim (experimental)")
+## EXPERIMENT: when on, pressing gust slows time and the arrows only AIM (you don't
+## move); releasing gust fires. A quick tap fires almost at once, like the normal
+## gust. Off = the gust fires the instant you press it. Toggle live to compare.
+@export var gust_hold_to_aim: bool = true
+## Game speed while aiming (0.25 = quarter speed).
+@export_range(0.05, 1.0) var gust_aim_time_scale: float = 0.25
+## The gust fires by itself after this many REAL seconds of aiming, so holding Z
+## can't be used to hang in slow motion.
+@export var gust_aim_max_real_time: float = 0.4
 
 @export_group("Death & rooms")
 ## How long the death effect plays before the player reappears at the spawn, seconds.
