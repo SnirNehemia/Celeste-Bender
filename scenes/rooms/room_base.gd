@@ -14,9 +14,16 @@ extends Node2D
 ## Rooms don't know about each other or the camera; RoomManager does all of that.
 ##
 ## Stage 9 replaces `solid_rects` with a TileMapLayer for real level editing.
+##
+## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
+## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
+## the room when the player respawns in it, so a crate pushed into a corner never
+## leaves the room unsolvable: dying or pressing R puts everything back.
 
 ## Color for solid ground (GAME_DESIGN.md §2: dark gray).
 const SOLID_COLOR: Color = Color(0.25, 0.25, 0.28)
+## Group for objects that go back to their starting state on reset_objects().
+const RESETTABLE_GROUP: StringName = &"room_resettable"
 
 ## Human-readable name, e.g. "First Breath". Shown in the debug room picker (F2).
 @export var display_title: String = ""
@@ -43,6 +50,15 @@ func get_bounds() -> Rect2:
 ## Where the player's feet go when respawning in this room.
 func get_spawn_position() -> Vector2:
 	return spawn_point.global_position
+
+
+## Puts every resettable object inside THIS room back to its starting state.
+## get_nodes_in_group() returns the group's members from the whole game, so we keep
+## only our own descendants (is_ancestor_of). Duck typing again: call("reset").
+func reset_objects() -> void:
+	for member: Node in get_tree().get_nodes_in_group(RESETTABLE_GROUP):
+		if is_ancestor_of(member):
+			member.call(&"reset")
 
 
 ## Creates a StaticBody2D (an immovable solid on physics layer 1, "world") with a

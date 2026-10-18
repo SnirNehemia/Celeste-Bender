@@ -16,6 +16,8 @@ extends Area2D
 ## Godot concept — Area2D: a region that detects bodies overlapping it but doesn't
 ## block them. Its body_entered / body_exited SIGNALS fire when a body crosses its edge.
 ## Physics: layer none, mask 2 ("player"): it only looks for the player.
+## Other things that ride the wind (SailPlatform) find zones through the group
+## GROUP instead and check the zone's rectangle themselves (see contains_point()).
 ## @tool: the script also runs in the editor, so you see the zone while placing it.
 
 ## Translucent cyan (GAME_DESIGN.md §2) and the brighter particle color.
@@ -23,6 +25,8 @@ const FILL_COLOR: Color = Color(0.4, 0.9, 1.0, 0.15)
 const PARTICLE_COLOR: Color = Color(0.7, 0.95, 1.0, 0.6)
 ## Upper limit on drifting specks per zone, for performance.
 const MAX_SPECKS: int = 400
+## Every wind zone joins this group, so non-player objects can find them.
+const GROUP: StringName = &"wind_zones"
 
 ## Size of the zone in px. Changing it in the Inspector rebuilds the zone.
 @export var zone_size: Vector2 = Vector2(32, 64):
@@ -53,6 +57,7 @@ func _ready() -> void:
 	# Connecting signals in code: when a body enters/exits, call our function.
 	# In the editor (@tool) we skip it: no gameplay there.
 	if not Engine.is_editor_hint():
+		add_to_group(GROUP)
 		body_entered.connect(_on_body_entered)
 		body_exited.connect(_on_body_exited)
 
@@ -60,6 +65,11 @@ func _ready() -> void:
 ## The wind this zone applies, px/s.
 func get_wind_velocity() -> Vector2:
 	return wind_direction.normalized() * wind_strength
+
+
+## True if `world_point` is inside this zone (for objects that aren't the player).
+func contains_point(world_point: Vector2) -> bool:
+	return Rect2(global_position, zone_size).has_point(world_point)
 
 
 func _on_body_entered(body: Node2D) -> void:

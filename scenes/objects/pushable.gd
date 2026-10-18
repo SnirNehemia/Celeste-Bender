@@ -19,6 +19,12 @@ extends RefCounted
 ## kind of object it hit. New pushable things (Stage 7 crates, Stage 8 enemies) just
 ## follow the three steps above; no change to the gust code.
 ##
+## Optional extra: an object that needs to know WHERE the gust came from (a leaf
+## pile blows only the leaves near you) can also implement
+##        func receive_gust_from(direction: Vector2, strength: float, source_position: Vector2) -> void
+## try_push() then calls that one instead. `source_position` is the gust's origin in
+## world space, or NO_SOURCE if the caller doesn't know it.
+##
 ## This class is never instantiated: it only holds the group name and static helpers
 ## (a static func is called on the class itself, like Pushable.try_push(...)).
 
@@ -26,6 +32,10 @@ extends RefCounted
 const GROUP: StringName = &"pushable"
 ## The method every pushable object implements.
 const METHOD: StringName = &"receive_gust"
+## The optional method for objects that want the gust's origin too.
+const METHOD_WITH_SOURCE: StringName = &"receive_gust_from"
+## "Origin unknown". Vector2.INF is a vector of infinities, never a real position.
+const NO_SOURCE: Vector2 = Vector2.INF
 
 
 ## Returns the pushable node for something the gust touched, or null.
@@ -39,10 +49,15 @@ static func find_pushable(touched: Node) -> Node:
 
 
 ## Pushes `target` if it is pushable. Returns true if it was.
-static func try_push(touched: Node, direction: Vector2, strength: float) -> bool:
+## `source_position`: where the gust came from (world space), if known.
+static func try_push(touched: Node, direction: Vector2, strength: float,
+		source_position: Vector2 = NO_SOURCE) -> bool:
 	var target: Node = find_pushable(touched)
 	if target == null:
 		return false
 	# call() invokes a method by name: this is the duck-typing part.
-	target.call(METHOD, direction, strength)
+	if target.has_method(METHOD_WITH_SOURCE):
+		target.call(METHOD_WITH_SOURCE, direction, strength, source_position)
+	else:
+		target.call(METHOD, direction, strength)
 	return true

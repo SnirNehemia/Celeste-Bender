@@ -9,7 +9,9 @@ extends PlayerState
 ##   RECOIL (aimed gust, an arrow held)
 ##     enter():  shoved the opposite way at gust_recoil_speed; a down-gust in mid-air
 ##               is an "extra jump" (up to gust_down_boosts_per_airtime per airtime);
-##               an up-gust pushes you down
+##               an up-gust pushes you down. Exception: standing on a floor that
+##               catches wind (a sail, see Player.get_wind_catching_floor), the sideways shove
+##               goes into that floor instead and you stay planted.
 ##     update:   gravity as normal, horizontal input ignored for
 ##               gust_recoil_input_lock_time (aiming right = holding Right, which would
 ##               otherwise steer you straight back into the gust). Pressing jump starts
@@ -54,7 +56,15 @@ func enter() -> void:
 	# Horizontal recoil SETS the speed (not adds): the gust always throws you at the
 	# same speed, whatever you were doing. Purely vertical gusts leave x alone.
 	if direction.x != 0.0:
-		player.velocity.x = -direction.x * tuning.gust_recoil_speed
+		var wind_catcher: Object = player.get_wind_catching_floor()
+		if wind_catcher != null:
+			# Standing on something that catches the shove (a sail): your feet stay
+			# planted and IT takes the push, so you can blow your own boat along.
+			# The input lock below still runs, so you don't walk off mid-gust.
+			player.velocity.x = 0.0
+			wind_catcher.call(Player.WIND_CATCHER_METHOD, direction, tuning.gust_push_strength)
+		else:
+			player.velocity.x = -direction.x * tuning.gust_recoil_speed
 
 	if direction.y > 0.0:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward

@@ -17,6 +17,8 @@ extends Node2D
 ##   - Death: listens to player.died, counts it in GameState, waits
 ##     tuning.death_respawn_delay seconds, then respawns at the current room's spawn.
 ##   - Restart (R): kills the player through the same path, so it counts as a death.
+##   - Reset: on every respawn, the room's puzzle objects go back to their start
+##     (Room.reset_objects()), so a misplaced crate can't leave a room unsolvable.
 
 @export var player: Player
 @export var camera: RoomCamera
@@ -97,6 +99,7 @@ func jump_to_room(target_room: Room) -> void:
 		return
 	current_room = target_room
 	GameState.current_room = target_room
+	target_room.reset_objects()
 	player.respawn_at(target_room.get_spawn_position())
 	camera.snap_to_room(target_room.get_bounds())
 
@@ -106,6 +109,9 @@ func _on_player_died() -> void:
 	# create_timer() makes a one-off countdown; awaiting its `timeout` signal pauses
 	# this function (without blocking the game) until the time is up.
 	await get_tree().create_timer(player.tuning.death_respawn_delay).timeout
+	# Reset at respawn time, not at death: during the death effect the room still
+	# shows what happened.
+	current_room.reset_objects()
 	player.respawn_at(current_room.get_spawn_position())
 
 

@@ -1,0 +1,70 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/objects/crate.tscn" id="2_crate"]
+[ext_resource type="PackedScene" path="res://scenes/objects/pressure_plate.tscn" id="3_plate"]
+[ext_resource type="PackedScene" path="res://scenes/objects/door.tscn" id="4_door"]
+[ext_resource type="PackedScene" path="res://scenes/objects/windmill.tscn" id="5_windmill"]
+[ext_resource type="PackedScene" path="res://scenes/objects/leaf_platform.tscn" id="6_leaf"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="7_spikes"]
+[ext_resource type="PackedScene" path="res://scenes/objects/sail_platform.tscn" id="8_sail"]
+[ext_resource type="PackedScene" path="res://scenes/objects/leaf_pile.tscn" id="9_pile"]
+[ext_resource type="PackedScene" path="res://scenes/objects/wind_zone.tscn" id="10_wind"]
+
+[node name="RoomM" type="Node2D"]
+editor_description = "Puzzle objects playground (Stage 7), scrolls sideways. 1) A leaf pile hides the plate: gust it away (or let the crate plow through it), then gust the crate onto the plate: door A opens. 2) Gust the windmill (up-right from the floor), then get through gate B within 4 s; the ring around the hub shows the time left. 3) Stand on the leaf and gust (any direction) to ride it up its rail, then jump to the ledge. 4) Gust the sail platform right from the ledge, hop on; the wind current carries it to the far ledge. Dying or R resets every object in the room."
+script = ExtResource("1_room")
+display_title = "M - Puzzle Objects"
+room_size = Vector2(640, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 640, 8), Rect2(0, 0, 8, 180), Rect2(632, 0, 8, 180), Rect2(0, 152, 224, 28), Rect2(224, 172, 32, 8), Rect2(256, 152, 384, 28), Rect2(144, 8, 8, 112), Rect2(280, 8, 8, 112), Rect2(400, 80, 72, 72), Rect2(592, 80, 40, 72)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 152)
+
+[node name="Crate" parent="." instance=ExtResource("2_crate")]
+position = Vector2(60, 152)
+
+[node name="Plate" parent="." instance=ExtResource("3_plate")]
+position = Vector2(108, 152)
+
+[node name="PlateLeaves" parent="." instance=ExtResource("9_pile")]
+position = Vector2(108, 152)
+
+[node name="DoorA" parent="." node_paths=PackedStringArray("switches") instance=ExtResource("4_door")]
+position = Vector2(144, 120)
+switches = [NodePath("../Plate")]
+
+[node name="Windmill" parent="." instance=ExtResource("5_windmill")]
+position = Vector2(196, 124)
+
+[node name="PitSpikes" parent="." instance=ExtResource("7_spikes")]
+position = Vector2(224, 164)
+tile_count = 4
+
+[node name="GateB" parent="." node_paths=PackedStringArray("switches") instance=ExtResource("4_door")]
+position = Vector2(280, 120)
+switches = [NodePath("../Windmill")]
+
+[node name="Leaf" parent="." instance=ExtResource("6_leaf")]
+position = Vector2(378, 136)
+
+[node name="LedgeLeaves" parent="." instance=ExtResource("9_pile")]
+position = Vector2(440, 80)
+pile_width = 28.0
+leaf_count = 40
+random_seed = 3
+
+[node name="GapSpikes" parent="." instance=ExtResource("7_spikes")]
+position = Vector2(472, 144)
+tile_count = 15
+
+[node name="Sail" parent="." instance=ExtResource("8_sail")]
+position = Vector2(492, 80)
+rail_start = Vector2(0, 0)
+rail_end = Vector2(80, 0)
+
+[node name="GapCurrent" parent="." instance=ExtResource("10_wind")]
+position = Vector2(532, 32)
+zone_size = Vector2(60, 48)
+wind_direction = Vector2(1, 0)
+wind_strength = 50.0

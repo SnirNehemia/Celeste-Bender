@@ -40,6 +40,11 @@ extends CharacterBody2D
 ## in the Inspector, even while the game runs (Remote tab).
 @export var tuning: PlayerTuning
 
+## Floors with this method catch wind (duck typing, like the Pushable contract):
+##   func absorb_gust_recoil(direction: Vector2, strength: float) -> void
+## See get_wind_catching_floor().
+const WIND_CATCHER_METHOD: StringName = &"absorb_gust_recoil"
+
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
 
@@ -325,11 +330,40 @@ func exit_wind_zone(zone: WindZone) -> void:
 
 
 ## Sum of the wind from every zone we're in, px/s. Overlapping zones add up.
+## Standing on a wind-catching floor (a sail) shelters you: the sail catches the
+## wind and carries you, so the wind doesn't also blow you along its deck.
 func get_wind_velocity() -> Vector2:
+	if get_wind_catching_floor() != null:
+		return Vector2.ZERO
 	var total_wind: Vector2 = Vector2.ZERO
 	for zone: WindZone in active_wind_zones:
 		total_wind += zone.get_wind_velocity()
 	return total_wind
+
+
+# --- Floor -------------------------------------------------------------------
+
+## The body we're standing on (a floor, crate, platform...), or null in the air.
+## move_and_slide() records every contact it made last frame as a "slide collision";
+## the floor is the one whose normal points up (the surface faces up_direction).
+func get_floor_body() -> Object:
+	if not is_on_floor():
+		return null
+	for collision_index: int in get_slide_collision_count():
+		var collision: KinematicCollision2D = get_slide_collision(collision_index)
+		if collision.get_normal().dot(up_direction) > 0.7:
+			return collision.get_collider()
+	return null
+
+
+## The floor we stand on if it CATCHES WIND (has WIND_CATCHER_METHOD), else null.
+## Such a floor takes the sideways recoil of our gusts (GustRecoil state) and
+## shelters us from wind zones (get_wind_velocity). SailPlatform is one.
+func get_wind_catching_floor() -> Object:
+	var floor_body: Object = get_floor_body()
+	if floor_body != null and floor_body.has_method(WIND_CATCHER_METHOD):
+		return floor_body
+	return null
 
 
 # --- Walls -------------------------------------------------------------------

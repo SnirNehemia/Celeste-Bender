@@ -55,8 +55,10 @@ static func build_circle(center: Vector2, radius: float, segment_count: int = 16
 static func push_in_cone(body: CollisionObject2D, cone_points: PackedVector2Array,
 		direction: Vector2, strength: float) -> Array[Node]:
 	var targets: Array[Node] = find_pushables(body, cone_points)
+	# The cone's origin is the middle of its narrow edge (points 0 and 3, see build_cone).
+	var source_position: Vector2 = (cone_points[0] + cone_points[3]) / 2.0
 	for target: Node in targets:
-		Pushable.try_push(target, direction, strength)
+		Pushable.try_push(target, direction, strength, source_position)
 	return targets
 
 
@@ -70,7 +72,7 @@ static func push_around(body: CollisionObject2D, center: Vector2, radius: float,
 		var target_2d: Node2D = target as Node2D
 		if target_2d != null and target_2d.global_position != center:
 			outward = (target_2d.global_position - center).normalized()
-		Pushable.try_push(target, outward, strength)
+		Pushable.try_push(target, outward, strength, center)
 	return targets
 
 

@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=19 format=3]
 
 [ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
 [ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
@@ -17,6 +17,7 @@
 [ext_resource type="PackedScene" path="res://tests/rooms/room_j.tscn" id="15_room_j"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_k.tscn" id="16_room_k"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_l.tscn" id="17_room_l"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_m.tscn" id="18_room_m"]
 
 [node name="TestWorld" type="Node2D" node_paths=PackedStringArray("player", "camera")]
 script = ExtResource("1_manager")
@@ -57,6 +58,9 @@ position = Vector2(4080, -180)
 
 [node name="RoomL" parent="." instance=ExtResource("17_room_l")]
 position = Vector2(5040, -180)
+
+[node name="RoomM" parent="." instance=ExtResource("18_room_m")]
+position = Vector2(5360, -180)
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 position = Vector2(24, 160)
