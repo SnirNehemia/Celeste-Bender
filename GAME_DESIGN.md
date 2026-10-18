@@ -23,6 +23,7 @@ This doc covers **Milestone 1: the Air vertical slice** — one element, 5 rooms
   - Player: white rectangle (8×11), turns pale blue when the dash is used up
   - Solid ground: dark gray · Spikes: red triangles · Wind zones: translucent cyan with drifting particles
   - Crates: brown · Windmills/fans: yellow · Enemies: purple · Projectiles: orange · Checkpoint/room exit: green
+  - Puzzle objects (added in Stage 7): doors blue-gray · pressure plates tan, green when pressed · leaf platforms olive green with a pale pinwheel · sail platforms slate deck with a cream sail · rails thin gray-blue lines with end dots · leaf piles muted greens and golds (kept clear of yellow, orange and brown)
 - Camera is **room-locked** like Celeste: each room is one screen (or scrolls inside its own bounds), with a quick slide transition between rooms.
 
 ---
@@ -112,8 +113,10 @@ Each ability lists its movement, puzzle and combat use.
 - *Later (not Milestone 1):* with a second element, holding the bend key could open a slow-motion element wheel. With only Air, a wheel would have one option.
 - Gust applies a push force to anything in the cone that is "pushable":
   - **Crates** slide (on ground) or are knocked (in air).
-  - **Windmills** spin for 4 s, powering a linked door/platform while spinning.
-  - **Leaf platforms** float up a fixed distance, then slowly sink back.
+  - **Windmills** spin for 4 s, powering a linked door while spinning. A ring around the hub shows the time left.
+  - **Leaf platforms** travel to the far end of their rail (any gust, from any side, always the same way), wait, then slowly drift home.
+  - **Sail platforms** move along their rail in the gust's direction (only the part along the rail counts) and coast to a stop.
+  - **Leaf piles** blow away (cosmetic, see §6).
   - **Enemies** are knocked back and stunned for 1 s.
   - **Projectiles** are reflected.
 - **Movement:** down-gust as an extra jump; side-gust to adjust mid-air.
@@ -130,14 +133,18 @@ Each ability lists its movement, puzzle and combat use.
 | Spikes | Instant death on touch (with a fair, slightly smaller hitbox) |
 | Wind zone | Constant force in one direction while inside (horizontal currents or updrafts) |
 | Wind crystal | Refills dash on touch; respawns after 2.5 s |
-| Crate | Pushable rigid-ish body; can rest on pressure plates; player can stand on it |
-| Pressure plate | Active while something heavy sits on it; opens a linked door |
-| Windmill | Gust-activated timer (4 s) that powers a linked door or moving platform |
-| Leaf platform | One-way platform that rises when gusted, sinks back slowly |
-| Door | Opens/closes based on its linked switch(es) |
+| Crate | Pushable box with its own simple physics (not a RigidBody): a gust slides it a predictable ~40 px. Can rest on pressure plates; player can stand on it. The player can't push it by walking, only with air. |
+| Pressure plate | Active while something **heavy** (a crate) sits on it. The player doesn't count, so crate puzzles can't be skipped. |
+| Windmill | Gust-activated timer (4 s, refreshed by each gust) that powers a linked door. Blades slow down over the last second as a warning. |
+| Leaf platform | One-way platform on a visible **rail** (any direction, default 32 px up). Any gust sends it to the far end; it waits 1.5 s, then drifts home slowly. A pinwheel under it spins while the wind drives it. |
+| Sail platform | One-way deck with mast and sail on a visible rail. Moves **in the wind's direction**: gusts shove it (only the part along the rail counts), wind zones carry it. Standing on the deck: sideways gusts have **no recoil** (the sail takes the shove, so you can blow your own boat) and wind zones don't push you along the deck. Decorative railings mark the deck ends. Jumping off keeps the sail's speed. |
+| Leaf pile | Cosmetic mound of loose leaves drawn in front of other objects, so it can **hide a plate or a secret path**. Gusts blow away the leaves near you; the player or a crate moving through kicks them up. Leaves flutter down slowly, swinging left-right like a pendulum, land on any solid, ride along on moving things, fall again if their support goes away, and pop out if something slides over them. |
+| Door | Opens/closes based on its linked switch(es): *any* or *all* of them, optionally inverted. Won't close on the player or a crate. |
 | Checkpoint / room entry | Player respawns at the last entered room's spawn point |
 
-Linking: switches emit signals; doors listen. Links are set in the editor with exported node paths, so rooms can be wired by hand.
+Linking: switches emit signals; doors listen. Links are set in the editor with exported node paths, so rooms can be wired by hand. In the editor, doors draw dashed lines to their switches.
+
+**Room reset:** dying or pressing R puts every puzzle object in the room back to its starting state (crates, windmills, platforms, doors, leaf piles), so a misplaced crate can never make a room unsolvable.
 
 ---
 
