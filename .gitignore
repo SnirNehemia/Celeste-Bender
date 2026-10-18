@@ -2,3 +2,6 @@
 .godot/
 *.translation
 .mono/
+
+# Web export output (published to the gh-pages branch by tools/publish_web.ps1)
+build/
