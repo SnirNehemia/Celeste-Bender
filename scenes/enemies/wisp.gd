@@ -247,6 +247,7 @@ func defeat() -> void:
 	collision_layer = 0
 	_spawn_burst()
 	FX.shake(2.0, 0.12)
+	FX.play_sfx(&"wisp_defeated")
 	defeated.emit()
 
 

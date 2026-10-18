@@ -9,12 +9,14 @@ extends CharacterBody2D
 ## Node layout (see player.tscn):
 ##   Player (this script)
 ##   ├─ CollisionShape2D   8x11 hitbox
-##   ├─ Visual (ColorRect) white 8x11 rectangle
+##   ├─ SquashPivot        Node2D at the feet, scaled for squash & stretch
+##   │  └─ Visual (ColorRect) white 8x11 rectangle (the dash stretches this one)
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
 ##   ├─ AirDashAbility     dash charges, aim, dash effects (abilities/air_dash_ability.gd)
 ##   ├─ GlideAbility       glide stamina, stamina bar, glide effects (abilities/glide_ability.gd)
 ##   ├─ GustAbility        gust cooldown, down-boost, cone hit, gust effects (abilities/gust_ability.gd)
 ##   ├─ AirBlastDebugDraw  F3 debug drawing of gust / dash-wake cones (abilities/air_blast_debug_draw.gd)
+##   ├─ MovementEffects    squash & stretch and dust on jump / land / respawn (movement_effects.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
 ##                         GustAim, GustRecoil, Dead
 ##
@@ -53,12 +55,13 @@ signal died
 
 @onready var state_machine: PlayerStateMachine = $StateMachine
 @onready var hitbox: CollisionShape2D = $CollisionShape2D
-@onready var visual: ColorRect = $Visual
+@onready var visual: ColorRect = $SquashPivot/Visual
 @onready var death_burst: CPUParticles2D = $DeathBurst
 @onready var air_dash: AirDashAbility = $AirDashAbility
 @onready var glide: GlideAbility = $GlideAbility
 @onready var gust: GustAbility = $GustAbility
 @onready var blast_debug: AirBlastDebugDraw = $AirBlastDebugDraw
+@onready var movement_effects: MovementEffects = $MovementEffects
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -100,7 +103,15 @@ func _physics_process(delta: float) -> void:
 	_apply_ceiling_corner_correction(delta)
 	# 4) Godot moves the body by velocity * delta, sliding along any solids it hits
 	#    and refreshing is_on_floor() / is_on_ceiling() / is_on_wall().
+	#    Remember the state BEFORE moving: after a landing, move_and_slide() has
+	#    already zeroed velocity.y, so the impact speed is only known here.
+	var was_on_floor: bool = is_on_floor()
+	var fall_speed_before_move: float = velocity.y
 	move_and_slide()
+	# 5) Landing = "not on the floor last frame, on it now". Checked here, in one
+	#    place, instead of in every state that can land (Fall, Glide, Dash...).
+	if not was_on_floor and is_on_floor() and not is_dead():
+		movement_effects.on_landed(fall_speed_before_move)
 
 
 func _update_timers(delta: float) -> void:
@@ -140,6 +151,7 @@ func die() -> void:
 	if is_dead():
 		return
 	state_machine.transition_to(&"Dead")
+	FX.play_sfx(&"death")
 	died.emit()
 
 
@@ -171,6 +183,7 @@ func respawn_at(spawn_position: Vector2) -> void:
 	gust.reset()
 	# Idle switches to Fall by itself on the next frame if there's no floor below.
 	state_machine.transition_to(&"Idle")
+	movement_effects.on_respawned()
 
 
 ## Stops (or resumes) all player movement and input, keeping the current velocity.
@@ -247,6 +260,7 @@ func can_wall_jump() -> bool:
 func start_ground_jump() -> void:
 	consume_jump_press()
 	velocity.y = tuning.jump_velocity
+	movement_effects.on_jumped()
 
 
 ## Launches a wall jump away from the wall on side `wall_direction` (-1 left, +1 right).
@@ -258,6 +272,7 @@ func start_wall_jump(wall_direction: float) -> void:
 	# Ignore input briefly: otherwise holding toward the wall (which you usually are,
 	# since you were sliding on it) would cancel the push away on the very next frame.
 	wall_jump_lock_remaining = tuning.wall_jump_input_lock_time
+	movement_effects.on_wall_jumped(wall_direction)
 
 
 ## Uses up the buffered press and the coyote window so one press = one jump.

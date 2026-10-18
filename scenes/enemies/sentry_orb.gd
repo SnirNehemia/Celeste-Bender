@@ -138,6 +138,7 @@ func receive_gust_from(direction: Vector2, _strength: float, _source_position: V
 	is_reflected = true
 	lifetime_remaining = max_lifetime
 	FX.shake(1.0, 0.08)
+	FX.play_sfx(&"orb_reflected")
 
 
 ## Aim assist: of every target within reflect_assist_degrees of `gust_direction`

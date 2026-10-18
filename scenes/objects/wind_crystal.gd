@@ -75,6 +75,7 @@ func _use_up() -> void:
 	is_available = false
 	diamond.color = RESPAWNING_COLOR
 	FX.shake(1.0, 0.08)
+	FX.play_sfx(&"crystal")
 	# create_timer() makes a one-shot timer; `await` pauses this function (not the game)
 	# until it fires. Uses game time, so it also pauses during freeze frames.
 	await get_tree().create_timer(respawn_time, false).timeout

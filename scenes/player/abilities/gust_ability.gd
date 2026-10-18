@@ -188,6 +188,7 @@ func begin_gust(direction: Vector2) -> int:
 	if tuning.gust_uses_stamina:
 		player.glide.spend(tuning.gust_stamina_cost)
 	FX.shake(tuning.gust_shake_strength, tuning.gust_shake_duration)
+	FX.play_sfx(&"gust")
 
 	var hit_nodes: Array[Node]
 	if direction == Vector2.ZERO:

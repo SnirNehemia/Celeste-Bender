@@ -224,10 +224,35 @@ extends Resource
 ## can't be used to hang in slow motion.
 @export var gust_aim_max_real_time: float = 0.4
 
+@export_group("Feel: squash & dust")
+## Body scale at the start of a jump or wall jump (x = width, y = height). Tall and
+## thin reads as "launching". Eases back to (1, 1) over squash_recover_time.
+@export var jump_squash: Vector2 = Vector2(0.7, 1.35)
+## Body scale on the HARDEST landing (see land_squash_full_speed): short and wide.
+## Softer landings use a blend between (1, 1) and this.
+@export var land_squash: Vector2 = Vector2(1.45, 0.6)
+## Landings slower than this get no squash and no dust, px/s. Keeps small hops
+## and stepping down a tile quiet.
+@export var land_effect_min_speed: float = 90.0
+## Landing at this fall speed (or faster) gets the full land_squash, px/s.
+## max_fall_speed is a natural choice.
+@export var land_squash_full_speed: float = 300.0
+## Body scale the moment you reappear after dying: a quick "pop" in.
+@export var respawn_squash: Vector2 = Vector2(0.5, 1.5)
+## How long the body takes to spring back to normal after any squash, seconds.
+@export var squash_recover_time: float = 0.14
+## Dust specks kicked up by a jump or wall jump.
+@export var jump_dust_count: int = 4
+## Dust specks per side on the hardest landing (fewer on softer ones).
+@export var land_dust_count: int = 5
+
 @export_group("Death & rooms")
 ## How long the death effect plays before the player reappears at the spawn, seconds.
 ## Short on purpose: dying should cost almost nothing (design pillar "fail fast").
-@export var death_respawn_delay: float = 0.4
+@export var death_respawn_delay: float = 0.3
+## On respawn the screen flashes white and fades out over this long, seconds.
+## Makes the cut from "dead" to "back at the spawn" read as one clean beat. 0 = off.
+@export var respawn_flash_time: float = 0.15
 ## How long the camera takes to slide to a new room, seconds. The player is frozen
 ## during the slide.
 @export var room_transition_time: float = 0.3

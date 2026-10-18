@@ -3,7 +3,8 @@ extends Node
 ##
 ## Loads scenes/world.tscn (rooms 1-7), teleports the player into each room in turn (the same
 ## way the F2 room picker does), defeats room 5's enemies by script to check the
-## EnemyGate opens the exit door, then finishes the run and checks the end screen.
+## EnemyGate opens the exit door, checks the Stage 10 polish (squash on jump/land,
+## pause menu, freeze vs. menu pause), then finishes the run and checks the end screen.
 ## Prints PASS/FAIL lines and quits. Run it with:
 ##   godot --headless --path . res://tests/world_smoke_test.tscn
 
@@ -59,6 +60,39 @@ func _ready() -> void:
 	_check(world.player.global_position.is_finite(), "player position stays finite after a sentry kill on the sail")
 	_check(not get_tree().paused, "hit-stop freeze ends (tree unpaused)")
 
+	# Polish (Stage 10): squash on jump and on a hard landing.
+	var player: Player = world.player
+	var squash_pivot: Node2D = player.get_node("SquashPivot") as Node2D
+	world.jump_to_room(world.rooms[0])
+	await get_tree().create_timer(0.3).timeout
+	player.start_ground_jump()
+	_check(squash_pivot.scale.y > 1.0, "jump stretches the body tall")
+	player.respawn_at(world.rooms[0].get_spawn_position() + Vector2(0, -40))
+	await get_tree().create_timer(0.2).timeout  # let the respawn pop settle
+	for frame: int in 60:
+		await get_tree().physics_frame
+		if player.is_on_floor():
+			break
+	_check(squash_pivot.scale.y < 1.0, "hard landing squashes the body flat")
+
+	# A freeze frame ending while a menu is open must not unpause the menu.
+	await get_tree().create_timer(0.3).timeout
+	FX.freeze(0.05)
+	FX.set_menu_pause(true)
+	await get_tree().create_timer(0.15, true, false, true).timeout
+	_check(get_tree().paused, "menu stays paused after a freeze ends")
+	FX.set_menu_pause(false)
+	_check(not get_tree().paused, "closing the menu unpauses")
+
+	# Pause menu: Esc opens it (game paused), Esc again closes it.
+	var pause_menu: PauseMenu = world.get_node("PauseMenu") as PauseMenu
+	_press_action(&"pause")
+	await get_tree().process_frame
+	_check(pause_menu.menu_root.visible and get_tree().paused, "Esc opens the pause menu and pauses")
+	_press_action(&"pause")
+	await get_tree().process_frame
+	_check(not pause_menu.menu_root.visible and not get_tree().paused, "Esc again closes it and resumes")
+
 	_check(world.rooms[6].get_node_or_null("Goal") != null, "the goal is in the last room")
 	GameState.finish_run()
 	await get_tree().process_frame
@@ -66,6 +100,14 @@ func _ready() -> void:
 
 	print("[SmokeTest] %s (%d failures)" % ["PASS" if failures == 0 else "FAIL", failures])
 	get_tree().quit(failures)
+
+
+## Sends a key press for `action_name` through the normal input path, as if typed.
+func _press_action(action_name: StringName) -> void:
+	var press: InputEventAction = InputEventAction.new()
+	press.action = action_name
+	press.pressed = true
+	Input.parse_input_event(press)
 
 
 func _check(condition: bool, description: String) -> void:

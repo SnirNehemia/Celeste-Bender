@@ -16,7 +16,8 @@ extends Node2D
 ##   - Pits: if the player falls below the current room and no room is down there, they die.
 ##   - Death: listens to player.died, counts it in GameState, waits
 ##     tuning.death_respawn_delay seconds, then respawns at the current room's spawn.
-##   - Restart (R): kills the player through the same path, so it counts as a death.
+##   - Restart (R, or the pause menu): kills the player through the same path, so
+##     it counts as a death.
 ##   - Reset: on every respawn, the room's puzzle objects go back to their start
 ##     (Room.reset_objects()), so a misplaced crate can't leave a room unsolvable.
 
@@ -67,8 +68,15 @@ func _physics_process(_delta: float) -> void:
 
 ## _unhandled_input receives key presses not already used by UI.
 func _unhandled_input(event: InputEvent) -> void:
-	# After the Goal the run is over: R must not add a death to the final score.
-	if event.is_action_pressed("restart_room") and not is_transitioning and not GameState.is_run_finished:
+	if event.is_action_pressed("restart_room"):
+		restart_room()
+
+
+## Restarts the current room by killing the player (counts as a death, like
+## Celeste's Retry). Ignored during a room slide and after the Goal: the run is
+## over then, and a restart must not add a death to the final score.
+func restart_room() -> void:
+	if not is_transitioning and not GameState.is_run_finished:
 		player.die()
 
 
@@ -114,6 +122,8 @@ func _on_player_died() -> void:
 	# shows what happened.
 	current_room.reset_objects()
 	player.respawn_at(current_room.get_spawn_position())
+	# A soft white flash (alpha 0.35, not a full white-out) hides the teleport.
+	FX.flash_screen(Color(1.0, 1.0, 1.0, 0.35), player.tuning.respawn_flash_time)
 
 
 func _find_room_containing(point: Vector2) -> Room:

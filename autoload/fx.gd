@@ -1,10 +1,14 @@
 extends Node
-## FX: global "game feel" helpers — screen shake and freeze frames.
+## FX: global "game feel" helpers — screen shake, freeze frames, screen flash,
+## menu pausing and the (silent for now) sound hook.
 ##
 ## AUTOLOAD (registered in project.godot as `FX`), so any script can call
 ##   FX.shake(2.0, 0.12)     — jiggle the camera for a moment
 ##   FX.freeze(0.05)         — pause the whole game for a few frames ("hit stop")
 ##   FX.set_slow_motion(0.25, 0.5) / FX.clear_slow_motion() — slow the game down
+##   FX.flash_screen(Color.WHITE, 0.15) — full-screen flash that fades out
+##   FX.set_menu_pause(true)  — pause for a menu (pause menu, F2 room picker)
+##   FX.play_sfx(&"jump")     — the one place sounds will be played (Milestone 2)
 ## without needing a reference to the camera or the scene tree.
 ##
 ## Who calls it: AirDashAbility, GustAbility, the GustAim state (slow motion);
@@ -12,6 +16,9 @@ extends Node
 ##
 ## Freeze PAUSES the scene tree (get_tree().paused); slow motion uses
 ## Engine.time_scale. They're separate switches, so they never fight.
+## Menus pause the tree too, so pausing goes through this node: it remembers WHY
+## the tree is paused (a freeze, a menu, or both) and only unpauses when neither
+## wants it. Otherwise a freeze ending while the pause menu is open would unpause it.
 ## Why not freeze with time_scale = 0? Physics frames keep running with delta = 0,
 ## and a moving platform (AnimatableBody2D: sail, leaf) computes its velocity as
 ## motion / delta = 0 / 0 = NaN. A player standing on it got a NaN position and
@@ -27,10 +34,33 @@ var shake_time_remaining: float = 0.0
 var shake_total_time: float = 0.0
 ## True while a freeze is running, so overlapping freezes don't unpause too early.
 var is_frozen: bool = false
+## True while a menu (pause menu, room picker) has the game paused.
+var is_menu_open: bool = false
 ## The game speed when not frozen: 1.0 normally, lower during slow motion.
 var slow_motion_scale: float = 1.0
 ## Bumped on every set/clear, so an old safety timer can tell it's out of date.
 var slow_motion_id: int = 0
+## Debug: print every play_sfx() call as "[SFX] name", to check the hooks fire.
+var log_sfx_calls: bool = false
+
+## Full-screen rectangle used by flash_screen(), on its own CanvasLayer so it
+## covers the game but ignores the camera. Built in _ready().
+var flash_rect: ColorRect
+var flash_tween: Tween
+
+
+func _ready() -> void:
+	# A CanvasLayer draws its children fixed on screen, above the game world.
+	# Layer 10: above the game, below the end screen (15) and room picker (20).
+	var flash_layer: CanvasLayer = CanvasLayer.new()
+	flash_layer.layer = 10
+	add_child(flash_layer)
+	flash_rect = ColorRect.new()
+	flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# MOUSE_FILTER_IGNORE: an invisible full-screen Control would otherwise eat clicks.
+	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash_rect.color = Color(1.0, 1.0, 1.0, 0.0)
+	flash_layer.add_child(flash_rect)
 
 
 ## Shakes the active camera: random offset up to `strength` px, fading to 0 over
@@ -58,8 +88,39 @@ func freeze(seconds: float) -> void:
 	# process_always = true keeps it counting while the tree is paused, and
 	# ignore_time_scale = true makes it count REAL seconds even in slow motion.
 	await get_tree().create_timer(seconds, true, false, true).timeout
-	get_tree().paused = false
 	is_frozen = false
+	# A menu opened during the freeze keeps the game paused.
+	get_tree().paused = is_menu_open
+
+
+## Pauses (true) or resumes (false) the game for a menu. Menus call this instead
+## of setting get_tree().paused themselves (see the header for why).
+func set_menu_pause(open: bool) -> void:
+	is_menu_open = open
+	get_tree().paused = is_menu_open or is_frozen
+
+
+## Covers the screen with `color` and fades it to transparent over `duration`
+## seconds (game time). Only `color`'s alpha at the start matters for strength.
+func flash_screen(color: Color, duration: float) -> void:
+	if duration <= 0.0:
+		return
+	if flash_tween != null:
+		flash_tween.kill()
+	flash_rect.color = color
+	flash_tween = create_tween()
+	flash_tween.tween_property(flash_rect, "color:a", 0.0, duration)
+
+
+## THE sound hook (GAME_DESIGN.md §9): every game event that will make a sound
+## calls this with a short name. Sound is out of scope for Milestone 1, so it does
+## nothing yet; adding audio later means filling in only this function (e.g. look
+## up an AudioStream by name and play it on a pooled AudioStreamPlayer).
+## Names used so far: jump, wall_jump, land, dash, gust, death, respawn, crystal,
+## wisp_defeated, sentry_destroyed, orb_reflected, goal, pause, unpause.
+func play_sfx(sound_name: StringName) -> void:
+	if log_sfx_calls:
+		print("[SFX] %s" % sound_name)
 
 
 ## Slows the whole game to `time_scale` (0.25 = quarter speed) until

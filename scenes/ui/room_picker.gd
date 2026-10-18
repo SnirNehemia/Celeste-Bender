@@ -8,9 +8,9 @@ extends CanvasLayer
 ## of its own, so it can be deleted from a world scene without breaking anything.
 ##
 ## Godot concepts used:
-##   - Pausing: get_tree().paused = true stops every node whose process_mode is
-##     PAUSABLE (the default), i.e. the whole game. This node is set to ALWAYS so its
-##     buttons still work while everything else is frozen.
+##   - Pausing: get_tree().paused = true (set via FX.set_menu_pause) stops every
+##     node whose process_mode is PAUSABLE (the default), i.e. the whole game. This
+##     node is set to ALWAYS so its buttons still work while everything else is frozen.
 ##   - Control nodes (Button, VBoxContainer, PanelContainer) are Godot's UI nodes.
 ##     Containers lay out their children automatically.
 ##   - Focus: the focused Button reacts to ui_up/ui_down/ui_accept (arrows/Enter),
@@ -44,6 +44,9 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("debug_room_picker"):
+		# Another menu (the pause menu) already has the game paused: stay closed.
+		if not panel.visible and FX.is_menu_open:
+			return
 		_set_open(not panel.visible)
 		get_viewport().set_input_as_handled()
 	elif panel.visible and event.is_action_pressed("ui_cancel"):
@@ -53,7 +56,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _set_open(open: bool) -> void:
 	panel.visible = open
-	get_tree().paused = open
+	# Through FX, not get_tree().paused, so a freeze frame ending can't unpause us.
+	FX.set_menu_pause(open)
 	if open:
 		_rebuild_buttons()
 

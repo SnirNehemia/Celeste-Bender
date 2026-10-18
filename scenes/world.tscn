@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
 [ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
@@ -13,6 +13,7 @@
 [ext_resource type="PackedScene" path="res://scenes/rooms/room_05.tscn" id="11_room5"]
 [ext_resource type="PackedScene" path="res://scenes/rooms/room_06.tscn" id="12_room6"]
 [ext_resource type="PackedScene" path="res://scenes/rooms/room_07.tscn" id="13_room7"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="14_pause"]
 
 [node name="World" type="Node2D" node_paths=PackedStringArray("player", "camera")]
 editor_description = "The Milestone 1 game: rooms 1-7 in a row, left to right. Each room is its own scene (scenes/rooms/room_0X.tscn): double-click one to edit it. Rooms must touch edge to edge, with matching gaps in their walls."
@@ -55,3 +56,6 @@ room_manager = NodePath("..")
 
 [node name="EndScreen" parent="." node_paths=PackedStringArray("player") instance=ExtResource("6_end")]
 player = NodePath("../Player")
+
+[node name="PauseMenu" parent="." node_paths=PackedStringArray("room_manager") instance=ExtResource("14_pause")]
+room_manager = NodePath("..")

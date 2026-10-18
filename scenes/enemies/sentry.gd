@@ -166,6 +166,7 @@ func destroy() -> void:
 	_spawn_burst()
 	FX.freeze(0.06)
 	FX.shake(3.0, 0.2)
+	FX.play_sfx(&"sentry_destroyed")
 	defeated.emit()
 
 

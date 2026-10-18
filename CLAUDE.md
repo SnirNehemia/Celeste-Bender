@@ -64,7 +64,7 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
   - `godot --headless --path . --import` — imports assets and surfaces parse errors in scripts
   - `godot --headless --check-only --script res://path/to/file.gd` — checks one script
     (scripts that use the autoloads `GameState`/`FX` falsely report "Identifier not found" in this mode; a real run is the true check)
-  - `godot --headless --path . res://tests/world_smoke_test.tscn` — visits rooms 1–7, checks the room 5 gate and the end screen, prints PASS/FAIL
+  - `godot --headless --path . res://tests/world_smoke_test.tscn` — visits rooms 1–7, checks the room 5 gate, squash/pause polish and the end screen, prints PASS/FAIL
   - `godot --headless --path . res://tools/build_rooms.tscn` — regenerates rooms 1–7 from `tools/build_rooms.gd` (**overwrites editor edits**; add `-- 6 7` to rebuild only those rooms)
   - `godot --path .` — runs the game (I'll play-test and report back)
 - Use `print()` with a clear prefix (e.g. `[Dash]`) for temporary debugging, and remove it once the feature works.

@@ -1,0 +1,125 @@
+class_name PauseMenu
+extends CanvasLayer
+## Pause menu (GAME_DESIGN.md §9 / PROMPTS.md Stage 10): Esc (`pause`) stops the
+## game and shows Resume / Restart room / Quit. Esc again resumes.
+##
+## Keyboard only: arrows move between buttons, Enter or Jump (C) presses one.
+##
+## Connections:
+##   - Pausing goes through FX.set_menu_pause(), which also knows about freeze
+##     frames, so a freeze ending can't unpause the menu (see autoload/fx.gd).
+##   - "Restart room" calls RoomManager.restart_room(), the same path as R.
+##   - It refuses to open while another menu has the game paused (the F2 room
+##     picker) or after the Goal (the end screen is up).
+##
+## Godot concepts used:
+##   - process_mode = ALWAYS: this node keeps running while the tree is paused,
+##     so it can still read Esc and its buttons still work.
+##   - Focus: the focused Button reacts to ui_up/ui_down (arrows) and ui_accept
+##     (Enter/Space); grab_focus() picks which one starts highlighted.
+## The UI is built in code in _ready(), like the end screen and room picker.
+
+## The world's RoomManager, for "Restart room". Set in the Inspector.
+@export var room_manager: RoomManager
+
+const DIM_COLOR: Color = Color(0.0, 0.0, 0.0, 0.55)
+const TITLE_COLOR: Color = Color(1.0, 1.0, 1.0)
+const HINT_COLOR: Color = Color(0.7, 0.7, 0.75)
+
+var resume_button: Button
+## The whole menu (dim + buttons), shown/hidden as one.
+var menu_root: Control
+
+
+func _ready() -> void:
+	layer = 18  # above the end screen (15), below the F2 room picker (20)
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_build_ui()
+	menu_root.visible = false
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("pause"):
+		if menu_root.visible:
+			_set_open(false)
+			get_viewport().set_input_as_handled()
+		elif not FX.is_menu_open and not GameState.is_run_finished:
+			_set_open(true)
+			get_viewport().set_input_as_handled()
+	elif menu_root.visible and event.is_action_pressed("jump"):
+		# Jump (C) presses the highlighted button, like Enter. Players already have
+		# a finger on C; the end screen uses it the same way.
+		var focused: Control = get_viewport().gui_get_focus_owner()
+		if focused is Button:
+			(focused as Button).pressed.emit()
+		get_viewport().set_input_as_handled()
+
+
+func _set_open(open: bool) -> void:
+	menu_root.visible = open
+	FX.set_menu_pause(open)
+	FX.play_sfx(&"pause" if open else &"unpause")
+	if open:
+		resume_button.grab_focus()
+
+
+func _on_resume_pressed() -> void:
+	_set_open(false)
+
+
+func _on_restart_pressed() -> void:
+	# Unpause first: the death and respawn run on (pausable) game time.
+	_set_open(false)
+	room_manager.restart_room()
+
+
+func _on_quit_pressed() -> void:
+	get_tree().quit()
+
+
+func _build_ui() -> void:
+	# One full-screen Control holds everything, so hiding it hides the whole menu.
+	menu_root = Control.new()
+	menu_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(menu_root)
+
+	var dim: ColorRect = ColorRect.new()
+	dim.color = DIM_COLOR
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu_root.add_child(dim)
+
+	var center: CenterContainer = CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu_root.add_child(center)
+	var column: VBoxContainer = VBoxContainer.new()
+	column.add_theme_constant_override("separation", 2)
+	center.add_child(column)
+
+	column.add_child(_make_label("Paused", 16, TITLE_COLOR))
+	resume_button = _make_button("Resume", _on_resume_pressed)
+	column.add_child(resume_button)
+	column.add_child(_make_button("Restart room", _on_restart_pressed))
+	# A web page can't be "quit", so the button would do nothing there.
+	if not OS.has_feature("web"):
+		column.add_child(_make_button("Quit game", _on_quit_pressed))
+	column.add_child(_make_label("Arrows + Enter/C  ·  Esc to resume", 8, HINT_COLOR))
+
+
+## A Button whose `pressed` signal calls `on_pressed`. Callable = a reference to a
+## function, which is how you pass a method around in GDScript.
+func _make_button(text: String, on_pressed: Callable) -> Button:
+	var button: Button = Button.new()
+	button.text = text
+	button.add_theme_font_size_override("font_size", 8)
+	button.pressed.connect(on_pressed)
+	return button
+
+
+func _make_label(text: String, font_size: int, color: Color) -> Label:
+	var label: Label = Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_shadow_color", Color.BLACK)
+	return label

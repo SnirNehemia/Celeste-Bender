@@ -110,6 +110,7 @@ func begin_dash(direction: Vector2) -> void:
 	var tuning: PlayerTuning = player.tuning
 	FX.shake(tuning.dash_shake_strength, tuning.dash_shake_duration)
 	FX.freeze(tuning.dash_freeze_time)
+	FX.play_sfx(&"dash")
 
 	# Air shoved backward: the reaction that launches us forward.
 	if tuning.dash_wake_enabled:
