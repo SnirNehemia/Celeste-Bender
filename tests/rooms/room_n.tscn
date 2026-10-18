@@ -1,0 +1,30 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/wisp.tscn" id="2_wisp"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/sentry.tscn" id="3_sentry"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="4_spikes"]
+
+[node name="RoomN" type="Node2D"]
+editor_description = "Enemies playground (Stage 8), scrolls sideways. 1) A wisp patrols between the left wall and a low block: gust it into the block (wall slam = 2 s stun) and dash into it while it's dizzy. 2) A wisp patrols a platform over a spike pit: gust it off into the spikes. 3) A sentry at the far end fires orbs when it sees you (eye glows orange just before): gust an orb back at it to destroy it. Hide behind the low block to break its line of sight. Dying or R brings every enemy back."
+script = ExtResource("1_room")
+display_title = "N - Enemies"
+room_size = Vector2(640, 180)
+solid_rects = Array[Rect2]([Rect2(0, 0, 640, 8), Rect2(0, 0, 8, 180), Rect2(632, 0, 8, 180), Rect2(0, 152, 200, 28), Rect2(160, 128, 16, 24), Rect2(200, 172, 160, 8), Rect2(216, 128, 96, 8), Rect2(360, 152, 280, 28), Rect2(456, 136, 16, 16)])
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(24, 152)
+
+[node name="WallWisp" parent="." instance=ExtResource("2_wisp")]
+position = Vector2(100, 152)
+
+[node name="PitSpikes" parent="." instance=ExtResource("4_spikes")]
+position = Vector2(200, 164)
+tile_count = 20
+
+[node name="PlatformWisp" parent="." instance=ExtResource("2_wisp")]
+position = Vector2(280, 128)
+start_direction = -1
+
+[node name="Sentry" parent="." instance=ExtResource("3_sentry")]
+position = Vector2(600, 152)

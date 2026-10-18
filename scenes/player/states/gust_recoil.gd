@@ -9,7 +9,10 @@ extends PlayerState
 ##   RECOIL (aimed gust, an arrow held)
 ##     enter():  shoved the opposite way at gust_recoil_speed; a down-gust in mid-air
 ##               is an "extra jump" (up to gust_down_boosts_per_airtime per airtime);
-##               an up-gust pushes you down. Exception: standing on a floor that
+##               an up-gust pushes you down. On the ground the sideways shove is
+##               weaker (gust_ground_recoil_multiplier) and braked hard by friction
+##               (gust_ground_recoil_friction), so you stay planted near a ledge
+##               while the enemy flies. Exception: standing on a floor that
 ##               catches wind (a sail, see Player.get_wind_catching_floor), the sideways shove
 ##               goes into that floor instead and you stay planted.
 ##     update:   gravity as normal, horizontal input ignored for
@@ -64,7 +67,10 @@ func enter() -> void:
 			player.velocity.x = 0.0
 			wind_catcher.call(Player.WIND_CATCHER_METHOD, direction, tuning.gust_push_strength)
 		else:
-			player.velocity.x = -direction.x * tuning.gust_recoil_speed
+			var recoil_speed: float = tuning.gust_recoil_speed
+			if player.is_on_floor():
+				recoil_speed *= tuning.gust_ground_recoil_multiplier
+			player.velocity.x = -direction.x * recoil_speed
 
 	if direction.y > 0.0:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward
@@ -86,9 +92,13 @@ func physics_update(delta: float) -> void:
 	match phase:
 		Phase.RECOIL:
 			player.apply_gravity(delta)
-			# During the lock the recoil plays out untouched; after it, normal control.
+			# During the lock the recoil plays out untouched (in the air) or braked by
+			# extra friction (on the ground); after it, normal control.
 			if phase_time_remaining <= 0.0:
 				player.apply_horizontal_movement(delta)
+			elif player.is_on_floor():
+				player.velocity.x = move_toward(player.velocity.x, 0.0,
+					player.tuning.gust_ground_recoil_friction * delta)
 		Phase.BRAKE:
 			# No gravity, and the whole velocity shrinks toward zero. Vector2.move_toward
 			# shortens the vector by at most `step`, keeping its direction.

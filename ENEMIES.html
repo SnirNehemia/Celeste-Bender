@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windbound Enemies</title>
+<!--
+  Enemy reference for Windbound (Milestone 1). Open in any browser.
+  The animations are drawn with the SAME placeholder shapes, sizes and colors as
+  the game code (scenes/enemies/*.gd), in game pixels scaled up 4x. When an enemy's
+  look or rules change in code, update its card here too.
+  No external files: plain HTML + inline SVG (SMIL/CSS animation).
+-->
+<style>
+  :root {
+    --bg: #121217;
+    --panel: #1b1b23;
+    --stage: #0d0d12;
+    --text: #e6e4ee;
+    --muted: #9b98ab;
+    --line: #2c2b38;
+    --accent: #ff8c1a;
+    --purple: #9e4dd9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: 0.5px; }
+  header p { margin: 0; color: var(--muted); }
+  h2 { font-size: 20px; margin: 0 0 2px; }
+  .tag { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 24px;
+  }
+  .card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  .stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 16px; }
+  figure { margin: 0; }
+  .stage {
+    background: var(--stage);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .stage svg { display: block; width: 100%; height: auto; shape-rendering: crispEdges; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  ul { margin: 8px 0 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: #d9c8f0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  .files { color: var(--muted); font-size: 13px; margin-top: 12px; }
+
+  /* Wisp patrol: walks right, turns, walks back. */
+  .wisp-walk { animation: wisp-walk 6s linear infinite; }
+  @keyframes wisp-walk {
+    0%   { transform: translateX(0px); }
+    47%  { transform: translateX(80px); }
+    50%  { transform: translateX(80px); }
+    97%  { transform: translateX(0px); }
+    100% { transform: translateX(0px); }
+  }
+  /* Eyes sit at the front: right-facing eyes for the first half, left-facing after. */
+  .eyes-right { animation: eyes-right 6s steps(1) infinite; }
+  .eyes-left  { animation: eyes-left 6s steps(1) infinite; }
+  @keyframes eyes-right { 0% { opacity: 1; } 48.5% { opacity: 0; } 98.5% { opacity: 1; } }
+  @keyframes eyes-left  { 0% { opacity: 0; } 48.5% { opacity: 1; } 98.5% { opacity: 0; } }
+  .bob { animation: bob 1.26s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+  .wobble { animation: wobble 0.2s steps(2) infinite; }
+  @keyframes wobble { 0% { transform: translateX(-1px); } 100% { transform: translateX(1px); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wisp-walk, .eyes-right, .eyes-left, .bob, .wobble { animation: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Windbound: enemies</h1>
+    <p>Reference for every enemy in Milestone 1: what it looks like, how it moves, and how the air verbs beat it. The drawings use the game's own placeholder shapes and colors, scaled up 4x.</p>
+  </header>
+
+  <section class="card">
+    <h2>The impact rule (all enemies)</h2>
+    <p>Enemies have no health. The gust and the dash wake never damage anything, they only push. What a pushed enemy <em>hits</em> decides the outcome, so every result is readable at a glance (GAME_DESIGN.md §7).</p>
+    <div class="scroll">
+    <table>
+      <tr><th>What happens</th><th>Wisp</th><th>Sentry</th><th>Orb</th></tr>
+      <tr><td>Player touches it</td><td>Player dies (unless the wisp is stunned)</td><td>Solid, safe to stand on</td><td>Player dies (unless reflected)</td></tr>
+      <tr><td>Gust / dash wake</td><td>Knocked back with a hop, stunned 1 s</td><td>Nothing (not pushable)</td><td>Reflected: gold, 1.5x speed, aim assist</td></tr>
+      <tr><td>Slammed into a wall</td><td>Stunned 2 s</td><td>n/a</td><td>Pops</td></tr>
+      <tr><td>Knocked into spikes / a pit</td><td>Defeated</td><td>n/a</td><td>n/a</td></tr>
+      <tr><td>Dash while it's stunned</td><td>Defeated; dash and down-boosts refill (<code>dash_defeat_refills</code>)</td><td>n/a</td><td>n/a</td></tr>
+      <tr><td>Hit by a reflected orb</td><td>Defeated</td><td>Destroyed</td><td>n/a</td></tr>
+      <tr><td>Player dies or presses R</td><td colspan="3">Everything in the room comes back; orbs in flight vanish</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- ============================== WISP ============================== -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Wisp</h2>
+      <span class="tag"><span class="swatch" style="background:#9e4dd9"></span> purple, 10 × 8 px, ground patroller</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Wisp patrolling back and forth">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <rect x="0" y="24" width="8" height="8" fill="#404047"/>
+            <rect x="112" y="24" width="8" height="8" fill="#404047"/>
+            <g class="wisp-walk">
+              <g class="bob">
+                <rect x="15" y="24" width="10" height="8" fill="#9e4dd9"/>
+                <g class="eyes-right" fill="#1f0d2e">
+                  <rect x="20" y="26" width="1" height="2"/><rect x="23" y="26" width="1" height="2"/>
+                </g>
+                <g class="eyes-left" fill="#1f0d2e">
+                  <rect x="16" y="26" width="1" height="2"/><rect x="19" y="26" width="1" height="2"/>
+                </g>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Patrol: walks at 30 px/s and turns at walls and ledges. The eyes show which way it's heading.</figcaption>
+      </figure>
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Stunned wisp wobbling with circling stars">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <g class="wobble">
+              <rect x="55" y="24" width="10" height="8" fill="#d1b3eb"/>
+              <g stroke="#1f0d2e" stroke-width="0.6" shape-rendering="geometricPrecision">
+                <path d="M57.5 26 l1 1 M58.5 26 l-1 1 M60.5 26 l1 1 M61.5 26 l-1 1"/>
+              </g>
+            </g>
+            <g fill="#ffffff">
+              <rect width="1" height="1"><animateMotion dur="1.05s" repeatCount="indefinite" path="M65 21 A5 1.5 0 1 1 55 21 A5 1.5 0 1 1 65 21"/></rect>
+              <rect width="1" height="1"><animateMotion dur="1.05s" begin="-0.35s" repeatCount="indefinite" path="M65 21 A5 1.5 0 1 1 55 21 A5 1.5 0 1 1 65 21"/></rect>
+              <rect width="1" height="1"><animateMotion dur="1.05s" begin="-0.7s" repeatCount="indefinite" path="M65 21 A5 1.5 0 1 1 55 21 A5 1.5 0 1 1 65 21"/></rect>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Stunned: pale, "x x" eyes, stars circling, wobbling. Harmless to touch. Dash into it now.</figcaption>
+      </figure>
+    </div>
+    <p>The basic ground enemy. It walks back and forth on its platform and never steps off a ledge by itself, so its route is easy to read. A gust knocks it back about 40 px with a small hop and leaves it dizzy for a second. While it's dizzy it can't hurt you and it doesn't avoid ledges, which opens three ways to beat it: knock it into spikes or off into a pit, slam it into a wall for a longer 2 s stun and then dash through it, or hit it with a reflected sentry orb. Dashing into a <em>walking</em> wisp still kills you, so stun first.</p>
+    <ul>
+      <li><b>Movement use:</b> a dash kill refills the dash and down-boosts, so a wisp works as a mid-air recharge, like a wind crystal.</li>
+      <li><b>Puzzle use:</b> a moving hazard that guards a platform until you deal with it.</li>
+      <li><b>Tunables</b> (Inspector, per wisp): <code>start_direction</code>, <code>patrol_speed</code>, <code>stun_time</code>, <code>wall_slam_stun_time</code>, <code>wall_slam_min_speed</code>, <code>knockback_hop_speed</code>, friction and gravity.</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/wisp.gd</code> · Scene: <code>wisp.tscn</code> · Place it on the floor (origin = feet).</p>
+  </section>
+
+  <!-- ============================== SENTRY ============================== -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Sentry</h2>
+      <span class="tag"><span class="swatch" style="background:#803db3"></span> purple, 12 × 12 px, stationary turret</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Sentry charging and firing an orb">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <!-- player, the sentry's target -->
+            <rect x="10" y="21" width="8" height="11" fill="#ffffff"/>
+            <rect x="94" y="20" width="12" height="12" fill="#803db3"/>
+            <rect x="94" y="29" width="12" height="3" fill="#522473"/>
+            <circle cx="100" cy="26" r="3.5" fill="#331447" shape-rendering="geometricPrecision">
+              <animate attributeName="fill" dur="2s" repeatCount="indefinite"
+                values="#331447;#331447;#ff9926;#331447" keyTimes="0;0.8;0.999;1"/>
+            </circle>
+            <rect x="98" y="25" width="2" height="2" fill="#ffffff">
+              <animate attributeName="fill" dur="2s" repeatCount="indefinite" calcMode="discrete"
+                values="#803db3;#ffffff;#803db3" keyTimes="0;0.8;1"/>
+            </rect>
+            <g shape-rendering="geometricPrecision">
+              <circle cy="26" r="3" fill="#ff8c1a">
+                <animate attributeName="cx" dur="2s" repeatCount="indefinite" values="100;20" keyTimes="0;1"/>
+                <animate attributeName="opacity" dur="2s" repeatCount="indefinite" values="1;1;0" keyTimes="0;0.95;1"/>
+              </circle>
+              <circle cy="26" r="1.5" fill="#ffd980">
+                <animate attributeName="cx" dur="2s" repeatCount="indefinite" values="100;20" keyTimes="0;1"/>
+                <animate attributeName="opacity" dur="2s" repeatCount="indefinite" values="1;1;0" keyTimes="0;0.95;1"/>
+              </circle>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Fires every 2 s while it can see you. The eye glows orange for 0.4 s just before each shot.</figcaption>
+      </figure>
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Ceiling sentry and practice target">
+            <rect x="0" y="0" width="120" height="6" fill="#404047"/>
+            <rect x="0" y="34" width="120" height="6" fill="#404047"/>
+            <!-- ceiling mounted -->
+            <rect x="24" y="6" width="12" height="12" fill="#803db3"/>
+            <rect x="24" y="6" width="12" height="3" fill="#522473"/>
+            <circle cx="30" cy="12" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
+            <rect x="29" y="12" width="2" height="2" fill="#803db3"/>
+            <!-- practice target -->
+            <rect x="84" y="22" width="12" height="12" fill="#803db3"/>
+            <rect x="84" y="31" width="12" height="3" fill="#522473"/>
+            <circle cx="90" cy="28" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
+            <circle cx="90" cy="28" r="2" fill="none" stroke="#803db3" stroke-width="1" shape-rendering="geometricPrecision"/>
+          </svg>
+        </div>
+        <figcaption>Variants: <code>mounted_on_ceiling</code> (left) and <code>can_fire = false</code>, a practice target with a ring for an eye (right).</figcaption>
+      </figure>
+    </div>
+    <p>A turret that controls space. It only wakes up while you're in its room, within 220 px, and in clear line of sight. Walls, crates and doors all block its view, so cover is always a choice. The first shot comes a second after it spots you, and every shot is telegraphed, so its rhythm is learnable. It can't be pushed. The only way to destroy it is to send its own orb back with a gust. Ceiling-mounted sentries watch the floor below; a small platform overhead becomes a hiding spot.</p>
+    <ul>
+      <li><b>Combat use:</b> reflect its orb back at it, or at other enemies.</li>
+      <li><b>Puzzle use:</b> a timing gate. Cross its field of view between shots, or use cover.</li>
+      <li><b>Tunables:</b> <code>fire_interval</code>, <code>first_shot_delay</code>, <code>telegraph_time</code>, <code>sight_range</code>, <code>orb_speed</code>, <code>mounted_on_ceiling</code>, <code>can_fire</code>.</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/sentry.gd</code> · Scene: <code>sentry.tscn</code> · Origin = the surface it's mounted on.</p>
+  </section>
+
+  <!-- ============================== ORB ============================== -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Sentry orb</h2>
+      <span class="tag"><span class="swatch" style="background:#ff8c1a"></span> orange, radius 3 (hitbox 2), projectile</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 160 40" aria-label="Orb reflected by a gust back into the sentry">
+            <rect x="0" y="32" width="160" height="8" fill="#404047"/>
+            <rect x="14" y="21" width="8" height="11" fill="#ffffff"/>
+            <!-- gust wave appears at the moment of reflection -->
+            <path d="M28 20 Q32 26 28 32" fill="none" stroke="#d9f2ff" stroke-width="1" shape-rendering="geometricPrecision" opacity="0">
+              <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0;0;1;0;0" keyTimes="0;0.5;0.52;0.62;1"/>
+            </path>
+            <!-- sentry -->
+            <g>
+              <animate attributeName="opacity" dur="3s" repeatCount="indefinite" calcMode="discrete" values="1;0;1" keyTimes="0;0.82;0.97"/>
+              <rect x="134" y="20" width="12" height="12" fill="#803db3"/>
+              <rect x="134" y="29" width="12" height="3" fill="#522473"/>
+              <circle cx="140" cy="26" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
+            </g>
+            <!-- burst when it's destroyed -->
+            <g fill="#ff9926" opacity="0">
+              <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0;0;1;0;0" keyTimes="0;0.82;0.83;0.92;1"/>
+              <rect x="132" y="18" width="2" height="2"/><rect x="146" y="19" width="2" height="2"/>
+              <rect x="138" y="14" width="2" height="2"/><rect x="129" y="27" width="2" height="2"/>
+              <rect x="149" y="26" width="2" height="2"/><rect x="141" y="21" width="1" height="1"/>
+            </g>
+            <!-- the orb: out at 60 px/s, back at 90 px/s, gold once reflected -->
+            <g shape-rendering="geometricPrecision">
+              <circle cy="26" r="3">
+                <animate attributeName="cx" dur="3s" repeatCount="indefinite" values="140;30;30;140;140" keyTimes="0;0.5;0.5;0.82;1"/>
+                <animate attributeName="fill" dur="3s" repeatCount="indefinite" calcMode="discrete" values="#ff8c1a;#ffe68c;#ff8c1a" keyTimes="0;0.5;1"/>
+                <animate attributeName="opacity" dur="3s" repeatCount="indefinite" calcMode="discrete" values="1;0;1" keyTimes="0;0.82;0.99"/>
+              </circle>
+              <circle cy="26" r="1.5">
+                <animate attributeName="cx" dur="3s" repeatCount="indefinite" values="140;30;30;140;140" keyTimes="0;0.5;0.5;0.82;1"/>
+                <animate attributeName="fill" dur="3s" repeatCount="indefinite" calcMode="discrete" values="#ffd980;#ffffff;#ffd980" keyTimes="0;0.5;1"/>
+                <animate attributeName="opacity" dur="3s" repeatCount="indefinite" calcMode="discrete" values="1;0;1" keyTimes="0;0.82;0.99"/>
+              </circle>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Orange = deadly. A gust turns it gold and 1.5x faster; it flies back and destroys the sentry.</figcaption>
+      </figure>
+    </div>
+    <p>A slow shot (60 px/s), aimed where you were when it fired. It pops on anything solid and flies past wisps. Hit it with a gust or the dash wake and it's <em>reflected</em>: it turns pale gold, speeds up to 90 px/s, can no longer hurt you, and destroys any sentry or wisp it touches. <b>Aim assist:</b> 8-direction aiming is coarse, so among the enemies in the same room that are within 45° of your gust's direction and in clear view, the orb picks the one closest to that direction and flies straight at it. With nothing in that cone, it simply follows the gust. A target sitting on top of a platform is shielded from below, so get to its height first.</p>
+    <ul>
+      <li><b>Tunables</b> (on the orb scene): <code>reflected_speed_multiplier</code>, <code>reflect_assist_degrees</code>, <code>max_lifetime</code>.</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/sentry_orb.gd</code> · Never placed by hand: sentries spawn it.</p>
+  </section>
+
+  <section class="card">
+    <h2>Adding a new enemy</h2>
+    <ul>
+      <li>Body on layer 5 ("enemies"); add layer 4 ("pushable") and the <code>pushable</code> group plus <code>receive_gust()</code> if the gust should move it.</li>
+      <li>Join <code>Room.RESETTABLE_GROUP</code> and implement <code>reset()</code>, so dying or pressing R brings it back.</li>
+      <li>Join <code>SentryOrb.TARGET_GROUP</code> with <code>get_orb_target_position()</code> and <code>is_valid_orb_target()</code> to make it a reflection target.</li>
+      <li>Follow the impact rule: no HP, outcomes come from what it's pushed into.</li>
+      <li>Add a card to this page: drawing, one paragraph, tunables.</li>
+    </ul>
+    <p class="files">Test rooms: <b>N – Enemies</b> (all three basics) and <b>O – Reflection Range</b> (ceiling sentry, hiding spot, targets at several heights). Pick them with F2.</p>
+  </section>
+</main>
+</body>
+</html>

@@ -93,10 +93,13 @@ extends Resource
 ## (the air shoved to launch you). When on, it also pushes Pushable things behind you,
 ## like a gust. Off = a plain backward puff, no push.
 @export var dash_wake_enabled: bool = true
-## Length of the wake cone, px (the gust's is 32). Same opening angle as the gust.
+## Length of the wake cone, px (the gust's is 40). Same opening angle as the gust.
 @export var dash_wake_range: float = 24.0
 ## Push strength of the wake, px/s (the gust's is 160).
 @export var dash_wake_push_strength: float = 120.0
+## Defeating a stunned enemy by dashing into it gives the dash back (and the gust's
+## down-boosts, like a wind crystal), so you can chain a kill into the next move.
+@export var dash_defeat_refills: bool = true
 
 @export_group("Air Dash: Ride the Current (experimental)")
 ## EXPERIMENT: the dash bursts out fast and eases off (same total distance), then
@@ -145,9 +148,10 @@ extends Resource
 @export var glide_overspeed_deceleration: float = 100.0
 
 @export_group("Gust")
-## Length of the gust cone from the player's center, px (GAME_DESIGN.md §5.3: ~32).
-@export var gust_range: float = 32.0
-## Half the cone's opening angle, degrees. 30 = a 60° wedge, 37 px wide at the far end.
+## Length of the gust cone from the player's center, px (GAME_DESIGN.md §5.3: ~40;
+## was 32, raised after play-testing enemies).
+@export var gust_range: float = 40.0
+## Half the cone's opening angle, degrees. 30 = a 60° wedge, 46 px wide at the far end.
 @export var gust_cone_half_angle_degrees: float = 30.0
 ## Half-width of the cone right at the player, px, so things touching the body
 ## still get hit (a pure point would miss them).
@@ -156,6 +160,13 @@ extends Resource
 @export var gust_cooldown: float = 0.6
 ## Speed the player is shoved the OPPOSITE way of the gust, px/s.
 @export var gust_recoil_speed: float = 120.0
+## Gusting while standing on the ground: the recoil is multiplied by this (0.5 = half),
+## so you can shove an enemy off a platform without shoving yourself off too.
+@export_range(0.0, 1.0) var gust_ground_recoil_multiplier: float = 0.5
+## Extra friction on that ground recoil, px/s². It brakes the shove during the
+## recoil's input lock (normally nothing slows you then). 1200 stops a 100 px/s
+## shove in ~0.08 s, after ~4 px.
+@export var gust_ground_recoil_friction: float = 1200.0
 ## Upward speed from a down-gust in mid-air ("extra jump"), px/s.
 ## It SETS the vertical speed (doesn't add to it), so it works even mid-fall.
 ## 120 under full gravity rises ~8 px; holding jump (apex half-gravity) gives a bit more.
@@ -166,7 +177,7 @@ extends Resource
 @export var gust_down_boosts_per_airtime: int = 2
 ## NEUTRAL gust (no arrow held): a burst in ALL directions instead of a cone.
 ## Radius of the circle it pushes, px. Things are pushed straight away from you.
-@export var gust_neutral_radius: float = 24.0
+@export var gust_neutral_radius: float = 28.0
 ## A neutral gust is an AIR BRAKE: for this long, gravity is off and your speed
 ## (both axes) slows toward a stop. Seconds.
 @export var gust_neutral_brake_time: float = 0.2

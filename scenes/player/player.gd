@@ -44,6 +44,9 @@ extends CharacterBody2D
 ##   func absorb_gust_recoil(direction: Vector2, strength: float) -> void
 ## See get_wind_catching_floor().
 const WIND_CATCHER_METHOD: StringName = &"absorb_gust_recoil"
+## The group the player joins, so enemies (Sentry) can find it without a NodePath:
+## get_tree().get_first_node_in_group(Player.GROUP).
+const GROUP: StringName = &"player"
 
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
@@ -80,6 +83,7 @@ var last_diagonal_msec: int = -100000
 
 
 func _ready() -> void:
+	add_to_group(GROUP)
 	# _ready() runs after all children are ready, so the states exist now.
 	state_machine.setup(self)
 

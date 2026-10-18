@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/enemies/sentry_orb.gd" id="1_script"]
+
+[node name="SentryOrb" type="Area2D"]
+script = ExtResource("1_script")
