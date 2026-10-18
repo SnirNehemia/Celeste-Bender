@@ -111,7 +111,7 @@ Slow motion should slow enemies, projectiles and objects, but the shadow and the
 
 ## 7. Move 3 — Earth Snake (D)
 
-**Flow:** press D → shadow (§4) → **press D again and hold** → a ribbon of earth emerges at the shadow and you **steer it with the arrow keys** → **release D** → it hardens.
+**Flow:** hold D → shadow (§4) → **release D** → a ribbon of earth emerges at the shadow and you **steer it with the arrow keys** → **press D again** → it hardens. (Changed in Stage E0 to match Column and Boulder, see §11.)
 
 - **Steering:** the head moves at **80 px/s** on the tile grid and turns in 4 directions. It can't reverse back onto itself.
 - **Earth budget:**
@@ -164,12 +164,30 @@ The goal is to *show energy traveling through the earth* from the player to the 
   6. Cracked walls and enemy interactions
   7. The 5 chapter rooms
 - Follow the same architecture as Air: each move is a separate ability component, and the shadow/targeting logic is shared by all three.
-- Don't build anything from §11.
+- Don't build anything from §12.
 - If a rule here would feel bad in play or conflicts with existing code, say so and propose an alternative before building.
 
 ---
 
-## 11. Ideas parking lot (not to be built yet)
+## 11. Decided in Stage E0
+
+These rules were agreed when planning the build. Where they differ from the sections above, this list wins.
+
+- **Keys:** the WASD movement alternates are removed, so A/S/D are free for Earth. Movement is arrows only.
+- **Air in the Earth chapter:** rooms declare which elements are allowed. Earth rooms 1–5 are Earth-only (dash, glide and gust do nothing), so their puzzles can't be skipped with Air. Mixed rooms come later.
+- **Shadow path:** the shadow travels along the exposed *faces* of earth tiles (a tile plus the side that touches open air). That's what lets it wrap inner and outer corners. A corner tile has two faces but one fresh/used state.
+- **Real time:** the shadow and the snake head move in real time, and are drawn every rendered frame, so they stay smooth while physics is slowed to 0.3×.
+- **Cancel:** cancelling with Jump uses up that press, so the player doesn't also jump.
+- **Column bounces:** the player goes into a `Launched` state with a short steering lock. Sideways launches get a small upward component, like Celeste's side springs; otherwise normal air control eats the 220 px/s within about 0.2 s.
+- **Boulder pop:** on every surface the boulder eases out about 22 px, hangs briefly, then falls. The "peak" in §6 is that hang moment, about 0.22 s after the pop, so throw timing is the same from floors, walls and ceilings. Slow motion ends when S is released, and the throw is timed in game time. The player stays rooted until the throw or the 1.0 s timeout.
+- **Boulder tiles:** a boulder uses the shadow's tile and the tile before it on the path.
+- **Boulder impacts:** a thrown boulder sticks into *any* earth face, floors included. A boulder that's never thrown always shatters.
+- **Snake controls:** hold D for the shadow, release D and the snake emerges and you steer it, press D again to harden it. It also hardens on its own when the budget runs out, the head hits something solid (or the player), or 2.5 s pass.
+- **Snake speed:** 80 px/s in real time (at 0.3× game speed it would crawl at 24 px/s).
+
+---
+
+## 12. Ideas parking lot (not to be built yet)
 
 Unconfirmed ideas go here so they're written down but not built.
 

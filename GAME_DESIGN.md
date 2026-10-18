@@ -34,7 +34,7 @@ Mouse is not needed. Celeste-style 8-direction aiming with the arrow keys is mor
 
 | Action | Key | Notes |
 |---|---|---|
-| Move / aim | Arrow keys (WASD as alternate) | Aim direction for dash and gust = held arrows (8 directions) |
+| Move / aim | Arrow keys | Aim direction for dash and gust = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S/D are the Earth keys (`Earth_bending.md` §3) |
 | Jump | **C** (Space as alternate) | Hold for higher jump; hold while falling = glide |
 | Air Dash | **X** | |
 | Gust | **Z** | |
@@ -201,7 +201,7 @@ Real art, music/sound, story, menus beyond pause/restart, save files, gamepad, o
 
 ## 11. Later elements (leave room in the code, don't build)
 
-- **Earth:** raise pillars as platforms, throw boulders, break walls.
+- **Earth:** now specified in `Earth_bending.md` (its own chapter: column, boulder, snake) and planned as Stages E1–E7 in `PROMPTS.md`.
 - **Water:** surf on streams, freeze water into ice platforms, water whip.
 - **Fire:** jet boost, burn vines/obstacles, fireballs.
 
