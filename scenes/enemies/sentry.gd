@@ -35,6 +35,10 @@ const EYE_CHARGED_COLOR: Color = Color(1.0, 0.6, 0.15)
 ## Preloaded once: the orb scene to instance for every shot.
 const ORB_SCENE: PackedScene = preload("res://scenes/enemies/sentry_orb.tscn")
 
+## Emitted once when a reflected orb destroys the sentry. Same name as Wisp.defeated,
+## so EnemyGate can treat every enemy the same way (duck typing).
+signal defeated
+
 ## Hang from the ceiling (origin = top-center) instead of sitting on the floor.
 @export var mounted_on_ceiling: bool = false:
 	set(value):
@@ -162,6 +166,7 @@ func destroy() -> void:
 	_spawn_burst()
 	FX.freeze(0.06)
 	FX.shake(3.0, 0.2)
+	defeated.emit()
 
 
 ## Called by Room.reset_objects() when the player dies or restarts the room.

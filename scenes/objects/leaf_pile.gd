@@ -359,7 +359,13 @@ func _kick_from_moving_bodies() -> bool:
 			continue  # a plain room solid: never moves
 		var door: Door = body as Door
 		# A door doesn't move, it changes size; anything else, compare positions.
-		var state: Variant = door.open_amount if door != null else body.global_position
+		# (if/else, not a ternary: the two values have different types, float and
+		# Vector2, and debug builds reject a ternary whose branches don't match.)
+		var state: Variant
+		if door != null:
+			state = door.open_amount
+		else:
+			state = body.global_position
 		var body_id: int = body.get_instance_id()
 		current_states[body_id] = state
 		if last_body_states.get(body_id) != state:

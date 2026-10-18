@@ -5,6 +5,11 @@ Instructions for Claude Code working on this project. Read this and `GAME_DESIGN
 ## Project in one line
 A Celeste-style precision platformer where the hero is an air-bender. Current goal: **Milestone 1 — Air vertical slice** (5 rooms, placeholder shapes). Full spec in `GAME_DESIGN.md`.
 
+## Design docs
+- `GAME_DESIGN.md` — core game, movement, Air chapter
+- `Earth_bending.md` — Earth chapter (separate keys A/S/D; later puzzles may mix Earth and Air). Read it for any stage starting with **E**.
+- Each design doc may end with an "Ideas parking lot". Never build items from it unless I ask.
+
 ## About the developer
 - Experienced in Python/PyTorch and ML, **new to Godot and GDScript**.
 - Wants to *understand* the code, not just run it. After each change, explain what you did and why in 3–6 short bullets, and name any Godot concept involved (signals, nodes/scenes, `_physics_process`, autoloads, resources, InputMap…) in one sentence each the first time it appears.
@@ -58,6 +63,9 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
 - Otherwise, from the project folder:
   - `godot --headless --path . --import` — imports assets and surfaces parse errors in scripts
   - `godot --headless --check-only --script res://path/to/file.gd` — checks one script
+    (scripts that use the autoloads `GameState`/`FX` falsely report "Identifier not found" in this mode; a real run is the true check)
+  - `godot --headless --path . res://tests/world_smoke_test.tscn` — visits rooms 1–7, checks the room 5 gate and the end screen, prints PASS/FAIL
+  - `godot --headless --path . res://tools/build_rooms.tscn` — regenerates rooms 1–7 from `tools/build_rooms.gd` (**overwrites editor edits**; add `-- 6 7` to rebuild only those rooms)
   - `godot --path .` — runs the game (I'll play-test and report back)
 - Use `print()` with a clear prefix (e.g. `[Dash]`) for temporary debugging, and remove it once the feature works.
 

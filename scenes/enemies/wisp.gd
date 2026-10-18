@@ -38,6 +38,10 @@ extends CharacterBody2D
 
 enum State { PATROL, STUNNED, DEFEATED }
 
+## Emitted once when the wisp is defeated (by spikes, a pit, a dash or a reflected
+## orb). EnemyGate listens to it to open "beat every enemy" doors.
+signal defeated
+
 ## Purple, per the color key (GAME_DESIGN.md §2). Pale purple while stunned.
 const BODY_COLOR: Color = Color(0.62, 0.3, 0.85)
 const STUNNED_COLOR: Color = Color(0.82, 0.7, 0.92)
@@ -69,9 +73,9 @@ const DIZZY_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
 ## Fraction of the gust's push turned into upward speed when gusted from below.
 @export var upward_push_multiplier: float = 0.8
 ## Seconds stunned after a gust.
-@export var stun_time: float = 1.0
+@export var stun_time: float = 1.5
 ## Seconds stunned after being slammed into a wall (counted from the slam).
-@export var wall_slam_stun_time: float = 2.0
+@export var wall_slam_stun_time: float = 2.5
 ## Hitting a wall slower than this (px/s) doesn't count as a slam.
 @export var wall_slam_min_speed: float = 60.0
 ## If it falls this far below where it was placed (a pit), it's defeated.
@@ -243,6 +247,7 @@ func defeat() -> void:
 	collision_layer = 0
 	_spawn_burst()
 	FX.shake(2.0, 0.12)
+	defeated.emit()
 
 
 ## SentryOrb aim assist: where a reflected orb should fly to hit us.

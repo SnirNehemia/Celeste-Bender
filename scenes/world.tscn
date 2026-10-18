@@ -1,0 +1,57 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
+[ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="3_player"]
+[ext_resource type="PackedScene" path="res://scenes/ui/debug_overlay.tscn" id="4_debug"]
+[ext_resource type="PackedScene" path="res://scenes/ui/room_picker.tscn" id="5_picker"]
+[ext_resource type="PackedScene" path="res://scenes/ui/end_screen.tscn" id="6_end"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_01.tscn" id="7_room1"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_02.tscn" id="8_room2"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_03.tscn" id="9_room3"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_04.tscn" id="10_room4"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_05.tscn" id="11_room5"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_06.tscn" id="12_room6"]
+[ext_resource type="PackedScene" path="res://scenes/rooms/room_07.tscn" id="13_room7"]
+
+[node name="World" type="Node2D" node_paths=PackedStringArray("player", "camera")]
+editor_description = "The Milestone 1 game: rooms 1-7 in a row, left to right. Each room is its own scene (scenes/rooms/room_0X.tscn): double-click one to edit it. Rooms must touch edge to edge, with matching gaps in their walls."
+script = ExtResource("1_manager")
+player = NodePath("Player")
+camera = NodePath("RoomCamera")
+
+[node name="Room01" parent="." instance=ExtResource("7_room1")]
+
+[node name="Room02" parent="." instance=ExtResource("8_room2")]
+position = Vector2(480, 0)
+
+[node name="Room03" parent="." instance=ExtResource("9_room3")]
+position = Vector2(1120, 0)
+
+[node name="Room04" parent="." instance=ExtResource("10_room4")]
+position = Vector2(1600, 0)
+
+[node name="Room05" parent="." instance=ExtResource("11_room5")]
+position = Vector2(2240, 0)
+
+[node name="Room06" parent="." instance=ExtResource("12_room6")]
+position = Vector2(2720, 0)
+
+[node name="Room07" parent="." instance=ExtResource("13_room7")]
+position = Vector2(3520, 0)
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+position = Vector2(24, 152)
+
+[node name="RoomCamera" type="Camera2D" parent="."]
+script = ExtResource("2_camera")
+
+[node name="DebugOverlay" parent="." node_paths=PackedStringArray("player") instance=ExtResource("4_debug")]
+visible = false
+player = NodePath("../Player")
+
+[node name="RoomPicker" parent="." node_paths=PackedStringArray("room_manager") instance=ExtResource("5_picker")]
+room_manager = NodePath("..")
+
+[node name="EndScreen" parent="." node_paths=PackedStringArray("player") instance=ExtResource("6_end")]
+player = NodePath("../Player")

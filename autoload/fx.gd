@@ -10,8 +10,12 @@ extends Node
 ## Who calls it: AirDashAbility, GustAbility, the GustAim state (slow motion);
 ## enemy hits and death later.
 ##
-## Freeze and slow motion both use Engine.time_scale. A freeze goes back to the
-## slow-motion speed (not straight to 1.0) when it ends, so they don't fight.
+## Freeze PAUSES the scene tree (get_tree().paused); slow motion uses
+## Engine.time_scale. They're separate switches, so they never fight.
+## Why not freeze with time_scale = 0? Physics frames keep running with delta = 0,
+## and a moving platform (AnimatableBody2D: sail, leaf) computes its velocity as
+## motion / delta = 0 / 0 = NaN. A player standing on it got a NaN position and
+## the screen went blank. A paused tree runs no physics frames at all.
 ## No class_name on purpose (the autoload name `FX` is already global).
 
 ## Current shake strength in pixels (max offset). Fades to 0 over the shake duration.
@@ -21,7 +25,7 @@ var shake_start_strength: float = 0.0
 ## Seconds of shake left / total, for the linear fade.
 var shake_time_remaining: float = 0.0
 var shake_total_time: float = 0.0
-## True while a freeze is running, so overlapping freezes don't restore time too early.
+## True while a freeze is running, so overlapping freezes don't unpause too early.
 var is_frozen: bool = false
 ## The game speed when not frozen: 1.0 normally, lower during slow motion.
 var slow_motion_scale: float = 1.0
@@ -40,19 +44,21 @@ func shake(strength: float, duration: float) -> void:
 	shake_time_remaining = duration
 
 
-## Freeze frames: stops game time for `seconds` (real time), then resumes.
-## Engine.time_scale scales the `delta` every node receives AND how often physics
-## ticks; at 0, nothing that uses delta moves — the whole game holds still.
+## Freeze frames: stops the game for `seconds` (real time), then resumes.
+## get_tree().paused = true stops _process/_physics_process (and physics itself)
+## for every node whose process_mode is PAUSABLE, the default: the whole game
+## holds still, exactly like the F2 room picker does.
 func freeze(seconds: float) -> void:
-	if is_frozen:
+	# Already frozen, or the game is paused by a menu: don't touch the pause.
+	if is_frozen or get_tree().paused:
 		return
 	is_frozen = true
-	Engine.time_scale = 0.0
+	get_tree().paused = true
 	# create_timer(time, process_always, process_in_physics, ignore_time_scale):
-	# the last `true` makes this timer count REAL seconds, otherwise it would
-	# be frozen by the very time_scale it is supposed to restore.
+	# process_always = true keeps it counting while the tree is paused, and
+	# ignore_time_scale = true makes it count REAL seconds even in slow motion.
 	await get_tree().create_timer(seconds, true, false, true).timeout
-	Engine.time_scale = slow_motion_scale
+	get_tree().paused = false
 	is_frozen = false
 
 
@@ -63,8 +69,7 @@ func set_slow_motion(time_scale: float, max_real_seconds: float) -> void:
 	slow_motion_scale = time_scale
 	slow_motion_id += 1
 	var my_id: int = slow_motion_id
-	if not is_frozen:
-		Engine.time_scale = slow_motion_scale
+	Engine.time_scale = slow_motion_scale
 	# Real-time timer (last argument): it isn't slowed down by the slow motion itself.
 	await get_tree().create_timer(max_real_seconds, true, false, true).timeout
 	# Only clear if no newer set/clear happened in the meantime.
@@ -76,12 +81,11 @@ func set_slow_motion(time_scale: float, max_real_seconds: float) -> void:
 func clear_slow_motion() -> void:
 	slow_motion_scale = 1.0
 	slow_motion_id += 1
-	if not is_frozen:
-		Engine.time_scale = 1.0
+	Engine.time_scale = 1.0
 
 
-## _process runs every rendered frame. During a freeze delta is 0, so the shake
-## simply holds and continues afterwards.
+## _process runs every rendered frame. During a freeze this node is paused too
+## (it's PAUSABLE), so the shake simply holds and continues afterwards.
 func _process(delta: float) -> void:
 	var camera: Camera2D = get_viewport().get_camera_2d()
 	if camera == null:

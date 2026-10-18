@@ -10,7 +10,8 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
-- [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [ ] 9 · [ ] 10
+- [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
+- Earth chapter: [ ] E0 (plan) — E1+ added by Claude Code in Stage E0
 
 ---
 
@@ -68,6 +69,13 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 
 ## Stage 10 — Polish pass
 > Go through GAME_DESIGN.md §9 and add anything missing: squash and stretch, dust particles, land/jump/wall-jump effects, death burst. Add pause (Esc) and a play_sfx() hook that does nothing yet. Check the project for errors, remove leftover debug prints, and list anything from §12 that's still not met.
+
+---
+
+## Earth chapter
+
+## Stage E0 — Plan the Earth chapter
+> Read Earth_bending.md, CLAUDE.md and GAME_DESIGN.md, then look at how the Air abilities, PlayerTuning, tiles and room reset are currently built. Don't write game code yet. Propose an implementation plan for Earth as sub-stages (E1, E2, …) following Earth_bending.md §10, including any refactors needed so Air and Earth abilities can coexist later. Flag any rule in the spec that conflicts with the current code or that you expect to feel bad. After I approve, append each sub-stage to this file in the same format as the other stages (prompt + what I should see) and add them to the Progress list.
 
 ---
 

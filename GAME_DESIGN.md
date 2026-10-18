@@ -117,7 +117,7 @@ Each ability lists its movement, puzzle and combat use.
   - **Leaf platforms** travel to the far end of their rail (any gust, from any side, always the same way), wait, then slowly drift home.
   - **Sail platforms** move along their rail in the gust's direction (only the part along the rail counts) and coast to a stop.
   - **Leaf piles** blow away (cosmetic, see §6).
-  - **Enemies** are knocked back and stunned for 1 s.
+  - **Enemies** are knocked back and stunned for 1.5 s.
   - **Projectiles** are reflected.
 - **Movement:** down-gust as an extra jump; side-gust to adjust mid-air.
 - **Puzzle:** move crates onto pressure plates, spin windmills, raise leaf platforms.
@@ -140,6 +140,9 @@ Each ability lists its movement, puzzle and combat use.
 | Sail platform | One-way deck with mast and sail on a visible rail. Moves **in the wind's direction**: gusts shove it (only the part along the rail counts), wind zones carry it. Standing on the deck: sideways gusts have **no recoil** (the sail takes the shove, so you can blow your own boat) and wind zones don't push you along the deck. Decorative railings mark the deck ends. Jumping off keeps the sail's speed. |
 | Leaf pile | Cosmetic mound of loose leaves drawn in front of other objects, so it can **hide a plate or a secret path**. Gusts blow away the leaves near you; the player or a crate moving through kicks them up. Leaves flutter down slowly, swinging left-right like a pendulum, land on any solid, ride along on moving things, fall again if their support goes away, and pop out if something slides over them. |
 | Door | Opens/closes based on its linked switch(es): *any* or *all* of them, optionally inverted. Won't close on the player or a crate. |
+| No-glide zone ("dead air") | Mauve, hatched rectangle with sinking specks. Gliding can't start inside it, and a glide that drifts in ends at once. Jump, dash and gust still work, so it turns a float-over into a dash or down-gust pass (rooms 2, 4, 5, 7). |
+| Enemy gate | A switch that turns on once every enemy linked to it is defeated (room 5's exit). A row of pips shows each linked enemy: purple alive, green beaten. Resets with the room. |
+| Goal | Green exit area in the last room. Touching it ends the run and shows the end screen (deaths, time). |
 | Checkpoint / room entry | Player respawns at the last entered room's spawn point |
 
 Linking: switches emit signals; doors listen. Links are set in the editor with exported node paths, so rooms can be wired by hand. In the editor, doors draw dashed lines to their switches.
@@ -150,13 +153,13 @@ Linking: switches emit signals; doors listen. Links are set in the editor with e
 
 ## 7. Enemies (slice only needs two)
 
-- **Wisp** — patrols back and forth on a platform; touching it kills the player. Gust stuns it for 1 s; dashing into a stunned wisp, or knocking it into spikes, defeats it.
+- **Wisp** — patrols back and forth on a platform; touching it kills the player. Gust stuns it for 1.5 s; dashing into a stunned wisp, or knocking it into spikes, defeats it.
 - **Sentry** — stationary; fires a slow orange orb toward the player every 2 s when in line of sight (eye glows 0.4 s before each shot). Can hang from the ceiling (`mounted_on_ceiling`); with `can_fire` off it's a passive practice target. Gust reflects orbs (gold, 1.5× speed, harmless to the player); a reflected orb destroys a sentry or defeats a wisp. **Aim assist:** a reflected orb flies straight at the enemy closest to the gust's direction, within 45°, in the same room and in clear view.
 
 Full enemy reference with animated drawings: `ENEMIES.html`.
 
 **Impact rule (no HP):** the gust (and dash wake) deal no damage, only push. What a pushed enemy *hits* decides the outcome:
-- slammed into a **wall** or solid → stunned longer (e.g. 2 s instead of 1 s)
+- slammed into a **wall** or solid → stunned longer (2.5 s instead of 1.5 s)
 - knocked into **spikes** → defeated
 - a **stunned** enemy hit by a dash → defeated
 
@@ -174,7 +177,10 @@ Each room teaches one thing, then tests it.
 4. **"Gust Works"** — puzzle room: gust a crate onto a plate to open a door; spin a windmill to hold a gate open while you dash through; raise a leaf platform to reach the exit.
 5. **"Sentry Pass"** — combat room: two wisps over a spike floor and one sentry guarding the exit. Requires down-gust jumps, reflecting an orb, and a dash finish.
 
-A simple end screen shows deaths and time.
+6. **"Sail Under Fire"** — ride a sail platform across a long spike pit, pushing it with your own gusts (no recoil on deck) while two ceiling sentries and a dock sentry shoot at you. Two **thorn crowns** (spiked pillars sticking up through the rail) block the deck: jump each one as the boat slides under it and land back on board.
+7. **"The Gauntlet"** — the hard finale: race a windmill gate through a crystal chain in a head-wind, climb with down-gusts under sentry fire, slip past a wisp to the goal.
+
+A simple end screen shows deaths and time (the goal is at the end of room 7).
 
 ---
 

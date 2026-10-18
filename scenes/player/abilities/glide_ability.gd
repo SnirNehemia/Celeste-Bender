@@ -15,7 +15,9 @@ extends Node2D
 ##       during: a steady jet of air particles under the feet, plus curved "cupped"
 ##               gust arcs that peel off downward
 ##   - the vertical speed the glide aims for (normal glide, or lift in an updraft)
-##
+##   - NO-GLIDE ZONES (NoGlideZone, "dead air"): can_glide() is false while the
+##     player is inside one, so a glide can't start there and one in progress ends
+####
 ## The glide MOVEMENT is the `Glide` state (states/glide.gd), same split as the dash:
 ## states own movement, abilities own resources and effects.
 ##
@@ -80,8 +82,19 @@ func _physics_process(delta: float) -> void:
 
 # --- Stamina -----------------------------------------------------------------
 
+## The one question every glide check asks: starting a glide (Player.wants_to_glide)
+## and keeping it going (the Glide state) both go through here.
 func can_glide() -> bool:
-	return stamina_remaining > 0.0
+	return stamina_remaining > 0.0 and not is_in_no_glide_zone()
+
+
+## True while the player's center is inside any NoGlideZone ("dead air").
+func is_in_no_glide_zone() -> bool:
+	var player_center: Vector2 = player.get_center()
+	for zone: Node in get_tree().get_nodes_in_group(NoGlideZone.GROUP):
+		if (zone as NoGlideZone).contains_point(player_center):
+			return true
+	return false
 
 
 ## Fills the bar. Returns true if anything was restored (a wind crystal is only
@@ -141,6 +154,10 @@ func end_glide() -> void:
 	is_gliding = false
 	# Stop emitting; particles already in the air finish their life naturally.
 	cushion_particles.emitting = false
+	# Cut off by dead air: a little puff scattering upward, so the drop reads as
+	# "the air gave way", not as a missed key press.
+	if is_in_no_glide_zone():
+		_spawn_air_puff(player.global_position, Vector2.UP)
 
 
 # --- Drawing -----------------------------------------------------------------

@@ -5,15 +5,18 @@ extends Node2D
 ## A room is just a rectangle in world space plus its contents:
 ##   - bounds:       starts at this node's position, size `room_size`
 ##   - SpawnPoint:   a Marker2D child; the player respawns here after dying in this room
-##   - solids:       built from `solid_rects` (an editable list in the Inspector)
-##   - anything else (spikes, later crates, enemies...) as child nodes
+##   - solids:       a TileMapLayer child named "Tiles" (the real rooms, room_01..05),
+##                   painted with resources/tiles/placeholder_tileset.tres. The
+##                   tileset gives every tile collision on layer 1 ("world"), so the
+##                   TileMapLayer IS the ground; this script doesn't need to touch it.
+##                   Older test rooms instead list `solid_rects` (an editable list in
+##                   the Inspector), turned into blocks in _ready(). Both can be mixed.
+##   - anything else (spikes, crates, enemies...) as child nodes
 ##
 ## Rooms are placed next to each other in one world scene. "Exits" are simply openings
 ## in the walls: walking through one puts the player inside the neighbouring room's
 ## bounds, and RoomManager (the world's root script) notices and slides the camera over.
 ## Rooms don't know about each other or the camera; RoomManager does all of that.
-##
-## Stage 9 replaces `solid_rects` with a TileMapLayer for real level editing.
 ##
 ## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
 ## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
@@ -31,7 +34,7 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## bigger rooms make the camera scroll inside them.
 @export var room_size: Vector2 = Vector2(320, 180)
 ## Solid blocks, in pixels, relative to the room's top-left corner. Each Rect2 is
-## (x, y, width, height). Edit the list in the Inspector to reshape the room.
+## (x, y, width, height). Used by the test rooms; new rooms paint a TileMapLayer instead.
 @export var solid_rects: Array[Rect2] = []
 
 @onready var spawn_point: Marker2D = $SpawnPoint

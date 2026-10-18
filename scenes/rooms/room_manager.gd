@@ -67,7 +67,8 @@ func _physics_process(_delta: float) -> void:
 
 ## _unhandled_input receives key presses not already used by UI.
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("restart_room") and not is_transitioning:
+	# After the Goal the run is over: R must not add a death to the final score.
+	if event.is_action_pressed("restart_room") and not is_transitioning and not GameState.is_run_finished:
 		player.die()
 
 
