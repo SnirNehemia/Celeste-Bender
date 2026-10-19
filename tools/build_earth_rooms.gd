@@ -9,36 +9,82 @@ extends Node
 ##                                          The picture is stored INSIDE the .tres
 ##                                          (an ImageTexture), so no PNG import step.
 ##                                          Only written when missing.
+##   - resources/tiles/grass_tileset.tres  the grass tiles (8x8, green: a "top" tile
+##                                          with bright blades and a plain one),
+##                                          solid on layer 1. Same storage. Only
+##                                          written when missing.
 ##   - tests/rooms/room_earth_a.tscn        Stage E1/E2 test room (see _build_room_earth_a)
+##   - tests/rooms/room_earth_b.tscn        Stage E3 column test room (_build_room_earth_b)
+##   - tests/rooms/room_mixed_a.tscn        Air + Earth together (_build_room_mixed_a)
+##   - tests/rooms/room_mixed_b.tscn        Air + Earth vs enemies (_build_room_mixed_b)
+##                                          Both mixed rooms are in tests/mixed_test_world.tscn.
+##
+## Three kinds of solid ground (Earth_bending.md §2, §11):
+##   earth  (layer "Earth", EarthLayer script) bendable once; the shadow crawls over it
+##   grass  (layer "Grass", GrassLayer script) not bendable, but the shadow crawls
+##          over it. The usual ground of Earth rooms. Blades on top sway with wind,
+##          gusts and the player.
+##   gray   (layer "Tiles")         not bendable and BLOCKS the shadow. Used sparingly,
+##          e.g. under spikes, so a bend can't reach across a spike pit.
 ##
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_earth_rooms.tscn
-## Running it again OVERWRITES the test room (not the tileset). Once you edit a room
-## in the editor, edit it there instead.
+## Running it again OVERWRITES the test rooms (not the tileset). Once you edit a room
+## in the editor, edit it there instead. Pass room names after `--` to build only
+## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, mixed_a, mixed_b).
 ##
 ## Layout units: tiles (8 px), (column, row) from the room's top-left tile.
 
 const TILE: int = 8
 const EARTH_TILESET_PATH: String = "res://resources/tiles/earth_tileset.tres"
 const GRAY_TILESET_PATH: String = "res://resources/tiles/placeholder_tileset.tres"
+const GRASS_TILESET_PATH: String = "res://resources/tiles/grass_tileset.tres"
 ## Atlas coordinates of the gray tiles (see build_rooms.gd).
 const TILE_PLAIN: Vector2i = Vector2i(0, 0)
 const TILE_TOP_EDGE: Vector2i = Vector2i(1, 0)
 ## The single earth tile in the earth tileset.
 const TILE_EARTH: Vector2i = Vector2i(0, 0)
+## Grass tileset atlas: a top tile (open air above: bright blades) and a plain one.
+const TILE_GRASS_TOP: Vector2i = Vector2i(0, 0)
+const TILE_GRASS_PLAIN: Vector2i = Vector2i(1, 0)
+## Grass colors: bright blades (the same green as the moving blades), the green body,
+## and darker speckles.
+const GRASS_BLADE_COLOR: Color = GrassLayer.BLADE_COLOR
+const GRASS_BODY_COLOR: Color = Color(0.25, 0.46, 0.22)
+const GRASS_SPECK_COLOR: Color = Color(0.19, 0.36, 0.17)
+## Kinds of cell, for cell_kinds.
+enum Kind { GRAY, EARTH, GRASS }
 
 const ROOM_SCRIPT: Script = preload("res://scenes/rooms/room_base.gd")
 const EARTH_LAYER_SCRIPT: Script = preload("res://scenes/objects/earth/earth_layer.gd")
+const GRASS_LAYER_SCRIPT: Script = preload("res://scenes/objects/earth/grass_layer.gd")
+const SPIKES_SCENE: PackedScene = preload("res://scenes/objects/spikes.tscn")
+const CRATE_SCENE: PackedScene = preload("res://scenes/objects/crate.tscn")
+const WISP_SCENE: PackedScene = preload("res://scenes/enemies/wisp.tscn")
+const CRYSTAL_SCENE: PackedScene = preload("res://scenes/objects/wind_crystal.tscn")
+const WIND_ZONE_SCENE: PackedScene = preload("res://scenes/objects/wind_zone.tscn")
+const SENTRY_SCENE: PackedScene = preload("res://scenes/enemies/sentry.tscn")
+## Spikes.Facing value for spikes sitting on a floor (see spikes.gd).
+const FACING_UP: int = 0
 
-## Room being built and its cells: gray solids and earth (Dictionaries used as sets).
+## Room being built, and its solid cells: Vector2i cell -> Kind.
 var room: Room
-var gray_cells: Dictionary = {}
-var earth_cells: Dictionary = {}
+var cell_kinds: Dictionary = {}
 
 
 func _ready() -> void:
 	_load_or_create_earth_tileset()
-	_build_room_earth_a()
+	_load_or_create_grass_tileset()
+	# Command-line arguments after `--` pick rooms; none = build them all.
+	var wanted: PackedStringArray = OS.get_cmdline_user_args()
+	if wanted.is_empty() or wanted.has("earth_a"):
+		_build_room_earth_a()
+	if wanted.is_empty() or wanted.has("earth_b"):
+		_build_room_earth_b()
+	if wanted.is_empty() or wanted.has("mixed_a"):
+		_build_room_mixed_a()
+	if wanted.is_empty() or wanted.has("mixed_b"):
+		_build_room_mixed_b()
 	print("[BuildEarthRooms] Done.")
 	get_tree().quit()
 
@@ -84,6 +130,48 @@ func _load_or_create_earth_tileset() -> void:
 	print("[BuildEarthRooms] Wrote %s" % EARTH_TILESET_PATH)
 
 
+## The grass pictures, side by side in one 16x8 image: [top tile | plain tile].
+## Top: two rows of bright blades over the green body. Plain: green with speckles.
+func _make_grass_image() -> Image:
+	var image: Image = Image.create(TILE * 2, TILE, false, Image.FORMAT_RGBA8)
+	image.fill(GRASS_BODY_COLOR)
+	for x: int in TILE:
+		image.set_pixel(x, 0, GRASS_BLADE_COLOR)
+		image.set_pixel(x, 1, GRASS_BLADE_COLOR)
+	# A few blades poking a pixel lower, so the edge isn't a ruler-straight line.
+	for x: int in [1, 4, 6]:
+		image.set_pixel(x, 2, GRASS_BLADE_COLOR)
+	for pixel: Vector2i in [Vector2i(2, 5), Vector2i(6, 6), Vector2i(4, 4)]:
+		image.set_pixelv(pixel, GRASS_SPECK_COLOR)
+	for pixel: Vector2i in [Vector2i(1, 1), Vector2i(5, 2), Vector2i(2, 5), Vector2i(6, 6), Vector2i(3, 4)]:
+		image.set_pixelv(pixel + Vector2i(TILE, 0), GRASS_SPECK_COLOR)
+	return image
+
+
+func _load_or_create_grass_tileset() -> void:
+	if ResourceLoader.exists(GRASS_TILESET_PATH):
+		return
+	var new_tile_set: TileSet = TileSet.new()
+	new_tile_set.tile_size = Vector2i(TILE, TILE)
+	new_tile_set.add_physics_layer()
+	new_tile_set.set_physics_layer_collision_layer(0, 1)  # layer 1, "world"
+	new_tile_set.set_physics_layer_collision_mask(0, 0)
+	var source: TileSetAtlasSource = TileSetAtlasSource.new()
+	source.texture = ImageTexture.create_from_image(_make_grass_image())
+	source.texture_region_size = Vector2i(TILE, TILE)
+	new_tile_set.add_source(source, 0)
+	var half: float = TILE / 2.0
+	for atlas_coords: Vector2i in [TILE_GRASS_TOP, TILE_GRASS_PLAIN]:
+		source.create_tile(atlas_coords)
+		var tile_data: TileData = source.get_tile_data(atlas_coords, 0)
+		tile_data.add_collision_polygon(0)
+		tile_data.set_collision_polygon_points(0, 0, PackedVector2Array([
+			Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half),
+		]))
+	ResourceSaver.save(new_tile_set, GRASS_TILESET_PATH)
+	print("[BuildEarthRooms] Wrote %s" % GRASS_TILESET_PATH)
+
+
 # --- Building blocks -------------------------------------------------------------
 
 func _begin_room(node_name: String, title: String, description: String) -> void:
@@ -91,8 +179,7 @@ func _begin_room(node_name: String, title: String, description: String) -> void:
 	room.display_title = title
 	room.room_size = Vector2(320, 180)
 	room.editor_description = description
-	gray_cells.clear()
-	earth_cells.clear()
+	cell_kinds.clear()
 
 
 func _new_room(node_name: String) -> Room:
@@ -102,46 +189,113 @@ func _new_room(node_name: String) -> Room:
 	return root as Room
 
 
-## Gray rock rectangle (column, row, width, height). Erases earth there.
+## Rectangles (column, row, width, height) of one kind; each replaces whatever was
+## painted there before.
+## Gray rock: blocks the bend shadow.
 func _gray(column: int, row: int, width: int, height: int) -> void:
-	for x: int in range(column, column + width):
-		for y: int in range(row, row + height):
-			gray_cells[Vector2i(x, y)] = true
-			earth_cells.erase(Vector2i(x, y))
+	_paint(Kind.GRAY, column, row, width, height)
 
 
-## Earth rectangle (column, row, width, height). Replaces gray there.
+## Earth: bendable.
 func _earth(column: int, row: int, width: int, height: int) -> void:
+	_paint(Kind.EARTH, column, row, width, height)
+
+
+## Grass: plain ground the shadow can cross.
+func _grass(column: int, row: int, width: int, height: int) -> void:
+	_paint(Kind.GRASS, column, row, width, height)
+
+
+## Open air (pits): erases whatever was there.
+func _open(column: int, row: int, width: int, height: int) -> void:
 	for x: int in range(column, column + width):
 		for y: int in range(row, row + height):
-			earth_cells[Vector2i(x, y)] = true
-			gray_cells.erase(Vector2i(x, y))
+			cell_kinds.erase(Vector2i(x, y))
+
+
+func _paint(kind: Kind, column: int, row: int, width: int, height: int) -> void:
+	for x: int in range(column, column + width):
+		for y: int in range(row, row + height):
+			cell_kinds[Vector2i(x, y)] = kind
+
+
+## The usual frame of a one-screen room in grass: ceiling, side walls, 3-row floor body.
+func _grass_frame() -> void:
+	_grass(0, 0, 40, 1)
+	_grass(0, 0, 1, 23)
+	_grass(39, 0, 1, 23)
+	_grass(0, 20, 40, 3)
+
+
+## A spike pit `width` tiles wide from `column`, cut into the floor (rows 20-21),
+## with spikes on its bottom and GRAY rock under them: the bend shadow can wrap
+## down into the pit but not cross it, so you can't raise a column on the far side.
+func _spike_pit(node_name: String, column: int, width: int) -> void:
+	_open(column, 20, width, 2)
+	_gray(column, 22, width, 1)
+	_spikes(node_name, column, 21, width)
+
+
+## Instances a scene as a child of the room and sets its properties (same as
+## build_rooms.gd). `owner` must be the room root, or pack() would leave it out.
+func _add(scene: PackedScene, node_name: String, position_px: Vector2, properties: Dictionary = {}) -> Node2D:
+	# GEN_EDIT_STATE_INSTANCE = instance it the way the editor does, so pack() saves
+	# only the properties we change, not a full copy of the object.
+	var node: Node2D = scene.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE) as Node2D
+	node.name = node_name
+	node.position = position_px
+	for property: String in properties:
+		node.set(property, properties[property])
+	room.add_child(node)
+	node.owner = room
+	return node
+
+
+## A strip of up-facing spikes starting at tile (column, row), `count` tiles long.
+func _spikes(node_name: String, column: int, row: int, count: int) -> void:
+	_add(SPIKES_SCENE, node_name, Vector2(column * TILE, row * TILE), {
+		"facing": FACING_UP, "tile_count": count,
+	})
 
 
 func _finish_room(spawn_px: Vector2, path: String) -> void:
 	var tiles: TileMapLayer = TileMapLayer.new()
 	tiles.name = "Tiles"
 	tiles.tile_set = load(GRAY_TILESET_PATH) as TileSet
-	for cell: Vector2i in gray_cells:
-		var cell_above: Vector2i = cell + Vector2i.UP
-		var is_top: bool = not gray_cells.has(cell_above) and not earth_cells.has(cell_above) and cell.y > 0
-		tiles.set_cell(cell, 0, TILE_TOP_EDGE if is_top else TILE_PLAIN)
-	room.add_child(tiles)
-	tiles.owner = room
-
+	var grass: TileMapLayer = TileMapLayer.new()
+	grass.name = "Grass"
+	grass.set_script(GRASS_LAYER_SCRIPT)  # the swaying blades
+	grass.tile_set = load(GRASS_TILESET_PATH) as TileSet
+	# A persistent group (second argument true) is saved in the scene file. It tells
+	# EarthLayer that the bend shadow may cross this layer's tiles.
+	grass.add_to_group(EarthLayer.SHADOW_PASSABLE_GROUP, true)
 	var earth: TileMapLayer = TileMapLayer.new()
 	earth.name = "Earth"
 	earth.set_script(EARTH_LAYER_SCRIPT)
 	earth.tile_set = load(EARTH_TILESET_PATH) as TileSet
-	for cell: Vector2i in earth_cells:
-		earth.set_cell(cell, 0, TILE_EARTH)
-	room.add_child(earth)
-	earth.owner = room
+	for cell: Vector2i in cell_kinds:
+		# The tile under open air gets the "top" look: walkable surfaces stand out.
+		var is_top: bool = not cell_kinds.has(cell + Vector2i.UP) and cell.y > 0
+		match cell_kinds[cell]:
+			Kind.GRAY:
+				tiles.set_cell(cell, 0, TILE_TOP_EDGE if is_top else TILE_PLAIN)
+			Kind.GRASS:
+				grass.set_cell(cell, 0, TILE_GRASS_TOP if is_top else TILE_GRASS_PLAIN)
+			Kind.EARTH:
+				earth.set_cell(cell, 0, TILE_EARTH)
+	# Drawn first (in this order), so objects appear in front of the ground.
+	var layer_index: int = 0
+	for layer: TileMapLayer in [tiles, grass, earth]:
+		room.add_child(layer)
+		room.move_child(layer, layer_index)
+		layer.owner = room
+		layer_index += 1
 
 	var spawn: Marker2D = Marker2D.new()
 	spawn.name = "SpawnPoint"
 	spawn.position = spawn_px
 	room.add_child(spawn)
+	room.move_child(spawn, layer_index)
 	spawn.owner = room
 
 	var packed: PackedScene = PackedScene.new()
@@ -160,23 +314,19 @@ func _finish_room(spawn_px: Vector2, path: String) -> void:
 # --- Rooms -------------------------------------------------------------------------
 
 ## Earth test room A (Stages E1-E2): one screen, Earth-only, with every surface case:
-## earth floor with a gray patch, a 2x2 earth step, a floating earth block (top, sides,
+## earth floor with a grass patch, a 2x2 earth step, a floating earth block (top, sides,
 ## underside), earth walls left and right, earth on the ceiling meeting the right wall
-## (inner corner), a gray ledge with an earth top, and a plain gray
-## ledge (never bendable). Reachable by jumping: step -> stepping stone -> block ->
+## (inner corner), a grass ledge with an earth top, and a plain gray
+## ledge (never bendable, blocks the shadow). Reachable by jumping: step -> stepping stone -> block ->
 ## earth-topped ledge -> jump right to the earth wall and slide down it.
 func _build_room_earth_a() -> void:
 	_begin_room("RoomEarthA", "Earth A - Ground Test",
-		"Stage E1/E2 test room. Earth-only (Air off). Earth on floors, walls, ceiling. F1 shows what earth you touch. Hold A on earth to bend: the shadow crawls, release to spend the tile under it (E2 placeholder). F3 draws the path. R resets every tile.")
+		"Stage E1/E2 test room. Earth-only (Air off). Earth on floors, walls, ceiling. F1 shows what earth you touch. Hold A on earth to bend: the shadow crawls over earth and grass (gray stops it), release to raise a column. F3 draws the path. R resets every tile.")
 	room.air_allowed = false
-	# Gray frame: ceiling, side walls, floor body.
-	_gray(0, 0, 40, 1)
-	_gray(0, 0, 1, 23)
-	_gray(39, 0, 1, 23)
-	_gray(0, 20, 40, 3)
-	# Earth floor surface, with a 2-tile gray patch at columns 12-13 (shadow crosses it).
+	_grass_frame()
+	# Earth floor surface, with a 2-tile grass patch at columns 12-13 (shadow crosses it).
 	_earth(1, 20, 38, 1)
-	_gray(12, 20, 2, 1)
+	_grass(12, 20, 2, 1)
 	# 2x2 earth step on the floor, with a 3-tile gap before the stepping stone so you can
 	# walk back left under the stone and hop onto the step.
 	_earth(16, 18, 2, 2)
@@ -189,9 +339,124 @@ func _build_room_earth_a() -> void:
 	_earth(26, 1, 12, 1)
 	# Floating earth block: top, both sides and underside are earth faces.
 	_earth(24, 13, 7, 2)
-	# Gray ledge with an earth top: the shadow crosses its gray side (pale, can't erupt).
-	_gray(31, 11, 5, 1)
+	# Grass ledge with an earth top: the shadow crosses its grass side (pale, can't erupt).
+	_grass(31, 11, 5, 1)
 	_earth(31, 10, 5, 1)
-	# Plain gray ledge: never bendable.
+	# Plain gray ledge: never bendable, and the shadow can't crawl onto it.
 	_gray(5, 12, 5, 1)
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_a.tscn")
+
+
+## Earth test room B (Stage E3, Earth Column). Earth-only. Left to right:
+##   - a grass ledge 6 tiles up (48 px): too high for a jump (~28 px), easy for the
+##     super jump (quick tap A, ~57 px)
+##   - a 6-tile earth block: super-jump onto it, drop down its right side
+##   - the side spring: stand between the block and the spike pit facing LEFT, hold
+##     A, let the shadow climb the block's face one tile, release: the column shoots
+##     out of the wall and throws you right, over the pit. (The pit's floor is gray:
+##     a shadow sent right wraps into the pit and stops there.)
+##   - an earth step and an overhanging earth block with a crate on top and a wisp
+##     patrolling under it: from the top, send the shadow over the edge onto the
+##     underside and release as the wisp passes under: the column crushes it against
+##     the floor. A column under the crate throws it up.
+##   - the right earth wall with a low earth ceiling against it: super-jump to it,
+##     wall-slide, hold Up + A: the shadow climbs onto the ceiling and the column
+##     slams you down.
+func _build_room_earth_b() -> void:
+	_begin_room("RoomEarthB", "Earth B - Columns",
+		"Stage E3 test room. Earth-only. Quick tap A = super jump. A column out of a wall throws you sideways (only while it rises; then it's a platform you can bend from). Crush the wisp with a column from the overhang's underside. R resets.")
+	room.air_allowed = false
+	_grass_frame()
+	# Earth floor surface.
+	_earth(1, 20, 38, 1)
+	# Super jump target: a grass ledge 6 tiles above the floor.
+	_grass(1, 14, 5, 1)
+	# The block between the start and the pit (its right face is the side spring's wall).
+	_earth(10, 14, 2, 6)
+	# Spike pit, 6 tiles wide (48 px): a side spring from the block's face clears it
+	# (it throws you ~56 px before you drop to floor level).
+	_spike_pit("PitSpikes", 15, 6)
+	# Step up to the overhang, and the overhang (its underside 3 tiles above the floor).
+	_earth(25, 18, 2, 2)
+	_earth(29, 15, 6, 2)
+	# Right earth wall with a low earth ceiling against it.
+	_earth(38, 8, 1, 12)
+	_earth(35, 9, 3, 1)
+	_add(CRATE_SCENE, "Crate", Vector2(264, 120))
+	_add(WISP_SCENE, "Wisp", Vector2(256, 160))
+	_finish_room(Vector2(64, 160), "res://tests/rooms/room_earth_b.tscn")
+
+
+## Mixed test room A: Air AND Earth both allowed, to try how they work together.
+##   - a tall wall (88 px) with earth faces on both sides: too high for a super jump
+##     alone. Super jump + dash (the column refills the dash), or raise a column out
+##     of its face as a step, stand on it, bend again from the pillar...
+##   - a wind crystal for a second dash
+##   - right of the wall: a spike pit with an updraft over it. Side-spring off the
+##     wall's right face and glide: the updraft carries you.
+##   - a crate near the start (gust it, or throw it with a column) and a wisp on the
+##     far floor (gust it, crush it, or throw it into the pit)
+func _build_room_mixed_a() -> void:
+	_begin_room("RoomMixedA", "Mixed A - Air + Earth",
+		"Air and Earth together. Super jump + dash over the wall, column steps, side spring + glide over the updraft pit. R resets.")
+	room.air_allowed = true
+	room.earth_allowed = true
+	_grass_frame()
+	# Floor: grass at the start (crate) and past the pit (wisp, breeze), earth where
+	# you bend: in front of the tall wall and in the side spring's standing spot.
+	_earth(9, 20, 9, 1)
+	_earth(21, 20, 4, 1)
+	# The tall wall: grass core with an earth face on each side.
+	_grass(18, 9, 3, 11)
+	_earth(18, 9, 1, 11)
+	_earth(20, 9, 1, 11)
+	# Spike pit with an updraft above it.
+	_spike_pit("PitSpikes", 25, 7)
+	_add(WIND_ZONE_SCENE, "Updraft", Vector2(25 * TILE, 64), {
+		"zone_size": Vector2(7 * TILE, 96), "wind_direction": Vector2.UP, "wind_strength": 60.0,
+	})
+	# A light breeze over the far grass, blowing away from the pit: it sways the blades.
+	_add(WIND_ZONE_SCENE, "Breeze", Vector2(32 * TILE, 128), {
+		"zone_size": Vector2(7 * TILE, 32), "wind_direction": Vector2.RIGHT, "wind_strength": 30.0,
+	})
+	_add(CRYSTAL_SCENE, "Crystal", Vector2(120, 64))
+	_add(CRATE_SCENE, "Crate", Vector2(40, 160))
+	_add(WISP_SCENE, "Wisp", Vector2(296, 160), {"start_direction": -1})
+	_finish_room(Vector2(96, 160), "res://tests/rooms/room_mixed_a.tscn")
+
+
+## Mixed test room B: both enemy types, Air AND Earth allowed, so there are several
+## ways to deal with each:
+##   - left: a wisp patrolling under a low earth overhang (2 tiles of headroom).
+##     Crush it with a column from the overhang's underside (bend from on top of it,
+##     reached by the step or a super jump), dash into it after a gust stuns it, or
+##     gust it into the spike pit.
+##   - middle: a spike pit with gray rock under the spikes, so a bend can't reach
+##     the right side from the left.
+##   - right: a second wisp on the floor and a sentry on an earth block. The sentry
+##     fires at you from across the room: raise a column in front of you to block
+##     its orbs (they pop on it, and it blocks the sentry's view too), or gust them
+##     back at it. Standing next to the block, send the shadow up its face and
+##     release low: the column shoots along the floor and throws the wisp into the pit.
+func _build_room_mixed_b() -> void:
+	_begin_room("RoomMixedB", "Mixed B - Enemies",
+		"Both enemy types, Air and Earth allowed. Block sentry orbs with columns (or gust them back), crush the wisp under the overhang, throw the other into the pit with a column out of the sentry's block. R resets.")
+	room.air_allowed = true
+	room.earth_allowed = true
+	_grass_frame()
+	# Floor: grass at the start and under the sentry's block, earth from the overhang
+	# to the pit and on the right where you raise columns against the orbs.
+	_earth(8, 20, 8, 1)
+	_earth(22, 20, 10, 1)
+	# Left: a step and a low overhang (underside 16 px above the floor).
+	_earth(5, 18, 2, 2)
+	_earth(8, 16, 5, 2)
+	# Middle: spike pit, gray under the spikes.
+	_spike_pit("PitSpikes", 16, 6)
+	# Right: the sentry's low earth block (2 tiles tall, so the sentry on its left
+	# edge can see down to the floor).
+	_earth(32, 18, 6, 2)
+	_add(WISP_SCENE, "WispLeft", Vector2(96, 160))
+	_add(WISP_SCENE, "WispRight", Vector2(216, 160), {"start_direction": -1})
+	_add(SENTRY_SCENE, "Sentry", Vector2(263, 144))
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_mixed_b.tscn")

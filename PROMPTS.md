@@ -11,7 +11,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
-- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [ ] E3 · [ ] E4 · [ ] E5 · [ ] E6 · [ ] E7
+- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [ ] E4 · [ ] E5 · [ ] E6 · [ ] E7
 
 ---
 
@@ -92,7 +92,7 @@ Rules decided in E0 are written into Earth_bending.md §11 ("Decided in Stage E0
 ## Stage E3 — Earth Column
 > Read Earth_bending.md §5 and §11. Add `EarthColumnAbility` as a component under the player. Releasing A raises an 8×24 column out of the shadow's surface in 0.1 s, perpendicular to it (up from floors, sideways from walls, down from ceilings), in used-earth color, and the tile becomes used. The column is a bouncer: anything touching a face is launched away from that face at 220 px/s. The player goes through a new `Launched` state with a short steering lock; sideways launches get a small upward component (Celeste side springs). Bouncing refills the Air dash. Crates and wisps are launched through the Pushable contract. A quick tap (release before the shadow moves) raises the column under the player as a super jump. Columns are removed on room reset. Gravel burst and shake on rising, a gravel puff on each bounce.
 
-**You should see:** tap A on earth for a super jump. Hold A, let the shadow go up a wall and release: a sideways spring that throws you across a gap. A column from a ceiling bounces you down. A gusted crate that hits a column bounces off.
+**You should see:** tap A on earth for a super jump (about twice a normal jump), then land on the column: it's a platform now. Hold A, let the shadow go up a wall and release: the column throws you sideways across a gap. A column from a ceiling crushes a wisp against the floor. A column rising under a crate throws it up. (Springs only while rising, crushing, and the mixed Air + Earth room were decided in E3, see Earth_bending.md §11.)
 
 ## Stage E4 — Boulder
 > Read Earth_bending.md §6 and §11. Add `BoulderAbility`. Releasing S rips a 16×16 boulder out of the shadow's tile and the one before it on the path (both become used) and pops it away from the surface: it eases out about 22 px, hangs briefly, then falls. Slow motion ends at release; the throw is timed in game time. Pressing S again throws it in the arrow direction (8 directions; facing if none). The perfect window is ±0.08 s around the hang moment: the boulder flashes white, flies at 320 px/s and ignores gravity for 0.3 s. Off-peak throws scale smoothly down to 180 px/s with normal gravity. The player stays rooted until the throw (max 1.0 s); no throw = it drops and shatters. One boulder at a time. On impact: sticks into any earth face as a solid 2×2 block (standable, wall-jumpable); shatters on plain solid or another boulder; bounces off columns. Enemy and cracked-wall hits come in E6. Removed on room reset.

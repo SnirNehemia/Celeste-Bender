@@ -25,6 +25,15 @@ extends RefCounted
 ## try_push() then calls that one instead. `source_position` is the gust's origin in
 ## world space, or NO_SOURCE if the caller doesn't know it.
 ##
+## Earth extras (Stage E3), both optional:
+##        func receive_launch(launch_velocity: Vector2) -> void
+##   A rising Earth Column threw it: take exactly this velocity. try_launch() falls
+##   back to receive_gust(direction, speed) for objects without it.
+##        func receive_crush() -> void
+##   A rising column squeezed it against a solid. Enemies get crushed (defeated);
+##   objects without the method make the column stop short instead (try_crush()
+##   returns false), so a crate or the player is never crushed.
+##
 ## This class is never instantiated: it only holds the group name and static helpers
 ## (a static func is called on the class itself, like Pushable.try_push(...)).
 
@@ -34,6 +43,9 @@ const GROUP: StringName = &"pushable"
 const METHOD: StringName = &"receive_gust"
 ## The optional method for objects that want the gust's origin too.
 const METHOD_WITH_SOURCE: StringName = &"receive_gust_from"
+## The optional Earth methods (see above).
+const METHOD_LAUNCH: StringName = &"receive_launch"
+const METHOD_CRUSH: StringName = &"receive_crush"
 ## "Origin unknown". Vector2.INF is a vector of infinities, never a real position.
 const NO_SOURCE: Vector2 = Vector2.INF
 
@@ -60,4 +72,28 @@ static func try_push(touched: Node, direction: Vector2, strength: float,
 		target.call(METHOD_WITH_SOURCE, direction, strength, source_position)
 	else:
 		target.call(METHOD, direction, strength)
+	return true
+
+
+## Throws `touched` (if pushable) at `launch_velocity`. Returns true if it was.
+## Used by the rising Earth Column.
+static func try_launch(touched: Node, launch_velocity: Vector2) -> bool:
+	var target: Node = find_pushable(touched)
+	if target == null:
+		return false
+	if target.has_method(METHOD_LAUNCH):
+		target.call(METHOD_LAUNCH, launch_velocity)
+	else:
+		# No launch method: treat it as a very strong gust the same way.
+		target.call(METHOD, launch_velocity.normalized(), launch_velocity.length())
+	return true
+
+
+## Crushes `touched` if it can be crushed (has receive_crush). Returns true if it was;
+## false means "can't be crushed", and the column stops short of it instead.
+static func try_crush(touched: Node) -> bool:
+	var target: Node = find_pushable(touched)
+	if target == null or not target.has_method(METHOD_CRUSH):
+		return false
+	target.call(METHOD_CRUSH)
 	return true

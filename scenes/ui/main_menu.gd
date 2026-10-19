@@ -3,7 +3,8 @@ extends Control
 ## Main menu: the first screen when the game starts (it's the main scene in
 ## project.godot). Pick a chapter with the arrows + Enter (or C).
 ##   - Air:   scenes/world.tscn             rooms 1-7 (Milestone 1)
-##   - Earth: tests/earth_test_world.tscn   Earth test room (until Stage E7 builds the chapter)
+##   - Earth: tests/earth_test_world.tscn   Earth test rooms (until Stage E7 builds the chapter)
+##   - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
 ##
 ## The whole menu is built in _ready() from code: a title Label and one Button per
 ## chapter in a VBoxContainer (a container that stacks its children vertically).
@@ -17,7 +18,8 @@ extends Control
 ## [button text, scene path] per chapter, in menu order.
 const CHAPTERS: Array = [
 	["Air  -  Windbound (rooms 1-7)", "res://scenes/world.tscn"],
-	["Earth  -  test room", "res://tests/earth_test_world.tscn"],
+	["Earth  -  test rooms (F2 to switch)", "res://tests/earth_test_world.tscn"],
+	["Air + Earth  -  mixed test rooms (F2 to switch)", "res://tests/mixed_test_world.tscn"],
 ]
 const BACKGROUND_COLOR: Color = Color(0.1, 0.1, 0.13)
 ## Small font: the game renders at 320x180, so default 16 px text would be huge.

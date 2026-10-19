@@ -4,11 +4,15 @@ extends Node2D
 ##   Player > GustAbility
 ##
 ## Responsibilities (and only these):
+##   - the CHARGES: tuning.gust_charges_per_airtime gusts (normally ONE) between
+##     leaving the ground and landing again. Landing refills them; a wind crystal
+##     tops them back up; a gust diamond overcharges to tuning.gust_diamond_charges
+##     for this airtime only. Ground gusts are free (no charge spent).
+##     Shown as small white pips above the player while airborne.
 ##   - the COOLDOWN (one gust every tuning.gust_cooldown seconds)
-##   - the BREATH cost (tuning.gust_uses_stamina): a gust spends shared glide/dash
-##     stamina; pressing gust without enough plays a small "fizzle" puff instead
-##   - the DOWN-BOOSTS: a down-gust in mid-air acts as an extra jump, up to
-##     tuning.gust_down_boosts_per_airtime times, refilled on the ground
+##   - the BREATH cost (tuning.gust_uses_stamina, off by default): a gust spends
+##     shared glide/dash stamina
+##   - pressing gust with no charge (or no breath) plays a small "fizzle" puff instead
 ##   - the HIT and the look, built with the shared AirBlast helper (abilities/air_blast.gd):
 ##       aimed gust   (an arrow held): a cone in that direction
 ##       neutral gust (no arrow held): a burst in ALL directions, pushing everything
@@ -29,19 +33,31 @@ extends Node2D
 ## transform, so its own coordinates ARE world coordinates, which keeps the aim
 ## preview drawing simple.
 
-## Aim preview look (while holding gust in hold-to-aim mode). Grayed out when the
-## aimed gust isn't allowed (straight down, no down-boosts left): releasing does nothing.
+## Aim preview look (while holding gust in hold-to-aim mode).
 const AIM_PREVIEW_COLOR: Color = Color(0.85, 0.95, 1.0, 0.6)
-const AIM_BLOCKED_COLOR: Color = Color(0.5, 0.5, 0.55, 0.4)
+
+## Charge pips above the player's head (placeholder art, like the glide bar):
+## one small square per charge, white when ready, faint when spent.
+const PIP_SIZE: float = 2.0
+## Distance between the left edges of two neighbouring pips, px (1 px gap).
+const PIP_SPACING: float = 3.0
+## Pips sit just above the glide bar (the bar's top is 15 px above the feet).
+const PIP_OFFSET_Y: float = -19.0
+const PIP_READY_COLOR: Color = Color(1, 1, 1, 0.95)
+const PIP_SPENT_COLOR: Color = Color(1, 1, 1, 0.25)
 
 ## Emitted after every gust, with how many pushable things were hit (for later FX/sfx).
 signal gusted(direction: Vector2, hit_count: int)
 
 ## Seconds until the next gust is allowed.
 var cooldown_remaining: float = 0.0
-## Down-boosts left this airtime. Refilled on the ground. Unused when the tuning
-## allows unlimited boosts (gust_down_boosts_per_airtime = 0).
-var down_boosts_remaining: int = 0
+## Gusts left this airtime. Set back to gust_charges_per_airtime on the ground
+## (which also drops an unused diamond bonus). Unused when the tuning allows
+## unlimited gusts (gust_charges_per_airtime = 0).
+var charges_remaining: int = 0
+## How many pips to draw: the most charges held this airtime (1 normally, 2 after
+## a diamond), so a SPENT charge still shows as a faint pip.
+var pip_count: int = 0
 ## The player this ability belongs to. The parent node, set in _ready().
 var player: Player
 ## True while the GustAim state is choosing a direction (draws the preview).
@@ -58,8 +74,8 @@ func _ready() -> void:
 	player = get_parent() as Player
 	top_level = true
 	global_position = Vector2.ZERO
-	z_index = 40  # aim preview above the room
-	down_boosts_remaining = player.tuning.gust_down_boosts_per_airtime
+	z_index = 40  # aim preview and charge pips above the room
+	_refill_on_ground()
 
 
 ## Runs after the player's move_and_slide() (children run after their parent), so
@@ -67,72 +83,93 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	cooldown_remaining = maxf(cooldown_remaining - delta, 0.0)
 	if player.is_on_floor():
-		down_boosts_remaining = player.tuning.gust_down_boosts_per_airtime
-	# Out of breath: the press does nothing, but say so with a tiny puff (instead of
-	# silently ignoring the key, which feels like a dropped input).
+		_refill_on_ground()
+	# No charge left (or no breath): the press does nothing, but say so with a tiny
+	# puff (instead of silently ignoring the key, which feels like a dropped input).
 	if Input.is_action_just_pressed("gust") and cooldown_remaining <= 0.0 \
-			and not _can_afford() and not player.is_dead():
+			and not _can_afford() and not player.is_dead() \
+			and player.is_element_allowed(Player.ELEMENT_AIR):
 		_fizzle()
-	if is_aiming:
-		queue_redraw()
+	# Redraw every frame: the charge pips follow the player, and this node sits still
+	# at the world origin (top_level), so nothing else would trigger a redraw.
+	queue_redraw()
 
 
-# --- Cooldown, breath and boost -------------------------------------------------
+# --- Charges, cooldown and breath ----------------------------------------------
 
 func can_gust() -> bool:
 	return cooldown_remaining <= 0.0 and _can_afford()
 
 
-## True if there's enough shared stamina for a gust (always true with the toggle off).
+## True if a gust can be paid for right now: a charge (or standing on the ground,
+## where gusts are free) and, with the breath toggle on, enough shared stamina.
 func _can_afford() -> bool:
+	if not _has_charge():
+		return false
 	if not player.tuning.gust_uses_stamina:
 		return true
 	return player.glide.stamina_remaining >= player.tuning.gust_stamina_cost
 
 
-## Uses one down-boost. Returns true if one was left (always true when unlimited).
-func spend_down_boost() -> bool:
-	if player.tuning.gust_down_boosts_per_airtime <= 0:
+## True on the ground (free), with unlimited charges, or with a charge left.
+func _has_charge() -> bool:
+	if player.tuning.gust_charges_per_airtime <= 0 or player.is_on_floor():
 		return true
-	if down_boosts_remaining <= 0:
+	return charges_remaining > 0
+
+
+## Uses one charge, for a gust started in the air. Ground gusts are free.
+func _spend_charge() -> void:
+	if player.tuning.gust_charges_per_airtime <= 0 or player.is_on_floor():
+		return
+	charges_remaining = maxi(charges_remaining - 1, 0)
+
+
+## Landing (and respawn): back to the normal number of charges. This SETS the count
+## rather than topping it up, so an unused diamond bonus is lost on landing: the
+## diamond is for the current airtime only.
+func _refill_on_ground() -> void:
+	charges_remaining = player.tuning.gust_charges_per_airtime
+	pip_count = charges_remaining
+
+
+## Wind crystal: tops the charges back up to the normal amount (an unused diamond
+## bonus above that is kept). Returns true if any were missing, so the crystal is
+## only used up when it helped.
+func refill_charges() -> bool:
+	var normal_count: int = player.tuning.gust_charges_per_airtime
+	if normal_count <= 0 or charges_remaining >= normal_count:
 		return false
-	down_boosts_remaining -= 1
+	charges_remaining = normal_count
+	pip_count = maxi(pip_count, charges_remaining)
 	return true
 
 
-## Refills the down-boosts (wind crystal). Returns true if any were missing.
-func refill_down_boosts() -> bool:
-	var boost_count: int = player.tuning.gust_down_boosts_per_airtime
-	if boost_count <= 0 or down_boosts_remaining >= boost_count:
+## Gust diamond: sets the charges to gust_diamond_charges for this airtime.
+## Refused on the ground (the landing refill would take the bonus straight back)
+## and when you already have that many. Returns true if it helped, so the diamond
+## is only used up when it did.
+func overcharge() -> bool:
+	var diamond_count: int = player.tuning.gust_diamond_charges
+	if player.is_on_floor() or player.tuning.gust_charges_per_airtime <= 0 \
+			or charges_remaining >= diamond_count:
 		return false
-	down_boosts_remaining = boost_count
+	charges_remaining = diamond_count
+	pip_count = maxi(pip_count, charges_remaining)
 	return true
 
 
-## False for a gust that would do NOTHING for the player: straight down in the air
-## with no down-boosts left (no lift, no sideways recoil). Such a press is ignored
-## entirely, with no air, so it doesn't look like a broken extra jump.
-## (Diagonal-down still recoils sideways, so it's allowed.)
-func is_gust_allowed(direction: Vector2) -> bool:
-	var is_straight_down: bool = direction.x == 0.0 and direction.y > 0.0
-	if not is_straight_down or player.is_on_floor():
-		return true
-	if player.tuning.gust_down_boosts_per_airtime <= 0:
-		return true
-	return down_boosts_remaining > 0
-
-
-## For the debug overlay: "2", or "inf" when unlimited.
-func get_down_boosts_text() -> String:
-	if player.tuning.gust_down_boosts_per_airtime <= 0:
+## For the debug overlay: "1", or "inf" when unlimited.
+func get_charges_text() -> String:
+	if player.tuning.gust_charges_per_airtime <= 0:
 		return "inf"
-	return str(down_boosts_remaining)
+	return str(charges_remaining)
 
 
 ## Back to a fresh state (called on respawn).
 func reset() -> void:
 	cooldown_remaining = 0.0
-	down_boosts_remaining = player.tuning.gust_down_boosts_per_airtime
+	_refill_on_ground()
 	has_locked_aim = false
 	end_aim()
 
@@ -179,12 +216,13 @@ func build_gust_shape(direction: Vector2) -> PackedVector2Array:
 		tuning.gust_cone_half_angle_degrees, tuning.gust_cone_near_half_width)
 
 
-## Starts the cooldown, spends breath, pushes everything Pushable in the gust's area
-## (toward `direction`, or outward for a neutral gust), and plays the effects.
-## Returns how many pushable objects were hit.
+## Starts the cooldown, spends a charge (in the air) and breath (if on), pushes
+## everything Pushable in the gust's area (toward `direction`, or outward for a
+## neutral gust), and plays the effects. Returns how many pushable objects were hit.
 func begin_gust(direction: Vector2) -> int:
 	var tuning: PlayerTuning = player.tuning
 	cooldown_remaining = tuning.gust_cooldown
+	_spend_charge()
 	if tuning.gust_uses_stamina:
 		player.glide.spend(tuning.gust_stamina_cost)
 	FX.shake(tuning.gust_shake_strength, tuning.gust_shake_duration)
@@ -231,27 +269,45 @@ func _blow_aimed(direction: Vector2) -> Array[Node]:
 	return hit_nodes
 
 
-# --- Drawing (aim preview) -----------------------------------------------------------
+# --- Drawing (charge pips and aim preview) -------------------------------------------
 
 ## Coordinates here are world coordinates (top_level, positioned at 0,0).
 func _draw() -> void:
+	_draw_charge_pips()
 	if not is_aiming:
 		return
 	var shape_points: PackedVector2Array = build_gust_shape(aim_preview_direction)
 	var closed_points: PackedVector2Array = shape_points.duplicate()
 	closed_points.append(shape_points[0])
-	var preview_color: Color = AIM_PREVIEW_COLOR if is_gust_allowed(aim_preview_direction) else AIM_BLOCKED_COLOR
-	draw_polyline(closed_points, preview_color, 1.0)
+	draw_polyline(closed_points, AIM_PREVIEW_COLOR, 1.0)
 	if aim_preview_direction == Vector2.ZERO:
 		return  # neutral: the circle says it all
 	# A short line down the middle so the exact direction is easy to read.
 	var center: Vector2 = player.get_center()
-	draw_line(center, center + aim_preview_direction * player.tuning.gust_range, preview_color, 1.0)
+	draw_line(center, center + aim_preview_direction * player.tuning.gust_range, AIM_PREVIEW_COLOR, 1.0)
+
+
+## One small square per charge above the head: white = ready, faint = spent.
+## Only shown in the air, where charges count (ground gusts are free), and only
+## in rooms that allow Air.
+func _draw_charge_pips() -> void:
+	if player.is_on_floor() or player.is_dead() or pip_count <= 0 \
+			or player.tuning.gust_charges_per_airtime <= 0 \
+			or not player.is_element_allowed(Player.ELEMENT_AIR):
+		return
+	# Center the row over the player (origin = feet), rounded to whole pixels so the
+	# squares stay crisp at 320x180.
+	var row_width: float = PIP_SPACING * (pip_count - 1) + PIP_SIZE
+	var row_origin: Vector2 = (player.global_position + Vector2(-row_width / 2.0, PIP_OFFSET_Y)).round()
+	for pip_index: int in pip_count:
+		var pip_color: Color = PIP_READY_COLOR if pip_index < charges_remaining else PIP_SPENT_COLOR
+		var pip_position: Vector2 = row_origin + Vector2(PIP_SPACING * pip_index, 0.0)
+		draw_rect(Rect2(pip_position, Vector2(PIP_SIZE, PIP_SIZE)), pip_color)
 
 
 # --- Effects -----------------------------------------------------------------------
 
-## Out of breath: a weak, short puff in the aim direction, and no push.
+## No charge (or out of breath): a weak, short puff in the aim direction, and no push.
 func _fizzle() -> void:
 	AirBlast.spawn_fan(player.get_parent(), player.get_center(), player.get_aim_direction(),
 		player.tuning.gust_cone_half_angle_degrees, 8.0, 5)

@@ -1,0 +1,36 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
+[ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="3_player"]
+[ext_resource type="PackedScene" path="res://scenes/ui/debug_overlay.tscn" id="4_debug"]
+[ext_resource type="PackedScene" path="res://scenes/ui/room_picker.tscn" id="5_picker"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="6_pause"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_mixed_a.tscn" id="7_room_mixed_a"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_mixed_b.tscn" id="8_room_mixed_b"]
+
+[node name="MixedTestWorld" type="Node2D" node_paths=PackedStringArray("player", "camera")]
+editor_description = "Air + Earth together (both elements allowed): A = movement, B = enemies (F2 to switch). Pick it from the main menu, or: godot --path . res://tests/mixed_test_world.tscn"
+script = ExtResource("1_manager")
+player = NodePath("Player")
+camera = NodePath("RoomCamera")
+
+[node name="RoomMixedA" parent="." instance=ExtResource("7_room_mixed_a")]
+
+[node name="RoomMixedB" parent="." instance=ExtResource("8_room_mixed_b")]
+position = Vector2(320, 0)
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+position = Vector2(96, 160)
+
+[node name="RoomCamera" type="Camera2D" parent="."]
+script = ExtResource("2_camera")
+
+[node name="DebugOverlay" parent="." node_paths=PackedStringArray("player") instance=ExtResource("4_debug")]
+player = NodePath("../Player")
+
+[node name="RoomPicker" parent="." node_paths=PackedStringArray("room_manager") instance=ExtResource("5_picker")]
+room_manager = NodePath("..")
+
+[node name="PauseMenu" parent="." node_paths=PackedStringArray("room_manager") instance=ExtResource("6_pause")]
+room_manager = NodePath("..")

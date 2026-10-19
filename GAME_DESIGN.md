@@ -21,7 +21,7 @@ This doc covers **Milestone 1: the Air vertical slice** — one element, 5 rooms
 - Tile size **8×8 px**.
 - Placeholder art only: `ColorRect` / `Polygon2D` shapes. Color key:
   - Player: white rectangle (8×11), turns pale blue when the dash is used up
-  - Solid ground: dark gray · Spikes: red triangles · Wind zones: translucent cyan with drifting particles
+  - Solid ground: dark gray, floors capped with green grass whose blades sway with wind, gusts and the player (added after Stage E3) · Spikes: red triangles · Wind zones: translucent cyan with drifting particles
   - Crates: brown · Windmills/fans: yellow · Enemies: purple · Projectiles: orange · Checkpoint/room exit: green
   - Puzzle objects (added in Stage 7): doors blue-gray · pressure plates tan, green when pressed · leaf platforms olive green with a pale pinwheel · sail platforms slate deck with a cream sail · rails thin gray-blue lines with end dots · leaf piles muted greens and golds (kept clear of yellow, orange and brown)
 - Camera is **room-locked** like Celeste: each room is one screen (or scrolls inside its own bounds), with a quick slide transition between rooms.
@@ -99,12 +99,14 @@ Each ability lists its movement, puzzle and combat use.
 - Toggle: `PlayerTuning.dash_uses_stamina`. When on, the dash spends **0.9 s of glide stamina** (60% of the bar) instead of a charge. A full bar buys one dash plus a short glide, or a long glide; a second dash needs a wind crystal or the ground.
 - The bar shows a white notch at the dash cost. The player still turns pale blue when there isn't enough for a dash.
 - Wind crystals and the ground refill the whole bar.
-- **The gust spends breath too** (`gust_uses_stamina`, 0.3 s = 20% of the bar, a fainter notch on the bar). Ground gusts are effectively free, since the bar refills on the ground. Pressing gust without enough breath plays a small "fizzle" puff.
+- *Off since the gust charges (§5.3):* **the gust can spend breath too** (`gust_uses_stamina`, now `false` by default; 0.3 s = 20% of the bar, a fainter notch on the bar). Ground gusts are effectively free, since the bar refills on the ground. Pressing gust without enough breath plays a small "fizzle" puff.
 - Future elements: plan is **one bar per element, showing only the active element's bar**, rather than one global bar.
 
 ### 5.3 Gust (Z)
-- Short-range blast (a cone ~40 px long; was 32) in the aimed direction. 0.6 s cooldown.
-- **Recoil:** the player is pushed the *opposite* way (120 px/s). **On the ground** the sideways recoil is halved (`gust_ground_recoil_multiplier`) and braked by strong friction (`gust_ground_recoil_friction`), so you can knock an enemy off a platform without sliding off yourself. Gusting down mid-air acts as a small extra jump, up to **2 times per airtime** (`gust_down_boosts_per_airtime`, 0 = unlimited). It sets the upward speed, so it also works mid-fall. Several gusts per jump are allowed; cooldown and breath are the limits. **Wind crystals refill the down-boosts** too. A straight-down gust in the air with no down-boosts left is **ignored entirely** (no air), since it would do nothing; with hold-to-aim the preview turns gray.
+- Short-range blast (a cone ~40 px long; was 32) in the aimed direction. 0.6 s cooldown (mostly matters on the ground; in the air the charge is the limit).
+- **One gust per jump** (`gust_charges_per_airtime = 1`, 0 = unlimited): every gust in the air, aimed or neutral, spends the airtime's **charge**. **Landing** refills it (only landing: not wall slides or wall jumps, same rule as dash and breath). **Ground gusts are free.** A **wind crystal** gives the charge back (to 1). Pressing gust in the air with no charge plays the small "fizzle" puff. The charges show as small **white pips above the player** while airborne (faint = spent).
+- **Gust diamond** (blue, white core): sets the charges to **2 for the current airtime only** (`gust_diamond_charges`); the next landing brings you back to 1, used or not. It does nothing on the ground or if you already have 2 (so it isn't wasted), and respawns like a wind crystal. Placed where a jump needs two gusts (room 7's climb).
+- **Recoil:** the player is pushed the *opposite* way (120 px/s). **On the ground** the sideways recoil is halved (`gust_ground_recoil_multiplier`) and braked by strong friction (`gust_ground_recoil_friction`), so you can knock an enemy off a platform without sliding off yourself. Gusting down mid-air acts as an extra jump (`gust_down_boost_speed`). It sets the upward speed, so it also works mid-fall. There is no separate down-boost count any more: the down-gust is simply the airtime's one gust.
 - **Neutral gust (no arrow held):** a burst in *all* directions (circle, 28 px radius) that pushes everything nearby straight away from the player. No recoil: instead it is an **air brake**: for 0.2 s gravity is off and the player's speed slows toward a stop (a hard stop on the ground). Mid-air it is followed by a **float** (0.4 s): quarter gravity, fall capped at 25 px/s, full steering, so the player drifts down gently and is in control when it ends. Glide, dash and jumps can cut the float short.
 - **Hold to aim (experimental, `gust_hold_to_aim`, on by default):** holding Z slows time (×0.25) and the arrows only aim (no steering), with a cone preview. Releasing Z fires; a tap fires almost at once; holding over 0.4 s real time fires by itself. This solves "running right, want to gust left". Off = the gust fires the instant Z is pressed.
 - **Diagonal grace:** after aiming a diagonal, releasing one of its two keys still counts as the diagonal for 0.12 s (`gust_diagonal_grace_time`), so diagonals don't turn sideways when one key comes up a moment before Z.
@@ -132,7 +134,8 @@ Each ability lists its movement, puzzle and combat use.
 | Solid tiles | TileMapLayer with collisions |
 | Spikes | Instant death on touch (with a fair, slightly smaller hitbox) |
 | Wind zone | Constant force in one direction while inside (horizontal currents or updrafts) |
-| Wind crystal | Refills dash on touch; respawns after 2.5 s |
+| Wind crystal | Refills dash (or breath) and the gust charge on touch; respawns after 2.5 s, or at once when the room resets |
+| Gust diamond | Blue diamond with a white core: two gust charges for the current airtime (§5.3); respawns after 2.5 s, or at once when the room resets |
 | Crate | Pushable box with its own simple physics (not a RigidBody): a gust slides it a predictable ~40 px. Can rest on pressure plates; player can stand on it. The player can't push it by walking, only with air. |
 | Pressure plate | Active while something **heavy** (a crate) sits on it. The player doesn't count, so crate puzzles can't be skipped. |
 | Windmill | Gust-activated timer (4 s, refreshed by each gust) that powers a linked door. Blades slow down over the last second as a warning. |
@@ -178,7 +181,7 @@ Each room teaches one thing, then tests it.
 5. **"Sentry Pass"** — combat room: two wisps over a spike floor and one sentry guarding the exit. Requires down-gust jumps, reflecting an orb, and a dash finish.
 
 6. **"Sail Under Fire"** — ride a sail platform across a long spike pit, pushing it with your own gusts (no recoil on deck) while two ceiling sentries and a dock sentry shoot at you. Two **thorn crowns** (spiked pillars sticking up through the rail) block the deck: jump each one as the boat slides under it and land back on board.
-7. **"The Gauntlet"** — the hard finale: race a windmill gate through a crystal chain in a head-wind, climb with down-gusts under sentry fire, slip past a wisp to the goal.
+7. **"The Gauntlet"** — the hard finale: race a windmill gate through a crystal chain in a head-wind, climb with a gust diamond and down-gusts under sentry fire, slip past a wisp to the goal.
 
 A simple end screen shows deaths and time (the goal is at the end of room 7).
 

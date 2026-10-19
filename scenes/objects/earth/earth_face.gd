@@ -39,15 +39,25 @@ func is_fresh() -> bool:
 	return layer.is_fresh(cell) and layer.is_face_exposed(cell, normal)
 
 
+## True if a bend can START here: fresh earth, or the surface of a risen Earth
+## Column (a pillar is earth you stand on; nothing can erupt from it, though).
+func is_bend_start() -> bool:
+	if is_fresh():
+		return true
+	return layer.is_column(cell) and not layer.is_solid(cell + normal)
+
+
 func is_same_as(other: EarthFace) -> bool:
 	return other != null and other.layer == layer and other.cell == cell and other.normal == normal
 
 
-## Readable form for the debug label, e.g. "floor (12, 20)".
+## Readable form for the debug label, e.g. "floor (12, 20)" or "pillar floor (12, 17)".
 func describe() -> String:
 	var surface_name: String = "wall"
 	if normal == Vector2i.UP:
 		surface_name = "floor"
 	elif normal == Vector2i.DOWN:
 		surface_name = "ceiling"
+	if layer.is_column(cell):
+		surface_name = "pillar " + surface_name
 	return "%s (%d, %d)" % [surface_name, cell.x, cell.y]

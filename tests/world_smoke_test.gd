@@ -3,7 +3,8 @@ extends Node
 ##
 ## Loads scenes/world.tscn (rooms 1-7), teleports the player into each room in turn (the same
 ## way the F2 room picker does), defeats room 5's enemies by script to check the
-## EnemyGate opens the exit door, checks the Stage 10 polish (squash on jump/land,
+## EnemyGate opens the exit door, checks the gust charges and the gust diamond in
+## room 7 (one gust per airtime, two after a diamond), the Stage 10 polish (squash on jump/land,
 ## pause menu, freeze vs. menu pause), then finishes the run and checks the end screen.
 ## Prints PASS/FAIL lines and quits. Run it with:
 ##   godot --headless --path . res://tests/world_smoke_test.tscn
@@ -59,6 +60,50 @@ func _ready() -> void:
 	await get_tree().create_timer(0.3, true, false, true).timeout
 	_check(world.player.global_position.is_finite(), "player position stays finite after a sentry kill on the sail")
 	_check(not get_tree().paused, "hit-stop freeze ends (tree unpaused)")
+
+	# Gust charges (GAME_DESIGN.md §5.3): one per airtime, a diamond makes it two for
+	# this airtime only, a wind crystal tops it back up, landing resets it.
+	var climb_room: Room = world.rooms[6]
+	world.jump_to_room(climb_room)
+	await get_tree().create_timer(0.3).timeout
+	var gust: GustAbility = world.player.gust
+	_check(gust.charges_remaining == 1, "one gust charge on the ground (found %d)" % gust.charges_remaining)
+	_check(not world.player.overcharge_from_diamond(), "a gust diamond does nothing on the ground")
+	var diamond: GustDiamond = climb_room.get_node("ClimbDiamond") as GustDiamond
+	# Feet just under the diamond's center, in mid-air over the spike pit: touching it.
+	world.player.respawn_at(diamond.global_position + Vector2(0, 4))
+	for frame: int in 5:
+		await get_tree().physics_frame
+	_check(gust.charges_remaining == 2 and not diamond.is_available,
+		"touching the diamond in the air gives two charges and uses it up (found %d)" % gust.charges_remaining)
+	gust.begin_gust(Vector2.DOWN)
+	_check(gust.charges_remaining == 1, "an air gust spends one charge (found %d)" % gust.charges_remaining)
+	gust.begin_gust(Vector2.DOWN)
+	_check(gust.charges_remaining == 0 and not gust.can_gust(), "no charge left: no third gust")
+	_check(world.player.refill_from_crystal() and gust.charges_remaining == 1, "a wind crystal gives the charge back")
+	# Move away first: an Area2D's overlap list only updates on the next physics step,
+	# so a diamond reset while we're still on it would be grabbed again at once.
+	world.player.respawn_at(climb_room.get_spawn_position() + Vector2(0, -24))
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	climb_room.reset_objects()
+	_check(diamond.is_available, "a room reset brings the diamond back at once")
+	# The diamond bonus is for this airtime only: landing takes it back, unused.
+	_check(world.player.overcharge_from_diamond() and gust.charges_remaining == 2, "test setup: two charges in the air")
+	for frame: int in 60:
+		await get_tree().physics_frame
+		if world.player.is_on_floor():
+			break
+	await get_tree().physics_frame
+	_check(gust.charges_remaining == 1, "landing drops an unused diamond bonus back to one (found %d)" % gust.charges_remaining)
+	# Respawn timer: use the diamond, go stand safely on the floor, wait it out.
+	world.player.respawn_at(diamond.global_position + Vector2(0, 4))
+	for frame: int in 5:
+		await get_tree().physics_frame
+	_check(not diamond.is_available, "test setup: diamond used again")
+	world.player.respawn_at(climb_room.get_spawn_position())
+	await get_tree().create_timer(diamond.respawn_time + 0.2).timeout
+	_check(diamond.is_available, "the diamond respawns after %.1f s" % diamond.respawn_time)
 
 	# Polish (Stage 10): squash on jump and on a hard landing.
 	var player: Player = world.player

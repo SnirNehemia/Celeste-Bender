@@ -11,8 +11,8 @@ extends PlayerState
 ## switch to GustRecoil, which does the gust and the shove back. A quick tap fires
 ## almost at once. Holding past tuning.gust_aim_max_real_time (real seconds) fires
 ## by itself, so slow motion can't be used to hang around.
-## If the chosen gust isn't allowed (straight down, no down-boosts left; the preview
-## turns gray), releasing just ends the aim without a gust.
+## The gust charge is checked on the PRESS (player.wants_to_gust()), so any
+## direction chosen here is allowed; GustRecoil spends the charge when it fires.
 ##
 ## Entered from Idle/Run/Jump/Fall/WallSlide/Glide via player.get_gust_start_state().
 ## No dash or jump while aiming: the moment is short, and it keeps the state simple.
@@ -62,10 +62,5 @@ func physics_update(delta: float) -> void:
 	# the held state can't miss a release that happened between ticks.
 	var held_real_seconds: float = (Time.get_ticks_msec() - aim_start_msec) / 1000.0
 	if not Input.is_action_pressed("gust") or held_real_seconds >= player.tuning.gust_aim_max_real_time:
-		if player.gust.is_gust_allowed(aim_direction):
-			player.gust.lock_aim(aim_direction)
-			transition_requested.emit(&"GustRecoil")
-		else:
-			# Straight down with no down-boosts left: the gust would do nothing, so
-			# don't fire at all (no air, no cooldown, no breath). The preview was grayed out.
-			transition_requested.emit(&"Fall")
+		player.gust.lock_aim(aim_direction)
+		transition_requested.emit(&"GustRecoil")

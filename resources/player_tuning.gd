@@ -97,8 +97,8 @@ extends Resource
 @export var dash_wake_range: float = 24.0
 ## Push strength of the wake, px/s (the gust's is 160).
 @export var dash_wake_push_strength: float = 120.0
-## Defeating a stunned enemy by dashing into it gives the dash back (and the gust's
-## down-boosts, like a wind crystal), so you can chain a kill into the next move.
+## Defeating a stunned enemy by dashing into it gives the dash back (and the gust
+## charge, like a wind crystal), so you can chain a kill into the next move.
 @export var dash_defeat_refills: bool = true
 
 @export_group("Air Dash: Ride the Current (experimental)")
@@ -156,8 +156,16 @@ extends Resource
 ## Half-width of the cone right at the player, px, so things touching the body
 ## still get hit (a pure point would miss them).
 @export var gust_cone_near_half_width: float = 3.0
-## Seconds before the next gust is allowed.
+## Seconds before the next gust is allowed. In the air the charges below are the
+## real limit; this mostly stops ground gusts from being spammed every frame.
 @export var gust_cooldown: float = 0.6
+## Gust CHARGES per airtime: how many gusts you get between leaving the ground and
+## landing again. Landing refills them (and a wind crystal tops them back up to this).
+## Ground gusts are free: they don't spend a charge. 0 = unlimited (only the cooldown).
+@export var gust_charges_per_airtime: int = 1
+## A blue gust diamond sets your charges to this for the CURRENT airtime only:
+## the next landing brings you back to gust_charges_per_airtime.
+@export var gust_diamond_charges: int = 2
 ## Speed the player is shoved the OPPOSITE way of the gust, px/s.
 @export var gust_recoil_speed: float = 120.0
 ## Gusting while standing on the ground: the recoil is multiplied by this (0.5 = half),
@@ -170,11 +178,8 @@ extends Resource
 ## Upward speed from a down-gust in mid-air ("extra jump"), px/s.
 ## It SETS the vertical speed (doesn't add to it), so it works even mid-fall.
 ## 120 under full gravity rises ~8 px; holding jump (apex half-gravity) gives a bit more.
+## Every mid-air down-gust lifts you: the gust charges are what limit it.
 @export var gust_down_boost_speed: float = 120.0
-## How many down-gusts per airtime give the extra-jump lift (refilled on the ground).
-## Gusts past this still blow and push things, they just don't lift you.
-## 0 = unlimited (only cooldown and breath limit it).
-@export var gust_down_boosts_per_airtime: int = 2
 ## NEUTRAL gust (no arrow held): a burst in ALL directions instead of a cone.
 ## Radius of the circle it pushes, px. Things are pushed straight away from you.
 @export var gust_neutral_radius: float = 28.0
@@ -204,7 +209,9 @@ extends Resource
 ## Gust costs breath: when on, a gust spends gust_stamina_cost of the shared
 ## glide/dash stamina bar. The bar refills on the ground, so ground gusts stay free;
 ## only airborne gusts compete with dash and glide. Off = gusts are free.
-@export var gust_uses_stamina: bool = true
+## Off by default since the gust charges (one per airtime) took over as the limit;
+## kept as a toggle to compare.
+@export var gust_uses_stamina: bool = false
 ## Stamina one gust costs, in glide-seconds (0.3 of 1.5 = 20% of the bar).
 @export var gust_stamina_cost: float = 0.3
 ## Diagonal grace, REAL seconds: after aiming a diagonal (e.g. Down+Right), releasing

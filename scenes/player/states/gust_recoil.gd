@@ -8,7 +8,7 @@ extends PlayerState
 ##
 ##   RECOIL (aimed gust, an arrow held)
 ##     enter():  shoved the opposite way at gust_recoil_speed; a down-gust in mid-air
-##               is an "extra jump" (up to gust_down_boosts_per_airtime per airtime);
+##               is an "extra jump" (it spends the airtime's gust charge, like any air gust);
 ##               an up-gust pushes you down. On the ground the sideways shove is
 ##               weaker (gust_ground_recoil_multiplier) and braked hard by friction
 ##               (gust_ground_recoil_friction), so you stay planted near a ledge
@@ -75,7 +75,8 @@ func enter() -> void:
 	if direction.y > 0.0:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward
 		# speed so it also works mid-fall; minf keeps a faster rise you already had.
-		if not player.is_on_floor() and player.gust.spend_down_boost():
+		# No separate boost count: the gust charge (spent in begin_gust) is the limit.
+		if not player.is_on_floor():
 			player.velocity.y = minf(player.velocity.y, -tuning.gust_down_boost_speed * direction.y)
 	elif direction.y < 0.0:
 		# Up-gust: shoved down. maxf keeps a faster fall you already had.

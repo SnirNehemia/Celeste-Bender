@@ -20,7 +20,8 @@ Some surfaces have a layer of **earth** (brown-yellow). The player can only bend
 |---|---|---|
 | Fresh earth | brown-yellow | Can be bent |
 | Used earth | dark brown | Already bent from, or a hardened creation. Can't be bent |
-| Plain solid | dark gray (as in Air chapter) | Not earth, never bendable |
+| Grass | green, bright blades on top | Plain ground of Earth rooms. Never bendable, but the shadow crawls over it (added after E3). Its blades sway idly, lean the way the player runs, lean with wind zones and whip over in a gust |
+| Plain solid | dark gray (as in Air chapter) | Not earth, never bendable, and **blocks the shadow** (used e.g. under spikes) |
 | Cracked wall | gray with crack lines | Breaks when hit by a boulder |
 
 - Earth is a surface layer on platforms, walls and ceilings (1 tile thick is enough for now).
@@ -182,6 +183,13 @@ These rules were agreed when planning the build. Where they differ from the sect
 - **Real time:** the shadow and the snake head move in real time, and are drawn every rendered frame, so they stay smooth while physics is slowed to 0.3×.
 - **Cancel:** cancelling with Jump uses up that press, so the player doesn't also jump.
 - **Column bounces:** the player goes into a `Launched` state with a short steering lock. Sideways launches get a small upward component, like Celeste's side springs; otherwise normal air control eats the 220 px/s within about 0.2 s.
+- **Columns spring only while rising** (decided in Stage E3, replaces "anything touching any face" in §5): the rising tip pushes what it meets and throws it away, once. Once risen, a column is a plain solid platform you can stand on and wall-jump off.
+- **Super jump:** a column rising under the player throws them about **2x the height of a full regular jump** (`column_super_jump_speed`, ~320 px/s ≈ 57 px vs ~29 px). Crates, enemies and the sideways/downward player throws use 220 px/s.
+- **Low ceilings:** a column only grows into open air, so it never pokes through a ceiling. If its tip squeezes an **enemy or the player** against a solid, they're **crushed** (enemy defeated, player dies; changed after E3 play-test). Crates are never crushed: the column stops short of them. Careful: a quick-tap super jump under a low ceiling crushes you.
+- **Enemies on pillars:** a wisp standing on a column doesn't turn at its edge (a pillar is no patrol route): it walks off and drops back to the ground.
+- **Mixed test rooms:** Air + Earth rooms (both allowed) are on the main menu: one for movement, one with both enemy types (block orbs with columns, crush or throw wisps).
+- **Grass vs gray** (after E3 play-test, replaces "Shadow crosses everything solid" above): the shadow crawls over earth, used earth, columns and **grass**, but **gray rock stops it**; it waits on the last face before the gray. Earth rooms are built from grass, with gray under spikes so a bend can't reach across a spike pit.
+- **Bending from a pillar:** a risen column counts as earth to stand on. You can start a bend on it (the shadow starts on the column and crawls on from there), but nothing erupts from the column itself.
 - **Boulder pop:** on every surface the boulder eases out about 22 px, hangs briefly, then falls. The "peak" in §6 is that hang moment, about 0.22 s after the pop, so throw timing is the same from floors, walls and ceilings. Slow motion ends when S is released, and the throw is timed in game time. The player stays rooted until the throw or the 1.0 s timeout.
 - **Boulder tiles:** a boulder uses the shadow's tile and the tile before it on the path.
 - **Boulder impacts:** a thrown boulder sticks into *any* earth face, floors included. A boulder that's never thrown always shatters.

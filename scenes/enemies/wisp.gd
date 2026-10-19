@@ -9,6 +9,8 @@ extends CharacterBody2D
 ##
 ## It has three states:
 ##   PATROL   walks at patrol_speed, turns around at walls and at ledges. Deadly to touch.
+##            On top of an Earth Column it does NOT turn at the edge: a pillar is no
+##            patrol route, so it walks off and drops back to the ground.
 ##   STUNNED  knocked back by a gust (or the dash wake) and dizzy for stun_time.
 ##            HARMLESS to touch while stunned (it turns pale and wobbles), so going
 ##            for the dash finish never kills you by a frame. Doesn't turn at ledges,
@@ -144,8 +146,9 @@ func _physics_process(delta: float) -> void:
 
 func _patrol(delta: float) -> void:
 	_apply_gravity(delta)
-	# Turn BEFORE stepping off a ledge, so it never walks off by itself.
-	if is_on_floor() and not _has_floor_ahead():
+	# Turn BEFORE stepping off a ledge, so it never walks off by itself (except off
+	# a pillar, see the header).
+	if is_on_floor() and not _has_floor_ahead() and not _is_standing_on_column():
 		patrol_direction = -patrol_direction
 	velocity.x = patrol_direction * patrol_speed
 	move_and_slide()
@@ -176,6 +179,16 @@ func _be_stunned(delta: float) -> void:
 func _apply_gravity(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y = minf(velocity.y + gravity * delta, max_fall_speed)
+
+
+## True if the floor under us is an Earth Column. move_and_slide() keeps every
+## contact it made as a "slide collision"; the floor is the one facing up.
+func _is_standing_on_column() -> bool:
+	for collision_index: int in get_slide_collision_count():
+		var collision: KinematicCollision2D = get_slide_collision(collision_index)
+		if collision.get_normal().y < -0.7 and collision.get_collider() is EarthColumn:
+			return true
+	return false
 
 
 ## Is there ground just past our front edge? A ray from slightly above the feet,
@@ -234,6 +247,23 @@ func receive_gust(direction: Vector2, strength: float) -> void:
 	state = State.STUNNED
 	stun_time_remaining = maxf(stun_time_remaining, stun_time)
 	has_slammed_this_knockback = false
+
+
+## The Pushable contract's Earth extras (Stage E3). A rising Earth Column throws it
+## at the column's launch velocity and stuns it, like a big gust: thrown into spikes
+## or a pit, it's defeated by the usual rules.
+func receive_launch(launch_velocity: Vector2) -> void:
+	if state == State.DEFEATED:
+		return
+	velocity = launch_velocity
+	state = State.STUNNED
+	stun_time_remaining = maxf(stun_time_remaining, stun_time)
+	has_slammed_this_knockback = false
+
+
+## Squeezed between a rising column and a solid: crushed.
+func receive_crush() -> void:
+	defeat()
 
 
 ## Gone until the room resets: hidden, no collision (so gusts ignore it). The

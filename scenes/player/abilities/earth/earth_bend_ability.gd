@@ -5,17 +5,19 @@ extends Node2D
 ##
 ## Two jobs:
 ##   1. "What earth am I touching?" — find_start_surface() returns the fresh earth
-##      face under the feet (standing) or beside the body (wall-sliding), or null.
-##      A bend can only start there.
+##      (or Earth Column) face under the feet (standing) or beside the body
+##      (wall-sliding), or null. A bend can only start there.
 ##   2. The bend SHADOW — begin_bend() puts a dark oval under the feet; after
 ##      shadow_start_delay it crawls along the surface, wrapping around corners.
-##      It crosses gray rock and used earth too (Earth_bending.md §11), but can only
+##      It crosses used earth, columns and GRASS too (Earth_bending.md §11), but
+##      GRAY rock stops it: it waits at the last face before the gray. It can only
 ##      ERUPT from fresh earth: over anything else it turns pale, and releasing
 ##      there fizzles. release_bend() fires at wherever it is; cancel_bend() stops
 ##      without using any earth.
 ## The EarthBend player STATE decides when to call these (key pressed / released,
-## jump pressed, time up). The moves themselves (column, boulder, snake) come in
-## E3-E5 and will each take the target face from here.
+## jump pressed, time up). The moves themselves (EarthMoveAbility components:
+## column now, boulder and snake in E4-E5) register here with register_move();
+## release_bend() hands the target face to the move whose key started the bend.
 ##
 ## REAL TIME: the world runs at bend_time_scale (0.3x) while bending, but the shadow
 ## must feel the same every time (Earth_bending.md §4). So it moves in _process()
@@ -30,17 +32,14 @@ extends Node2D
 ##   - straight:     the tile at cell + t is solid      -> same side of that tile
 ##   - outer corner: neither                            -> wrap onto our own side t
 ##                   (walking off a ledge: now on its side, going down)
-## Any solid tile works (earth, used earth, gray), so the shadow never gets stuck;
-## only the bend's time limit ends the crawl.
+## The next face's tile may be earth, used earth, a column or grass. If it's GRAY
+## rock the step is refused and the shadow waits where it is until the bend ends.
 ## Each step passes through the same "corner point" (face center + t * half tile),
 ## which is what makes the drawn shadow slide smoothly round corners.
 ##
 ## Drawing: top_level = true, so this node ignores the player's transform and its
 ## own coordinates are world coordinates (like AirBlastDebugDraw).
 
-## The earth keys that start a bend. Only the column's key so far; the boulder
-## (`earth_boulder`) and snake (`earth_snake`) join in Stages E4 and E5.
-const BEND_ACTIONS: Array[StringName] = [&"earth_column"]
 ## Shadow look: a dark oval lying on the surface, px (length along the surface, thickness).
 ## Over gray rock or used earth (can't erupt there) it's drawn pale instead.
 const SHADOW_SIZE: Vector2 = Vector2(12.0, 5.0)
@@ -52,13 +51,16 @@ const DEBUG_TARGET_COLOR: Color = Color(1.0, 0.3, 0.9, 1.0)
 
 ## The player this belongs to (the parent node), set in _ready().
 var player: Player
+## The registered moves: bend key (StringName) -> EarthMoveAbility. Filled by
+## register_move(); its keys are the earth keys that start a bend.
+var moves: Dictionary = {}
 
 ## Set by queue_bend() (from player.wants_to_bend), read by EarthBend.enter().
 var queued_action: StringName = &""
 var queued_start_face: EarthFace = null
 ## True between begin_bend() and release_bend() / cancel_bend().
 var is_bending: bool = false
-## Which earth key started this bend (one of BEND_ACTIONS). The state watches it.
+## Which earth key started this bend (a key of `moves`). The state watches it.
 var bend_action: StringName = &""
 ## Real seconds since the bend started.
 var bend_real_time: float = 0.0
@@ -83,18 +85,19 @@ func _ready() -> void:
 
 # --- Finding the earth we touch --------------------------------------------------
 
-## The FRESH earth face a bend can start from, or null. Earth_bending.md §4:
-## you must be touching fresh earth, standing on it or wall-sliding on it.
+## The face a bend can start from, or null. Earth_bending.md §4: you must be
+## touching fresh earth (standing on it or wall-sliding on it), or an Earth Column
+## (§11: you can bend from a pillar, though nothing erupts from the pillar itself).
 func find_start_surface() -> EarthFace:
 	var face: EarthFace = find_touched_face()
-	if face == null or not face.is_fresh():
+	if face == null or not face.is_bend_start():
 		return null
 	return face
 
 
-## The earth face we touch (fresh or used), or null: the floor under the feet when
-## standing, the wall beside the body when wall-sliding. Used tiles count here (the
-## debug label shows them); find_start_surface() filters them out.
+## The earth face we touch (fresh, used or a column), or null: the floor under the
+## feet when standing, the wall beside the body when wall-sliding. Used tiles count
+## here (the debug label shows them); find_start_surface() filters them out.
 func find_touched_face() -> EarthFace:
 	if player.is_on_floor():
 		return _find_floor_face()
@@ -105,21 +108,16 @@ func find_touched_face() -> EarthFace:
 
 ## The floor tile under the feet. The body is 8 px wide, so it can stand on two tiles
 ## at once: try under the middle of the feet first, then each foot's edge, preferring
-## a fresh tile (standing half on used earth and half on fresh still lets you bend).
+## a fresh tile, then a column (standing half on used earth and half on fresh still
+## lets you bend).
 func _find_floor_face() -> EarthFace:
 	# 1 px below the feet is inside the floor tile.
 	var feet: Vector2 = player.global_position + Vector2(0.0, 1.0)
 	var half_width: float = _get_body_half_size().x - 0.5
-	var best_face: EarthFace = null
+	var faces: Array[EarthFace] = []
 	for offset_x: float in [0.0, -half_width, half_width]:
-		var face: EarthFace = _face_at(feet + Vector2(offset_x, 0.0), Vector2i.UP)
-		if face == null:
-			continue
-		if face.is_fresh():
-			return face
-		if best_face == null:
-			best_face = face
-	return best_face
+		faces.append(_face_at(feet + Vector2(offset_x, 0.0), Vector2i.UP))
+	return _pick_best_face(faces)
 
 
 ## The wall tile beside the body on side `wall_direction` (-1 left, +1 right).
@@ -131,26 +129,37 @@ func _find_wall_face(wall_direction: float) -> EarthFace:
 	# Just past the body's side edge, inside the wall tile we're pressed against.
 	var probe_x: float = player.get_center().x + wall_direction * (body_half_size.x + 1.5)
 	var normal: Vector2i = Vector2i(-int(wall_direction), 0)  # the wall faces back at us
-	var best_face: EarthFace = null
+	var faces: Array[EarthFace] = []
 	for offset_y: float in [0.0, -body_half_size.y + 1.0, body_half_size.y - 1.0]:
-		var face: EarthFace = _face_at(Vector2(probe_x, player.get_center().y + offset_y), normal)
+		faces.append(_face_at(Vector2(probe_x, player.get_center().y + offset_y), normal))
+	return _pick_best_face(faces)
+
+
+## The best of the probed faces (nulls allowed): the first fresh one, else the first
+## a bend can start from (a column), else the first at all (used earth, for the label).
+func _pick_best_face(faces: Array[EarthFace]) -> EarthFace:
+	var startable_face: EarthFace = null
+	var any_face: EarthFace = null
+	for face: EarthFace in faces:
 		if face == null:
 			continue
 		if face.is_fresh():
 			return face
-		if best_face == null:
-			best_face = face
-	return best_face
+		if startable_face == null and face.is_bend_start():
+			startable_face = face
+		if any_face == null:
+			any_face = face
+	return startable_face if startable_face != null else any_face
 
 
-## The face with `normal` of the earth tile at `world_position`, or null if there's
-## no earth there or that side of it isn't open to the air.
+## The face with `normal` of the earth tile (or column) at `world_position`, or null
+## if there's no earth there or that side of it isn't open to the air.
 func _face_at(world_position: Vector2, normal: Vector2i) -> EarthFace:
 	var earth_layer: EarthLayer = EarthLayer.find_layer_at(get_tree(), world_position)
 	if earth_layer == null:
 		return null
 	var cell: Vector2i = earth_layer.get_cell_at(world_position)
-	if not earth_layer.is_face_exposed(cell, normal):
+	if not earth_layer.is_earthen(cell) or earth_layer.is_solid(cell + normal):
 		return null
 	return EarthFace.new(earth_layer, cell, normal)
 
@@ -160,7 +169,7 @@ func _get_body_half_size() -> Vector2:
 
 
 ## Checks for a bend start THIS frame: an earth key just pressed while touching
-## fresh earth. If so, remembers both for EarthBend.enter() and returns true.
+## fresh earth or a column. If so, remembers both for EarthBend.enter() and returns true.
 func queue_bend() -> bool:
 	var action: StringName = get_just_pressed_bend_action()
 	if action == &"":
@@ -173,9 +182,15 @@ func queue_bend() -> bool:
 	return true
 
 
-## The earth key pressed THIS frame (one of BEND_ACTIONS), or &"" if none.
+## Adds an earth move: its key now starts a bend, and releasing that bend calls
+## its erupt(). Called by Player._ready() for each move component.
+func register_move(move: EarthMoveAbility) -> void:
+	moves[move.get_bend_action()] = move
+
+
+## The earth key pressed THIS frame (a registered move's key), or &"" if none.
 func get_just_pressed_bend_action() -> StringName:
-	for action: StringName in BEND_ACTIONS:
+	for action: StringName in moves:
 		if Input.is_action_just_pressed(action):
 			return action
 	return &""
@@ -202,20 +217,20 @@ func begin_bend(action: StringName, start_face: EarthFace) -> void:
 	queue_redraw()
 
 
-## Ends the bend and returns the face the move should erupt from (the one the
-## shadow is on), or null if the shadow is over gray rock or used earth: then the
-## bend fizzles and no earth is used. Called by EarthBend when the key is released
-## or time runs out.
-## Stage E2 placeholder: the eruption only spends that tile, with a burst of gravel
-## and a small shake. Stage E3 hands the face to the Earth Column instead.
+## Ends the bend and fires the move whose key started it at the face the shadow is
+## on (the move's erupt() spends the tile). Returns that face, or null if the shadow
+## is over gray rock or used earth: then the bend fizzles and no earth is used.
+## Called by EarthBend when the key is released or time runs out.
 func release_bend() -> EarthFace:
 	var target_face: EarthFace = get_target_face()
+	var move: EarthMoveAbility = moves.get(bend_action) as EarthMoveAbility
 	_end_bend()
 	if target_face == null:
 		# Nothing to bend here (gray rock or used earth): no gravel, it isn't earth.
 		FX.play_sfx(&"earth_fizzle")
 		return null
-	_erupt_placeholder(target_face)
+	if move != null:
+		move.erupt(target_face)
 	return target_face
 
 
@@ -230,16 +245,6 @@ func _end_bend() -> void:
 	bend_action = &""
 	player.movement_effects.release_squash()
 	queue_redraw()  # clears the shadow
-
-
-## Stage E2 stand-in for a real move: spend the target tile and make it look like
-## something burst out of it.
-func _erupt_placeholder(face: EarthFace) -> void:
-	var tuning: EarthTuning = player.earth_tuning
-	face.layer.mark_used(face.cell)
-	FX.spawn_gravel(face.get_global_center(), tuning.eruption_gravel_count, Vector2(face.normal))
-	FX.shake(tuning.eruption_shake_strength, tuning.eruption_shake_time)
-	FX.play_sfx(&"earth_erupt")
 
 
 # --- The shadow ----------------------------------------------------------------------
@@ -282,13 +287,17 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## Adds faces to the path until it reaches the shadow.
+## Adds faces to the path until it reaches the shadow. If gray rock blocks the
+## next step, the shadow stops on the last face and waits there.
 func _extend_path_to_shadow() -> void:
 	var step_length: float = _get_step_length()
 	while shadow_distance > (path.size() - 1) * step_length:
 		var current_face: EarthFace = path[path.size() - 1]
 		var tangent: Vector2i = path_tangents[path_tangents.size() - 1]
 		var next: Array = _find_next_face(current_face, tangent)
+		if next.is_empty():
+			shadow_distance = (path.size() - 1) * step_length  # blocked: wait here
+			return
 		var next_face: EarthFace = next[0]
 		path.append(next_face)
 		path_tangents.append(next[1])
@@ -296,18 +305,23 @@ func _extend_path_to_shadow() -> void:
 
 
 ## The face after `face` when crawling in direction `tangent`, as [EarthFace, new
-## tangent]. See "THE PATH" in the header. The new face may be gray or used: the
-## shadow crosses those, it just can't erupt there.
-## (The face's tile may then be a GRAY tile from the room's "Tiles" layer; it still
-## lives in the earth layer's map coordinates, which match, so EarthFace works.)
+## tangent], or [] if GRAY rock blocks the way. See "THE PATH" in the header. The
+## new face may be used earth, a column or grass: the shadow crosses those, it just
+## can't erupt there.
+## (The face's tile may then be a GRASS tile from another layer; it still lives in
+## the earth layer's map coordinates, which match, so EarthFace works.)
 func _find_next_face(face: EarthFace, tangent: Vector2i) -> Array:
 	var earth_layer: EarthLayer = face.layer
 	var inner_corner_cell: Vector2i = face.cell + face.normal + tangent
 	if earth_layer.is_solid(inner_corner_cell):
+		if earth_layer.is_shadow_blocking(inner_corner_cell):
+			return []
 		# Running into a wall (or a ceiling's wall...): climb onto its face toward us.
 		return [EarthFace.new(earth_layer, inner_corner_cell, -tangent), face.normal]
 	var straight_cell: Vector2i = face.cell + tangent
 	if earth_layer.is_solid(straight_cell):
+		if earth_layer.is_shadow_blocking(straight_cell):
+			return []
 		# The surface continues flat.
 		return [EarthFace.new(earth_layer, straight_cell, face.normal), tangent]
 	# Nothing ahead: wrap around our own tile's edge onto its side.
@@ -315,24 +329,24 @@ func _find_next_face(face: EarthFace, tangent: Vector2i) -> Array:
 
 
 ## A new face reached: its tile shivers and drops a few bits behind the shadow.
-## Gray rock does neither: it isn't earth, the energy only passes under it.
+## Grass does neither: it isn't earth, the energy only passes under it.
 func _on_shadow_entered_face(face: EarthFace) -> void:
-	if not face.layer.is_earth(face.cell):
+	if not face.layer.is_earthen(face.cell):
 		return
 	var tuning: EarthTuning = player.earth_tuning
 	face.layer.shiver(face.cell, tuning.shiver_time)
 	FX.spawn_gravel(face.get_global_center(), tuning.path_gravel_count, Vector2(face.normal))
 
 
-## While the shadow moves over EARTH (fresh or used), it sheds a bit or two now and
-## then. Over gray rock: nothing, gravel only comes out of earth.
+## While the shadow moves over EARTH (fresh, used or a column), it sheds a bit or
+## two now and then. Over grass: nothing, gravel only comes out of earth.
 func _spawn_crawl_gravel(real_delta: float) -> void:
 	shadow_gravel_timer -= real_delta
 	if shadow_gravel_timer > 0.0:
 		return
 	shadow_gravel_timer = player.earth_tuning.shadow_gravel_interval
 	var shadow_face: EarthFace = get_shadow_face()
-	if not shadow_face.layer.is_earth(shadow_face.cell):
+	if not shadow_face.layer.is_earthen(shadow_face.cell):
 		return
 	FX.spawn_gravel(get_shadow_position(), 1 + randi() % 2, get_shadow_normal())
 
@@ -349,7 +363,7 @@ func get_shadow_face() -> EarthFace:
 
 
 ## The face the move would erupt from right now: the shadow's face if it's fresh
-## earth, else null (over gray rock or used earth nothing can erupt).
+## earth, else null (over grass, a column or used earth nothing can erupt).
 func get_target_face() -> EarthFace:
 	var shadow_face: EarthFace = get_shadow_face()
 	return shadow_face if shadow_face.is_fresh() else null
@@ -430,4 +444,6 @@ func describe_contact() -> String:
 	var face: EarthFace = find_touched_face()
 	if face == null:
 		return "-"
+	if face.layer.is_column(face.cell):
+		return face.describe()  # "pillar floor (x, y)"
 	return "%s %s" % ["fresh" if face.is_fresh() else "used", face.describe()]

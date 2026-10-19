@@ -96,6 +96,13 @@ func receive_gust(direction: Vector2, strength: float) -> void:
 		velocity.y = maxf(velocity.y, direction.y * strength)
 
 
+## The Pushable contract's Earth extra: a rising Earth Column threw us. Take its
+## velocity as is (a spring throws everything the same way). No receive_crush():
+## a crate is never crushed, the column stops short of it instead.
+func receive_launch(launch_velocity: Vector2) -> void:
+	velocity = launch_velocity
+
+
 ## Called by Room.reset_objects() when the player dies or restarts the room.
 func reset() -> void:
 	global_position = start_position

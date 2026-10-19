@@ -46,6 +46,7 @@ const SHADE_COLOR: Color = Color(0.21, 0.21, 0.24)
 const ROOM_SCRIPT: Script = preload("res://scenes/rooms/room_base.gd")
 const SPIKES_SCENE: PackedScene = preload("res://scenes/objects/spikes.tscn")
 const CRYSTAL_SCENE: PackedScene = preload("res://scenes/objects/wind_crystal.tscn")
+const DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/gust_diamond.tscn")
 const WIND_ZONE_SCENE: PackedScene = preload("res://scenes/objects/wind_zone.tscn")
 const CRATE_SCENE: PackedScene = preload("res://scenes/objects/crate.tscn")
 const PLATE_SCENE: PackedScene = preload("res://scenes/objects/pressure_plate.tscn")
@@ -65,9 +66,19 @@ const FACING_UP: int = 0
 const FACING_LEFT: int = 2
 const FACING_RIGHT: int = 3
 
+## Grass on top of the floors (the swaying blades, scenes/objects/earth/grass_layer.gd).
+## The tileset is made by tools/build_earth_rooms.gd; its atlas tile (0, 0) is the
+## grass "top" tile.
+const GRASS_TILESET_PATH: String = "res://resources/tiles/grass_tileset.tres"
+const GRASS_LAYER_SCRIPT: Script = preload("res://scenes/objects/earth/grass_layer.gd")
+const TILE_GRASS_TOP: Vector2i = Vector2i(0, 0)
+
 ## Room being built: its root node and its solid cells (a Dictionary used as a set).
 var room: Room
 var solid_cells: Dictionary = {}
+## Floor cells with up-facing spikes on them: no grass there (blades would grow
+## through the spikes and hide them).
+var spiked_floor_cells: Dictionary = {}
 var tile_set: TileSet
 
 
@@ -155,6 +166,7 @@ func _begin_room(node_name: String, title: String, size_px: Vector2, description
 	room.room_size = size_px
 	room.editor_description = description
 	solid_cells.clear()
+	spiked_floor_cells.clear()
 
 
 func _instantiate_room(node_name: String) -> Room:
@@ -177,6 +189,9 @@ func _spikes(node_name: String, column: int, row: int, count: int, facing: int =
 	_add(SPIKES_SCENE, node_name, Vector2(column * TILE, row * TILE), {
 		"facing": facing, "tile_count": count,
 	})
+	if facing == FACING_UP:
+		for x: int in range(column, column + count):
+			spiked_floor_cells[Vector2i(x, row + 1)] = true
 
 
 ## A cosmetic leaf pile lying on a floor: `position_px` is the center of its base
@@ -212,19 +227,30 @@ func _finish_room(spawn_px: Vector2, path: String) -> void:
 	var tiles: TileMapLayer = TileMapLayer.new()
 	tiles.name = "Tiles"
 	tiles.tile_set = tile_set
+	# Floors (a tile under open air) get a grass cap with swaying blades, except
+	# under spikes, where they keep the gray tile with its light top edge.
+	var grass: TileMapLayer = TileMapLayer.new()
+	grass.name = "Grass"
+	grass.set_script(GRASS_LAYER_SCRIPT)
+	grass.tile_set = load(GRASS_TILESET_PATH) as TileSet
 	for cell: Vector2i in solid_cells:
-		# The tile under open air gets the light top edge: walkable surfaces stand out.
 		var is_top: bool = not solid_cells.has(cell + Vector2i.UP) and cell.y > 0
-		tiles.set_cell(cell, 0, TILE_TOP_EDGE if is_top else TILE_PLAIN)
+		if is_top and not spiked_floor_cells.has(cell):
+			grass.set_cell(cell, 0, TILE_GRASS_TOP)
+		else:
+			tiles.set_cell(cell, 0, TILE_TOP_EDGE if is_top else TILE_PLAIN)
 	room.add_child(tiles)
 	room.move_child(tiles, 0)  # drawn first, so objects appear in front of the ground
 	tiles.owner = room
+	room.add_child(grass)
+	room.move_child(grass, 1)
+	grass.owner = room
 
 	var spawn: Marker2D = Marker2D.new()
 	spawn.name = "SpawnPoint"
 	spawn.position = spawn_px
 	room.add_child(spawn)
-	room.move_child(spawn, 1)
+	room.move_child(spawn, 2)
 	spawn.owner = room
 
 	var packed: PackedScene = PackedScene.new()
@@ -435,7 +461,7 @@ func _build_room_06() -> void:
 ## a wisp guarding the goal.
 func _build_room_07() -> void:
 	_begin_room("Room07", "7 - The Gauntlet", Vector2(480, 180),
-		"1) Gust the windmill, then race the 4 s gate: jump and dash through three crystals over spikes, against a head-wind, and through the door. 2) A sentry sits on the high platform: reflect its orbs from below, then climb (jump + down-gusts) up to it; the air below it is dead, no gliding. 3) Jump to the last ledge; a wisp patrols in front of the goal (gust it into the wall, then dash it, or just slip past). Touch the green flag to finish.")
+		"1) Gust the windmill, then race the 4 s gate: jump and dash through three crystals over spikes, against a head-wind, and through the door. 2) A sentry sits on the high platform: reflect its orbs from below, then climb up to it: run off the edge, grab the blue diamond (two gusts for that jump) and down-gust up; the air below it is dead, no gliding. 3) Jump to the last ledge; a wisp patrols in front of the goal (gust it into the wall, then dash it, or just slip past). Touch the green flag to finish.")
 	_solid(0, 0, 60, 1)     # ceiling
 	_solid(0, 0, 1, 11)     # left wall above the entrance (entrance = rows 11-14)
 	_solid(0, 15, 6, 8)     # entrance floor (top y = 120)
@@ -459,6 +485,9 @@ func _build_room_07() -> void:
 	_add(CRYSTAL_SCENE, "Crystal2", Vector2(152, 80))
 	_add(CRYSTAL_SCENE, "Crystal3", Vector2(208, 96))
 	_add(SENTRY_SCENE, "HighSentry", Vector2(344, 48))
+	# The climb to the sentry is 72 px up and 32 px across the spikes: one jump plus one
+	# down-gust only just makes it, so a gust diamond on the way gives a second gust.
+	_add(DIAMOND_SCENE, "ClimbDiamond", Vector2(304, 88))
 	_add(WISP_SCENE, "GoalWisp", Vector2(424, 72))
 	_add(GOAL_SCENE, "Goal", Vector2(448, 40), {"goal_size": Vector2(24, 32)})
 	_no_glide("ClimbDeadAir", Rect2(288, 56, 128, 104))

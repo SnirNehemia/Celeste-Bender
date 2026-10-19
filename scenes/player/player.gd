@@ -14,13 +14,15 @@ extends CharacterBody2D
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
 ##   ├─ AirDashAbility     dash charges, aim, dash effects (abilities/air_dash_ability.gd)
 ##   ├─ GlideAbility       glide stamina, stamina bar, glide effects (abilities/glide_ability.gd)
-##   ├─ GustAbility        gust cooldown, down-boost, cone hit, gust effects (abilities/gust_ability.gd)
+##   ├─ GustAbility        gust charges + pips, cooldown, cone hit, gust effects (abilities/gust_ability.gd)
 ##   ├─ AirBlastDebugDraw  F3 debug drawing of gust / dash-wake cones (abilities/air_blast_debug_draw.gd)
 ##   ├─ MovementEffects    squash & stretch and dust on jump / land / respawn (movement_effects.gd)
 ##   ├─ EarthBendAbility   shared Earth core: finds the earth we touch, runs the bend
 ##   │                     shadow (abilities/earth/earth_bend_ability.gd)
+##   ├─ EarthColumnAbility Earth move A: raises a column at the bend's target
+##   │                     (abilities/earth/earth_column_ability.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
-##                         GustAim, GustRecoil, EarthBend, Dead
+##                         GustAim, GustRecoil, EarthBend, Launched, Dead
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed).
 ## The wants_to_*() checks below ask is_element_allowed() before starting a move.
@@ -74,6 +76,7 @@ signal died
 @onready var blast_debug: AirBlastDebugDraw = $AirBlastDebugDraw
 @onready var movement_effects: MovementEffects = $MovementEffects
 @onready var earth_bend: EarthBendAbility = $EarthBendAbility
+@onready var earth_column: EarthColumnAbility = $EarthColumnAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -101,6 +104,10 @@ func _ready() -> void:
 	add_to_group(GROUP)
 	# _ready() runs after all children are ready, so the states exist now.
 	state_machine.setup(self)
+	# Earth moves: each one tells the shared bend which key starts it. (Done here,
+	# not in the moves' own _ready(): a parent's @onready vars, like earth_bend, are
+	# only filled in just before the PARENT's _ready(), after its children's.)
+	earth_bend.register_move(earth_column)
 
 
 ## _physics_process runs at a fixed rate (60 times/s by default), independent of the
@@ -324,29 +331,32 @@ func wants_to_glide() -> bool:
 # --- Refills ------------------------------------------------------------------
 
 ## A wind crystal was touched: refill the dash (or breath, in shared stamina mode)
-## and the gust's down-boosts. Returns true if ANYTHING was restored, so the crystal
+## and the gust charge. Returns true if ANYTHING was restored, so the crystal
 ## is only used up when it helped. Lives here so the crystal doesn't need to know
 ## about each ability.
 func refill_from_crystal() -> bool:
 	# Both calls must run: `or` would skip the second one if the first returned true.
 	var dash_restored: bool = air_dash.refill()
-	var boosts_restored: bool = gust.refill_down_boosts()
-	return dash_restored or boosts_restored
+	var gust_restored: bool = gust.refill_charges()
+	return dash_restored or gust_restored
+
+
+## A gust diamond was touched: two gust charges for this airtime (GAME_DESIGN.md §5.3).
+## Returns true if it helped (false on the ground, or already at two), so the
+## diamond is only used up when it did.
+func overcharge_from_diamond() -> bool:
+	return gust.overcharge()
 
 
 # --- Gust --------------------------------------------------------------------
 
-## True on the frame gust is pressed, if the cooldown is over and there's breath.
+## True on the frame gust is pressed, if the cooldown is over and the gust can be
+## paid for (a charge in the air, plus breath if that toggle is on).
 ## States that allow gusting check this right after the dash check and switch to
 ## get_gust_start_state().
-## Without hold-to-aim the direction is known now, so a gust that would do nothing
-## (straight down in the air with no down-boosts left) is refused here. With
-## hold-to-aim, GustAim makes that check when the key is released.
 func wants_to_gust() -> bool:
-	if not Input.is_action_just_pressed("gust") or not is_element_allowed(ELEMENT_AIR) \
-			or not gust.can_gust():
-		return false
-	return tuning.gust_hold_to_aim or gust.is_gust_allowed(get_forgiving_aim_input())
+	return Input.is_action_just_pressed("gust") and is_element_allowed(ELEMENT_AIR) \
+		and gust.can_gust()
 
 
 ## Which state a gust press leads to: GustAim (slow-motion aiming, then fire on
@@ -382,6 +392,33 @@ func is_element_allowed(element: StringName) -> bool:
 ## so the wall face couldn't be found again from there.
 func wants_to_bend() -> bool:
 	return is_element_allowed(ELEMENT_EARTH) and earth_bend.queue_bend()
+
+
+## A RISING Earth Column's tip hit us (EarthColumn calls this once per column):
+## thrown away from the tip, `direction` = the column's normal.
+##   up (column under you):     the super jump, column_super_jump_speed straight up
+##   down (from a ceiling):     column_launch_speed down
+##   sideways (from a wall):    column_launch_speed sideways plus a lift upward, like
+##                              Celeste's side springs (Earth_bending.md §11)
+## Refills the dash (for mixed Earth + Air rooms), and the Launched state takes over.
+func launch_from_column(direction: Vector2) -> void:
+	if is_dead():
+		return
+	if direction.y < 0.0:
+		# Sideways speed is kept: you can super-jump while running.
+		velocity.y = -earth_tuning.column_super_jump_speed
+	elif direction.y > 0.0:
+		# maxf: keep a faster fall you already had.
+		velocity.y = maxf(velocity.y, earth_tuning.column_launch_speed)
+	else:
+		velocity.x = direction.x * earth_tuning.column_launch_speed
+		velocity.y = minf(velocity.y, -earth_tuning.column_side_launch_lift)
+		facing_direction = signf(direction.x)
+	# A buffered jump or coyote time must not turn the launch into a small jump.
+	consume_jump_press()
+	air_dash.refill()
+	movement_effects.play_squash(tuning.jump_squash)
+	state_machine.transition_to(&"Launched")
 
 
 # --- Wind --------------------------------------------------------------------
