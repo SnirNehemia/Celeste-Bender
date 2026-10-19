@@ -17,8 +17,13 @@ extends CharacterBody2D
 ##   ├─ GustAbility        gust cooldown, down-boost, cone hit, gust effects (abilities/gust_ability.gd)
 ##   ├─ AirBlastDebugDraw  F3 debug drawing of gust / dash-wake cones (abilities/air_blast_debug_draw.gd)
 ##   ├─ MovementEffects    squash & stretch and dust on jump / land / respawn (movement_effects.gd)
+##   ├─ EarthBendAbility   shared Earth core: finds the earth we touch, runs the bend
+##   │                     shadow (abilities/earth/earth_bend_ability.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
-##                         GustAim, GustRecoil, Dead
+##                         GustAim, GustRecoil, EarthBend, Dead
+##
+## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed).
+## The wants_to_*() checks below ask is_element_allowed() before starting a move.
 ##
 ## Wind: WindZone areas call enter_wind_zone()/exit_wind_zone() on the player.
 ## get_wind_velocity() sums every zone we're in; the movement helpers below shift
@@ -41,6 +46,9 @@ extends CharacterBody2D
 ## All feel values (speeds, gravity...). Edit player_tuning.tres, or this field
 ## in the Inspector, even while the game runs (Remote tab).
 @export var tuning: PlayerTuning
+## Earth bending feel values (Earth_bending.md). Same idea as `tuning`, kept in its
+## own resource so each element's numbers stay together.
+@export var earth_tuning: EarthTuning
 
 ## Floors with this method catch wind (duck typing, like the Pushable contract):
 ##   func absorb_gust_recoil(direction: Vector2, strength: float) -> void
@@ -49,6 +57,9 @@ const WIND_CATCHER_METHOD: StringName = &"absorb_gust_recoil"
 ## The group the player joins, so enemies (Sentry) can find it without a NodePath:
 ## get_tree().get_first_node_in_group(Player.GROUP).
 const GROUP: StringName = &"player"
+## Element names for is_element_allowed().
+const ELEMENT_AIR: StringName = &"air"
+const ELEMENT_EARTH: StringName = &"earth"
 
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
@@ -62,6 +73,7 @@ signal died
 @onready var gust: GustAbility = $GustAbility
 @onready var blast_debug: AirBlastDebugDraw = $AirBlastDebugDraw
 @onready var movement_effects: MovementEffects = $MovementEffects
+@onready var earth_bend: EarthBendAbility = $EarthBendAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -287,7 +299,8 @@ func consume_jump_press() -> void:
 ## True on the frame dash is pressed, if a charge is left. Every state that allows
 ## dashing checks this first and switches to the Dash state.
 func wants_to_dash() -> bool:
-	return Input.is_action_just_pressed("dash") and air_dash.can_dash()
+	return Input.is_action_just_pressed("dash") and is_element_allowed(ELEMENT_AIR) \
+		and air_dash.can_dash()
 
 
 func is_dashing() -> bool:
@@ -301,7 +314,11 @@ func is_dashing() -> bool:
 ## press that could jump still jumps. Holding jump from the original jump does
 ## NOT glide: that press was already spent by the jump.
 func wants_to_glide() -> bool:
-	return jump_buffer_remaining > 0.0 		and Input.is_action_pressed("jump") 		and not is_on_floor() 		and glide.can_glide()
+	return jump_buffer_remaining > 0.0 \
+		and Input.is_action_pressed("jump") \
+		and not is_on_floor() \
+		and is_element_allowed(ELEMENT_AIR) \
+		and glide.can_glide()
 
 
 # --- Refills ------------------------------------------------------------------
@@ -326,7 +343,8 @@ func refill_from_crystal() -> bool:
 ## (straight down in the air with no down-boosts left) is refused here. With
 ## hold-to-aim, GustAim makes that check when the key is released.
 func wants_to_gust() -> bool:
-	if not Input.is_action_just_pressed("gust") or not gust.can_gust():
+	if not Input.is_action_just_pressed("gust") or not is_element_allowed(ELEMENT_AIR) \
+			or not gust.can_gust():
 		return false
 	return tuning.gust_hold_to_aim or gust.is_gust_allowed(get_forgiving_aim_input())
 
@@ -335,6 +353,35 @@ func wants_to_gust() -> bool:
 ## release) when tuning.gust_hold_to_aim is on, else straight to GustRecoil (fire now).
 func get_gust_start_state() -> StringName:
 	return &"GustAim" if tuning.gust_hold_to_aim else &"GustRecoil"
+
+
+# --- Elements ----------------------------------------------------------------
+
+## True if the current room lets us use `element` (ELEMENT_AIR or ELEMENT_EARTH).
+## Rooms store the flags (Room.air_allowed / earth_allowed); GameState knows which
+## room we're in. No room yet (a bare test scene) = everything allowed.
+func is_element_allowed(element: StringName) -> bool:
+	var room: Room = GameState.current_room
+	if room == null:
+		return true
+	match element:
+		ELEMENT_AIR:
+			return room.air_allowed
+		ELEMENT_EARTH:
+			return room.earth_allowed
+	return true
+
+
+# --- Earth -------------------------------------------------------------------
+
+## True on the frame an earth key is pressed while we're touching fresh earth
+## (standing on it or wall-sliding on it). Idle, Run and WallSlide check this
+## after the dash and gust checks and switch to the EarthBend state.
+## On true, the key and the start face are remembered (EarthBendAbility.queue_bend)
+## for EarthBend.enter(): once the state has switched we're no longer "in WallSlide",
+## so the wall face couldn't be found again from there.
+func wants_to_bend() -> bool:
+	return is_element_allowed(ELEMENT_EARTH) and earth_bend.queue_bend()
 
 
 # --- Wind --------------------------------------------------------------------

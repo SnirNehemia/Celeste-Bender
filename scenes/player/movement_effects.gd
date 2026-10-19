@@ -91,6 +91,19 @@ func play_squash(squash_scale: Vector2) -> void:
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
+## Holds the body at `squash_scale` until release_squash() (no easing back). Used for
+## stances, like the crouch while earth bending.
+func hold_squash(squash_scale: Vector2) -> void:
+	if squash_tween != null:
+		squash_tween.kill()
+	squash_pivot.scale = squash_scale
+
+
+## Ends a hold_squash(): springs back to normal from wherever the body is now.
+func release_squash() -> void:
+	play_squash(squash_pivot.scale)
+
+
 ## One-shot puff of `particle_count` dust specks at `world_position`, flying along
 ## `direction` within ±`spread_degrees`. Added to the world (the player's parent),
 ## not the player, so the dust stays where it was kicked up.

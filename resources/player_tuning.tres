@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="PlayerTuning" load_steps=2 format=3 uid="uid://dsme1rfxld6uw"]
+[gd_resource type="Resource" script_class="PlayerTuning" load_steps=2 format=3 uid="uid://dcq88h0cpwjwl"]
 
 [ext_resource type="Script" uid="uid://b40m5jxtkrypo" path="res://resources/player_tuning.gd" id="1_tuning"]
 

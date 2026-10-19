@@ -2,7 +2,7 @@ class_name PlayerStateMachine
 extends Node
 ## Holds the player's states (its children) and runs whichever one is active.
 ##
-## Scene layout:  Player > StateMachine > Idle / Run / Jump / Fall / WallSlide / Dash / Glide / GustAim / GustRecoil / Dead
+## Scene layout:  Player > StateMachine > Idle / Run / Jump / Fall / WallSlide / Dash / Glide / GustAim / GustRecoil / EarthBend / Dead
 ## Player._ready() calls setup(), and Player._physics_process() calls physics_update().
 
 ## The state we start in. Assigned in the Inspector (drag the Idle node here).

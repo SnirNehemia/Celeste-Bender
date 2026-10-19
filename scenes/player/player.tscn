@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=24 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -19,6 +19,9 @@
 [ext_resource type="Script" path="res://scenes/player/states/gust_aim.gd" id="16_gust_aim"]
 [ext_resource type="Script" path="res://scenes/player/abilities/air_blast_debug_draw.gd" id="17_blast_debug"]
 [ext_resource type="Script" path="res://scenes/player/movement_effects.gd" id="18_movement_effects"]
+[ext_resource type="Resource" path="res://resources/earth_tuning.tres" id="19_earth_tuning"]
+[ext_resource type="Script" path="res://scenes/player/abilities/earth/earth_bend_ability.gd" id="20_earth_bend"]
+[ext_resource type="Script" path="res://scenes/player/states/earth_bend.gd" id="21_earth_bend_state"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(8, 11)
@@ -28,6 +31,7 @@ collision_layer = 2
 collision_mask = 1
 script = ExtResource("1_player")
 tuning = ExtResource("2_tuning")
+earth_tuning = ExtResource("19_earth_tuning")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, -5.5)
@@ -75,6 +79,9 @@ script = ExtResource("17_blast_debug")
 [node name="MovementEffects" type="Node" parent="."]
 script = ExtResource("18_movement_effects")
 
+[node name="EarthBendAbility" type="Node2D" parent="."]
+script = ExtResource("20_earth_bend")
+
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
 script = ExtResource("3_machine")
 initial_state = NodePath("Idle")
@@ -105,6 +112,9 @@ script = ExtResource("16_gust_aim")
 
 [node name="GustRecoil" type="Node" parent="StateMachine"]
 script = ExtResource("15_gust_recoil")
+
+[node name="EarthBend" type="Node" parent="StateMachine"]
+script = ExtResource("21_earth_bend_state")
 
 [node name="Dead" type="Node" parent="StateMachine"]
 script = ExtResource("9_dead")

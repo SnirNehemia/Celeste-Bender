@@ -18,6 +18,10 @@ extends Node2D
 ## bounds, and RoomManager (the world's root script) notices and slides the camera over.
 ## Rooms don't know about each other or the camera; RoomManager does all of that.
 ##
+## Earth (Earth chapter): an optional second TileMapLayer child named "Earth" with the
+## EarthLayer script (scenes/objects/earth/earth_layer.gd), painted with the earth
+## tileset. It's solid like "Tiles", but each of its cells can be bent once.
+##
 ## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
 ## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
 ## the room when the player respawns in it, so a crate pushed into a corner never
@@ -36,6 +40,15 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## Solid blocks, in pixels, relative to the room's top-left corner. Each Rect2 is
 ## (x, y, width, height). Used by the test rooms; new rooms paint a TileMapLayer instead.
 @export var solid_rects: Array[Rect2] = []
+
+@export_group("Elements")
+## Which bending elements work in this room. The Earth chapter's rooms are
+## Earth-only (Earth_bending.md §11), so a dash can't skip their puzzles.
+## The player asks through Player.is_element_allowed(); the room only stores the flags.
+## Air: dash, glide and gust.
+@export var air_allowed: bool = true
+## Earth: column, boulder and snake.
+@export var earth_allowed: bool = true
 
 @onready var spawn_point: Marker2D = $SpawnPoint
 

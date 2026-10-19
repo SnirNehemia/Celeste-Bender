@@ -1,7 +1,7 @@
 class_name PauseMenu
 extends CanvasLayer
 ## Pause menu (GAME_DESIGN.md §9 / PROMPTS.md Stage 10): Esc (`pause`) stops the
-## game and shows Resume / Restart room / Quit. Esc again resumes.
+## game and shows Resume / Restart room / Main menu / Quit. Esc again resumes.
 ##
 ## Keyboard only: arrows move between buttons, Enter or Jump (C) presses one.
 ##
@@ -22,6 +22,7 @@ extends CanvasLayer
 ## The world's RoomManager, for "Restart room". Set in the Inspector.
 @export var room_manager: RoomManager
 
+const MAIN_MENU_SCENE: String = "res://scenes/ui/main_menu.tscn"
 const DIM_COLOR: Color = Color(0.0, 0.0, 0.0, 0.55)
 const TITLE_COLOR: Color = Color(1.0, 1.0, 1.0)
 const HINT_COLOR: Color = Color(0.7, 0.7, 0.75)
@@ -73,6 +74,15 @@ func _on_restart_pressed() -> void:
 	room_manager.restart_room()
 
 
+## Back to the chapter picker (scenes/ui/main_menu.tscn). The pause and any slow
+## motion are global (tree pause, Engine.time_scale), so they must be switched off
+## before leaving, or the menu would open frozen.
+func _on_main_menu_pressed() -> void:
+	_set_open(false)
+	FX.clear_slow_motion()
+	get_tree().change_scene_to_file(MAIN_MENU_SCENE)
+
+
 func _on_quit_pressed() -> void:
 	get_tree().quit()
 
@@ -99,6 +109,7 @@ func _build_ui() -> void:
 	resume_button = _make_button("Resume", _on_resume_pressed)
 	column.add_child(resume_button)
 	column.add_child(_make_button("Restart room", _on_restart_pressed))
+	column.add_child(_make_button("Main menu", _on_main_menu_pressed))
 	# A web page can't be "quit", so the button would do nothing there.
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit game", _on_quit_pressed))

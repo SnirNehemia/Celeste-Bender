@@ -33,18 +33,20 @@ A Celeste-style precision platformer where the hero is an air-bender. Current go
 res://
   project.godot
   scenes/
-    player/        player.tscn, player.gd, states/, abilities/
+    player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth)
     objects/       crate, spikes, wind_zone, wind_crystal, windmill, leaf_platform, door, pressure_plate
+      earth/       earth_layer (fresh/used earth tiles), earth_face; later column, boulder, snake
     enemies/       wisp, sentry, sentry_orb
-    rooms/         room_01.tscn … room_05.tscn, room_base.gd
+    rooms/         room_01.tscn … room_07.tscn, room_base.gd
     ui/            hud, pause, end_screen
-  resources/       player_tuning.tres
-  autoload/        game_state.gd (deaths, timer, current checkpoint), fx.gd (screen shake, freeze frames)
-  tests/           simple test scenes for isolated mechanics
+  resources/       player_tuning.tres, earth_tuning.tres, tiles/ (placeholder + earth tilesets)
+  autoload/        game_state.gd (deaths, timer, current checkpoint), fx.gd (shake, freeze, slow motion, gravel)
+  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn for the Earth chapter
+  tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms)
 ```
 
 ## Input
-Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `restart_room`, `pause`. Bindings per `GAME_DESIGN.md` §3. Code reads only action names, never raw keys.
+Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `earth_snake`, `restart_room`, `pause`. Bindings per `GAME_DESIGN.md` §3 and `Earth_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
 
 ## Working rules
 1. **Small steps.** One mechanic per task. Don't build ahead of the current stage in `PROMPTS.md`.

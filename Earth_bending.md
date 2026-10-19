@@ -176,6 +176,9 @@ These rules were agreed when planning the build. Where they differ from the sect
 - **Keys:** the WASD movement alternates are removed, so A/S/D are free for Earth. Movement is arrows only.
 - **Air in the Earth chapter:** rooms declare which elements are allowed. Earth rooms 1–5 are Earth-only (dash, glide and gust do nothing), so their puzzles can't be skipped with Air. Mixed rooms come later.
 - **Shadow path:** the shadow travels along the exposed *faces* of earth tiles (a tile plus the side that touches open air). That's what lets it wrap inner and outer corners. A corner tile has two faces but one fresh/used state.
+- **Shadow crosses everything solid** (changed after E2 play-test): it follows any surface, gray rock and used earth included, wrapping corners. It can only *erupt* from fresh earth: over gray or used tiles it's drawn pale, and releasing there (or timing out there) fizzles with no earth used. Gaps no longer stop it either: it wraps down into them.
+- **Wall bends go down by default** (changed after E2 play-test): from a wall slide the shadow crawls down the wall, so you can raise something to land on. Hold Up to send it up.
+- **Shiver** is a quick bright flicker of the tile, not a 1 px shift (the shift opened a 1 px gap to the background: a flickering black line).
 - **Real time:** the shadow and the snake head move in real time, and are drawn every rendered frame, so they stay smooth while physics is slowed to 0.3×.
 - **Cancel:** cancelling with Jump uses up that press, so the player doesn't also jump.
 - **Column bounces:** the player goes into a `Launched` state with a short steering lock. Sideways launches get a small upward component, like Celeste's side springs; otherwise normal air control eats the 220 px/s within about 0.2 s.

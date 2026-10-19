@@ -9,6 +9,7 @@ extends Node
 ##   FX.flash_screen(Color.WHITE, 0.15) — full-screen flash that fades out
 ##   FX.set_menu_pause(true)  — pause for a menu (pause menu, F2 room picker)
 ##   FX.play_sfx(&"jump")     — the one place sounds will be played (Milestone 2)
+##   FX.spawn_gravel(pos, 6, Vector2.UP) — earth bits that pop out and fall (Earth chapter)
 ## without needing a reference to the camera or the scene tree.
 ##
 ## Who calls it: AirDashAbility, GustAbility, the GustAim state (slow motion);
@@ -48,6 +49,12 @@ var log_sfx_calls: bool = false
 var flash_rect: ColorRect
 var flash_tween: Tween
 
+## How long a gravel bit lives, seconds.
+const GRAVEL_LIFETIME: float = 0.45
+## Gradients for spawn_gravel(), built once in _ready() and shared by every burst.
+var gravel_color_gradient: Gradient
+var gravel_fade_gradient: Gradient
+
 
 func _ready() -> void:
 	# A CanvasLayer draws its children fixed on screen, above the game world.
@@ -61,6 +68,16 @@ func _ready() -> void:
 	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flash_rect.color = Color(1.0, 1.0, 1.0, 0.0)
 	flash_layer.add_child(flash_rect)
+
+	# A Gradient maps 0..1 to colors. Two points: fresh earth -> a darker brown.
+	gravel_color_gradient = Gradient.new()
+	gravel_color_gradient.set_color(0, EarthLayer.FRESH_COLOR)
+	gravel_color_gradient.set_color(1, EarthLayer.FRESH_COLOR.lerp(EarthLayer.USED_COLOR, 0.6))
+	# White (no tint) staying opaque for 60% of the life, then fading out.
+	gravel_fade_gradient = Gradient.new()
+	gravel_fade_gradient.set_color(0, Color.WHITE)
+	gravel_fade_gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
+	gravel_fade_gradient.add_point(0.6, Color.WHITE)
 
 
 ## Shakes the active camera: random offset up to `strength` px, fading to 0 over
@@ -110,6 +127,41 @@ func flash_screen(color: Color, duration: float) -> void:
 	flash_rect.color = color
 	flash_tween = create_tween()
 	flash_tween.tween_property(flash_rect, "color:a", 0.0, duration)
+
+
+## Gravel (Earth_bending.md §8): `amount` tiny earth-colored squares (1-2 px) pop out
+## of `world_position` toward `direction` (±40°), fall under gravity and fade out.
+## The ONE helper every earth effect uses: bend start, shadow trail, eruptions,
+## impacts. `direction` = ZERO sprays all around. Added to the current scene (the
+## world), so the bits stay where they were made.
+## They run on game time, so during a bend's slow motion they drift slowly too.
+func spawn_gravel(world_position: Vector2, amount: int, direction: Vector2) -> void:
+	var world: Node = get_tree().current_scene
+	if world == null or amount <= 0:
+		return
+	var gravel: CPUParticles2D = CPUParticles2D.new()
+	gravel.one_shot = true
+	gravel.explosiveness = 1.0  # all bits at once
+	gravel.amount = amount
+	gravel.lifetime = GRAVEL_LIFETIME
+	gravel.direction = direction if direction != Vector2.ZERO else Vector2.UP
+	gravel.spread = 40.0 if direction != Vector2.ZERO else 180.0
+	gravel.gravity = Vector2(0.0, 420.0)  # heavier than dust: gravel drops
+	gravel.initial_velocity_min = 25.0
+	gravel.initial_velocity_max = 70.0
+	gravel.scale_amount_min = 1.0
+	gravel.scale_amount_max = 2.0
+	# color_initial_ramp: each bit picks a random color along this gradient (fresh
+	# earth to a darker brown), so the gravel isn't one flat color.
+	gravel.color_initial_ramp = gravel_color_gradient
+	# color_ramp: color over each bit's life; here only alpha, fading 1 -> 0 at the end.
+	gravel.color_ramp = gravel_fade_gradient
+	gravel.z_index = 5  # in front of tiles and objects
+	world.add_child(gravel)
+	gravel.global_position = world_position
+	gravel.emitting = true
+	# Game-time timer (process_always = false): a pause doesn't free it mid-fall.
+	get_tree().create_timer(GRAVEL_LIFETIME + 0.1, false).timeout.connect(gravel.queue_free)
 
 
 ## THE sound hook (GAME_DESIGN.md §9): every game event that will make a sound
