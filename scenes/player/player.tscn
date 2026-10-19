@@ -1,4 +1,4 @@
-[gd_scene load_steps=26 format=3]
+[gd_scene load_steps=28 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -24,6 +24,8 @@
 [ext_resource type="Script" path="res://scenes/player/states/earth_bend.gd" id="21_earth_bend_state"]
 [ext_resource type="Script" path="res://scenes/player/abilities/earth/earth_column_ability.gd" id="22_earth_column"]
 [ext_resource type="Script" path="res://scenes/player/states/launched.gd" id="23_launched"]
+[ext_resource type="Script" path="res://scenes/player/abilities/earth/boulder_ability.gd" id="24_boulder"]
+[ext_resource type="Script" path="res://scenes/player/states/boulder_hold.gd" id="25_boulder_hold"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(8, 11)
@@ -87,6 +89,9 @@ script = ExtResource("20_earth_bend")
 [node name="EarthColumnAbility" type="Node" parent="."]
 script = ExtResource("22_earth_column")
 
+[node name="BoulderAbility" type="Node" parent="."]
+script = ExtResource("24_boulder")
+
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
 script = ExtResource("3_machine")
 initial_state = NodePath("Idle")
@@ -123,6 +128,9 @@ script = ExtResource("21_earth_bend_state")
 
 [node name="Launched" type="Node" parent="StateMachine"]
 script = ExtResource("23_launched")
+
+[node name="BoulderHold" type="Node" parent="StateMachine"]
+script = ExtResource("25_boulder_hold")
 
 [node name="Dead" type="Node" parent="StateMachine"]
 script = ExtResource("9_dead")

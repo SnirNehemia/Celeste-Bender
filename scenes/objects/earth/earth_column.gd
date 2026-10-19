@@ -20,6 +20,10 @@ extends StaticBody2D
 ## then added as a child of the ROOM, so Room.reset_objects() finds it (we join
 ## Room.RESETTABLE_GROUP) and reset() deletes it.
 ##
+## Its FOOT: as it rises, the earth under its base hardens in a pyramid
+## (EarthLayer.harden_foot, column_foot_rows deep), so rocks can't dig it loose and
+## leave it floating (Earth_bending.md §11, Stage E4a).
+##
 ## Once risen, it tells its EarthLayer which tile cells it fills (register_column):
 ## to the bend shadow it's then solid used earth, so the shadow crawls over it, and
 ## the player can start a bend standing on it (Earth_bending.md §11).
@@ -94,6 +98,7 @@ func _ready() -> void:
 	collision_mask = 0   # a static body never needs to detect anything
 	global_position = base_position
 	add_to_group(Room.RESETTABLE_GROUP)
+	source_face.layer.harden_foot(source_face.cell, source_face.normal, earth_tuning.column_foot_rows)
 	hitbox_shape = RectangleShape2D.new()
 	hitbox = CollisionShape2D.new()
 	hitbox.shape = hitbox_shape

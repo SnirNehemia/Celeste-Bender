@@ -24,6 +24,7 @@ func _ready() -> void:
 	await _check_e1_earth_ground(player, room, earth)
 	await _check_e2_bend_core(player, room, earth)
 	await _check_e3_column(world, player)
+	await _check_e4_boulder(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -318,7 +319,9 @@ func _check_e3_column(world: RoomManager, player: Player) -> void:
 		waited += 0.02
 	_check(bend.is_bending and bend.get_target_face().cell == Vector2i(11, 19), "test setup: shadow on the block's right face")
 	Input.action_release("earth_column")
-	await _wait_physics_frames(4)
+	# The release lands between physics frames on a real-time timer, so the column
+	# reaches us 3-4 frames later: wait for the launch instead of a fixed frame count.
+	await _wait_until(func() -> bool: return player.state_machine.current_state.name == &"Launched", 10.0 / 60.0)
 	_check(player.state_machine.current_state.name == &"Launched" and player.velocity.x > 150.0 and player.velocity.y < 0.0,
 		"the wall column throws us right and up (velocity %s)" % player.velocity)
 	await _wait_real(1.2)
@@ -377,6 +380,325 @@ func _check_e3_column(world: RoomManager, player: Player) -> void:
 		"the crate flies above the column's top (%.0f px up)" % (crate_start_y - crate_highest))
 	room.reset_objects()
 	await get_tree().physics_frame
+
+
+## Stages E4 + E4a: the rock (8x8, torn out of the ground right next to the player),
+## in RoomEarthC (tests/rooms/room_earth_c.tscn, at x 640). Floor surface: row 20
+## (earth from column 5 to 27, 2 deep at columns 6-11). Earth wall face: column 28,
+## rows 8-19, facing left. Gray pillar: columns 3-4, rows 12-19.
+func _check_e4_boulder(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+	player.facing_direction = 1.0
+	await _wait_physics_frames(10)
+	_check(player.is_on_floor() and world.current_room == room, "test setup: standing in RoomEarthC")
+	var feet_cell: Vector2i = player.earth_bend.find_start_surface().cell
+
+	# Press S: no bend and no slow motion; the rock tears out of the tile AHEAD.
+	var boulder: Boulder = await _rip_boulder(player)
+	_check(boulder != null, "pressing S tears out a rock")
+	if boulder == null:
+		return
+	_check(player.state_machine.current_state.name == &"BoulderHold", "rooted in BoulderHold (got %s)" % player.state_machine.current_state.name)
+	_check(not player.earth_bend.is_bending, "no bend shadow for a rock")
+	_check(is_equal_approx(Engine.time_scale, tuning.boulder_time_scale), "slow motion while the rock is held (%.2f)" % Engine.time_scale)
+	_check(earth.is_fresh(feet_cell), "the tile under the feet is not torn")
+	_check(not earth.is_earth(feet_cell + Vector2i(1, 0)), "the rock tears out the tile ahead of the feet (a hole)")
+	_check(earth.is_fresh(feet_cell + Vector2i(2, 0)) and earth.torn_cells.size() == 1, "only one tile is torn")
+	_check(boulder.perfect_time < INF, "the rock comes back down level with the player (at %.2f s)" % boulder.perfect_time)
+	var peak_time: float = tuning.boulder_tear_time + boulder.get_hop_speed() / tuning.boulder_gravity
+	# Watch the whole pop: tear, hop above the head and away, white twice, land, rest.
+	var player_head_y: float = player.get_hitbox_rect().position.y
+	var start_x: float = boulder.global_position.x
+	var highest_bottom: float = INF
+	var window_count: int = 0
+	var was_in_window: bool = false
+	var first_white_time: float = INF
+	for frame_index: int in 300:
+		if not is_instance_valid(boulder) or boulder.is_resting:
+			break
+		highest_bottom = minf(highest_bottom, boulder.global_position.y + tuning.boulder_size / 2.0)
+		if boulder.is_in_perfect_window() and not was_in_window:
+			window_count += 1
+			first_white_time = minf(first_white_time, boulder.pop_elapsed)
+		was_in_window = boulder.is_in_perfect_window()
+		await get_tree().physics_frame
+	_check(highest_bottom < player_head_y, "the rock hops above the player's head (bottom %.1f, head %.1f)" % [highest_bottom, player_head_y])
+	_check(is_instance_valid(boulder) and boulder.global_position.x > start_x + 4.0, "the hop drifts away from the player")
+	_check(window_count == 1 and first_white_time > peak_time,
+		"the rock turns white once, on the way down (%d time(s), first at %.2f s, peak %.2f s)" % [window_count, first_white_time, peak_time])
+	_check(is_instance_valid(boulder) and boulder.is_resting and boulder.is_throwable(), "an un-thrown rock lands and rests, still throwable")
+	_check(player.velocity == Vector2.ZERO, "the player stays rooted while holding")
+	await _wait_game(tuning.boulder_land_rest_time + 0.1)
+	_check(not is_instance_valid(boulder), "an un-thrown rock crumbles after its rest")
+	_check(player.state_machine.current_state.name != &"BoulderHold", "the player is free once the rock is gone")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Perfect throw on the way UP (no arrow: facing right), into the earth wall.
+	boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return boulder.is_in_perfect_window(), 1.0)
+	_check(boulder.is_in_perfect_window() and boulder.pop_elapsed > peak_time, "test setup: in the (way-down) perfect window")
+	await _press_action("earth_boulder")
+	_check(boulder.phase == Boulder.Phase.FLYING, "S again throws the rock")
+	_check(absf(boulder.velocity.x - tuning.boulder_perfect_throw_speed) < 1.0 and absf(boulder.velocity.y) < 1.0,
+		"a perfect throw flies straight at %.0f px/s (velocity %s)" % [tuning.boulder_perfect_throw_speed, boulder.velocity])
+	_check(boulder.perfect_flash_remaining > 0.0, "a perfect throw flashes white")
+	_check(player.state_machine.current_state.name != &"BoulderHold", "the throw frees the player")
+	_check(is_equal_approx(Engine.time_scale, 1.0), "the throw ends the slow motion")
+	await _wait_until(func() -> bool: return not is_instance_valid(boulder) or boulder.phase != Boulder.Phase.FLYING, 2.0)
+	_check(is_instance_valid(boulder) and boulder.phase == Boulder.Phase.STUCK, "a rock thrown into an earth wall sticks")
+	if not is_instance_valid(boulder) or boulder.phase != Boulder.Phase.STUCK:
+		return
+	var local_center: Vector2 = boulder.global_position - room.global_position
+	_check(is_equal_approx(local_center.x, 28 * 8 - 4.0) and is_equal_approx(fmod(local_center.y, 8.0), 4.0),
+		"the stuck rock is flush with the wall and on the tile grid (center %s)" % local_center)
+	_check(boulder.collision_layer == 1, "a stuck rock is solid world")
+	_check(boulder.perfect_flash_remaining == 0.0, "a stuck rock is back to rock color (no white left over)")
+	var boulder_cell: Vector2i = earth.get_cell_at(boulder.global_position)
+	_check(earth.is_column(boulder_cell), "the stuck rock's cell is registered as used earth")
+	_check(earth.is_hardened(boulder_cell + Vector2i(1, 0)) and not earth.is_tearable(boulder_cell + Vector2i(1, 0)),
+		"the wall tile holding the rock hardens (can't be torn out)")
+	# Stand on it.
+	player.respawn_at(boulder.global_position + Vector2(0, -20))
+	await _wait_game(0.4)
+	var boulder_top: float = boulder.global_position.y - tuning.boulder_size / 2.0
+	_check(player.is_on_floor() and absf(player.global_position.y - boulder_top) < 0.5,
+		"you can stand on a stuck rock (feet %.1f, top %.1f)" % [player.global_position.y, boulder_top])
+	_check(player.earth_bend.describe_contact().begins_with("boulder floor"), "debug label reads 'boulder floor ...' (%s)" % player.earth_bend.describe_contact())
+	# A straight perfect throw flies at chest height, so that step is at floor level.
+	# For a higher step, aim diagonally up (Up + Right held while pressing S). From
+	# column 20, 7 tiles from the wall (from further away it sails over the wall).
+	player.respawn_at(room.global_position + Vector2(20 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var low_step: Boulder = boulder
+	boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return boulder.is_in_perfect_window(), 1.0)
+	Input.action_press("move_up")
+	Input.action_press("move_right")
+	await _press_action("earth_boulder")
+	Input.action_release("move_up")
+	Input.action_release("move_right")
+	_check(boulder.velocity.x > 0.0 and boulder.velocity.y < 0.0, "Up + Right aims the throw diagonally up (velocity %s)" % boulder.velocity)
+	await _wait_until(func() -> bool: return not is_instance_valid(boulder) or boulder.phase != Boulder.Phase.FLYING, 2.0)
+	_check(is_instance_valid(boulder) and boulder.phase == Boulder.Phase.STUCK and boulder.global_position.y < low_step.global_position.y - 24.0,
+		"a diagonal throw sticks a step higher up the wall")
+	if not is_instance_valid(boulder) or boulder.phase != Boulder.Phase.STUCK:
+		return
+	# And wall-jump off it: drop beside its left side holding right, then jump.
+	player.respawn_at(boulder.global_position + Vector2(-8.5, 4))
+	Input.action_press("move_right")
+	await _wait_until(func() -> bool: return player.state_machine.current_state.name == &"WallSlide", 1.0)
+	_check(player.state_machine.current_state.name == &"WallSlide", "you can wall-slide on a stuck rock")
+	await _press_action("jump")
+	Input.action_release("move_right")
+	_check(player.velocity.x < 0.0 and player.velocity.y < 0.0, "you can wall-jump off a stuck rock (velocity %s)" % player.velocity)
+	await _wait_game(0.6)
+	# Reset removes it, fills the hole and softens the hardened tile.
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(_find_boulders(room).is_empty() and earth.column_cells.is_empty(), "room reset removes rocks and their cells")
+	_check(earth.is_fresh(feet_cell + Vector2i(1, 0)) and earth.torn_cells.is_empty() and earth.hardened_cells.is_empty(),
+		"room reset fills torn holes and clears hardening")
+	player.respawn_at(room.get_spawn_position())
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+
+	# Passing the player on the way UP doesn't count any more.
+	boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return boulder.is_hopping, 1.0)
+	await _press_action("earth_boulder")
+	_check(boulder.phase == Boulder.Phase.FLYING and boulder.velocity.x < tuning.boulder_perfect_throw_speed - 50.0
+		and boulder.perfect_flash_remaining == 0.0,
+		"a throw as the rock passes you on the way up is not perfect (%.0f px/s)" % boulder.velocity.x)
+	await _wait_game(1.0)
+	room.reset_objects()
+	player.respawn_at(room.get_spawn_position())
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+
+	# A throw at the top of the hop (between the windows) is weak and droops at once.
+	boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return boulder.pop_elapsed >= peak_time, 1.0)
+	await _press_action("earth_boulder")
+	_check(boulder.phase == Boulder.Phase.FLYING and boulder.velocity.x < tuning.boulder_min_throw_speed + 50.0,
+		"a throw at the top of the hop is weak (%.0f px/s)" % boulder.velocity.x)
+	_check(boulder.float_time_remaining < 0.1, "a weak throw falls at once (float %.2f s)" % boulder.float_time_remaining)
+	await _wait_game(1.5)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Jump lets go: no jump, and the rock shatters when it lands.
+	boulder = await _rip_boulder(player)
+	await _press_action("jump")
+	_check(player.state_machine.current_state.name != &"BoulderHold" and player.velocity.y >= 0.0,
+		"Jump lets go of the rock without jumping")
+	_check(not is_instance_valid(boulder) or boulder.is_dropped, "the let-go rock is dropped")
+	await _wait_game(0.8)
+	_check(not is_instance_valid(boulder), "the let-go rock shatters when it lands")
+
+	# Digging: in the thick earth (columns 6-11), tear the tile ahead, then from the
+	# same spot the one under it. Never the tile under the feet.
+	room.reset_objects()
+	player.respawn_at(room.global_position + Vector2(7 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	boulder = await _rip_boulder(player)
+	_check(boulder != null and not earth.is_earth(Vector2i(8, 20)), "dig: the first rock tears out (8, 20)")
+	_check(earth.is_face_exposed(Vector2i(8, 21), Vector2i.UP) and earth.is_fresh(Vector2i(8, 21)),
+		"dig: the earth under the hole is exposed and fresh")
+	await _wait_game(tuning.boulder_hold_time + 0.2)  # let it crumble
+	boulder = await _rip_boulder(player)
+	_check(boulder != null and not earth.is_earth(Vector2i(8, 21)), "dig: the second rock tears out the hole's bottom (8, 21)")
+	_check(earth.is_fresh(Vector2i(7, 20)), "dig: the tile under the feet (beside the hole) is never torn")
+	await _wait_game(tuning.boulder_hold_time + 0.2)
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(earth.is_earth(Vector2i(8, 20)) and earth.is_earth(Vector2i(8, 21)), "room reset fills a dug pit")
+
+	# A pillar's foot hardens in a pyramid, so it can't be dug loose.
+	player.earth_column.erupt(EarthFace.new(earth, Vector2i(9, 20), Vector2i.UP))
+	await _wait_physics_frames(12)
+	var foot: Array[Vector2i] = [Vector2i(9, 20), Vector2i(8, 21), Vector2i(9, 21), Vector2i(10, 21)]
+	var is_foot_hardened: bool = true
+	for cell: Vector2i in foot:
+		is_foot_hardened = is_foot_hardened and earth.is_hardened(cell)
+	_check(is_foot_hardened, "a pillar hardens the earth under its base in a pyramid")
+	_check(not earth.is_hardened(Vector2i(8, 20)) and not earth.is_hardened(Vector2i(7, 21)), "the pyramid is only 1, then 3 tiles wide")
+	_check(earth.is_fresh(Vector2i(9, 21)), "hardened earth is still fresh (it can still be bent)")
+	player.respawn_at(room.global_position + Vector2(7 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	boulder = await _rip_boulder(player)
+	_check(boulder != null and not earth.is_earth(Vector2i(8, 20)), "pillar foot: the tile beside the pillar can still be torn")
+	await _wait_game(tuning.boulder_hold_time + 0.2)
+	var torn_before: int = earth.torn_cells.size()
+	await _press_action("earth_boulder")
+	_check(earth.torn_cells.size() == torn_before and earth.is_earth(Vector2i(8, 21)),
+		"pillar foot: the hardened tile under the hole can't be torn out")
+	room.reset_objects()
+	await get_tree().physics_frame
+
+	# Thrown into gray rock (the pillar on the left): shatters.
+	player.respawn_at(room.get_spawn_position())
+	player.facing_direction = -1.0
+	await _wait_physics_frames(5)
+	boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return boulder.is_in_perfect_window(), 1.0)
+	await _press_action("earth_boulder")
+	_check(boulder.velocity.x < -300.0, "test setup: thrown left")
+	await _wait_game(1.0)
+	_check(not is_instance_valid(boulder) and _find_boulders(room).is_empty(), "a rock thrown into gray rock shatters")
+
+	# A risen column bounces it back.
+	room.reset_objects()
+	player.respawn_at(room.get_spawn_position())
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	player.earth_column.erupt(EarthFace.new(earth, Vector2i(22, 20), Vector2i.UP))
+	await _wait_physics_frames(12)
+	boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return boulder.is_in_perfect_window(), 1.0)
+	await _press_action("earth_boulder")
+	await _wait_until(func() -> bool: return not is_instance_valid(boulder) or boulder.velocity.x < 0.0, 1.0)
+	_check(is_instance_valid(boulder) and boulder.velocity.x <= -tuning.boulder_column_bounce_speed + 1.0,
+		"a rock bounces off a column (vx %.0f)" % (boulder.velocity.x if is_instance_valid(boulder) else 0.0))
+	await _wait_game(1.5)
+
+	# A thrown rock keeps flying while the next one is torn out (two at once).
+	room.reset_objects()
+	player.respawn_at(room.get_spawn_position())
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var first: Boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return first.pop_elapsed >= 0.3, 1.0)
+	await _press_action("earth_boulder")
+	player.facing_direction = -1.0
+	await _wait_physics_frames(2)
+	var second: Boulder = await _rip_boulder(player)
+	_check(is_instance_valid(first) and second != null and second != first, "a new rock doesn't destroy the one in flight")
+	await _wait_game(1.5)
+
+	# Wall-sliding on the earth wall: the rock tears out of the wall below you, hops
+	# AWAY from the wall, and a throw goes away from you, even with the arrow still
+	# held into the wall.
+	room.reset_objects()
+	player.respawn_at(room.global_position + Vector2(27 * 8 + 4, 100))
+	Input.action_press("move_right")
+	await _wait_until(func() -> bool: return player.state_machine.current_state.name == &"WallSlide", 1.0)
+	_check(player.state_machine.current_state.name == &"WallSlide", "test setup: wall-sliding on the earth wall")
+	boulder = await _rip_boulder(player)
+	_check(boulder != null and player.state_machine.current_state.name == &"BoulderHold", "S while wall-sliding tears a rock out of the wall")
+	if boulder != null:
+		await _wait_until(func() -> bool: return boulder.is_hopping, 1.0)
+		await _wait_physics_frames(2)
+		_check(boulder.velocity.x <= -tuning.boulder_wall_hop_away_speed + 1.0,
+			"a rock from the wall hops away from the wall (vx %.0f)" % boulder.velocity.x)
+		await _press_action("earth_boulder")  # Right is still held, into the wall
+		_check(boulder.phase == Boulder.Phase.FLYING and boulder.velocity.x < 0.0,
+			"a throw from the wall goes away from it, not into it (velocity %s)" % boulder.velocity)
+	Input.action_release("move_right")
+	await _wait_game(1.0)
+
+	# No room for a rock: nothing torn. (Standing against the wall, facing it: the
+	# tiles ahead are on the wall right beside the body.)
+	room.reset_objects()
+	player.respawn_at(room.global_position + Vector2(27 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	await _press_action("earth_boulder")
+	await _wait_physics_frames(2)
+	_check(earth.torn_cells.is_empty() and _find_boulders(room).is_empty() \
+		and player.state_machine.current_state.name != &"BoulderHold",
+		"no room for a rock: nothing is torn")
+	room.reset_objects()
+	await get_tree().physics_frame
+
+
+## Presses S for one frame and returns the rock it tore out, or null.
+func _rip_boulder(player: Player) -> Boulder:
+	await _press_action("earth_boulder")
+	return player.boulder.held_boulder
+
+
+## Presses an action for one physics frame, the way a real key does: as an input
+## EVENT (Input.parse_input_event), which is what the game receives from a keyboard.
+func _press_action(action: StringName) -> void:
+	Input.parse_input_event(_make_action_event(action, true))
+	await get_tree().physics_frame
+	Input.parse_input_event(_make_action_event(action, false))
+	await get_tree().physics_frame
+
+
+func _make_action_event(action: StringName, pressed: bool) -> InputEventAction:
+	var event: InputEventAction = InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	return event
+
+
+## Waits physics frames until `condition` returns true, at most `seconds` of GAME
+## time. In slow motion physics still ticks at its usual rate but each tick's delta is
+## scaled down, so game time is added up tick by tick rather than counted in frames.
+func _wait_until(condition: Callable, seconds: float) -> void:
+	var waited: float = 0.0
+	while waited < seconds:
+		if condition.call():
+			return
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+
+
+func _find_boulders(room: Room) -> Array[Boulder]:
+	var boulders: Array[Boulder] = []
+	for child: Node in room.get_children():
+		var boulder: Boulder = child as Boulder
+		if boulder != null and not boulder.is_queued_for_deletion():
+			boulders.append(boulder)
+	return boulders
 
 
 ## Grass blades (room A's grass patch, columns 12-13): they lean the way the player
@@ -513,6 +835,11 @@ func _path_matches(bend: EarthBendAbility, start_face: EarthFace, expected: Arra
 			matches = false
 	bend.cancel_bend()
 	return matches
+
+
+## Waits `seconds` of GAME time (slowed by Engine.time_scale; see _wait_until).
+func _wait_game(seconds: float) -> void:
+	await _wait_until(func() -> bool: return false, seconds)
 
 
 ## Waits `seconds` of REAL time (not slowed by Engine.time_scale).

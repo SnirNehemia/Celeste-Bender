@@ -13,6 +13,9 @@ func physics_update(delta: float) -> void:
 	if player.wants_to_gust():
 		transition_requested.emit(player.get_gust_start_state())
 		return
+	if player.try_tear_rock():
+		transition_requested.emit(&"BoulderHold")
+		return
 	if player.wants_to_bend():
 		transition_requested.emit(&"EarthBend")
 		return

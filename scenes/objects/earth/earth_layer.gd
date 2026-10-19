@@ -12,11 +12,18 @@ extends TileMapLayer
 ## What it tracks (painting decides WHERE earth is; this script tracks its STATE):
 ##   - used cells, with a 0..1 fade progress (0 = just used, 1 = fully dark)
 ##   - shivering cells (a quick bright flicker while the bend shadow passes)
-##   - column cells: the tiles of open air that an Earth Column now fills
-##     (register_column / unregister_column). They count as solid, and the bend can
-##     start from a column (Earth_bending.md §11).
-## Room reset (death or R) clears all of it: every tile is fresh again (Room.reset_objects
-## calls reset(), because we join Room.RESETTABLE_GROUP).
+##   - column cells: the tiles of open air that an Earth Column (or, since Stage E4,
+##     a stuck Boulder) now fills (register_column / unregister_column). They count
+##     as solid used earth, and the bend can start from them (Earth_bending.md §11).
+##   - torn cells (Stage E4a): tiles a rock was torn out of. They're erased from the
+##     map (open air now), and remembered with their tile id so reset can put them back.
+##     Earth that was behind a torn tile is on the surface now, and fresh: thick earth
+##     can be dug into, one rock at a time.
+##   - hardened cells: earth holding up a pillar (a pyramid under its base) or a stuck
+##     rock. Rocks can't tear them out, so nothing is left floating. They can still be
+##     bent (columns, snake). Drawn slightly grayer.
+## Room reset (death or R) clears all of it: every tile is back and fresh again
+## (Room.reset_objects calls reset(), because we join Room.RESETTABLE_GROUP).
 ##
 ## Grass and gray (Stage E3 follow-up): the room's other tile layers are solid too,
 ## but the bend shadow treats them differently. Layers in SHADOW_PASSABLE_GROUP
@@ -49,6 +56,8 @@ const SHADOW_PASSABLE_GROUP: StringName = &"shadow_passable"
 const FRESH_COLOR: Color = Color(0.74, 0.57, 0.27)
 ## Used earth color (dark brown). Also the color of columns, boulders and snakes later.
 const USED_COLOR: Color = Color(0.33, 0.22, 0.13)
+## Hardened earth is multiplied by this: a little darker and grayer, like packed stone.
+const HARDENED_MODULATE: Color = Color(0.82, 0.8, 0.84)
 ## The four sides a face can point to, in clockwise order.
 const FACE_NORMALS: Array[Vector2i] = [Vector2i.UP, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT]
 
@@ -69,6 +78,11 @@ var neighbour_solid_layers: Array[TileMapLayer] = []
 var touched_cells: Dictionary = {}
 ## Cells filled by a risen Earth Column -> that column (Node). Solid, used-earth.
 var column_cells: Dictionary = {}
+## Cells a rock was torn out of -> [source id, atlas coords] of the tile that was
+## there, to paint it back on reset.
+var torn_cells: Dictionary = {}
+## Hardened cells (a set: Vector2i -> true). See the header.
+var hardened_cells: Dictionary = {}
 
 
 func _ready() -> void:
@@ -119,6 +133,15 @@ func is_earth(cell: Vector2i) -> bool:
 
 func is_fresh(cell: Vector2i) -> bool:
 	return is_earth(cell) and not used_fade_progress.has(cell)
+
+
+## True if a rock may tear `cell` out: fresh earth that isn't holding anything up.
+func is_tearable(cell: Vector2i) -> bool:
+	return is_fresh(cell) and not hardened_cells.has(cell)
+
+
+func is_hardened(cell: Vector2i) -> bool:
+	return hardened_cells.has(cell)
 
 
 ## True if a risen Earth Column fills `cell`.
@@ -189,6 +212,40 @@ func shiver(cell: Vector2i, duration: float) -> void:
 	_start_animating()
 
 
+## Tears the tile at `cell` out of the ground (a rock was ripped from it): it becomes
+## open air until the room resets. Returns false if there was no fresh earth there.
+func tear_out(cell: Vector2i) -> bool:
+	if not is_tearable(cell):
+		return false
+	torn_cells[cell] = [get_cell_source_id(cell), get_cell_atlas_coords(cell)]
+	shiver_time_remaining.erase(cell)
+	erase_cell(cell)
+	# The layer normally rebuilds its collision at the end of the frame. Do it now, so
+	# the rock that starts inside the hole doesn't collide with the tile it came from.
+	update_internals()
+	return true
+
+
+## Hardens the earth under a pillar's base: a pyramid `rows` deep going INTO the
+## surface (along -normal), 1 tile wide at the base tile, then 3, then 5...
+## Only earth tiles harden; open air and other tiles are skipped.
+func harden_foot(base_cell: Vector2i, normal: Vector2i, rows: int) -> void:
+	var inward: Vector2i = -normal
+	var across: Vector2i = Vector2i(absi(normal.y), absi(normal.x))  # along the surface
+	for row: int in rows:
+		for offset: int in range(-row, row + 1):
+			harden(base_cell + inward * row + across * offset)
+
+
+## Hardens one earth tile (no effect on anything else).
+func harden(cell: Vector2i) -> void:
+	if not is_earth(cell):
+		return
+	hardened_cells[cell] = true
+	touched_cells[cell] = true
+	notify_runtime_tile_data_update()
+
+
 ## A risen Earth Column now fills `cells` (EarthColumn calls this). They become
 ## solid used earth: the shadow crawls over them, and a bend can start from them.
 func register_column(column: Node, cells: Array[Vector2i]) -> void:
@@ -205,6 +262,12 @@ func unregister_column(column: Node) -> void:
 
 ## Room reset (Room.reset_objects): all earth fresh and still again.
 func reset() -> void:
+	# Fill the holes again with the exact tiles that were there.
+	for cell: Vector2i in torn_cells:
+		var tile: Array = torn_cells[cell]
+		set_cell(cell, tile[0], tile[1])
+	torn_cells.clear()
+	hardened_cells.clear()
 	used_fade_progress.clear()
 	shiver_time_remaining.clear()
 	column_cells.clear()
@@ -267,6 +330,8 @@ func _tile_data_runtime_update(coords: Vector2i, tile_data: TileData) -> void:
 	var tile_modulate: Color = Color.WHITE
 	if used_fade_progress.has(coords):
 		tile_modulate = Color.WHITE.lerp(_get_used_modulate(), used_fade_progress[coords])
+	if hardened_cells.has(coords):
+		tile_modulate *= HARDENED_MODULATE
 	if shiver_time_remaining.has(coords):
 		# Bright on every other shiver_flip_interval. Modulate values above 1 brighten.
 		var flip_index: int = int(shiver_clock / maxf(earth_tuning.shiver_flip_interval, 0.001))

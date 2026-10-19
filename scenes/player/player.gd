@@ -21,8 +21,10 @@ extends CharacterBody2D
 ##   │                     shadow (abilities/earth/earth_bend_ability.gd)
 ##   ├─ EarthColumnAbility Earth move A: raises a column at the bend's target
 ##   │                     (abilities/earth/earth_column_ability.gd)
+##   ├─ BoulderAbility     Earth move S: tears a rock out right next to the feet and
+##   │                     throws it (abilities/earth/boulder_ability.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
-##                         GustAim, GustRecoil, EarthBend, Launched, Dead
+##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold, Dead
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed).
 ## The wants_to_*() checks below ask is_element_allowed() before starting a move.
@@ -77,6 +79,7 @@ signal died
 @onready var movement_effects: MovementEffects = $MovementEffects
 @onready var earth_bend: EarthBendAbility = $EarthBendAbility
 @onready var earth_column: EarthColumnAbility = $EarthColumnAbility
+@onready var boulder: BoulderAbility = $BoulderAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -392,6 +395,14 @@ func is_element_allowed(element: StringName) -> bool:
 ## so the wall face couldn't be found again from there.
 func wants_to_bend() -> bool:
 	return is_element_allowed(ELEMENT_EARTH) and earth_bend.queue_bend()
+
+
+## On the frame S is pressed while touching fresh earth: tears a rock out of the
+## tile just ahead of the feet (BoulderAbility.try_tear). Returns true if it did, and
+## the caller (Idle, Run, WallSlide) switches to BoulderHold. No bend shadow and no
+## slow motion: the rock always comes out right next to you (Earth_bending.md §11).
+func try_tear_rock() -> bool:
+	return Input.is_action_just_pressed(boulder.get_action()) 		and is_element_allowed(ELEMENT_EARTH) and boulder.try_tear()
 
 
 ## A RISING Earth Column's tip hit us (EarthColumn calls this once per column):

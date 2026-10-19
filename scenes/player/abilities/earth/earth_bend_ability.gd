@@ -207,7 +207,7 @@ func begin_bend(action: StringName, start_face: EarthFace) -> void:
 	bend_real_time = 0.0
 	shadow_distance = 0.0
 	path = [start_face]
-	path_tangents = [_get_start_tangent(start_face)]
+	path_tangents = [get_start_tangent(start_face)]
 	shadow_gravel_timer = 0.0
 	feet_gravel_timer = tuning.shadow_gravel_interval * 2.0
 	player.movement_effects.hold_squash(tuning.bend_squash)
@@ -253,8 +253,9 @@ func _end_bend() -> void:
 ## On a wall, DOWN by default, so a wall-sliding player can raise something to land
 ## on; holding Up sends it up instead (Earth_bending.md §11, changed from §4).
 ## (For walls this is checked again when the crawl actually starts, so Up can be
-## pressed while the shadow waits under the feet.)
-func _get_start_tangent(start_face: EarthFace) -> Vector2i:
+## pressed while the shadow waits under the feet.) Public: the rock uses it too, to
+## find the tile "ahead" of the feet.
+func get_start_tangent(start_face: EarthFace) -> Vector2i:
 	if start_face.normal.y != 0:
 		return Vector2i(int(player.facing_direction), 0)
 	return Vector2i.UP if Input.is_action_pressed("move_up") else Vector2i.DOWN
@@ -274,7 +275,7 @@ func _process(delta: float) -> void:
 	if bend_real_time >= tuning.shadow_start_delay:
 		if was_waiting:
 			# The crawl starts now: on a wall, Up may have been pressed meanwhile.
-			path_tangents[0] = _get_start_tangent(path[0])
+			path_tangents[0] = get_start_tangent(path[0])
 		shadow_distance += tuning.shadow_speed * real_delta
 		_extend_path_to_shadow()
 		_spawn_crawl_gravel(real_delta)
@@ -358,8 +359,19 @@ func _get_step_length() -> float:
 
 ## The face nearest to the shadow (fresh or not).
 func get_shadow_face() -> EarthFace:
-	var step_index: int = clampi(roundi(shadow_distance / _get_step_length()), 0, path.size() - 1)
-	return path[step_index]
+	return path[get_shadow_index()]
+
+
+## Index in `path` of the face nearest to the shadow (0 = still under the player).
+func get_shadow_index() -> int:
+	return clampi(roundi(shadow_distance / _get_step_length()), 0, path.size() - 1)
+
+
+## The face after `face` when crawling in `tangent`, as [EarthFace, new tangent], or
+## [] if gray rock blocks the way. Same step as the shadow takes (see "THE PATH").
+## Public for the rock (BoulderAbility), which tears out the tile ahead of the feet.
+func find_next_face(face: EarthFace, tangent: Vector2i) -> Array:
+	return _find_next_face(face, tangent)
 
 
 ## The face the move would erupt from right now: the shadow's face if it's fresh

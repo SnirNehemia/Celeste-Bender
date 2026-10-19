@@ -11,7 +11,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
-- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [ ] E4 · [ ] E5 · [ ] E6 · [ ] E7
+- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [ ] E4b · [ ] E4c · [ ] E4d · [ ] E4e · [ ] E5 · [ ] E6 · [ ] E7
 
 ---
 
@@ -98,6 +98,31 @@ Rules decided in E0 are written into Earth_bending.md §11 ("Decided in Stage E0
 > Read Earth_bending.md §6 and §11. Add `BoulderAbility`. Releasing S rips a 16×16 boulder out of the shadow's tile and the one before it on the path (both become used) and pops it away from the surface: it eases out about 22 px, hangs briefly, then falls. Slow motion ends at release; the throw is timed in game time. Pressing S again throws it in the arrow direction (8 directions; facing if none). The perfect window is ±0.08 s around the hang moment: the boulder flashes white, flies at 320 px/s and ignores gravity for 0.3 s. Off-peak throws scale smoothly down to 180 px/s with normal gravity. The player stays rooted until the throw (max 1.0 s); no throw = it drops and shatters. One boulder at a time. On impact: sticks into any earth face as a solid 2×2 block (standable, wall-jumpable); shatters on plain solid or another boulder; bounces off columns. Enemy and cracked-wall hits come in E6. Removed on room reset.
 
 **You should see:** hold S, release, press S again just as the boulder hangs: it flashes white and flies straight and fast. A late throw is slow and droops. A boulder thrown into an earth wall sticks and you can stand on it and wall-jump off it. One thrown at gray rock shatters into gravel.
+
+## Stage E4a — Rock and tearing
+> Read Earth_bending.md §6 and §11. The boulder becomes an 8×8 ROCK that is TORN out of the ground: its tile becomes open air (EarthLayer remembers torn tiles and restores them on room reset). Earth under or behind the hole is now on the surface and counts as fresh, so thick earth can be dug into rock by rock. No shadow for S: pressing S on earth tears out the tile just ahead of the feet, and the world slows to 0.5× until the throw. The rock rumbles out of its hole, then hops above the player's head, away from them (from a wall: away from the wall), lands and rests a moment. Perfect window: when the rock comes back down level with the player. Throws go away from the player, never into the wall you're on. It sticks into earth as a one-tile foothold. Pillars harden the earth under their base in a pyramid, and stuck rocks the tile behind them, so rocks can't dig them loose. Add a patch of thick earth to the boulder test room.
+
+**You should see:** press S: a small rock tears out of the ground just ahead of you, leaving a hole, and hops over your head and away. The world slows down. It turns white as it comes back down past your chest: press S again then and it flies straight and fast. Aim up-right to stick a step high on the wall. Stand at the hole's edge and press S again to dig deeper. You can't dig under a pillar. R fills every hole again.
+
+## Stage E4b — Ground look
+> Make the ground look amorphous and not tile-like, while the layout and collision stay tile-based. A per-room GroundPainter draws the Earth, Grass and gray Tiles layers itself (the TileMapLayers stay for collision only): convex corners cut by 1-2 px, small seeded bumps along exposed edges, a lighter rim on top edges, speckles scattered across the ground rather than repeating per tile. Depth shading: a cell gets darker the farther it is from open air (surface, 1 deep, 2+ deep), recomputed when a tear opens a hole. Used earth also gets crack lines so it never reads as deep earth.
+
+**You should see:** ground that looks like lumpy earth and turf, not a grid. Thick ground darkens toward its middle. Tearing a rock out of thick ground lights up the newly exposed earth.
+
+## Stage E4c — Hidden chambers
+> Add a "Hidden" TileMapLayer per room (no collision) marking open-air cells drawn as deep earth by the GroundPainter. When a tear connects a hidden region to the outside air, the cover over that whole connected region crumbles away (a short fade, pebbles/gravel falling out). Restored on room reset. Build a test room with a buried pathway reachable by digging.
+
+**You should see:** a wall of thick dark earth. Dig into it with rocks: when the hole reaches the hidden pathway, the cover crumbles and reveals a tunnel you can walk through. R hides it again.
+
+## Stage E4d — Pebbles
+> Every earth interaction (tears, eruptions, impacts, shatters, a few along the shadow's path) leaves small pebbles that STAY on the ground. One pebble field per room, simulated like the leaf pile: the player, crates and wisps kick them as they move through, gusts and wind zones blow them. Capped per room (oldest go first), only the current room simulates, room reset clears them.
+
+**You should see:** after a few bends the ground is littered with pebbles. Running through them scatters them, a gust blows them away, a wind zone rolls them along.
+
+## Stage E4e — Rock and pillar look
+> Take inspiration from the grass blades and the leaf pile. Rock: a lumpy polygon outline instead of a square, a crack and speckles, tumbling rotation in flight, sheds a pebble now and then. Pillar: layered bands, rough sides, a cracked tip, crumbles pebbles as it rises.
+
+**You should see:** rocks that look like rocks and tumble when thrown; pillars that look like piled earth rather than brown rectangles.
 
 ## Stage E5 — Earth Snake
 > Read Earth_bending.md §7 and §11. Add `EarthSnakeAbility`. Hold D for the shadow, release D: a ribbon of earth emerges at the shadow and its head moves at 80 px/s (real time) on the tile grid, steered by the arrows (4 directions, no reversing onto itself). The world stays slowed and the player stays rooted. Budget: up to 12 tiles, one fresh tile from the emergence patch per snake tile, darkening outward from the emergence point. It hardens when D is pressed again, the budget runs out, the head hits something solid (or the player), or 2.5 s pass. While moving, the head pushes crates and boulders through the Pushable contract. Hardened, it is a solid, standable platform in used-earth color that blocks orbs and enemies. Removed on room reset.

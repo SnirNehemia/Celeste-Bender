@@ -15,6 +15,7 @@ extends Node
 ##                                          written when missing.
 ##   - tests/rooms/room_earth_a.tscn        Stage E1/E2 test room (see _build_room_earth_a)
 ##   - tests/rooms/room_earth_b.tscn        Stage E3 column test room (_build_room_earth_b)
+##   - tests/rooms/room_earth_c.tscn        Stage E4 boulder test room (_build_room_earth_c)
 ##   - tests/rooms/room_mixed_a.tscn        Air + Earth together (_build_room_mixed_a)
 ##   - tests/rooms/room_mixed_b.tscn        Air + Earth vs enemies (_build_room_mixed_b)
 ##                                          Both mixed rooms are in tests/mixed_test_world.tscn.
@@ -31,7 +32,7 @@ extends Node
 ##   godot --headless --path . res://tools/build_earth_rooms.tscn
 ## Running it again OVERWRITES the test rooms (not the tileset). Once you edit a room
 ## in the editor, edit it there instead. Pass room names after `--` to build only
-## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, mixed_a, mixed_b).
+## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, earth_c, mixed_a, mixed_b).
 ##
 ## Layout units: tiles (8 px), (column, row) from the room's top-left tile.
 
@@ -81,6 +82,8 @@ func _ready() -> void:
 		_build_room_earth_a()
 	if wanted.is_empty() or wanted.has("earth_b"):
 		_build_room_earth_b()
+	if wanted.is_empty() or wanted.has("earth_c"):
+		_build_room_earth_c()
 	if wanted.is_empty() or wanted.has("mixed_a"):
 		_build_room_mixed_a()
 	if wanted.is_empty() or wanted.has("mixed_b"):
@@ -385,6 +388,32 @@ func _build_room_earth_b() -> void:
 	_add(CRATE_SCENE, "Crate", Vector2(264, 120))
 	_add(WISP_SCENE, "Wisp", Vector2(256, 160))
 	_finish_room(Vector2(64, 160), "res://tests/rooms/room_earth_b.tscn")
+
+
+## Earth test room C (Stages E4 + E4a, Boulder / rock). Earth-only. Left to right:
+##   - a gray pillar: a rock thrown into it shatters
+##   - a long earth floor to tear rocks from (each rock tears out 1 tile: a hole).
+##     Columns 6-11 are THICK earth (2 tiles deep): tear the top tile, then the one
+##     under it, to dig a 2-deep pit.
+##   - a tall block with an EARTH left face (12 tiles = 96 px, far too high to jump):
+##     throw rocks into it, they stick as one-tile steps; stand on one, stick the next
+##     one higher (bend from a stuck rock, or wall-slide on the earth face and tear one
+##     out of the wall itself). Grass on top: the goal.
+## A column (A) raised in front of the wall makes a thrown boulder bounce back.
+func _build_room_earth_c() -> void:
+	_begin_room("RoomEarthC", "Earth C - Boulders",
+		"Stage E4/E4a test room. Earth-only. Press S: a rock tears out of the ground ahead of you (leaving a hole) and hops over your head; press S again while it's white (coming back down level with you) for a perfect throw. Aim up-right to stick steps high on the earth wall; the gray pillar shatters rocks. Dig into the thick earth on the left. A column hardens the earth under it. R resets.")
+	room.air_allowed = false
+	_grass_frame()
+	# Gray pillar on the left (shatter target).
+	_gray(3, 12, 2, 8)
+	# Earth floor to tear rocks from, thick (2 deep) at columns 6-11.
+	_earth(5, 20, 23, 1)
+	_earth(6, 21, 6, 1)
+	# The tall block: earth face on its left side, grass body and top.
+	_grass(28, 8, 11, 12)
+	_earth(28, 8, 1, 12)
+	_finish_room(Vector2(116, 160), "res://tests/rooms/room_earth_c.tscn")
 
 
 ## Mixed test room A: Air AND Earth both allowed, to try how they work together.
