@@ -16,6 +16,7 @@ extends Node
 ##   - tests/rooms/room_earth_a.tscn        Stage E1/E2 test room (see _build_room_earth_a)
 ##   - tests/rooms/room_earth_b.tscn        Stage E3 column test room (_build_room_earth_b)
 ##   - tests/rooms/room_earth_c.tscn        Stage E4 boulder test room (_build_room_earth_c)
+##   - tests/rooms/room_earth_d.tscn        Stage E4c hidden chamber room (_build_room_earth_d)
 ##   - tests/rooms/room_mixed_a.tscn        Air + Earth together (_build_room_mixed_a)
 ##   - tests/rooms/room_mixed_b.tscn        Air + Earth vs enemies (_build_room_mixed_b)
 ##                                          Both mixed rooms are in tests/mixed_test_world.tscn.
@@ -32,7 +33,8 @@ extends Node
 ##   godot --headless --path . res://tools/build_earth_rooms.tscn
 ## Running it again OVERWRITES the test rooms (not the tileset). Once you edit a room
 ## in the editor, edit it there instead. Pass room names after `--` to build only
-## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, earth_c, mixed_a, mixed_b).
+## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, earth_c, earth_d, mixed_a,
+## mixed_b).
 ##
 ## Layout units: tiles (8 px), (column, row) from the room's top-left tile.
 
@@ -59,6 +61,10 @@ enum Kind { GRAY, EARTH, GRASS }
 const ROOM_SCRIPT: Script = preload("res://scenes/rooms/room_base.gd")
 const EARTH_LAYER_SCRIPT: Script = preload("res://scenes/objects/earth/earth_layer.gd")
 const GRASS_LAYER_SCRIPT: Script = preload("res://scenes/objects/earth/grass_layer.gd")
+const HIDDEN_LAYER_SCRIPT: Script = preload("res://scenes/objects/earth/hidden_layer.gd")
+## The "Hidden" layer's tint in the EDITOR (purple, see-through), so hidden chambers
+## stand out while painting. At runtime the GroundPainter hides the layer's drawing.
+const HIDDEN_EDITOR_TINT: Color = Color(0.7, 0.4, 1.0, 0.6)
 const SPIKES_SCENE: PackedScene = preload("res://scenes/objects/spikes.tscn")
 const CRATE_SCENE: PackedScene = preload("res://scenes/objects/crate.tscn")
 const WISP_SCENE: PackedScene = preload("res://scenes/enemies/wisp.tscn")
@@ -71,6 +77,9 @@ const FACING_UP: int = 0
 ## Room being built, and its solid cells: Vector2i cell -> Kind.
 var room: Room
 var cell_kinds: Dictionary = {}
+## Hidden chamber cells of the room being built (a set: Vector2i -> true). Open air,
+## drawn as earth until dug into (HiddenLayer).
+var hidden_cells: Dictionary = {}
 
 
 func _ready() -> void:
@@ -84,6 +93,8 @@ func _ready() -> void:
 		_build_room_earth_b()
 	if wanted.is_empty() or wanted.has("earth_c"):
 		_build_room_earth_c()
+	if wanted.is_empty() or wanted.has("earth_d"):
+		_build_room_earth_d()
 	if wanted.is_empty() or wanted.has("mixed_a"):
 		_build_room_mixed_a()
 	if wanted.is_empty() or wanted.has("mixed_b"):
@@ -183,6 +194,7 @@ func _begin_room(node_name: String, title: String, description: String) -> void:
 	room.room_size = Vector2(320, 180)
 	room.editor_description = description
 	cell_kinds.clear()
+	hidden_cells.clear()
 
 
 func _new_room(node_name: String) -> Room:
@@ -214,6 +226,15 @@ func _open(column: int, row: int, width: int, height: int) -> void:
 	for x: int in range(column, column + width):
 		for y: int in range(row, row + height):
 			cell_kinds.erase(Vector2i(x, y))
+
+
+## A hidden chamber: open air (erases whatever was there) that looks like earth until
+## a dug hole reaches it.
+func _hidden(column: int, row: int, width: int, height: int) -> void:
+	_open(column, row, width, height)
+	for x: int in range(column, column + width):
+		for y: int in range(row, row + height):
+			hidden_cells[Vector2i(x, y)] = true
 
 
 func _paint(kind: Kind, column: int, row: int, width: int, height: int) -> void:
@@ -286,9 +307,21 @@ func _finish_room(spawn_px: Vector2, path: String) -> void:
 				grass.set_cell(cell, 0, TILE_GRASS_TOP if is_top else TILE_GRASS_PLAIN)
 			Kind.EARTH:
 				earth.set_cell(cell, 0, TILE_EARTH)
+	var layers: Array[TileMapLayer] = [tiles, grass, earth]
+	# Only rooms with hidden chambers get a "Hidden" layer.
+	if not hidden_cells.is_empty():
+		var hidden: TileMapLayer = TileMapLayer.new()
+		hidden.name = "Hidden"
+		hidden.set_script(HIDDEN_LAYER_SCRIPT)
+		hidden.tile_set = load(EARTH_TILESET_PATH) as TileSet
+		hidden.collision_enabled = false  # open air, even while it looks like earth
+		hidden.self_modulate = HIDDEN_EDITOR_TINT
+		for cell: Vector2i in hidden_cells:
+			hidden.set_cell(cell, 0, TILE_EARTH)
+		layers.append(hidden)
 	# Drawn first (in this order), so objects appear in front of the ground.
 	var layer_index: int = 0
-	for layer: TileMapLayer in [tiles, grass, earth]:
+	for layer: TileMapLayer in layers:
 		room.add_child(layer)
 		room.move_child(layer, layer_index)
 		layer.owner = room
@@ -414,6 +447,38 @@ func _build_room_earth_c() -> void:
 	_grass(28, 8, 11, 12)
 	_earth(28, 8, 1, 12)
 	_finish_room(Vector2(116, 160), "res://tests/rooms/room_earth_c.tscn")
+
+
+## Earth test room D (Stage E4c, hidden chambers). Earth-only. Left to right:
+##   - the start, and a grass step up onto...
+##   - a wall of THICK earth (16 tiles wide, 6 deep). Buried in it, 2 tiles under its
+##     top, runs a hidden tunnel (columns 13-27, rows 16-17), drawn as deep earth.
+##     A BIG rock (hold S, Stage E4c2) tears out a 2x2 block: right above the tunnel
+##     its hole reaches it, the cover crumbles, and the hole is wide enough to drop
+##     straight in. (The player is as wide as a tile: a 1-tile hole is too narrow.
+##     Small rocks can still get there, two holes side by side, 2 deep.)
+##   - a gray barrier from the ceiling down to the tunnel: the only way to the right
+##     is through the tunnel, which runs under it and opens into...
+##   - the right chamber, its floor level with the tunnel's floor.
+## R covers the tunnel again.
+func _build_room_earth_d() -> void:
+	_begin_room("RoomEarthD", "Earth D - Hidden Chambers",
+		"Stage E4c test room. Earth-only. A tunnel is buried in the thick earth wall (purple in the editor's Hidden layer). Climb onto the wall. Facing right, HOLD S: a big rock tears a 2x2 hole that reaches the tunnel, and its cover crumbles. Drop in, walk right under the gray barrier. R hides it again.")
+	room.air_allowed = false
+	_grass_frame()
+	# Step up onto the earth wall (24 px, then 24 px more).
+	_grass(8, 17, 2, 3)
+	# The thick earth wall, standing on the floor.
+	_earth(10, 14, 16, 6)
+	# The gray barrier, ceiling to tunnel and under the tunnel.
+	_gray(26, 1, 2, 15)
+	_gray(26, 18, 2, 2)
+	# The right chamber's floor, level with the tunnel's floor (row 18).
+	_grass(28, 18, 11, 2)
+	# The hidden tunnel: 2 tiles tall (the player is 11 px), under 2 tiles of earth,
+	# running under the barrier to the right chamber.
+	_hidden(13, 16, 15, 2)
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_d.tscn")
 
 
 ## Mixed test room A: Air AND Earth both allowed, to try how they work together.

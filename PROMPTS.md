@@ -11,7 +11,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
-- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [ ] E4c · [ ] E4d · [ ] E4e · [ ] E5 · [ ] E6 · [ ] E7
+- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [ ] E4c3 · [ ] E4d · [ ] E4e · [ ] E5 · [ ] E6 · [ ] E7
 
 ---
 
@@ -113,6 +113,16 @@ Rules decided in E0 are written into Earth_bending.md §11 ("Decided in Stage E0
 > Add a "Hidden" TileMapLayer per room (no collision) marking open-air cells drawn as deep earth by the GroundPainter. When a tear connects a hidden region to the outside air, the cover over that whole connected region crumbles away (a short fade, pebbles/gravel falling out). Restored on room reset. Build a test room with a buried pathway reachable by digging.
 
 **You should see:** a wall of thick dark earth. Dig into it with rocks: when the hole reaches the hidden pathway, the cover crumbles and reveals a tunnel you can walk through. R hides it again.
+
+## Stage E4c2 — Big rock (hold S)
+> Pressing S still tears out the small rock at once. If S is still held when the rock has rumbled out of its hole (the end of the tear phase), it GROWS into a 16x16 big rock: it tears out the 2x2 block made of its tile, the next tile along the surface (away from the player) and the two tiles behind those, then rumbles out of the 2x2 hole and hops like a small rock (same perfect window). If the 2x2 block can't all be torn out (thin earth, hardened, gray, the player in the way), it stays small. The big rock throws a little slower, sticks into earth as a 2x2 foothold (hardening every tile behind it) and shatters into more gravel. The 2x2 hole is wide enough to drop into. Update RoomEarthD so the tunnel is reached with a big rock.
+
+**You should see:** tap S: a small rock as before. Hold S: the rock rumbles out, then the ground around it cracks open and a big rock comes out of a 2x2 hole. Throw it into an earth wall: a 2x2 step. On top of the earth wall in Earth D, a big rock opens the tunnel and you drop straight in.
+
+## Stage E4c3 — Loose rocks
+> A rock that comes to rest without being thrown (let go with Jump, or never thrown) no longer crumbles: it stays as a loose rock, solid and standable. Pressing S next to a loose rock lifts it again: it hops exactly like a freshly torn rock, with the same perfect window, and uses no earth. Thrown rocks still stick into earth or shatter. At most 3 loose rocks per room (the oldest crumbles). Room reset clears them.
+
+**You should see:** tear a rock and don't throw it: it lands and stays. Walk up to it and press S: it hops up and you can throw it, perfect window and all, without digging. A big loose rock is a step you can stand on.
 
 ## Stage E4d — Pebbles
 > Every earth interaction (tears, eruptions, impacts, shatters, a few along the shadow's path) leaves small pebbles that STAY on the ground. One pebble field per room, simulated like the leaf pile: the player, crates and wisps kick them as they move through, gusts and wind zones blow them. Capped per room (oldest go first), only the current room simulates, room reset clears them.

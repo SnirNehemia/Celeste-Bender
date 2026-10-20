@@ -137,3 +137,27 @@ extends Resource
 ## A flying boulder that never hits anything (thrown out of the room) shatters after
 ## this long, seconds.
 @export var boulder_max_flight_time: float = 3.0
+
+@export_group("Big rock (hold S)")
+## Holding S until the rock is out of its hole (boulder_tear_time) grows it into a big
+## rock this size, px (Stage E4c2): 2x2 tiles, torn out of a 2x2 block.
+@export var big_rock_size: float = 16.0
+## A big rock is heavier: its throw speed (perfect or not) is multiplied by this.
+@export var big_rock_throw_speed_scale: float = 0.85
+## Gravel bits and screen shake (strength px, duration s) when it grows.
+@export var big_rock_grow_gravel_count: int = 14
+@export var big_rock_grow_shake_strength: float = 1.5
+@export var big_rock_grow_shake_time: float = 0.15
+
+@export_group("Hidden chambers")
+## When a dug hole reaches a hidden chamber (Stage E4c), its cover crumbles away:
+## each cell fades out over this many REAL seconds...
+@export var hidden_crumble_time: float = 0.25
+## ...starting this much later per cell step away from the breach, so the crumble
+## spreads along the tunnel instead of vanishing all at once.
+@export var hidden_crumble_step_delay: float = 0.03
+## Gravel bits each crumbling cell drops.
+@export var hidden_crumble_gravel_count: int = 3
+## Screen shake when a chamber opens: strength (px) and duration (s).
+@export var hidden_crumble_shake_strength: float = 1.5
+@export var hidden_crumble_shake_time: float = 0.2

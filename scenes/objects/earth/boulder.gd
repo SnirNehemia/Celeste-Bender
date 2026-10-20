@@ -3,7 +3,9 @@ extends CharacterBody2D
 ## Boulder (Earth_bending.md §6, §11, Stages E4 + E4a): since E4a an 8x8 ROCK torn
 ## out of one earth tile (which becomes a hole), popped out, and thrown. Small: a
 ## ranged attack, or a one-tile step stuck into a far earth wall.
-## (All sizes come from earth_tuning.boulder_size, so the code works for any size.)
+## BIG ROCK (Stage E4c2): holding S through the tear grows it into a 16x16 rock
+## (BoulderAbility tears out the 2x2 block and calls grow(), which restarts the tear
+## from the bigger hole). All size math uses `size`, so the code works for any size.
 ##
 ## Phases (`phase`):
 ##   POPPING  the time between the tear and the throw (the player can throw it all
@@ -50,6 +52,10 @@ extends CharacterBody2D
 
 enum Phase { POPPING, FLYING, STUCK, SHATTERED }
 
+## The tear phase is over: the rock is out of its hole and about to hop. BoulderAbility
+## listens: if S is still held, it grows the rock right then (grow()).
+signal tore_free
+
 ## Group of every boulder, for tests and future enemy code.
 const GROUP: StringName = &"boulder"
 ## Drawn in used-earth color (Earth_bending.md §2: creations are used earth), with a
@@ -73,6 +79,8 @@ const MOVING_HITBOX_INSET: float = 0.25
 
 ## Feel values (sizes, timings, speeds). The player's EarthTuning, passed in setup().
 var earth_tuning: EarthTuning
+## Side length, px: size, or big_rock_size once grown.
+var size: float = 8.0
 var phase: Phase = Phase.POPPING
 ## Unit vector out of the surface it was torn from: the tear direction.
 var pop_normal: Vector2 = Vector2.UP
@@ -114,6 +122,7 @@ var hitbox: CollisionShape2D
 func setup(start_center: Vector2, normal: Vector2, away_velocity_x: float, player_middle_y: float,
 		tuning: EarthTuning) -> void:
 	earth_tuning = tuning
+	size = tuning.boulder_size
 	pop_start_position = start_center
 	pop_normal = normal
 	hop_velocity_x = away_velocity_x
@@ -128,7 +137,7 @@ func _ready() -> void:
 	add_to_group(GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
 	var shape: RectangleShape2D = RectangleShape2D.new()
-	shape.size = Vector2.ONE * (earth_tuning.boulder_size - MOVING_HITBOX_INSET * 2.0)
+	shape.size = Vector2.ONE * (size - MOVING_HITBOX_INSET * 2.0)
 	hitbox = CollisionShape2D.new()
 	hitbox.shape = shape
 	add_child(hitbox)
@@ -149,7 +158,7 @@ func get_hop_speed() -> float:
 ## rock hits something on the way.
 func get_perfect_time() -> float:
 	var tear_time: float = maxf(earth_tuning.boulder_tear_time, 0.001)
-	var hop_start_y: float = pop_start_position.y + pop_normal.y * earth_tuning.boulder_size
+	var hop_start_y: float = pop_start_position.y + pop_normal.y * size
 	# During the hop: y(s) = hop_start_y - v·s + g·s²/2 (s = time since the hop
 	# started; y grows downward). Level when y(s) = player_center_y, a quadratic:
 	# (g/2)·s² - v·s + (hop_start_y - player_center_y) = 0. Its larger root is the
@@ -166,6 +175,11 @@ func get_perfect_time() -> float:
 ## turns this into the throw quality.
 func get_time_from_perfect() -> float:
 	return absf(pop_elapsed - perfect_time)
+
+
+## True once it grew into a big rock.
+func is_big() -> bool:
+	return size > earth_tuning.boulder_size
 
 
 ## True while the player can still throw it.
@@ -190,13 +204,27 @@ func throw(direction: Vector2, speed: float, float_time: float, is_perfect: bool
 		# Still tearing out of its hole: yank it the rest of the way out first, or the
 		# throw would slam it into the side of its own hole. (The way-up perfect window
 		# starts while it's still coming out.)
-		move_and_collide(pop_start_position + pop_normal * earth_tuning.boulder_size - global_position)
+		move_and_collide(pop_start_position + pop_normal * size - global_position)
 	phase = Phase.FLYING
 	velocity = direction * speed
 	float_time_remaining = float_time
 	flight_time = 0.0
 	if is_perfect:
 		perfect_flash_remaining = PERFECT_FLASH_TIME
+	queue_redraw()
+
+
+## Grows into a big rock: `new_center` = the middle of the 2x2 hole BoulderAbility
+## just tore out, `new_size` its side length, px. The tear starts over from there (it
+## rumbles out of the big hole, then hops), with its perfect moment worked out anew.
+func grow(new_center: Vector2, new_size: float) -> void:
+	size = new_size
+	pop_start_position = new_center
+	# Set directly, not move_and_collide: the rock jumps back into the (now empty) hole.
+	global_position = new_center
+	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * (size - MOVING_HITBOX_INSET * 2.0)
+	pop_elapsed = 0.0
+	perfect_time = get_perfect_time()
 	queue_redraw()
 
 
@@ -228,10 +256,13 @@ func _update_pop(delta: float) -> void:
 		# 1) Tear: slowly out of the hole, one tile along the normal. A straight
 		#    line; the rumble is only drawn (see _draw).
 		var progress: float = minf(pop_elapsed / tear_time, 1.0)
-		var target: Vector2 = pop_start_position + pop_normal * earth_tuning.boulder_size * progress
+		var target: Vector2 = pop_start_position + pop_normal * size * progress
 		move_and_collide(target - global_position)
 		if progress >= 1.0:
-			_start_hop()
+			tore_free.emit()
+			# Still out of the hole? A grow() during the signal restarted the tear instead.
+			if pop_elapsed >= tear_time:
+				_start_hop()
 	elif is_resting:
 		# 3) Landed: rest a moment (still throwable), then crumble.
 		rest_remaining -= delta
@@ -320,14 +351,23 @@ func _stick_into(earth_layer: EarthLayer, surface_normal: Vector2, contact_point
 	velocity = Vector2.ZERO
 	global_position = spot
 	collision_layer = 1  # solid "world" now: standable, wall-jumpable
-	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * earth_tuning.boulder_size
+	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * size
 	set_physics_process(false)
 	stuck_layer = earth_layer
 	earth_layer.register_column(self, _get_covered_cells(earth_layer))
 	# Harden the earth it's stuck into, so a rock can't tear it out from under this one
-	# and leave it floating. It's the tile just past our side that touched the face.
-	var behind_point: Vector2 = global_position - surface_normal * (earth_tuning.boulder_size / 2.0 + 1.0)
-	earth_layer.harden(earth_layer.get_cell_at(behind_point))
+	# and leave it floating: every tile just past our side that touched the face (one
+	# for a small rock, two for a big one).
+	# The hit normal snapped to the nearest axis (pointing out of the face, at us).
+	var out_of_face: Vector2 = Vector2(signf(surface_normal.x), 0.0) if absf(surface_normal.x) > absf(surface_normal.y) \
+		else Vector2(0.0, signf(surface_normal.y))
+	var along_face: Vector2 = Vector2(-out_of_face.y, out_of_face.x)
+	var tile_size: float = earth_layer.get_half_tile_size() * 2.0
+	var tiles_across: int = roundi(size / tile_size)
+	for tile_index: int in tiles_across:
+		var offset_along: float = -size / 2.0 + tile_size * (tile_index + 0.5)
+		var behind_point: Vector2 = global_position - out_of_face * (size / 2.0 + 1.0) + along_face * offset_along
+		earth_layer.harden(earth_layer.get_cell_at(behind_point))
 	FX.spawn_gravel(contact_point, earth_tuning.boulder_stick_gravel_count, surface_normal)
 	FX.shake(earth_tuning.boulder_impact_shake_strength, earth_tuning.boulder_impact_shake_time)
 	FX.play_sfx(&"boulder_stick")
@@ -341,7 +381,7 @@ func _stick_into(earth_layer: EarthLayer, surface_normal: Vector2, contact_point
 ## nearest grid line is tried first, then the one on the other side.
 func _find_stick_spot(earth_layer: EarthLayer, surface_normal: Vector2) -> Vector2:
 	var tile_size: float = earth_layer.get_half_tile_size() * 2.0
-	var half_size: float = earth_tuning.boulder_size / 2.0
+	var half_size: float = size / 2.0
 	# Work in the layer's own coordinates, where tile corners are multiples of tile_size.
 	var corner: Vector2 = earth_layer.to_local(global_position) - Vector2.ONE * half_size
 	var is_horizontal_hit: bool = absf(surface_normal.x) > absf(surface_normal.y)
@@ -364,7 +404,7 @@ func _find_stick_spot(earth_layer: EarthLayer, surface_normal: Vector2) -> Vecto
 ## True if a boulder centered at `center` would overlap no solid, player or enemy.
 func _is_spot_free(center: Vector2) -> bool:
 	var check_shape: RectangleShape2D = RectangleShape2D.new()
-	check_shape.size = Vector2.ONE * (earth_tuning.boulder_size - STICK_CHECK_INSET * 2.0)
+	check_shape.size = Vector2.ONE * (size - STICK_CHECK_INSET * 2.0)
 	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
 	query.shape = check_shape
 	query.transform = Transform2D(0.0, center)
@@ -377,10 +417,10 @@ func _is_spot_free(center: Vector2) -> bool:
 ## The tile cells the stuck rock fills (1 for an 8x8 rock), in `earth_layer`'s map
 ## coordinates.
 func _get_covered_cells(earth_layer: EarthLayer) -> Array[Vector2i]:
-	var half_size: float = earth_tuning.boulder_size / 2.0
+	var half_size: float = size / 2.0
 	# Just inside the top-left corner, so the cell lookup can't land on a neighbour.
 	var top_left_cell: Vector2i = earth_layer.get_cell_at(global_position - Vector2.ONE * (half_size - 1.0))
-	var tiles_across: int = roundi(earth_tuning.boulder_size / (earth_layer.get_half_tile_size() * 2.0))
+	var tiles_across: int = roundi(size / (earth_layer.get_half_tile_size() * 2.0))
 	var cells: Array[Vector2i] = []
 	for x: int in tiles_across:
 		for y: int in tiles_across:
@@ -394,7 +434,9 @@ func shatter() -> void:
 		return
 	phase = Phase.SHATTERED
 	set_physics_process(false)
-	FX.spawn_gravel(global_position, earth_tuning.boulder_shatter_gravel_count, Vector2.ZERO)
+	# A big rock breaks into more gravel (by area: 4x for 2x the size).
+	var area_factor: int = roundi(pow(size / earth_tuning.boulder_size, 2.0))
+	FX.spawn_gravel(global_position, earth_tuning.boulder_shatter_gravel_count * area_factor, Vector2.ZERO)
 	FX.shake(earth_tuning.boulder_impact_shake_strength, earth_tuning.boulder_impact_shake_time)
 	FX.play_sfx(&"boulder_shatter")
 	queue_free()
@@ -413,8 +455,8 @@ func reset() -> void:
 ## A dark-earth square with an outline and a light top-left edge. White while it can
 ## be thrown perfectly (the timing cue) and for a moment after a perfect throw.
 func _draw() -> void:
-	var half_size: float = earth_tuning.boulder_size / 2.0
-	var rect: Rect2 = Rect2(-Vector2.ONE * half_size, Vector2.ONE * earth_tuning.boulder_size)
+	var half_size: float = size / 2.0
+	var rect: Rect2 = Rect2(-Vector2.ONE * half_size, Vector2.ONE * size)
 	if phase == Phase.POPPING and not is_hopping:
 		# Tearing: rumble sideways along the surface (drawn only; the body moves straight).
 		var along_surface: Vector2 = Vector2(-pop_normal.y, pop_normal.x)

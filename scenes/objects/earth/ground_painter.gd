@@ -29,15 +29,21 @@ extends Node2D
 ##                  Top surfaces get a lighter rim (grass: 2 px).
 ##        edge line a 1 px darker line where the crust ends
 ##        inside    a dark saturated shade of the kind, with diagonal hatch stripes,
-##                  darkening a little further in (but never to black)
+##                  darkening to almost black a few px further in
 ##      plus a few FLECKS: tiny crumbs floating just above top surfaces.
 ## EARTH STATES (used: darker plus crack lines, hardened: grayer, shivering: flicker)
 ## are drawn on a child OVERLAY: each such tile's 8x8 piece of the picture again,
 ## tinted by EarthLayer.get_cell_modulate(). Only the overlay redraws while a bend
 ## animates.
 ##
-## Updates: a tear (EarthLayer.shape_changed with a torn cell) only recomputes the
-## pixels near the hole; a room reset recomputes everything.
+## HIDDEN CHAMBERS (Stage E4c): cells of the room's "Hidden" layer (HiddenLayer) are
+## open air, but drawn as earth while covered, so a buried tunnel looks like deep
+## earth. When a dug hole reaches one, we copy the picture first (_on_chamber_revealed),
+## redraw the ground with the chamber open, and draw the copied cover on a second
+## child, the COVER, fading and sinking cell by cell (HiddenLayer.get_cover_alpha).
+##
+## Updates: when only some cells changed (a tear, an opened chamber, a reset filling
+## holes) only the pixels near them are recomputed; the first build does everything.
 
 enum Kind { AIR, GRAY, GRASS, EARTH }
 
@@ -50,10 +56,14 @@ const CRUST_NOISE_SPACING: int = 5
 ## Diagonal hatch on the inside: a stripe HATCH_WIDTH px wide every HATCH_PERIOD px.
 const HATCH_PERIOD: int = 6
 const HATCH_WIDTH: int = 2
-## The inside darkens further over this many px past the crust...
-const INSIDE_FADE_DEPTH: float = 28.0
-## ...down to this fraction of its brightness (never pitch black).
-const INSIDE_DEEPEST_BRIGHTNESS: float = 0.5
+## Right past the edge line the inside is this fraction of its palette color...
+const INSIDE_EDGE_BRIGHTNESS: float = 0.7
+## ...darkening over this many px further in...
+const INSIDE_FADE_DEPTH: float = 10.0
+## ...down to this fraction: almost black, so deep ground reads as solid mass and a
+## hidden chamber opening up in it (Stage E4c) stands out. The hatch stays faintly
+## visible.
+const INSIDE_DEEPEST_BRIGHTNESS: float = 0.12
 ## Chance (0..1) that a top-surface pixel column gets a fleck floating above it.
 const FLECK_CHANCE: float = 0.05
 ## Chance (0..1) that a 2 px stretch of an exposed side is dented 1 px in...
@@ -85,6 +95,7 @@ var room: Room
 var earth_layer: EarthLayer
 var gray_layer: TileMapLayer
 var grass_layer: TileMapLayer
+var hidden_layer: HiddenLayer
 var tile_size: int = 8
 ## The room's cells: (0, 0) to room_size / tile_size. Outside counts as solid ground.
 var cell_bounds: Rect2i
@@ -105,6 +116,11 @@ var image: Image
 var texture: ImageTexture
 ## Child node drawing the earth states on top (see the header).
 var overlay: Node2D
+## Child node drawing a hidden chamber's crumbling cover, from a copy of the picture
+## taken just before the chamber opened (see the header).
+var cover: Node2D
+var cover_image: Image
+var cover_texture: ImageTexture
 
 
 func _ready() -> void:
@@ -112,6 +128,7 @@ func _ready() -> void:
 	earth_layer = room.get_node_or_null("Earth") as EarthLayer
 	gray_layer = room.get_node_or_null("Tiles") as TileMapLayer
 	grass_layer = room.get_node_or_null("Grass") as TileMapLayer
+	hidden_layer = room.get_node_or_null("Hidden") as HiddenLayer
 	if earth_layer != null:
 		tile_size = earth_layer.tile_set.tile_size.x
 	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
@@ -119,7 +136,7 @@ func _ready() -> void:
 	height = cell_bounds.size.y * tile_size
 	# Hide the layers' own tiles (collision stays). self_modulate tints only the node
 	# itself, not its children, so the grass blades (a child of "Grass") still draw.
-	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer]:
+	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer, hidden_layer]:
 		if layer != null:
 			layer.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
 	_build_noise_grid()
@@ -127,9 +144,18 @@ func _ready() -> void:
 	overlay.name = "EarthStates"
 	add_child(overlay)
 	overlay.draw.connect(_draw_overlay)
+	# Added after the overlay, so it draws on top of it.
+	cover = Node2D.new()
+	cover.name = "ChamberCover"
+	add_child(cover)
+	cover.draw.connect(_draw_cover)
 	if earth_layer != null:
 		earth_layer.shape_changed.connect(rebuild)
 		earth_layer.look_changed.connect(overlay.queue_redraw)
+	if hidden_layer != null:
+		hidden_layer.chamber_revealed.connect(_on_chamber_revealed)
+		hidden_layer.shape_changed.connect(rebuild)
+		hidden_layer.crumble_changed.connect(cover.queue_redraw)
 	rebuild()
 
 
@@ -147,15 +173,15 @@ func get_pixel_distance(pixel: Vector2i) -> float:
 
 # --- Rebuilding ----------------------------------------------------------------------
 
-## Recomputes the picture. After a tear only the pixels near the hole change (see
-## TEAR_REDRAW_RADIUS); anything else (a reset, the first build) redoes it all.
+## Recomputes the picture. When some cells changed (a tear, an opened chamber, holes
+## filled by a reset) only the pixels within TEAR_REDRAW_RADIUS tiles of them are
+## redone; the first build (or a rebuild with nothing changed) redoes it all.
 func rebuild() -> void:
-	var torn_cells: Array = earth_layer.torn_cells.keys() if earth_layer != null else []
 	var previous_kinds: Dictionary = kinds.duplicate()
 	_find_kinds()
 	var region: Rect2i = Rect2i(0, 0, width, height)
 	if image != null:
-		# Which cells changed since last time? One newly torn cell = a local update.
+		# Which cells changed since last time?
 		var changed: Array[Vector2i] = []
 		for cell: Vector2i in previous_kinds:
 			if not kinds.has(cell):
@@ -163,10 +189,13 @@ func rebuild() -> void:
 		for cell: Vector2i in kinds:
 			if not previous_kinds.has(cell):
 				changed.append(cell)
-		if changed.size() == 1 and torn_cells.has(changed[0]):
-			var center: Vector2i = changed[0]
-			var corner: Vector2i = (center - Vector2i.ONE * TEAR_REDRAW_RADIUS) * tile_size
-			region = Rect2i(corner, Vector2i.ONE * (TEAR_REDRAW_RADIUS * 2 + 1) * tile_size) \
+		if not changed.is_empty():
+			# The smallest rectangle of cells holding every change, grown by the radius.
+			var changed_cells: Rect2i = Rect2i(changed[0], Vector2i.ONE)
+			for cell: Vector2i in changed:
+				changed_cells = changed_cells.expand(cell).expand(cell + Vector2i.ONE)
+			changed_cells = changed_cells.grow(TEAR_REDRAW_RADIUS)
+			region = Rect2i(changed_cells.position * tile_size, changed_cells.size * tile_size) \
 				.intersection(Rect2i(0, 0, width, height))
 	if region.size == Vector2i(width, height) or image == null:
 		_build_mask(Rect2i(Vector2i.ZERO, cell_bounds.size))
@@ -184,7 +213,8 @@ func rebuild() -> void:
 	overlay.queue_redraw()
 
 
-## Which kind fills each cell: earth wins over grass over gray.
+## Which kind fills each cell: earth wins over grass over gray. A covered hidden
+## chamber is drawn as earth.
 func _find_kinds() -> void:
 	kinds.clear()
 	for x: int in range(cell_bounds.position.x, cell_bounds.end.x):
@@ -197,6 +227,8 @@ func _find_kinds() -> void:
 				kind = Kind.GRASS
 			elif gray_layer != null and gray_layer.get_cell_source_id(cell) != -1:
 				kind = Kind.GRAY
+			elif hidden_layer != null and hidden_layer.is_covered(cell):
+				kind = Kind.EARTH
 			if kind != Kind.AIR:
 				kinds[cell] = kind
 
@@ -454,7 +486,9 @@ func _get_pixel_color(x: int, y: int) -> Color:
 	# Inside: dark, hatched, a little darker the deeper it goes.
 	var inside: Color = colors[4] if (x + y) % HATCH_PERIOD < HATCH_WIDTH else colors[3]
 	var fade: float = smoothstep(0.0, INSIDE_FADE_DEPTH, depth - crust_end)
-	return inside * lerpf(1.0, INSIDE_DEEPEST_BRIGHTNESS, fade)
+	# darkened(), not `inside * factor`: multiplying a Color scales its alpha too, which
+	# made the deep inside see-through.
+	return inside.darkened(1.0 - lerpf(INSIDE_EDGE_BRIGHTNESS, INSIDE_DEEPEST_BRIGHTNESS, fade))
 
 
 ## Random numbers (-1..1) on a coarse grid, the same every run (seeded).
@@ -516,3 +550,32 @@ func _draw_cracks(cell: Vector2i) -> void:
 			start.x += 2
 		for step: int in 3:
 			overlay.draw_rect(Rect2(origin + Vector2(start + Vector2i(step_x * step, step)), Vector2.ONE), CRACK_COLOR)
+
+
+## A hidden chamber is about to open (the picture still shows it covered): keep a copy
+## of the picture to draw the crumbling cover from. A chamber still crumbling from an
+## earlier reveal is already open in the picture, so its cells are copied over from
+## the previous cover copy.
+func _on_chamber_revealed(_cells: Array[Vector2i]) -> void:
+	var snapshot: Image = image.duplicate() as Image
+	if cover_image != null:
+		for cell: Vector2i in hidden_layer.get_crumbling_cells():
+			var rect: Rect2i = Rect2i(cell * tile_size, Vector2i.ONE * tile_size)
+			snapshot.blit_rect(cover_image, rect, rect.position)
+	cover_image = snapshot
+	cover_texture = ImageTexture.create_from_image(cover_image)
+
+
+## The cover: each crumbling chamber cell's piece of the copied picture, fading out
+## and sinking up to 2 px as it goes (whole pixels, so it stays crisp).
+func _draw_cover() -> void:
+	if hidden_layer == null or cover_texture == null:
+		return
+	for cell: Vector2i in hidden_layer.get_crumbling_cells():
+		var alpha: float = hidden_layer.get_cover_alpha(cell)
+		if alpha <= 0.0:
+			continue
+		var source: Rect2 = Rect2(Vector2(cell * tile_size), Vector2.ONE * tile_size)
+		var sink: float = roundf((1.0 - alpha) * 2.0)
+		cover.draw_texture_rect_region(cover_texture, Rect2(source.position + Vector2(0.0, sink), source.size),
+			source, Color(1.0, 1.0, 1.0, alpha))

@@ -37,6 +37,9 @@ extends TileMapLayer
 ## announces changes with two SIGNALS:
 ##   shape_changed  tiles appeared or disappeared (a tear, a reset): redraw all
 ##   look_changed   only states changed (used, fade, shiver, hardened): redraw those
+##   cell_torn      (Stage E4c) one tile was torn out: a HiddenLayer checks whether
+##                  the hole reached a hidden chamber. Emitted before shape_changed, so
+##                  a chamber opened by this tear is redrawn in the same pass.
 ## A signal is how a node says "something happened" without knowing who listens; the
 ## painter connects to these in its setup.
 ##
@@ -48,6 +51,8 @@ extends TileMapLayer
 signal shape_changed
 ## Only the look of some tiles changed (used, fading, shivering, hardened).
 signal look_changed
+## A rock was torn out of `cell` (open air now). See the header.
+signal cell_torn(cell: Vector2i)
 
 ## Group of every EarthLayer in the game, for find_layer_at().
 const GROUP: StringName = &"earth_layer"
@@ -78,6 +83,9 @@ var shiver_clock: float = 0.0
 ## Other TileMapLayers in the same room ("Tiles", "Grass"): their cells count as
 ## solid when we decide which faces touch open air.
 var neighbour_solid_layers: Array[TileMapLayer] = []
+## The room's "Hidden" layer (Stage E4c), or null: its cells are open air, but count
+## as solid while still covered (HiddenLayer.is_covered).
+var hidden_layer: HiddenLayer = null
 ## Cells filled by a risen Earth Column -> that column (Node). Solid, used-earth.
 var column_cells: Dictionary = {}
 ## Cells a rock was torn out of -> [source id, atlas coords] of the tile that was
@@ -92,7 +100,9 @@ func _ready() -> void:
 	add_to_group(Room.RESETTABLE_GROUP)
 	for sibling: Node in get_parent().get_children():
 		var sibling_layer: TileMapLayer = sibling as TileMapLayer
-		if sibling_layer != null and sibling_layer != self:
+		if sibling_layer is HiddenLayer:
+			hidden_layer = sibling_layer  # solid only while covered: see is_solid
+		elif sibling_layer != null and sibling_layer != self:
 			neighbour_solid_layers.append(sibling_layer)
 	# Nothing animates until a tile is used or shivers (see _process).
 	set_process(false)
@@ -156,9 +166,12 @@ func is_earthen(cell: Vector2i) -> bool:
 	return is_earth(cell) or is_column(cell)
 
 
-## Solid = earth, a column, or a tile on another layer of this room ("Tiles", "Grass").
+## Solid = earth, a column, a tile on another layer of this room ("Tiles", "Grass"),
+## or a hidden chamber nobody has dug into yet.
 func is_solid(cell: Vector2i) -> bool:
 	if is_earth(cell) or is_column(cell):
+		return true
+	if hidden_layer != null and hidden_layer.is_covered(cell):
 		return true
 	for solid_layer: TileMapLayer in neighbour_solid_layers:
 		if solid_layer.get_cell_source_id(cell) != -1:
@@ -223,6 +236,7 @@ func tear_out(cell: Vector2i) -> bool:
 	# The layer normally rebuilds its collision at the end of the frame. Do it now, so
 	# the rock that starts inside the hole doesn't collide with the tile it came from.
 	update_internals()
+	cell_torn.emit(cell)
 	shape_changed.emit()
 	return true
 

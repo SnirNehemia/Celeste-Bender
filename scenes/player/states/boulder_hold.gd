@@ -7,7 +7,8 @@ extends PlayerState
 ## tear until the throw, for at most boulder_slow_motion_max_time real seconds. The
 ## rock moves in game time, so its perfect window stretches with the slow motion.
 ## While here the player doesn't move (rooted, on the floor or on a wall) and the
-## arrows only aim. Ways out:
+## arrows only aim. Holding S from the tear until the rock is out of its hole grows it
+## into a big rock (BoulderAbility, Stage E4c2). Ways out:
 ##   - S pressed again -> BoulderAbility.throw(), away from the player
 ##     (BoulderAbility.get_throw_direction: the arrows, 8 directions, or toward the
 ##     rock's side with none; never into the wall you're on)
@@ -41,6 +42,10 @@ func physics_update(_delta: float) -> void:
 	if not boulder.is_holding():
 		_leave()
 		return
+	# Big rock (Stage E4c2): S held since the tear keeps the charge going; the moment
+	# it's up, the rock stays small.
+	if not Input.is_action_pressed(boulder.get_action()):
+		boulder.stop_charging()
 	# Jump lets go. jump_buffer_remaining is set the frame Jump is pressed.
 	if player.jump_buffer_remaining > 0.0:
 		player.consume_jump_press()

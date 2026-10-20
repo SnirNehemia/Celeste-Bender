@@ -29,6 +29,8 @@ func _ready() -> void:
 	await _check_e3_column(world, player)
 	await _check_e4_boulder(world, player)
 	await _check_e4b_ground(world)
+	await _check_e4c_hidden(world, player)
+	await _check_e4c2_big_rock(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -37,7 +39,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -713,6 +715,146 @@ func _check_e4b_ground(world: RoomManager) -> void:
 	air_room.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("E4b")
+
+
+## Stage E4c: the hidden tunnel in RoomEarthD (tests/rooms/room_earth_d.tscn, at
+## x 960): columns 13-27, rows 16-17, under 2 tiles of earth (top surface row 14).
+func _check_e4c_hidden(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthD") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var hidden: HiddenLayer = room.get_node_or_null("Hidden") as HiddenLayer
+	var painter: GroundPainter = room.get_node("GroundPainter") as GroundPainter
+	var tuning: EarthTuning = player.earth_tuning
+	_check(hidden != null and not hidden.collision_enabled, "RoomEarthD has a Hidden layer without collision")
+	if hidden == null:
+		return
+	var tunnel_cell: Vector2i = Vector2i(20, 16)
+	var tunnel_pixel: Vector2i = tunnel_cell * 8 + Vector2i(4, 4)
+	_check(hidden.is_covered(tunnel_cell), "the tunnel starts covered")
+	_check(not earth.is_face_exposed(Vector2i(20, 15), Vector2i.DOWN),
+		"earth above a covered tunnel is not on the surface (the shadow can't crawl in)")
+	_check(painter.get_pixel_color(tunnel_pixel).a == 1.0 and painter.get_pixel_distance(tunnel_pixel) > 10.0
+		and painter.get_pixel_color(tunnel_pixel).get_luminance() < 0.15,
+		"the covered tunnel is drawn as deep earth")
+	_check(hidden.self_modulate.a == 0.0, "the Hidden layer's own drawing is hidden at runtime")
+
+	# From the top of the wall (feet on column 17, facing right), a small rock's hole
+	# (1 deep) doesn't reach the tunnel 2 tiles down.
+	# jump_to_room (the F2 picker's move): no camera slide, which would freeze the player.
+	world.jump_to_room(room)
+	player.respawn_at(room.global_position + Vector2(17 * 8 + 4, 14 * 8))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var boulder: Boulder = await _rip_boulder(player)
+	_check(boulder != null and not earth.is_earth(Vector2i(18, 14)) and hidden.is_covered(tunnel_cell),
+		"a small rock's hole (18, 14) doesn't reach the tunnel")
+	await _wait_game(tuning.boulder_hold_time + 0.2)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# A big rock (hold S) tears out (18-19, 14-15): its hole reaches the tunnel.
+	boulder = await _tear_big_rock(player)
+	_check(boulder != null and boulder.is_big() and not earth.is_earth(Vector2i(19, 15)),
+		"a big rock tears out a 2x2 block down to the tunnel")
+	_check(not hidden.is_covered(tunnel_cell) and not hidden.is_covered(Vector2i(13, 17)) and not hidden.is_covered(Vector2i(27, 17)),
+		"the hole reaching the tunnel reveals the whole connected tunnel")
+	_check(earth.is_face_exposed(Vector2i(20, 15), Vector2i.DOWN), "the tunnel's ceiling is on the surface now")
+	_check(painter.get_pixel_color(tunnel_pixel).a == 0.0, "the ground is redrawn with the tunnel open")
+	_check(hidden.get_cover_alpha(Vector2i(25, 17)) > 0.0 and not hidden.get_crumbling_cells().is_empty(),
+		"the cover crumbles (still partly visible right after the reveal)")
+	await _wait_real(tuning.hidden_crumble_time + 15 * tuning.hidden_crumble_step_delay + 0.2)
+	_check(hidden.get_crumbling_cells().is_empty(), "the cover is gone after the crumble")
+	await _wait_game(tuning.boulder_hold_time + 0.2)
+
+	# Drop down the 2x2 hole into the tunnel, then walk right under the barrier.
+	player.respawn_at(room.global_position + Vector2(19 * 8, 14 * 8))
+	await _wait_game(0.6)
+	_check(player.is_on_floor() and absf(player.global_position.y - (room.global_position.y + 18 * 8)) < 1.0,
+		"the player drops down the hole onto the tunnel floor (feet y %.1f)" % (player.global_position.y - room.global_position.y))
+	Input.action_press("move_right")
+	await _wait_game(1.5)
+	Input.action_release("move_right")
+	_check(player.global_position.x > room.global_position.x + 29 * 8,
+		"the player walks through the tunnel into the right chamber (x %.0f)" % (player.global_position.x - room.global_position.x))
+
+	# Reset covers it again.
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(hidden.is_covered(tunnel_cell) and earth.is_earth(Vector2i(18, 14)) and earth.is_earth(Vector2i(19, 15)), "room reset fills the hole and covers the tunnel")
+	_check(painter.get_pixel_color(tunnel_pixel).a == 1.0, "room reset draws the tunnel as earth again")
+	finished_sections.append("E4c")
+
+
+## Stage E4c2: the big rock, in RoomEarthC (earth floor row 20, thick at columns 6-11
+## where row 21 is earth too; grass under the rest).
+func _check_e4c2_big_rock(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+
+	# A tap is still a small rock.
+	player.respawn_at(room.global_position + Vector2(7 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var boulder: Boulder = await _rip_boulder(player)
+	await _wait_game(tuning.boulder_tear_time + 0.05)
+	_check(is_instance_valid(boulder) and not boulder.is_big() and earth.torn_cells.size() == 1,
+		"a tap of S still tears out one small rock")
+	await _wait_game(tuning.boulder_hold_time + 0.2)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Hold S in the thick earth: the rock grows out of a 2x2 hole ahead and under it.
+	boulder = await _tear_big_rock(player)
+	_check(boulder != null and boulder.is_big() and is_equal_approx(boulder.size, tuning.big_rock_size),
+		"holding S grows the rock into a big rock")
+	var block_torn: bool = true
+	for cell: Vector2i in [Vector2i(8, 20), Vector2i(9, 20), Vector2i(8, 21), Vector2i(9, 21)]:
+		block_torn = block_torn and earth.torn_cells.has(cell)
+	_check(block_torn and earth.torn_cells.size() == 4, "the big rock tears out the 2x2 block (8-9, 20-21)")
+	_check(earth.is_fresh(Vector2i(7, 20)), "never the tile under the feet")
+	# Perfect throw: a little slower than a small rock's, and it sticks as a 2x2 block.
+	await _wait_until(func() -> bool: return is_instance_valid(boulder) and boulder.is_in_perfect_window(), 1.5)
+	await _press_action("earth_boulder")
+	_check(is_instance_valid(boulder) and boulder.phase == Boulder.Phase.FLYING and absf(boulder.velocity.length()
+		- tuning.boulder_perfect_throw_speed * tuning.big_rock_throw_speed_scale) < 1.0,
+		"a big rock throws at big_rock_throw_speed_scale of the speed (velocity %s)" % (boulder.velocity if is_instance_valid(boulder) else Vector2.ZERO))
+	await _wait_until(func() -> bool: return not is_instance_valid(boulder) or boulder.phase != Boulder.Phase.FLYING, 2.0)
+	_check(is_instance_valid(boulder) and boulder.phase == Boulder.Phase.STUCK, "a big rock thrown at earth sticks")
+	if is_instance_valid(boulder) and boulder.phase == Boulder.Phase.STUCK:
+		var stuck_cells: int = 0
+		for cell: Vector2i in earth.column_cells:
+			if earth.column_cells[cell] == boulder:
+				stuck_cells += 1
+		_check(stuck_cells == 4, "a stuck big rock fills 4 cells (%d)" % stuck_cells)
+		_check(earth.hardened_cells.size() == 2, "both tiles behind a stuck big rock harden (%d)" % earth.hardened_cells.size())
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Where the 2x2 block doesn't fit (grass under the floor at column 15), it stays small.
+	player.respawn_at(room.global_position + Vector2(14 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	boulder = await _tear_big_rock(player)
+	_check(boulder != null and not boulder.is_big() and earth.torn_cells.size() == 1,
+		"no room for a 2x2 block: the held rock stays small")
+	await _wait_game(tuning.boulder_hold_time + 0.2)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("E4c2")
+
+
+## HOLDS S through the rock's tear (a big rock, Stage E4c2), then lets go. Returns the
+## held rock, or null.
+func _tear_big_rock(player: Player) -> Boulder:
+	Input.parse_input_event(_make_action_event(&"earth_boulder", true))
+	await get_tree().process_frame
+	await _wait_game(player.earth_tuning.boulder_tear_time + 0.05)
+	Input.parse_input_event(_make_action_event(&"earth_boulder", false))
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	return player.boulder.held_boulder
 
 
 ## Presses S for one frame and returns the rock it tore out, or null.
