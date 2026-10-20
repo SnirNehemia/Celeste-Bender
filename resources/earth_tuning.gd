@@ -217,3 +217,20 @@ extends Resource
 @export var pebble_wind_speed_scale: float = 0.5
 ## How quickly it reaches that speed, 1/s.
 @export var pebble_wind_grip: float = 4.0
+
+@export_group("Rock & pillar look")
+## Looks only (Stage E4e): nothing here changes how rocks or pillars play.
+## A thrown rock tumbles at this speed, radians per second (14 ≈ 2 turns a second),
+## the way it flies (clockwise going right). A big rock turns slower (by its size).
+@export var rock_flight_spin_speed: float = 14.0
+## While it hops out of the ground it turns gently at this speed, radians per second.
+@export var rock_hop_spin_speed: float = 4.0
+## Once it rests (lands, lies loose) it turns back to the nearest quarter turn at
+## this speed, radians per second, so a loose or stuck rock sits square on the grid.
+@export var rock_settle_spin_speed: float = 12.0
+## A moving rock (hopping or thrown) sheds a pebble every so often: a random wait
+## between these two, seconds (game time).
+@export var rock_pebble_shed_interval_min: float = 0.12
+@export var rock_pebble_shed_interval_max: float = 0.3
+## A rising pillar crumbles this many pebbles off its sides over the rise.
+@export var column_rise_pebble_count: int = 4

@@ -33,6 +33,7 @@ func _ready() -> void:
 	await _check_e4c2_big_rock(world, player)
 	await _check_e4c3_loose_rocks(world, player)
 	await _check_e4d_pebbles(world, player)
+	await _check_e4e_rock_pillar_look(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -41,7 +42,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -1021,6 +1022,75 @@ func _check_e4d_pebbles(world: RoomManager, player: Player) -> void:
 	world.jump_to_room(room)
 	await _wait_physics_frames(2)
 	finished_sections.append("E4d")
+
+
+## Stage E4e: rock and pillar look. Earth C's flat floor again; the open air above it
+## (x 16-24 tiles, y ~110) for a free flight.
+func _check_e4e_rock_pillar_look(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var field: PebbleField = room.get_node("PebbleField") as PebbleField
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+	player.respawn_at(room.global_position + Vector2(8 * 8 + 4, 160))
+	await _wait_physics_frames(5)
+
+	# A rock thrown through open air: a lumpy outline, it tumbles, and it sheds pebbles.
+	var flyer: Boulder = Boulder.new()
+	flyer.setup(room.global_position + Vector2(16 * 8 + 4, 110), Vector2.UP, 0.0, 0.0, tuning)
+	room.add_child(flyer)
+	var half_size: float = flyer.size / 2.0
+	var within_tile: bool = true
+	for point: Vector2 in flyer.outline_points:
+		within_tile = within_tile and absf(point.x) <= half_size + 0.01 and absf(point.y) <= half_size + 0.01
+	_check(flyer.outline_points.size() >= 8 and within_tile, "a rock has a lumpy outline inside its tile (%d points)" % flyer.outline_points.size())
+	await _wait_physics_frames(1)
+	var pebbles_before_flight: int = field.pebble_positions.size()
+	flyer.throw(Vector2.RIGHT, 120.0, 0.5, false)
+	await _wait_game(0.35)
+	_check(is_instance_valid(flyer) and flyer.phase == Boulder.Phase.FLYING and flyer.visual_angle > 0.5,
+		"a thrown rock tumbles the way it flies (%.2f rad)" % (flyer.visual_angle if is_instance_valid(flyer) else 0.0))
+	_check(field.pebble_positions.size() > pebbles_before_flight,
+		"a flying rock sheds pebbles (%d -> %d)" % [pebbles_before_flight, field.pebble_positions.size()])
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# A rock that comes to rest turns back square on the grid.
+	player.facing_direction = 1.0
+	var rock: Boulder = await _rip_boulder(player)
+	await _press_action("jump")  # let it go
+	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_loose(), 1.5)
+	await _wait_game(0.5)
+	if is_instance_valid(rock) and rock.is_loose():
+		var quarter_turn: float = PI / 2.0
+		var off_square: float = absf(rock.visual_angle - roundf(rock.visual_angle / quarter_turn) * quarter_turn)
+		_check(off_square < 0.01, "a loose rock lies square (%.3f rad off)" % off_square)
+	else:
+		_check(false, "test setup: a let-go rock lies loose")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# A pillar: banded rows, a crack at the tip, pebbles crumbled while rising.
+	Input.action_press("earth_column")
+	await _wait_physics_frames(2)
+	Input.action_release("earth_column")
+	await _wait_game(tuning.column_rise_time + 0.1)
+	var columns: Array[EarthColumn] = _find_columns(room)
+	_check(columns.size() == 1, "test setup: a quick tap raised one pillar")
+	if columns.size() == 1:
+		var column: EarthColumn = columns[0]
+		var distinct_colors: Array[Color] = []
+		for row_color: Color in column.row_colors:
+			if not distinct_colors.has(row_color):
+				distinct_colors.append(row_color)
+		_check(column.row_colors.size() > ceili(tuning.column_length) and distinct_colors.size() >= 2,
+			"a pillar has layered bands (%d colors)" % distinct_colors.size())
+		_check(column.crack_pixel_xs.size() >= EarthColumn.CRACK_MIN_ROWS, "a pillar's tip is cracked")
+		_check(column.pebbles_crumbled == tuning.column_rise_pebble_count,
+			"a rising pillar crumbles pebbles (%d)" % column.pebbles_crumbled)
+	await _wait_real(1.0)  # land from the super jump
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("E4e")
 
 
 func _count_moved(before: PackedVector2Array, after: PackedVector2Array) -> int:

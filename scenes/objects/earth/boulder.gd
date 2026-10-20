@@ -55,6 +55,14 @@ extends CharacterBody2D
 ##
 ## Origin: the CENTER of the boulder (unlike the player and crates, whose origin is at
 ## the feet), since it pops and flies in every direction.
+##
+## LOOK (Stage E4e): drawn as a lumpy stone, not a square: a polygon outline with
+## random dents (made once per rock, _build_look), a crack and a few speckles, lit
+## from the top-left. It TUMBLES while moving: `visual_angle` turns the drawing only
+## (draw_set_transform). The hitbox never rotates, it stays an axis-aligned box,
+## so the impact and sticking rules above don't change. Once it rests it turns back
+## to the nearest quarter turn, so a stuck or loose rock sits square on the grid. A
+## moving rock sheds a pebble now and then (PebbleField.leave_one_pebble).
 
 enum Phase { POPPING, FLYING, STUCK, LOOSE, SHATTERED }
 
@@ -73,6 +81,13 @@ const GROUP: StringName = &"boulder"
 const BODY_COLOR: Color = EarthLayer.USED_COLOR
 const OUTLINE_COLOR: Color = Color(0.2, 0.13, 0.08)
 const HIGHLIGHT_COLOR: Color = Color(0.48, 0.34, 0.2)
+## The crack line and the dark speckles.
+const CRACK_COLOR: Color = Color(0.17, 0.11, 0.06)
+## Light comes from the top-left: outline edges facing this way get the highlight.
+const LIGHT_DIRECTION: Vector2 = Vector2(-0.7071, -0.7071)
+## An edge is "lit" when its outward direction is at least this close to the light
+## (dot product: 1 = facing it exactly, 0 = side-on).
+const LIT_EDGE_MIN_DOT: float = 0.35
 ## How long the boulder stays white after a perfect throw, seconds.
 const PERFECT_FLASH_TIME: float = 0.12
 ## Physics layers checked when looking for a free spot to stick into: world (1),
@@ -129,6 +144,21 @@ static var next_loose_order: int = 0
 
 var hitbox: CollisionShape2D
 
+## LOOK (Stage E4e, see the header). Its own random numbers, so every rock is
+## shaped differently. All points are relative to the center, before rotation.
+var look_random: RandomNumberGenerator = RandomNumberGenerator.new()
+## The lumpy outline (a closed polygon, in order around the center).
+var outline_points: PackedVector2Array = PackedVector2Array()
+## The crack: a short zigzag from the edge toward the middle.
+var crack_points: PackedVector2Array = PackedVector2Array()
+## Speckles: single pixels, light or dark (1 = light).
+var speckle_points: PackedVector2Array = PackedVector2Array()
+var speckle_is_light: PackedByteArray = PackedByteArray()
+## How far the drawing is turned, radians. Looks only: the hitbox never rotates.
+var visual_angle: float = 0.0
+## Seconds until a moving rock sheds its next pebble.
+var pebble_shed_remaining: float = 0.0
+
 
 ## Call before adding to the tree. `start_center` = where the rock's center starts
 ## (the middle of the torn tile), `normal` = the surface's outward direction,
@@ -157,6 +187,9 @@ func _ready() -> void:
 	hitbox.shape = shape
 	add_child(hitbox)
 	z_index = 4  # in front of tiles, behind the bend shadow (6) and gravel (5)
+	look_random.randomize()
+	_build_look()
+	pebble_shed_remaining = _pick_pebble_shed_wait()
 
 
 # --- Questions the ability asks ------------------------------------------------------
@@ -245,6 +278,7 @@ func grow(new_center: Vector2, new_size: float) -> void:
 	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * (size - MOVING_HITBOX_INSET * 2.0)
 	pop_elapsed = 0.0
 	perfect_time = get_perfect_time()
+	_build_look()  # a new, bigger stone shape
 	queue_redraw()
 
 
@@ -306,11 +340,15 @@ func _update_pop(delta: float) -> void:
 				_start_hop()
 	elif is_resting:
 		# 3) Landed: rest a moment (still throwable), then lie there loose.
+		_turn_toward_square(delta)
 		rest_remaining -= delta
 		if rest_remaining <= 0.0 or not is_throwable():
 			_settle()
 	else:
 		# 2) Hop: a small jump under gravity, drifting away from the player.
+		#    It turns gently the way it drifts, and sheds a pebble now and then.
+		visual_angle = wrapf(visual_angle + _get_spin_sign(hop_velocity_x) * earth_tuning.rock_hop_spin_speed * delta, 0.0, TAU)
+		_shed_pebbles(delta)
 		velocity.y = move_toward(velocity.y, earth_tuning.boulder_max_fall_speed, earth_tuning.boulder_gravity * delta)
 		var collision: KinematicCollision2D = move_and_collide(velocity * delta)
 		if collision != null:
@@ -356,6 +394,7 @@ func _settle() -> void:
 ## Lying loose: solid once the player isn't overlapping it (it was passing through
 ## them while it moved), and falling if nothing holds it up.
 func _update_loose(delta: float) -> void:
+	_turn_toward_square(delta)
 	if collision_layer == 0 and not _overlaps_player():
 		collision_layer = 1  # solid "world": standable
 		(hitbox.shape as RectangleShape2D).size = Vector2.ONE * size
@@ -397,6 +436,10 @@ func _crumble_oldest_loose_rocks() -> void:
 ## Thrown: straight while floating, then gravity. Reacts to the first thing it hits.
 func _update_flight(delta: float) -> void:
 	flight_time += delta
+	# Tumbles the way it flies (rolling forward); a big rock turns slower.
+	var spin_speed: float = earth_tuning.rock_flight_spin_speed * earth_tuning.boulder_size / size
+	visual_angle = wrapf(visual_angle + _get_spin_sign(velocity.x) * spin_speed * delta, 0.0, TAU)
+	_shed_pebbles(delta)
 	if float_time_remaining > 0.0:
 		float_time_remaining -= delta
 	else:
@@ -444,6 +487,8 @@ func _stick_into(earth_layer: EarthLayer, surface_normal: Vector2, contact_point
 	perfect_flash_remaining = 0.0
 	velocity = Vector2.ZERO
 	global_position = spot
+	# Snap the tumble square at once: _physics_process (which eases it) stops below.
+	visual_angle = _get_nearest_square_angle()
 	collision_layer = 1  # solid "world" now: standable, wall-jumpable
 	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * size
 	set_physics_process(false)
@@ -544,20 +589,105 @@ func reset() -> void:
 	queue_free()
 
 
+# --- Look (Stage E4e) ----------------------------------------------------------------
+
+## Makes this rock's shape: the lumpy outline, the crack and the speckles (see the
+## header). Called once in _ready(), and again by grow() for the bigger size.
+func _build_look() -> void:
+	var half_size: float = size / 2.0
+	# 8 corners for a small rock, 12 for a big one: more lumps on a bigger stone.
+	var point_count: int = 8 + roundi(size - earth_tuning.boulder_size) / 2
+	outline_points = PackedVector2Array()
+	for point_index: int in point_count:
+		# Evenly around the circle, each nudged a little so the lumps aren't regular.
+		var angle: float = (point_index + look_random.randf_range(-0.25, 0.25)) * TAU / point_count
+		# A "squircle" radius: half_size straight out (the tile's edge), a bit more
+		# toward the corners (but well short of the square's corner), so the stone
+		# still fills its tile like a foothold should. It's the superellipse
+		# |x|^4 + |y|^4 = r^4, solved for the distance at this angle.
+		var squircle_radius: float = half_size / pow(pow(absf(cos(angle)), 4.0) + pow(absf(sin(angle)), 4.0), 0.25)
+		# Dents: each corner pulled in by up to 22%.
+		outline_points.append(Vector2.from_angle(angle) * squircle_radius * look_random.randf_range(0.78, 1.0))
+	# The crack: starts just inside a random corner and zigzags toward the middle,
+	# stopping short of it (2 steps for a small rock, 3 for a big one).
+	var crack_start: Vector2 = outline_points[look_random.randi() % point_count] * 0.85
+	var crack_steps: int = 2 if not is_big() else 3
+	crack_points = PackedVector2Array([crack_start])
+	for step: int in crack_steps:
+		var along: Vector2 = crack_start * (1.0 - 0.6 * float(step + 1) / crack_steps)
+		var sideways: Vector2 = crack_start.orthogonal().normalized() * look_random.randf_range(-1.2, 1.2)
+		crack_points.append(along + sideways)
+	# Speckles: about one per 20 px² (3 on a small rock, ~13 on a big one), on whole
+	# pixels (floor + 0.5 = a pixel's center), in the middle part of the stone.
+	speckle_points = PackedVector2Array()
+	speckle_is_light = PackedByteArray()
+	for speckle_index: int in roundi(size * size / 20.0):
+		var spot: Vector2 = Vector2.from_angle(look_random.randf() * TAU) * look_random.randf() * half_size * 0.6
+		speckle_points.append(spot.floor() + Vector2.ONE * 0.5)
+		speckle_is_light.append(1 if look_random.randf() < 0.5 else 0)
+
+
+## +1 or -1: which way to turn for a sideways speed. Moving right turns clockwise,
+## which is a POSITIVE angle in Godot (y points down), so it rolls forward.
+func _get_spin_sign(sideways_speed: float) -> float:
+	return -1.0 if sideways_speed < 0.0 else 1.0
+
+
+## The quarter turn (0, 90°, 180°, 270°, 360°) closest to the current visual_angle.
+func _get_nearest_square_angle() -> float:
+	return roundf(visual_angle / (PI / 2.0)) * (PI / 2.0)
+
+
+## Resting: turns the drawing back toward the nearest quarter turn.
+func _turn_toward_square(delta: float) -> void:
+	visual_angle = move_toward(visual_angle, _get_nearest_square_angle(), earth_tuning.rock_settle_spin_speed * delta)
+
+
+## While moving: counts down, then drops one pebble off the back of the rock.
+func _shed_pebbles(delta: float) -> void:
+	pebble_shed_remaining -= delta
+	if pebble_shed_remaining > 0.0:
+		return
+	pebble_shed_remaining = _pick_pebble_shed_wait()
+	var backward: Vector2 = -velocity.normalized() if velocity != Vector2.ZERO else Vector2.ZERO
+	PebbleField.leave_one_pebble(get_tree(), global_position + backward * size / 2.0, backward)
+
+
+func _pick_pebble_shed_wait() -> float:
+	return look_random.randf_range(earth_tuning.rock_pebble_shed_interval_min,
+		earth_tuning.rock_pebble_shed_interval_max)
+
+
 # --- Drawing -------------------------------------------------------------------------
 
-## A dark-earth square with an outline and a light top-left edge. White while it can
-## be thrown perfectly (the timing cue) and for a moment after a perfect throw.
+## The lumpy stone (see "LOOK" in the header), turned by visual_angle: body, speckles,
+## crack, a light rim on the edges facing the top-left, a dark outline. White while
+## it can be thrown perfectly (the timing cue) and for a moment after a perfect throw.
 func _draw() -> void:
-	var half_size: float = size / 2.0
-	var rect: Rect2 = Rect2(-Vector2.ONE * half_size, Vector2.ONE * size)
+	var rumble_offset: Vector2 = Vector2.ZERO
 	if phase == Phase.POPPING and not is_hopping:
 		# Tearing: rumble sideways along the surface (drawn only; the body moves straight).
 		var along_surface: Vector2 = Vector2(-pop_normal.y, pop_normal.x)
-		rect.position += along_surface * roundf(sin(pop_elapsed * 90.0) * earth_tuning.boulder_tear_rumble)
+		rumble_offset = along_surface * roundf(sin(pop_elapsed * 90.0) * earth_tuning.boulder_tear_rumble)
+	# draw_set_transform: everything drawn after it is shifted and turned, like drawing
+	# on a rotated sheet of paper. It changes only the picture, not the node.
+	draw_set_transform(rumble_offset, visual_angle)
 	var is_white: bool = perfect_flash_remaining > 0.0 or (is_throwable() and is_in_perfect_window())
-	draw_rect(rect, Color.WHITE if is_white else BODY_COLOR)
-	draw_rect(rect.grow(-0.5), OUTLINE_COLOR, false, 1.0)
+	draw_colored_polygon(outline_points, Color.WHITE if is_white else BODY_COLOR)
 	if not is_white:
-		draw_line(rect.position + Vector2(1.5, 1.5), Vector2(rect.end.x - 2.0, rect.position.y + 1.5), HIGHLIGHT_COLOR, 1.0)
-		draw_line(rect.position + Vector2(1.5, 1.5), Vector2(rect.position.x + 1.5, rect.end.y - 2.0), HIGHLIGHT_COLOR, 1.0)
+		for speckle_index: int in speckle_points.size():
+			var speckle_color: Color = HIGHLIGHT_COLOR if speckle_is_light[speckle_index] == 1 else CRACK_COLOR
+			draw_rect(Rect2(speckle_points[speckle_index] - Vector2.ONE * 0.5, Vector2.ONE), speckle_color)
+		draw_polyline(crack_points, CRACK_COLOR, 1.0)
+		# The light rim: edges whose outward side faces the light in the WORLD (so the
+		# lit side stays top-left while the stone tumbles), drawn 1 px inside.
+		for point_index: int in outline_points.size():
+			var edge_start: Vector2 = outline_points[point_index]
+			var edge_end: Vector2 = outline_points[(point_index + 1) % outline_points.size()]
+			var outward: Vector2 = ((edge_start + edge_end) / 2.0).normalized().rotated(visual_angle)
+			if outward.dot(LIGHT_DIRECTION) >= LIT_EDGE_MIN_DOT:
+				draw_line(edge_start - edge_start.normalized(), edge_end - edge_end.normalized(), HIGHLIGHT_COLOR, 1.0)
+	# The outline: the polygon's points with the first one repeated, to close the loop.
+	var closed_outline: PackedVector2Array = outline_points.duplicate()
+	closed_outline.append(outline_points[0])
+	draw_polyline(closed_outline, OUTLINE_COLOR, 1.0)

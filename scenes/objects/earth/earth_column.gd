@@ -37,12 +37,37 @@ extends StaticBody2D
 ##
 ## Coordinates: the node sits at the middle of the face it rose from (the column's
 ## BASE). `normal` points out of the surface, toward the tip.
+##
+## LOOK (Stage E4e): piled earth, not a brown rectangle. It's drawn row by row (one
+## pixel row across the column per pixel of length), counted from the TIP down, so
+## the pattern travels out of the ground with the tip as it rises:
+##   - layered BANDS: 2-4 rows thick, alternating lighter / darker earth, like strata
+##   - ROUGH SIDES: each row may be cut in by a pixel on either side, with the dark
+##     outline following the cut
+##   - a CRACKED TIP: the top row is dark with its corners cut, a lit row under it,
+##     and a crack running down from a notch in the top edge
+## The rows are random once per column (_build_look). The drawing uses a transform
+## whose x axis runs ACROSS the column and y axis along `normal`, so one piece of
+## code draws a column pointing up, down, left or right.
+## While rising it crumbles a few pebbles off its sides (PebbleField.leave_one_pebble).
 
 ## Drawn in used-earth color (Earth_bending.md §5), with a darker outline and a
 ## lighter edge on the tip so you can see which way it grew.
 const BODY_COLOR: Color = EarthLayer.USED_COLOR
 const OUTLINE_COLOR: Color = Color(0.2, 0.13, 0.08)
 const TIP_COLOR: Color = Color(0.48, 0.34, 0.2)
+## The bands alternate between BODY_COLOR and these two, a shade either way.
+const BAND_LIGHT_COLOR: Color = Color(0.39, 0.27, 0.16)
+const BAND_DARK_COLOR: Color = Color(0.28, 0.18, 0.1)
+const CRACK_COLOR: Color = Color(0.17, 0.11, 0.06)
+## A band is this many rows thick (random, inclusive).
+const BAND_MIN_ROWS: int = 2
+const BAND_MAX_ROWS: int = 4
+## Chance that a row's side is cut in by a pixel (each side rolls on its own).
+const SIDE_CUT_CHANCE: float = 0.35
+## The tip's crack runs this many rows down (random, inclusive).
+const CRACK_MIN_ROWS: int = 3
+const CRACK_MAX_ROWS: int = 5
 ## Physics layers the tip pushes: bit values of layer 2 "player" and layer 4 "pushable".
 const PUSH_MASK: int = 2 | 8
 ## The sweep reaches this far past the tip, px, so a body resting right on the
@@ -76,6 +101,19 @@ var hitbox: CollisionShape2D
 var hitbox_shape: RectangleShape2D
 var sweep_shape: RectangleShape2D
 
+## LOOK (Stage E4e, see the header). Index = row counted from the tip (0 = the tip).
+var look_random: RandomNumberGenerator = RandomNumberGenerator.new()
+## Pixels cut off each row on the left / right side (0 or 1).
+var row_left_cuts: PackedInt32Array = PackedInt32Array()
+var row_right_cuts: PackedInt32Array = PackedInt32Array()
+## Each row's band color.
+var row_colors: PackedColorArray = PackedColorArray()
+## The crack: one pixel per row from the tip down, x across the column (whole
+## pixels, 0 = the left edge). Row 0's pixel is the notch in the top edge.
+var crack_pixel_xs: PackedInt32Array = PackedInt32Array()
+## Pebbles crumbled off the sides so far during the rise.
+var pebbles_crumbled: int = 0
+
 
 ## Call before adding to the tree. `face` = the earth face it rises from.
 func setup(face: EarthFace, tuning: EarthTuning) -> void:
@@ -105,6 +143,8 @@ func _ready() -> void:
 	hitbox.disabled = true  # zero length: nothing to collide with yet
 	add_child(hitbox)
 	sweep_shape = RectangleShape2D.new()
+	look_random.randomize()
+	_build_look()
 
 
 ## Only runs while rising; set_physics_process(false) stops it once risen.
@@ -119,9 +159,11 @@ func _physics_process(delta: float) -> void:
 	length = maxf(length, reached_length)
 	_update_hitbox()
 	queue_redraw()
+	_crumble_pebbles(rise_fraction)
 	if rise_fraction >= 1.0 or is_jammed:
 		# Risen (or stuck against the player / a crate under a ceiling): from now on
 		# a plain platform.
+		_crumble_pebbles(1.0)  # jammed early: drop the rest now
 		is_rising = false
 		set_physics_process(false)
 		_register_cells()
@@ -273,13 +315,74 @@ func reset() -> void:
 	queue_free()
 
 
+# --- Look (Stage E4e) ----------------------------------------------------------------
+
+## Rolls the per-row look once (see "LOOK" in the header): side cuts, band colors and
+## the tip's crack, for every row the full-length column could have.
+func _build_look() -> void:
+	var row_count: int = ceili(earth_tuning.column_length) + 1
+	var width_pixels: int = roundi(earth_tuning.column_width)
+	var band_colors: Array[Color] = [BODY_COLOR, BAND_LIGHT_COLOR, BODY_COLOR, BAND_DARK_COLOR]
+	var band_index: int = look_random.randi() % band_colors.size()
+	var rows_left_in_band: int = look_random.randi_range(BAND_MIN_ROWS, BAND_MAX_ROWS)
+	for row_index: int in row_count:
+		row_left_cuts.append(1 if look_random.randf() < SIDE_CUT_CHANCE else 0)
+		row_right_cuts.append(1 if look_random.randf() < SIDE_CUT_CHANCE else 0)
+		row_colors.append(band_colors[band_index])
+		rows_left_in_band -= 1
+		if rows_left_in_band <= 0:
+			band_index = (band_index + 1) % band_colors.size()
+			rows_left_in_band = look_random.randi_range(BAND_MIN_ROWS, BAND_MAX_ROWS)
+	# The crack wanders down from the tip, a pixel left, right or straight each row,
+	# kept 2 px away from the sides (where the outline and the cuts are).
+	var crack_x: int = look_random.randi_range(2, width_pixels - 3)
+	for crack_row: int in look_random.randi_range(CRACK_MIN_ROWS, CRACK_MAX_ROWS):
+		crack_pixel_xs.append(crack_x)
+		crack_x = clampi(crack_x + look_random.randi_range(-1, 1), 2, width_pixels - 3)
+
+
+## While rising: drops pebbles off the sides, `column_rise_pebble_count` spread over
+## the rise (`rise_fraction` 0 → 1). 1.0 drops whatever is still owed.
+func _crumble_pebbles(rise_fraction: float) -> void:
+	var owed: int = floori(earth_tuning.column_rise_pebble_count * rise_fraction)
+	var across: Vector2 = Vector2(-normal.y, normal.x)
+	while pebbles_crumbled < owed and length > 0.0:
+		pebbles_crumbled += 1
+		# A random spot along a random side, falling off sideways and a bit outward.
+		var side: float = -1.0 if look_random.randf() < 0.5 else 1.0
+		var spot: Vector2 = base_position + normal * look_random.randf_range(0.0, length) \
+			+ across * side * earth_tuning.column_width / 2.0
+		PebbleField.leave_one_pebble(get_tree(), spot, (across * side + normal * 0.5).normalized())
+
+
 func _draw() -> void:
 	if length <= 0.0:
 		return
-	var rect: Rect2 = _get_local_rect(length)
-	draw_rect(rect, BODY_COLOR)
-	draw_rect(rect.grow(-0.5), OUTLINE_COLOR, false, 1.0)
-	# A lighter line just inside the tip edge.
-	var tip_center: Vector2 = normal * (length - 1.5)
-	var half_across: Vector2 = Vector2(absf(normal.y), absf(normal.x)) * (earth_tuning.column_width / 2.0 - 1.0)
-	draw_line(tip_center - half_across, tip_center + half_across, TIP_COLOR, 1.0)
+	# Draw in "column space": x across the column (0 = its left edge), y along the
+	# normal (0 = the base, length = the tip). Transform2D(x axis, y axis, origin)
+	# maps that onto the node; for a floor column, x = right and y = up.
+	var across: Vector2 = Vector2(-normal.y, normal.x)
+	var half_width: float = earth_tuning.column_width / 2.0
+	draw_set_transform_matrix(Transform2D(across, normal, -across * half_width))
+	var width_pixels: int = roundi(earth_tuning.column_width)
+	# Rows counted from the tip: row k covers length-k-1 .. length-k (the last one,
+	# at the base, may be cut short).
+	for row_index: int in mini(ceili(length), row_colors.size()):
+		var row_top: float = length - row_index
+		var row_bottom: float = maxf(row_top - 1.0, 0.0)
+		var row_height: float = row_top - row_bottom
+		var left_x: int = row_left_cuts[row_index]
+		var right_x: int = width_pixels - 1 - row_right_cuts[row_index]  # last filled pixel
+		if row_index == 0:
+			# The tip's edge: dark, corners cut, with the crack's notch left open.
+			for pixel_x: int in range(left_x + 1, right_x):
+				if crack_pixel_xs.is_empty() or pixel_x != crack_pixel_xs[0]:
+					draw_rect(Rect2(pixel_x, row_bottom, 1.0, row_height), OUTLINE_COLOR)
+			continue
+		var fill_color: Color = TIP_COLOR if row_index == 1 else row_colors[row_index]
+		draw_rect(Rect2(left_x, row_bottom, right_x - left_x + 1, row_height), fill_color)
+		# The outline follows the cuts, so the sides look rough.
+		draw_rect(Rect2(left_x, row_bottom, 1.0, row_height), OUTLINE_COLOR)
+		draw_rect(Rect2(right_x, row_bottom, 1.0, row_height), OUTLINE_COLOR)
+		if row_index < crack_pixel_xs.size():
+			draw_rect(Rect2(crack_pixel_xs[row_index], row_bottom, 1.0, row_height), CRACK_COLOR)

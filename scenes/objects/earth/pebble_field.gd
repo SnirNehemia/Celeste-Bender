@@ -123,6 +123,14 @@ static func leave_pebbles_for_tiles(tree: SceneTree, world_position: Vector2, ti
 		field.add_pebbles(world_position, tile_count * field.earth_tuning.pebbles_per_used_tile, direction)
 
 
+## Exactly ONE pebble at `world_position`, thrown toward `direction` (Stage E4e: a
+## flying rock shedding a chip, a rising pillar crumbling).
+static func leave_one_pebble(tree: SceneTree, world_position: Vector2, direction: Vector2) -> void:
+	var field: PebbleField = _find_field(tree, world_position)
+	if field != null:
+		field.add_pebble(world_position, direction)
+
+
 ## The field of the room containing `world_position`, or null (no Earth room there).
 static func _find_field(tree: SceneTree, world_position: Vector2) -> PebbleField:
 	for member: Node in tree.get_nodes_in_group(GROUP):
