@@ -30,20 +30,24 @@ extends TileMapLayer
 ## (the green "Grass" layer) let the shadow crawl over them; plain gray "Tiles"
 ## BLOCK it (is_shadow_blocking).
 ##
-## How the colors change per tile: TileMapLayer draws the tiles itself, but lets a
-## script adjust single tiles at runtime. _use_tile_data_runtime_update() answers
-## "does this tile need adjusting?" and _tile_data_runtime_update() changes its
-## TileData (a per-tile copy): `modulate` darkens it (used) or flickers it brighter
-## (shiver). (A 1 px picture shift was tried first, but it opened a 1 px gap to the
-## dark background next to the tile: a flickering black line.) notify_runtime_tile_data_update() asks the
-## layer to run those two again after our state changes.
-## A tile that was ever changed stays in `touched_cells` and keeps being adjusted
-## (back to plain white when fresh): in Godot 4.4 a tile that STOPS being adjusted
-## can keep its last adjusted look, so after a reset used tiles stayed dark.
+## Drawing (Stage E4b): the layer's own tile drawing is switched off (GroundPainter
+## sets self_modulate to transparent); the room's GroundPainter draws the ground
+## instead. This script only says how each tile should look (get_cell_modulate:
+## darker if used, grayer if hardened, flickering brighter while shivering) and
+## announces changes with two SIGNALS:
+##   shape_changed  tiles appeared or disappeared (a tear, a reset): redraw all
+##   look_changed   only states changed (used, fade, shiver, hardened): redraw those
+## A signal is how a node says "something happened" without knowing who listens; the
+## painter connects to these in its setup.
 ##
 ## Who uses it: EarthBendAbility (finds the earth under the player, marks tiles used,
 ## shivers them) through EarthFace. Lookups by world position go through
 ## find_layer_at() (every EarthLayer joins GROUP).
+
+## Tiles appeared or disappeared (a tear, a reset). See the header.
+signal shape_changed
+## Only the look of some tiles changed (used, fading, shivering, hardened).
+signal look_changed
 
 ## Group of every EarthLayer in the game, for find_layer_at().
 const GROUP: StringName = &"earth_layer"
@@ -74,8 +78,6 @@ var shiver_clock: float = 0.0
 ## Other TileMapLayers in the same room ("Tiles", "Grass"): their cells count as
 ## solid when we decide which faces touch open air.
 var neighbour_solid_layers: Array[TileMapLayer] = []
-## Cells ever darkened or shivered (since the game started): see the header.
-var touched_cells: Dictionary = {}
 ## Cells filled by a risen Earth Column -> that column (Node). Solid, used-earth.
 var column_cells: Dictionary = {}
 ## Cells a rock was torn out of -> [source id, atlas coords] of the tile that was
@@ -198,7 +200,6 @@ func mark_used(cell: Vector2i) -> bool:
 	if not is_fresh(cell):
 		return false
 	used_fade_progress[cell] = 0.0
-	touched_cells[cell] = true
 	_start_animating()
 	return true
 
@@ -208,7 +209,6 @@ func shiver(cell: Vector2i, duration: float) -> void:
 	if not is_earth(cell):
 		return
 	shiver_time_remaining[cell] = maxf(float(shiver_time_remaining.get(cell, 0.0)), duration)
-	touched_cells[cell] = true
 	_start_animating()
 
 
@@ -223,6 +223,7 @@ func tear_out(cell: Vector2i) -> bool:
 	# The layer normally rebuilds its collision at the end of the frame. Do it now, so
 	# the rock that starts inside the hole doesn't collide with the tile it came from.
 	update_internals()
+	shape_changed.emit()
 	return true
 
 
@@ -242,8 +243,7 @@ func harden(cell: Vector2i) -> void:
 	if not is_earth(cell):
 		return
 	hardened_cells[cell] = true
-	touched_cells[cell] = true
-	notify_runtime_tile_data_update()
+	look_changed.emit()
 
 
 ## A risen Earth Column now fills `cells` (EarthColumn calls this). They become
@@ -263,6 +263,7 @@ func unregister_column(column: Node) -> void:
 ## Room reset (Room.reset_objects): all earth fresh and still again.
 func reset() -> void:
 	# Fill the holes again with the exact tiles that were there.
+	var had_holes: bool = not torn_cells.is_empty()
 	for cell: Vector2i in torn_cells:
 		var tile: Array = torn_cells[cell]
 		set_cell(cell, tile[0], tile[1])
@@ -271,14 +272,17 @@ func reset() -> void:
 	used_fade_progress.clear()
 	shiver_time_remaining.clear()
 	column_cells.clear()
-	# touched_cells stay: they're redrawn plain (fresh) by _tile_data_runtime_update.
-	notify_runtime_tile_data_update()
 	set_process(false)
+	# Redrawing the whole ground costs ~0.1 s, so only announce a shape change if
+	# holes were actually filled (most deaths don't tear anything).
+	if had_holes:
+		shape_changed.emit()
+	look_changed.emit()
 
 
 func _start_animating() -> void:
 	set_process(true)
-	notify_runtime_tile_data_update()
+	look_changed.emit()
 
 
 # --- Animation -------------------------------------------------------------------
@@ -312,38 +316,43 @@ func _process(delta: float) -> void:
 	for cell: Vector2i in finished_shivers:
 		shiver_time_remaining.erase(cell)
 
-	notify_runtime_tile_data_update()
+	look_changed.emit()
 	if not is_animating:
 		set_process(false)
 
 
-## TileMapLayer asks this for every tile: "do you want to adjust it at runtime?"
-## Tiles that were ever used or shivered do (see touched_cells in the header); the
-## rest are drawn straight from the tileset.
-func _use_tile_data_runtime_update(coords: Vector2i) -> bool:
-	return touched_cells.has(coords)
+## Cells whose look differs from plain fresh earth (used, shivering or hardened).
+## GroundPainter redraws these on look_changed.
+func get_state_cells() -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for state: Dictionary in [used_fade_progress, shiver_time_remaining, hardened_cells]:
+		for cell: Vector2i in state:
+			if not cells.has(cell):
+				cells.append(cell)
+	return cells
 
 
-## Adjusts one tile's TileData (a copy just for this tile): darker if used, and
-## flickering brighter / normal if shivering.
-func _tile_data_runtime_update(coords: Vector2i, tile_data: TileData) -> void:
+## How tile `cell` should be tinted right now (multiplied onto its fresh colors):
+## WHITE for plain fresh earth, darker if used (fading in), grayer if hardened, and
+## flickering brighter while shivering.
+func get_cell_modulate(cell: Vector2i) -> Color:
 	var tile_modulate: Color = Color.WHITE
-	if used_fade_progress.has(coords):
-		tile_modulate = Color.WHITE.lerp(_get_used_modulate(), used_fade_progress[coords])
-	if hardened_cells.has(coords):
+	if used_fade_progress.has(cell):
+		tile_modulate = Color.WHITE.lerp(_get_used_modulate(), used_fade_progress[cell])
+	if hardened_cells.has(cell):
 		tile_modulate *= HARDENED_MODULATE
-	if shiver_time_remaining.has(coords):
-		# Bright on every other shiver_flip_interval. Modulate values above 1 brighten.
+	if shiver_time_remaining.has(cell):
+		# Bright on every other shiver_flip_interval. Values above 1 brighten.
 		var flip_index: int = int(shiver_clock / maxf(earth_tuning.shiver_flip_interval, 0.001))
 		if flip_index % 2 == 0:
 			var brightness: float = earth_tuning.shiver_brightness
 			tile_modulate = Color(tile_modulate.r * brightness, tile_modulate.g * brightness,
 				tile_modulate.b * brightness)
-	tile_data.modulate = tile_modulate
+	return tile_modulate
 
 
-## The modulate that turns FRESH_COLOR into USED_COLOR. Modulate MULTIPLIES the tile's
-## colors, so the factor per channel is used / fresh. Darker speckles in the tile
-## picture darken by the same factor, so the texture survives.
+## The modulate that turns FRESH_COLOR into USED_COLOR. Modulate MULTIPLIES colors,
+## so the factor per channel is used / fresh. Darker speckles darken by the same
+## factor, so the texture survives.
 func _get_used_modulate() -> Color:
 	return Color(USED_COLOR.r / FRESH_COLOR.r, USED_COLOR.g / FRESH_COLOR.g, USED_COLOR.b / FRESH_COLOR.b)

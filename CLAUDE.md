@@ -35,7 +35,7 @@ res://
   scenes/
     player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth)
     objects/       crate, spikes, wind_zone, wind_crystal, windmill, leaf_platform, door, pressure_plate
-      earth/       earth_layer (fresh/used earth tiles), earth_face; later column, boulder, snake
+      earth/       earth_layer (fresh/used earth tiles), earth_face, ground_painter (draws earth rooms' ground), earth_column, boulder; later snake
     enemies/       wisp, sentry, sentry_orb
     rooms/         room_01.tscn … room_07.tscn, room_base.gd
     ui/            hud, pause, end_screen

@@ -1,0 +1,518 @@
+class_name GroundPainter
+extends Node2D
+## GroundPainter (Stage E4b): draws a room's ground so it looks like lumpy earth, turf
+## and stone instead of a grid of tiles, in the style of Celeste's ground: a bright
+## CRUST along every surface with a blobby inner edge, and a dark, saturated, HATCHED
+## inside. The layout and collision stay tile-based: the room's TileMapLayers ("Tiles"
+## gray, "Grass", "Earth") keep their collision, but their own drawing is switched off
+## (self_modulate = transparent; children such as the grass blades still draw).
+##
+## Made by Room._ready() for rooms that have an "Earth" layer (the Earth chapter and
+## the mixed rooms): Room adds it right after the tile layers, so objects draw on top.
+##
+## HOW: the whole room's ground is ONE picture (an Image the size of the room, turned
+## into an ImageTexture), computed pixel by pixel in three steps:
+##   1. MASK: which pixels are ground, and of which kind (_build_mask). Tiles fill
+##      their 8x8 pixels, except along open air: exposed sides get 1-2 px dents (the
+##      same every run: a hash of the pixel's world position), bottom convex corners are
+##      rounded (top corners stay square, so a platform's edge is where you can stand),
+##      concave corners get a small fillet, and borders between kinds (earth against
+##      grass or stone) interlock in small teeth.
+##   2. DISTANCE: how far each ground pixel is from open air (_compute_distances), with
+##      a "distance transform": two sweeps over the picture, each pixel taking the
+##      smallest of its neighbours' distances + 1 (+1.41 diagonally). Like a BFS, but
+##      cheaper on a pixel grid.
+##   3. COLOR (_get_pixel_color), from the distance:
+##        crust     the kind's bright body color, a few px thick. Its inner edge wobbles
+##                  with smooth "value noise" (random numbers on a coarse grid, blended
+##                  between grid points), which makes the blobby, scalloped look.
+##                  Top surfaces get a lighter rim (grass: 2 px).
+##        edge line a 1 px darker line where the crust ends
+##        inside    a dark saturated shade of the kind, with diagonal hatch stripes,
+##                  darkening a little further in (but never to black)
+##      plus a few FLECKS: tiny crumbs floating just above top surfaces.
+## EARTH STATES (used: darker plus crack lines, hardened: grayer, shivering: flicker)
+## are drawn on a child OVERLAY: each such tile's 8x8 piece of the picture again,
+## tinted by EarthLayer.get_cell_modulate(). Only the overlay redraws while a bend
+## animates.
+##
+## Updates: a tear (EarthLayer.shape_changed with a torn cell) only recomputes the
+## pixels near the hole; a room reset recomputes everything.
+
+enum Kind { AIR, GRAY, GRASS, EARTH }
+
+## Crust thickness, px (from open air to where the edge line starts)...
+const CRUST_WIDTH: float = 5.0
+## ...wobbling by up to this much either way, px...
+const CRUST_WOBBLE: float = 2.0
+## ...with the wobble's random grid this many px apart (bigger = broader blobs).
+const CRUST_NOISE_SPACING: int = 5
+## Diagonal hatch on the inside: a stripe HATCH_WIDTH px wide every HATCH_PERIOD px.
+const HATCH_PERIOD: int = 6
+const HATCH_WIDTH: int = 2
+## The inside darkens further over this many px past the crust...
+const INSIDE_FADE_DEPTH: float = 28.0
+## ...down to this fraction of its brightness (never pitch black).
+const INSIDE_DEEPEST_BRIGHTNESS: float = 0.5
+## Chance (0..1) that a top-surface pixel column gets a fleck floating above it.
+const FLECK_CHANCE: float = 0.05
+## Chance (0..1) that a 2 px stretch of an exposed side is dented 1 px in...
+const EDGE_DENT_CHANCE: float = 0.35
+## ...and 2 px in. Never 2 on TOP surfaces: feet would look like they float.
+const DEEP_DENT_CHANCE: float = 0.15
+## Bottom convex corners: pixels with (distance from the corner along x + along y)
+## below this are cut off. 3 = a 6-pixel rounding.
+const CORNER_CUT: int = 3
+## A tear recomputes the pixels within this many tiles of the hole (enough to cover
+## the crust and the inside's fade).
+const TEAR_REDRAW_RADIUS: int = 5
+
+## Palette per kind (Celeste-like: bright crust, deep saturated inside).
+## [crust, rim (top surfaces), edge line, inside, hatch stripe]
+const PALETTE: Dictionary = {
+	Kind.EARTH: [Color(0.74, 0.57, 0.27), Color(0.88, 0.72, 0.42), Color(0.42, 0.24, 0.12),
+		Color(0.26, 0.12, 0.09), Color(0.33, 0.17, 0.11)],
+	Kind.GRASS: [Color(0.33, 0.6, 0.25), GrassLayer.BLADE_COLOR, Color(0.1, 0.3, 0.13),
+		Color(0.05, 0.19, 0.11), Color(0.08, 0.26, 0.14)],
+	Kind.GRAY: [Color(0.36, 0.37, 0.43), Color(0.52, 0.52, 0.58), Color(0.18, 0.18, 0.23),
+		Color(0.1, 0.1, 0.15), Color(0.14, 0.14, 0.2)],
+}
+## Crack lines on used earth (overlay).
+const CRACK_COLOR: Color = Color(0.15, 0.09, 0.05)
+
+## The room we draw (our parent) and its layers.
+var room: Room
+var earth_layer: EarthLayer
+var gray_layer: TileMapLayer
+var grass_layer: TileMapLayer
+var tile_size: int = 8
+## The room's cells: (0, 0) to room_size / tile_size. Outside counts as solid ground.
+var cell_bounds: Rect2i
+## Picture size, px (whole tiles).
+var width: int = 0
+var height: int = 0
+## Solid cells -> Kind.
+var kinds: Dictionary = {}
+## Per pixel (index = y * width + x): the Kind there (0 = air), and the distance to
+## the nearest open-air pixel (0 for air).
+var pixel_kinds: PackedByteArray = PackedByteArray()
+var distances: PackedFloat32Array = PackedFloat32Array()
+## The crust's wobble: random -1..1 values on a coarse grid (see CRUST_NOISE_SPACING).
+var noise_grid: PackedFloat32Array = PackedFloat32Array()
+var noise_columns: int = 0
+## The picture and the texture drawn from it.
+var image: Image
+var texture: ImageTexture
+## Child node drawing the earth states on top (see the header).
+var overlay: Node2D
+
+
+func _ready() -> void:
+	room = get_parent() as Room
+	earth_layer = room.get_node_or_null("Earth") as EarthLayer
+	gray_layer = room.get_node_or_null("Tiles") as TileMapLayer
+	grass_layer = room.get_node_or_null("Grass") as TileMapLayer
+	if earth_layer != null:
+		tile_size = earth_layer.tile_set.tile_size.x
+	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
+	width = cell_bounds.size.x * tile_size
+	height = cell_bounds.size.y * tile_size
+	# Hide the layers' own tiles (collision stays). self_modulate tints only the node
+	# itself, not its children, so the grass blades (a child of "Grass") still draw.
+	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer]:
+		if layer != null:
+			layer.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
+	_build_noise_grid()
+	overlay = Node2D.new()
+	overlay.name = "EarthStates"
+	add_child(overlay)
+	overlay.draw.connect(_draw_overlay)
+	if earth_layer != null:
+		earth_layer.shape_changed.connect(rebuild)
+		earth_layer.look_changed.connect(overlay.queue_redraw)
+	rebuild()
+
+
+# --- Questions (tests, debugging) ----------------------------------------------------
+
+## The ground's color at a pixel of the room (local px), or transparent for air.
+func get_pixel_color(pixel: Vector2i) -> Color:
+	return image.get_pixelv(pixel)
+
+
+## Distance (px) from a room pixel to the nearest open air: 0 for air.
+func get_pixel_distance(pixel: Vector2i) -> float:
+	return distances[pixel.y * width + pixel.x]
+
+
+# --- Rebuilding ----------------------------------------------------------------------
+
+## Recomputes the picture. After a tear only the pixels near the hole change (see
+## TEAR_REDRAW_RADIUS); anything else (a reset, the first build) redoes it all.
+func rebuild() -> void:
+	var torn_cells: Array = earth_layer.torn_cells.keys() if earth_layer != null else []
+	var previous_kinds: Dictionary = kinds.duplicate()
+	_find_kinds()
+	var region: Rect2i = Rect2i(0, 0, width, height)
+	if image != null:
+		# Which cells changed since last time? One newly torn cell = a local update.
+		var changed: Array[Vector2i] = []
+		for cell: Vector2i in previous_kinds:
+			if not kinds.has(cell):
+				changed.append(cell)
+		for cell: Vector2i in kinds:
+			if not previous_kinds.has(cell):
+				changed.append(cell)
+		if changed.size() == 1 and torn_cells.has(changed[0]):
+			var center: Vector2i = changed[0]
+			var corner: Vector2i = (center - Vector2i.ONE * TEAR_REDRAW_RADIUS) * tile_size
+			region = Rect2i(corner, Vector2i.ONE * (TEAR_REDRAW_RADIUS * 2 + 1) * tile_size) \
+				.intersection(Rect2i(0, 0, width, height))
+	if region.size == Vector2i(width, height) or image == null:
+		_build_mask(Rect2i(Vector2i.ZERO, cell_bounds.size))
+		_compute_distances(Rect2i(0, 0, width, height))
+		image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+		_paint(Rect2i(0, 0, width, height))
+		texture = ImageTexture.create_from_image(image)
+	else:
+		var cell_region: Rect2i = Rect2i(region.position / tile_size, region.size / tile_size)
+		_build_mask(cell_region)
+		_compute_distances(region)
+		_paint(region)
+		texture.update(image)
+	queue_redraw()
+	overlay.queue_redraw()
+
+
+## Which kind fills each cell: earth wins over grass over gray.
+func _find_kinds() -> void:
+	kinds.clear()
+	for x: int in range(cell_bounds.position.x, cell_bounds.end.x):
+		for y: int in range(cell_bounds.position.y, cell_bounds.end.y):
+			var cell: Vector2i = Vector2i(x, y)
+			var kind: Kind = Kind.AIR
+			if earth_layer != null and earth_layer.is_earth(cell):
+				kind = Kind.EARTH
+			elif grass_layer != null and grass_layer.get_cell_source_id(cell) != -1:
+				kind = Kind.GRASS
+			elif gray_layer != null and gray_layer.get_cell_source_id(cell) != -1:
+				kind = Kind.GRAY
+			if kind != Kind.AIR:
+				kinds[cell] = kind
+
+
+## True for open cells inside the room. Outside the room counts as solid, so the
+## room's outer walls don't get edges on their far side.
+func _is_air(cell: Vector2i) -> bool:
+	return cell_bounds.has_point(cell) and not kinds.has(cell)
+
+
+# --- 1. Mask ---------------------------------------------------------------------------
+
+## Fills pixel_kinds for the cells in `cell_region` (plus fillets reaching into it).
+func _build_mask(cell_region: Rect2i) -> void:
+	if pixel_kinds.size() != width * height:
+		pixel_kinds.resize(width * height)
+	for x: int in range(cell_region.position.x, cell_region.end.x):
+		for y: int in range(cell_region.position.y, cell_region.end.y):
+			_mask_cell(Vector2i(x, y))
+	# Teeth and fillets reach across cell borders, so do them after every cell is filled.
+	for x: int in range(cell_region.position.x, cell_region.end.x):
+		for y: int in range(cell_region.position.y, cell_region.end.y):
+			var cell: Vector2i = Vector2i(x, y)
+			if kinds.has(cell):
+				_mask_material_teeth(cell)
+			else:
+				_mask_fillets(cell)
+
+
+## One cell's pixels: all its kind if buried; dented and cut if it touches open air.
+func _mask_cell(cell: Vector2i) -> void:
+	var kind: int = kinds.get(cell, Kind.AIR)
+	var exposed: Dictionary = {}
+	if kind != Kind.AIR:
+		for direction: Vector2i in EarthLayer.FACE_NORMALS:
+			if _is_air(cell + direction):
+				exposed[direction] = true
+	var inside: Callable = _make_inside_test(cell, exposed)
+	var origin: Vector2i = cell * tile_size
+	for y: int in tile_size:
+		for x: int in tile_size:
+			var is_ground: bool = kind != Kind.AIR and (exposed.is_empty() or inside.call(x, y))
+			pixel_kinds[(origin.y + y) * width + origin.x + x] = kind if is_ground else Kind.AIR
+
+
+## A function (x, y) -> bool, pixel coordinates 0..tile_size-1 inside `cell`: is
+## this pixel ground? Exposed sides are dented and bottom corners rounded.
+## Callable = a function stored in a variable, like a Python lambda; it "captures"
+## the arrays below, so later calls still see them.
+func _make_inside_test(cell: Vector2i, exposed: Dictionary) -> Callable:
+	var last: int = tile_size - 1
+	# Dent depth per pixel along each side: top/bottom per column x, left/right per row y.
+	var top: Array[int] = []
+	var bottom: Array[int] = []
+	var left: Array[int] = []
+	var right: Array[int] = []
+	var world_pixel: Vector2i = cell * tile_size
+	for i: int in tile_size:
+		top.append(_get_dent(exposed.has(Vector2i.UP), world_pixel.x + i, world_pixel.y, 0))
+		bottom.append(_get_dent(exposed.has(Vector2i.DOWN), world_pixel.x + i, world_pixel.y + tile_size, 1))
+		left.append(_get_dent(exposed.has(Vector2i.LEFT), world_pixel.y + i, world_pixel.x, 2))
+		right.append(_get_dent(exposed.has(Vector2i.RIGHT), world_pixel.y + i, world_pixel.x + tile_size, 3))
+	# No dents on the two outermost pixels of a top surface at a platform's edge:
+	# that's exactly where an edge-standing player's feet are.
+	if exposed.has(Vector2i.UP):
+		if exposed.has(Vector2i.LEFT):
+			top[0] = 0
+			top[1] = 0
+		if exposed.has(Vector2i.RIGHT):
+			top[last] = 0
+			top[last - 1] = 0
+	# Only BOTTOM corners are rounded: a rounded top corner shaves the very edge of a
+	# platform, and a player standing on it looked like they stood on air.
+	var cut_bottom_left: bool = exposed.has(Vector2i.DOWN) and exposed.has(Vector2i.LEFT)
+	var cut_bottom_right: bool = exposed.has(Vector2i.DOWN) and exposed.has(Vector2i.RIGHT)
+	return func(x: int, y: int) -> bool:
+		if y < top[x] or last - y < bottom[x] or x < left[y] or last - x < right[y]:
+			return false
+		if cut_bottom_left and x + (last - y) < CORNER_CUT:
+			return false
+		if cut_bottom_right and (last - x) + (last - y) < CORNER_CUT:
+			return false
+		return true
+
+
+## How deep (0, 1 or 2 px) one pixel of an exposed side is dented, the same every
+## run: a hash of its world position. `along` = the pixel's position along the side,
+## `line` = the side's own coordinate, `side` = 0 top, 1 bottom, 2 left, 3 right.
+## along / 2: dents are 2 px wide. Neighbouring cells on the same straight edge agree.
+func _get_dent(is_exposed: bool, along: int, line: int, side: int) -> int:
+	if not is_exposed:
+		return 0
+	var roll: int = hash(Vector3i(along / 2, line, side)) % 1000
+	if side != 0 and roll < int(DEEP_DENT_CHANCE * 1000.0):
+		return 2
+	return 1 if roll < int(EDGE_DENT_CHANCE * 1000.0) else 0
+
+
+## Borders between kinds interlock: along an edge between this cell and a neighbour
+## of another kind, each 2 px stretch either stays straight or lets one side poke
+## 1-2 px into the other (a hash decides; both cells ask the same question). Here we
+## only paint the neighbour's teeth that poke INTO this cell, on ground pixels.
+func _mask_material_teeth(cell: Vector2i) -> void:
+	var kind: int = kinds[cell]
+	var last: int = tile_size - 1
+	var origin: Vector2i = cell * tile_size
+	for direction: Vector2i in EarthLayer.FACE_NORMALS:
+		var neighbour: Vector2i = cell + direction
+		if not kinds.has(neighbour) or kinds[neighbour] == kind:
+			continue
+		var is_vertical_edge: bool = direction.x != 0
+		var line: int = 0
+		if is_vertical_edge:
+			line = origin.x + (tile_size if direction.x > 0 else 0)
+		else:
+			line = origin.y + (tile_size if direction.y > 0 else 0)
+		# "Low" side = the left / top cell of the pair; a positive tooth pokes from the
+		# low side into the high side. We're the high side when the neighbour is left/up.
+		var we_are_high_side: bool = direction.x < 0 or direction.y < 0
+		for i: int in tile_size:
+			var along: int = (origin.y if is_vertical_edge else origin.x) + i
+			var tooth: int = _get_tooth(along, line, is_vertical_edge)
+			var depth_into_us: int = tooth if we_are_high_side else -tooth
+			for step: int in depth_into_us:
+				var pixel: Vector2i
+				if is_vertical_edge:
+					pixel = Vector2i(step if direction.x < 0 else last - step, i)
+				else:
+					pixel = Vector2i(i, step if direction.y < 0 else last - step)
+				var index: int = (origin.y + pixel.y) * width + origin.x + pixel.x
+				if pixel_kinds[index] != Kind.AIR:
+					pixel_kinds[index] = kinds[neighbour]
+
+
+## How far (and which way) the material border pokes at one 2 px stretch of an edge:
+## -2..2 px; positive = the left/top side pokes into the right/bottom side.
+func _get_tooth(along: int, line: int, is_vertical_edge: bool) -> int:
+	var roll: int = hash(Vector3i(along / 2, line, 10 if is_vertical_edge else 11)) % 100
+	if roll < 30:
+		return 0
+	if roll < 55:
+		return 1
+	if roll < 80:
+		return -1
+	return 2 if roll < 90 else -2
+
+
+## Concave (inner) corners: an open cell with ground on two sides that meet (a floor
+## and a wall) gets a small 3-pixel fillet of the floor's (or ceiling's) ground.
+func _mask_fillets(cell: Vector2i) -> void:
+	if not cell_bounds.has_point(cell):
+		return
+	var last: int = tile_size - 1
+	var origin: Vector2i = cell * tile_size
+	for vertical: Vector2i in [Vector2i.UP, Vector2i.DOWN]:
+		if not kinds.has(cell + vertical):
+			continue
+		for horizontal: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT]:
+			if not kinds.has(cell + horizontal):
+				continue
+			var corner: Vector2i = Vector2i(0 if horizontal.x < 0 else last, 0 if vertical.y < 0 else last)
+			for pixel: Vector2i in [corner, corner - Vector2i(horizontal.x, 0), corner - Vector2i(0, vertical.y)]:
+				pixel_kinds[(origin.y + pixel.y) * width + origin.x + pixel.x] = kinds[cell + vertical]
+
+
+# --- 2. Distance -----------------------------------------------------------------------
+
+## Distance from every ground pixel in `region` to the nearest open air, by a two-pass
+## distance transform: a forward sweep (top-left to bottom-right) lets each pixel take
+## "my up/left neighbour's distance + 1", a backward sweep does the same from the
+## other side; together every pixel gets (close to) its true distance. Pixels outside
+## `region` keep their old values and act as known borders. Outside the room = solid.
+func _compute_distances(region: Rect2i) -> void:
+	if distances.size() != width * height:
+		distances.resize(width * height)
+	var far: float = 9999.0
+	for y: int in range(region.position.y, region.end.y):
+		for x: int in range(region.position.x, region.end.x):
+			var index: int = y * width + x
+			distances[index] = 0.0 if pixel_kinds[index] == Kind.AIR else far
+	var diagonal: float = 1.414
+	for y: int in range(region.position.y, region.end.y):
+		for x: int in range(region.position.x, region.end.x):
+			var index: int = y * width + x
+			var best: float = distances[index]
+			if best == 0.0:
+				continue
+			if x > 0:
+				best = minf(best, distances[index - 1] + 1.0)
+			if y > 0:
+				best = minf(best, distances[index - width] + 1.0)
+				if x > 0:
+					best = minf(best, distances[index - width - 1] + diagonal)
+				if x < width - 1:
+					best = minf(best, distances[index - width + 1] + diagonal)
+			distances[index] = best
+	for y: int in range(region.end.y - 1, region.position.y - 1, -1):
+		for x: int in range(region.end.x - 1, region.position.x - 1, -1):
+			var index: int = y * width + x
+			var best: float = distances[index]
+			if best == 0.0:
+				continue
+			if x < width - 1:
+				best = minf(best, distances[index + 1] + 1.0)
+			if y < height - 1:
+				best = minf(best, distances[index + width] + 1.0)
+				if x < width - 1:
+					best = minf(best, distances[index + width + 1] + diagonal)
+				if x > 0:
+					best = minf(best, distances[index + width - 1] + diagonal)
+			distances[index] = best
+
+
+# --- 3. Color --------------------------------------------------------------------------
+
+## Writes the colors of every pixel in `region` into the image.
+func _paint(region: Rect2i) -> void:
+	for y: int in range(region.position.y, region.end.y):
+		for x: int in range(region.position.x, region.end.x):
+			image.set_pixel(x, y, _get_pixel_color(x, y))
+	# Flecks: tiny crumbs 2-3 px above top surfaces (only where it's open air).
+	for x: int in range(region.position.x, region.end.x):
+		for y: int in range(maxi(region.position.y, 3), region.end.y):
+			var index: int = y * width + x
+			if pixel_kinds[index] == Kind.AIR or pixel_kinds[index - width] != Kind.AIR:
+				continue  # not a top-surface pixel
+			if hash(Vector2i(x, y)) % 1000 >= int(FLECK_CHANCE * 1000.0):
+				continue
+			var lift: int = 2 + hash(Vector2i(y, x)) % 2
+			if pixel_kinds[index - width * lift] == Kind.AIR and pixel_kinds[index - width * (lift - 1)] == Kind.AIR:
+				image.set_pixel(x, y - lift, PALETTE[pixel_kinds[index]][0])
+
+
+## One pixel's color (see the header, step 3).
+func _get_pixel_color(x: int, y: int) -> Color:
+	var index: int = y * width + x
+	var kind: int = pixel_kinds[index]
+	if kind == Kind.AIR:
+		return Color(0.0, 0.0, 0.0, 0.0)
+	var colors: Array = PALETTE[kind]
+	var depth: float = distances[index] - 1.0  # 0 on the outermost ground pixel
+	var crust_end: float = CRUST_WIDTH + _get_noise(x, y) * CRUST_WOBBLE
+	if depth < crust_end - 1.0:
+		# Rim along top surfaces: the outermost pixel(s) with open air right above.
+		var rim_thickness: int = 2 if kind == Kind.GRASS else 1
+		for lift: int in range(1, rim_thickness + 1):
+			if y - lift >= 0 and pixel_kinds[index - width * lift] == Kind.AIR:
+				return colors[1]
+		# A few darker specks in the crust.
+		if hash(Vector2i(x * 7, y * 13)) % 29 == 0:
+			return (colors[0] as Color).darkened(0.18)
+		return colors[0]
+	if depth < crust_end:
+		return colors[2]  # the edge line where the crust ends
+	# Inside: dark, hatched, a little darker the deeper it goes.
+	var inside: Color = colors[4] if (x + y) % HATCH_PERIOD < HATCH_WIDTH else colors[3]
+	var fade: float = smoothstep(0.0, INSIDE_FADE_DEPTH, depth - crust_end)
+	return inside * lerpf(1.0, INSIDE_DEEPEST_BRIGHTNESS, fade)
+
+
+## Random numbers (-1..1) on a coarse grid, the same every run (seeded).
+func _build_noise_grid() -> void:
+	var random: RandomNumberGenerator = RandomNumberGenerator.new()
+	random.seed = 1234
+	noise_columns = width / CRUST_NOISE_SPACING + 2
+	var rows: int = height / CRUST_NOISE_SPACING + 2
+	noise_grid.resize(noise_columns * rows)
+	for index: int in noise_grid.size():
+		noise_grid[index] = random.randf_range(-1.0, 1.0)
+
+
+## Smooth "value noise" at a pixel: the four grid values around it, blended with
+## smoothstep weights so the result curves gently between grid points.
+func _get_noise(x: int, y: int) -> float:
+	var grid_x: float = float(x) / CRUST_NOISE_SPACING
+	var grid_y: float = float(y) / CRUST_NOISE_SPACING
+	var column: int = int(grid_x)
+	var row: int = int(grid_y)
+	var u: float = smoothstep(0.0, 1.0, grid_x - column)
+	var v: float = smoothstep(0.0, 1.0, grid_y - row)
+	var top: float = lerpf(noise_grid[row * noise_columns + column], noise_grid[row * noise_columns + column + 1], u)
+	var bottom: float = lerpf(noise_grid[(row + 1) * noise_columns + column], noise_grid[(row + 1) * noise_columns + column + 1], u)
+	return lerpf(top, bottom, v)
+
+
+# --- Drawing -------------------------------------------------------------------------
+
+func _draw() -> void:
+	if texture != null:
+		draw_texture(texture, Vector2.ZERO)
+
+
+## The overlay: earth cells with a state (used, hardened, shivering) drawn again on
+## top, tinted by EarthLayer.get_cell_modulate(), and cracks on used earth.
+func _draw_overlay() -> void:
+	if earth_layer == null or texture == null:
+		return
+	for cell: Vector2i in earth_layer.get_state_cells():
+		if not kinds.has(cell):
+			continue  # torn out (open air now)
+		var rect: Rect2 = Rect2(Vector2(cell * tile_size), Vector2.ONE * tile_size)
+		# draw_texture_rect_region(texture, where, which part of the texture, tint)
+		overlay.draw_texture_rect_region(texture, rect, rect, earth_layer.get_cell_modulate(cell))
+		if earth_layer.used_fade_progress.has(cell) and float(earth_layer.used_fade_progress[cell]) >= 0.5:
+			_draw_cracks(cell)
+
+
+## Two short crack lines (3 px, diagonal) on a used cell, at seeded spots in its middle
+## (pixels 2..5: never on a dented edge or rounded corner).
+func _draw_cracks(cell: Vector2i) -> void:
+	var seed_value: int = hash(cell + Vector2i(7, 13))
+	var origin: Vector2 = Vector2(cell * tile_size)
+	for crack_index: int in 2:
+		var start: Vector2i = Vector2i(2 + (seed_value >> (crack_index * 6)) % 2, 2 + (seed_value >> (crack_index * 6 + 2)) % 2)
+		var step_x: int = 1 if (seed_value >> (crack_index * 6 + 4)) % 2 == 0 else -1
+		if step_x < 0:
+			start.x += 2
+		for step: int in 3:
+			overlay.draw_rect(Rect2(origin + Vector2(start + Vector2i(step_x * step, step)), Vector2.ONE), CRACK_COLOR)

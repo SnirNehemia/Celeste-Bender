@@ -21,6 +21,8 @@ extends Node2D
 ## Earth (Earth chapter): an optional second TileMapLayer child named "Earth" with the
 ## EarthLayer script (scenes/objects/earth/earth_layer.gd), painted with the earth
 ## tileset. It's solid like "Tiles", but each of its cells can be bent once.
+## Rooms with an Earth layer also get a GroundPainter (made in _ready): it draws the
+## ground as lumpy, depth-shaded earth, turf and stone instead of tiles (Stage E4b).
 ##
 ## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
 ## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
@@ -56,6 +58,21 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 func _ready() -> void:
 	for rect: Rect2 in solid_rects:
 		_add_solid_block(rect)
+	if get_node_or_null("Earth") is EarthLayer:
+		_add_ground_painter()
+
+
+## Adds the GroundPainter right after the tile layers, so it draws where the tiles
+## did: under every object in the room.
+func _add_ground_painter() -> void:
+	var painter: GroundPainter = GroundPainter.new()
+	painter.name = "GroundPainter"
+	var last_layer_index: int = 0
+	for child: Node in get_children():
+		if child is TileMapLayer:
+			last_layer_index = child.get_index()
+	add_child(painter)
+	move_child(painter, last_layer_index + 1)
 
 
 ## The room's rectangle in world coordinates.

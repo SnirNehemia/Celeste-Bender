@@ -11,7 +11,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
-- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [ ] E4b · [ ] E4c · [ ] E4d · [ ] E4e · [ ] E5 · [ ] E6 · [ ] E7
+- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [ ] E4c · [ ] E4d · [ ] E4e · [ ] E5 · [ ] E6 · [ ] E7
 
 ---
 

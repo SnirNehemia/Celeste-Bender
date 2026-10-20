@@ -10,6 +10,9 @@ const MIXED_WORLD_SCENE: PackedScene = preload("res://tests/mixed_test_world.tsc
 const WIND_ZONE_SCENE: PackedScene = preload("res://scenes/objects/wind_zone.tscn")
 
 var failures: int = 0
+## Names of the check sections that ran to their end. A script error inside a
+## section (say, a null rock) ends it silently, so _ready() checks this list.
+var finished_sections: Array[String] = []
 
 
 func _ready() -> void:
@@ -25,6 +28,7 @@ func _ready() -> void:
 	await _check_e2_bend_core(player, room, earth)
 	await _check_e3_column(world, player)
 	await _check_e4_boulder(world, player)
+	await _check_e4b_ground(world)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -33,6 +37,8 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "grass", "mixed"]:
+		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -77,14 +83,11 @@ func _check_e1_earth_ground(player: Player, room: Room, earth: EarthLayer) -> vo
 	# Room reset (death or R) makes every tile fresh again.
 	room.reset_objects()
 	_check(earth.is_fresh(Vector2i(3, 20)) and earth.is_fresh(Vector2i(2, 20)), "room reset makes used tiles fresh")
-	# Visually too: the tile is still adjusted at runtime, back to plain white.
-	var reset_tile_data: TileData = TileData.new()
-	reset_tile_data.modulate = Color.BLACK
-	earth._tile_data_runtime_update(Vector2i(3, 20), reset_tile_data)
-	_check(earth._use_tile_data_runtime_update(Vector2i(3, 20)) and reset_tile_data.modulate == Color.WHITE,
-		"a reset tile is drawn fresh again (modulate %s)" % reset_tile_data.modulate)
-	reset_tile_data.free()  # TileData is a plain Object, not reference-counted
+	# Visually too: its tint is back to plain white.
+	_check(earth.get_cell_modulate(Vector2i(3, 20)) == Color.WHITE,
+		"a reset tile is drawn fresh again (modulate %s)" % earth.get_cell_modulate(Vector2i(3, 20)))
 	_check(player.earth_bend.find_start_surface() != null, "fresh earth under the feet again after reset")
+	finished_sections.append("E1")
 
 
 ## Stage E2: the bend state, real-time shadow, path rules, cancel, auto-fire.
@@ -238,6 +241,7 @@ func _check_e2_bend_core(player: Player, room: Room, earth: EarthLayer) -> void:
 	_check(bend.path_tangents[0] == Vector2i.DOWN, "a wall bend crawls down by default")
 	bend.cancel_bend()
 	_check(bend.is_bending == false, "path checks left no bend running")
+	finished_sections.append("E2")
 
 
 ## Stage E3: the Earth Column, in RoomEarthB (tests/rooms/room_earth_b.tscn, at x 320).
@@ -380,6 +384,7 @@ func _check_e3_column(world: RoomManager, player: Player) -> void:
 		"the crate flies above the column's top (%.0f px up)" % (crate_start_y - crate_highest))
 	room.reset_objects()
 	await get_tree().physics_frame
+	finished_sections.append("E3")
 
 
 ## Stages E4 + E4a: the rock (8x8, torn out of the ground right next to the player),
@@ -433,7 +438,7 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 	_check(player.velocity == Vector2.ZERO, "the player stays rooted while holding")
 	await _wait_game(tuning.boulder_land_rest_time + 0.1)
 	_check(not is_instance_valid(boulder), "an un-thrown rock crumbles after its rest")
-	_check(player.state_machine.current_state.name != &"BoulderHold", "the player is free once the rock is gone")
+	_check(player.state_machine.current_state.name == &"Idle", "the player is free once the rock is gone, standing (state %s)" % player.state_machine.current_state.name)
 	room.reset_objects()
 	await _wait_physics_frames(2)
 
@@ -535,7 +540,8 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 	boulder = await _rip_boulder(player)
 	await _press_action("jump")
 	_check(player.state_machine.current_state.name != &"BoulderHold" and player.velocity.y >= 0.0,
-		"Jump lets go of the rock without jumping")
+		"Jump lets go of the rock without jumping (state %s, velocity %s, rock %s)" % [player.state_machine.current_state.name,
+			player.velocity, "none" if boulder == null else ("gone" if not is_instance_valid(boulder) else "dropped %s" % boulder.is_dropped)])
 	_check(not is_instance_valid(boulder) or boulder.is_dropped, "the let-go rock is dropped")
 	await _wait_game(0.8)
 	_check(not is_instance_valid(boulder), "the let-go rock shatters when it lands")
@@ -656,6 +662,57 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 		"no room for a rock: nothing is torn")
 	room.reset_objects()
 	await get_tree().physics_frame
+	finished_sections.append("E4")
+
+
+## Stage E4b: the GroundPainter in RoomEarthC (thick earth at columns 6-11, rows 20-21).
+func _check_e4b_ground(world: RoomManager) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var painter: GroundPainter = room.get_node_or_null("GroundPainter") as GroundPainter
+	_check(painter != null, "an Earth room gets a GroundPainter")
+	if painter == null:
+		return
+	room.reset_objects()
+	await get_tree().process_frame
+	_check(earth.self_modulate.a == 0.0 and (room.get_node("Grass") as TileMapLayer).self_modulate.a == 0.0,
+		"the tile layers' own drawing is hidden (collision stays)")
+	_check(painter.get_index() > room.get_node("Earth").get_index(), "the painter draws after the tile layers")
+	# Pixels: the surface is a bright crust, deep inside a dark hatched color (not black).
+	var surface_pixel: Vector2i = Vector2i(9 * 8 + 4, 20 * 8 + 2)
+	var deep_pixel: Vector2i = Vector2i(34 * 8, 14 * 8)  # middle of the big grass block
+	_check(painter.get_pixel_distance(surface_pixel) <= 4.0 and painter.get_pixel_color(surface_pixel).get_luminance() > 0.4,
+		"the surface is a bright crust (luminance %.2f)" % painter.get_pixel_color(surface_pixel).get_luminance())
+	var deep_color: Color = painter.get_pixel_color(deep_pixel)
+	_check(painter.get_pixel_distance(deep_pixel) > 20.0 and deep_color.get_luminance() < 0.15 and deep_color.get_luminance() > 0.01,
+		"deep inside is dark but not black (luminance %.3f)" % deep_color.get_luminance())
+	_check(painter.get_pixel_color(deep_pixel) != painter.get_pixel_color(deep_pixel + Vector2i(3, 0)),
+		"the inside is hatched (neighbouring stripes differ)")
+	_check(painter.get_pixel_color(Vector2i(100, 80)).a == 0.0, "open air is left transparent")
+	# Tearing a tile out redraws: the earth under the hole becomes bright crust.
+	var under_hole: Vector2i = Vector2i(9 * 8 + 4, 21 * 8 + 1)
+	var before_tear: float = painter.get_pixel_color(under_hole).get_luminance()
+	earth.tear_out(Vector2i(9, 20))
+	var after_tear: float = painter.get_pixel_color(under_hole).get_luminance()
+	_check(after_tear > before_tear + 0.15 and painter.get_pixel_color(surface_pixel).a == 0.0,
+		"a tear turns the newly exposed earth into bright crust (%.2f -> %.2f)" % [before_tear, after_tear])
+	room.reset_objects()
+	_check(is_equal_approx(painter.get_pixel_color(under_hole).get_luminance(), before_tear),
+		"room reset restores the ground's drawing")
+	# Used earth is drawn on the overlay, darker.
+	earth.mark_used(Vector2i(14, 20))
+	_check(earth.get_state_cells().has(Vector2i(14, 20)), "a used tile is drawn on the state overlay")
+	await _wait_real(earth.earth_tuning.used_fade_time + 0.1)
+	_check(earth.get_cell_modulate(Vector2i(14, 20)).get_luminance() < 0.6, "the overlay tint for used earth is dark")
+	room.reset_objects()
+	# Rooms without earth (the Air chapter) keep their tiles.
+	var air_room_scene: PackedScene = load("res://scenes/rooms/room_01.tscn") as PackedScene
+	var air_room: Room = air_room_scene.instantiate() as Room
+	add_child(air_room)
+	_check(air_room.get_node_or_null("GroundPainter") == null, "Air rooms keep their tile look (no painter)")
+	air_room.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("E4b")
 
 
 ## Presses S for one frame and returns the rock it tore out, or null.
@@ -666,10 +723,18 @@ func _rip_boulder(player: Player) -> Boulder:
 
 ## Presses an action for one physics frame, the way a real key does: as an input
 ## EVENT (Input.parse_input_event), which is what the game receives from a keyboard.
+## Held for 2 physics ticks (still faster than any human). Events are handed to the
+## game at the start of a FRAME, and after a slow frame Godot runs several physics
+## ticks in a row, so a press and its release sent between those ticks could both
+## arrive at once and is_action_just_pressed would never see the press. Waiting for a
+## new frame (process_frame) after each event avoids that.
 func _press_action(action: StringName) -> void:
 	Input.parse_input_event(_make_action_event(action, true))
+	await get_tree().process_frame
+	await get_tree().physics_frame
 	await get_tree().physics_frame
 	Input.parse_input_event(_make_action_event(action, false))
+	await get_tree().process_frame
 	await get_tree().physics_frame
 
 
@@ -753,6 +818,7 @@ func _check_grass_blades(world: RoomManager, player: Player) -> void:
 	wind.queue_free()
 	grass.winds_found = false
 	await get_tree().physics_frame
+	finished_sections.append("grass")
 
 
 ## Mixed world, room B (enemies): a column blocks a sentry orb.
@@ -791,6 +857,7 @@ func _check_mixed_enemies() -> void:
 	_check(not player.is_dead() and not is_instance_valid(orb), "a column blocks the sentry's orb (it pops)")
 	world.queue_free()
 	await get_tree().process_frame
+	finished_sections.append("mixed")
 
 
 ## The highest the player's feet get (smallest y) over `seconds` of game time.

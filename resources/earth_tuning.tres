@@ -1,6 +1,54 @@
-[gd_resource type="Resource" script_class="EarthTuning" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="EarthTuning" load_steps=2 format=3 uid="uid://cv1v48isl5qu6"]
 
-[ext_resource type="Script" path="res://resources/earth_tuning.gd" id="1_earth_tuning"]
+[ext_resource type="Script" uid="uid://c38wydujgiu5k" path="res://resources/earth_tuning.gd" id="1_earth_tuning"]
 
 [resource]
 script = ExtResource("1_earth_tuning")
+used_fade_time = 0.2
+shiver_time = 0.25
+shiver_brightness = 1.25
+shiver_flip_interval = 0.04
+bend_time_scale = 0.3
+shadow_start_delay = 0.5
+shadow_speed = 60.0
+bend_max_time = 2.5
+bend_squash = Vector2(1.25, 0.8)
+feet_gravel_count = 5
+path_gravel_count = 2
+shadow_gravel_interval = 0.12
+eruption_gravel_count = 12
+eruption_shake_strength = 1.5
+eruption_shake_time = 0.12
+column_width = 8.0
+column_length = 24.0
+column_rise_time = 0.1
+column_launch_speed = 220.0
+column_super_jump_speed = 320.0
+column_side_launch_lift = 140.0
+launch_steer_lock_time = 0.15
+launch_overspeed_deceleration = 300.0
+column_hit_gravel_count = 6
+column_foot_rows = 3
+boulder_size = 8.0
+boulder_tear_time = 0.15
+boulder_tear_rumble = 0.75
+boulder_hop_height = 22.0
+boulder_hop_away_speed = 30.0
+boulder_wall_hop_away_speed = 90.0
+boulder_time_scale = 0.8
+boulder_slow_motion_max_time = 2.0
+boulder_perfect_window = 0.08
+boulder_land_rest_time = 0.2
+boulder_throw_falloff_time = 0.12
+boulder_perfect_throw_speed = 320.0
+boulder_min_throw_speed = 180.0
+boulder_perfect_float_time = 0.3
+boulder_gravity = 900.0
+boulder_max_fall_speed = 300.0
+boulder_hold_time = 1.0
+boulder_column_bounce_speed = 220.0
+boulder_shatter_gravel_count = 10
+boulder_stick_gravel_count = 6
+boulder_impact_shake_strength = 1.0
+boulder_impact_shake_time = 0.1
+boulder_max_flight_time = 3.0

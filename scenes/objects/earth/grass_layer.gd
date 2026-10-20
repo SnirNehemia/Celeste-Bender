@@ -31,6 +31,9 @@ extends TileMapLayer
 ## Blade colors: two greens, alternating, so a field of blades doesn't look flat.
 const BLADE_COLOR: Color = Color(0.48, 0.76, 0.3)
 const BLADE_DARK_COLOR: Color = Color(0.36, 0.62, 0.25)
+## Blades are rooted this many px INTO the ground (Stage E4b): the ground's top edge
+## is drawn with small dents now, and without roots a blade could float over one.
+const BLADE_ROOT_DEPTH: float = 2.0
 ## The gust's sensor strip reaches this high above the tiles, px.
 const SENSOR_HEIGHT: float = 8.0
 
@@ -252,8 +255,9 @@ func receive_gust_from(direction: Vector2, strength: float, source_position: Vec
 		blade_bend_speeds[blade_index] += signf(push_x) * strength * gust_kick_per_strength * falloff
 
 
-## Draws every blade on the Blades child (its `draw` signal calls this): two 1 px
-## segments, the upper one leaning more, so a bent blade curves.
+## Draws every blade on the Blades child (its `draw` signal calls this): a short root
+## down into the ground, then two 1 px segments, the upper one leaning more, so a bent
+## blade curves.
 func _draw_blades() -> void:
 	for blade_index: int in blade_bases.size():
 		var base: Vector2 = blade_bases[blade_index]
@@ -262,5 +266,6 @@ func _draw_blades() -> void:
 		var middle: Vector2 = base + Vector2(bend * 0.35, -height * 0.55)
 		var tip: Vector2 = base + Vector2(bend, -height)
 		var color: Color = BLADE_COLOR if blade_index % 2 == 0 else BLADE_DARK_COLOR
+		blades_canvas.draw_line(base + Vector2(0.0, BLADE_ROOT_DEPTH), base, color, 1.0)
 		blades_canvas.draw_line(base, middle, color, 1.0)
 		blades_canvas.draw_line(middle, tip, color, 1.0)
