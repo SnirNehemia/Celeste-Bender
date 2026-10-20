@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _check_e4c_hidden(world, player)
 	await _check_e4c2_big_rock(world, player)
 	await _check_e4c3_loose_rocks(world, player)
+	await _check_e4d_pebbles(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -40,7 +41,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -927,6 +928,125 @@ func _check_e4c3_loose_rocks(world: RoomManager, player: Player) -> void:
 
 ## HOLDS S through the rock's tear (a big rock, Stage E4c2), then lets go. Returns the
 ## held rock, or null.
+## Stage E4d: pebbles. Earth C's flat floor (top at y = 160) right of the start.
+func _check_e4d_pebbles(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var field: PebbleField = room.get_node_or_null("PebbleField") as PebbleField
+	var tuning: EarthTuning = player.earth_tuning
+	_check(field != null, "an Earth room has a PebbleField")
+	if field == null:
+		return
+	world.jump_to_room(room)
+	player.respawn_at(room.global_position + Vector2(14 * 8 + 4, 160))
+	await _wait_physics_frames(5)
+	_check(field.pebble_positions.is_empty(), "no pebbles after a room reset")
+
+	# A tear leaves pebbles that stay after the gravel is gone.
+	player.facing_direction = 1.0
+	await _rip_boulder(player)
+	await _press_action("jump")  # let the rock go
+	await _wait_game(1.0)
+	_check(not field.pebble_positions.is_empty(), "tearing a rock leaves pebbles (%d)" % field.pebble_positions.size())
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	_check(field.pebble_positions.is_empty(), "room reset clears the pebbles")
+
+	# A gravel burst over the floor: the pebbles fall and come to rest ON the floor.
+	var drop_point: Vector2 = room.global_position + Vector2(22 * 8, 150)
+	FX.spawn_gravel(drop_point, 20, Vector2.UP)
+	await _wait_game(1.5)
+	var resting_count: int = 0
+	for pebble_index: int in field.pebble_positions.size():
+		var bottom: Vector2 = field.pebble_positions[pebble_index]
+		if field.pebble_is_moving[pebble_index] == 0 and absf(bottom.y - 159.5) < 0.01:
+			resting_count += 1
+	_check(resting_count == field.pebble_positions.size() and resting_count > 0,
+		"pebbles come to rest on the floor (%d of %d)" % [resting_count, field.pebble_positions.size()])
+
+	# Running through them scatters them.
+	var before_run: PackedVector2Array = field.pebble_positions.duplicate()
+	player.respawn_at(room.global_position + Vector2(18 * 8, 160))
+	await _wait_physics_frames(3)
+	Input.parse_input_event(_make_action_event(&"move_right", true))
+	await _wait_game(0.6)
+	Input.parse_input_event(_make_action_event(&"move_right", false))
+	await _wait_physics_frames(2)
+	_check(_count_moved(before_run, field.pebble_positions) > 0, "running through pebbles kicks them")
+	await _wait_game(1.5)
+
+	# A gust blows the ones near its origin away along the gust.
+	player.respawn_at(room.global_position + Vector2(8 * 8, 160))  # out of the way
+	await _wait_physics_frames(3)
+	var before_gust: float = _average_x(field.pebble_positions)
+	var gust_origin: Vector2 = room.to_global(Vector2(_min_x(field.pebble_positions) - 8.0, 156))
+	field.receive_gust_from(Vector2.RIGHT, 260.0, gust_origin)
+	await _wait_game(1.0)
+	_check(_average_x(field.pebble_positions) > before_gust + 4.0,
+		"a gust blows pebbles away (average x %.1f -> %.1f)" % [before_gust, _average_x(field.pebble_positions)])
+
+	# A sideways wind zone rolls them along the floor.
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	FX.spawn_gravel(drop_point, 20, Vector2.UP)
+	await _wait_game(1.5)
+	var wind: WindZone = WIND_ZONE_SCENE.instantiate() as WindZone
+	wind.zone_size = Vector2(80, 24)
+	wind.wind_direction = Vector2.RIGHT
+	wind.wind_strength = 50.0
+	room.add_child(wind)
+	wind.position = Vector2(19 * 8, 160 - 24)
+	field.room_wind_zones.append(wind)  # zones are normally found once at startup
+	var before_wind: float = _average_x(field.pebble_positions)
+	await _wait_game(0.5)
+	_check(_average_x(field.pebble_positions) > before_wind + 6.0,
+		"a wind zone rolls pebbles along (average x %.1f -> %.1f)" % [before_wind, _average_x(field.pebble_positions)])
+	field.room_wind_zones.erase(wind)
+	wind.queue_free()
+
+	# The cap: the oldest go first.
+	FX.spawn_gravel(drop_point, 1000, Vector2.UP)
+	_check(field.pebble_positions.size() == tuning.pebble_max_per_room,
+		"pebbles are capped per room (%d)" % field.pebble_positions.size())
+
+	# Only the current room simulates: a pebble in the air in another room hangs there.
+	var other_room: Room = world.get_node("RoomEarthA") as Room
+	world.jump_to_room(other_room)
+	await _wait_physics_frames(2)
+	room.reset_objects()
+	field.add_pebble(room.global_position + Vector2(22 * 8, 100), Vector2.UP)
+	var frozen_position: Vector2 = field.pebble_positions[0]
+	await _wait_physics_frames(10)
+	_check(field.pebble_positions[0] == frozen_position, "pebbles outside the current room don't simulate")
+	room.reset_objects()
+	world.jump_to_room(room)
+	await _wait_physics_frames(2)
+	finished_sections.append("E4d")
+
+
+func _count_moved(before: PackedVector2Array, after: PackedVector2Array) -> int:
+	var moved: int = 0
+	for pebble_index: int in mini(before.size(), after.size()):
+		if before[pebble_index].distance_to(after[pebble_index]) > 0.5:
+			moved += 1
+	return moved
+
+
+func _average_x(points: PackedVector2Array) -> float:
+	if points.is_empty():
+		return 0.0
+	var total: float = 0.0
+	for point: Vector2 in points:
+		total += point.x
+	return total / points.size()
+
+
+func _min_x(points: PackedVector2Array) -> float:
+	var smallest: float = INF
+	for point: Vector2 in points:
+		smallest = minf(smallest, point.x)
+	return smallest
+
+
 func _tear_big_rock(player: Player) -> Boulder:
 	Input.parse_input_event(_make_action_event(&"earth_boulder", true))
 	await get_tree().process_frame

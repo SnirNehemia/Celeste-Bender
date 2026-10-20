@@ -284,7 +284,9 @@ func _process(delta: float) -> void:
 	feet_gravel_timer -= real_delta
 	if feet_gravel_timer <= 0.0:
 		feet_gravel_timer = tuning.shadow_gravel_interval * 2.0
-		FX.spawn_gravel(path[0].get_global_center(), 1, Vector2(path[0].normal))
+		# Pebble fraction 0: this trickle runs all bend long and would pile up pebbles
+		# at the feet. The bend's start burst already leaves some there.
+		FX.spawn_gravel(path[0].get_global_center(), 1, Vector2(path[0].normal), 0.0)
 	queue_redraw()
 
 
@@ -336,7 +338,9 @@ func _on_shadow_entered_face(face: EarthFace) -> void:
 		return
 	var tuning: EarthTuning = player.earth_tuning
 	face.layer.shiver(face.cell, tuning.shiver_time)
-	FX.spawn_gravel(face.get_global_center(), tuning.path_gravel_count, Vector2(face.normal))
+	# Only a few pebbles along the path (shadow_path_pebble_fraction), not per tile.
+	FX.spawn_gravel(face.get_global_center(), tuning.path_gravel_count, Vector2(face.normal),
+		tuning.shadow_path_pebble_fraction)
 
 
 ## While the shadow moves over EARTH (fresh, used or a column), it sheds a bit or
@@ -349,7 +353,8 @@ func _spawn_crawl_gravel(real_delta: float) -> void:
 	var shadow_face: EarthFace = get_shadow_face()
 	if not shadow_face.layer.is_earthen(shadow_face.cell):
 		return
-	FX.spawn_gravel(get_shadow_position(), 1 + randi() % 2, get_shadow_normal())
+	# No pebbles from this trickle: the faces it crosses already drop a few.
+	FX.spawn_gravel(get_shadow_position(), 1 + randi() % 2, get_shadow_normal(), 0.0)
 
 
 ## One step along the surface = one tile, px.

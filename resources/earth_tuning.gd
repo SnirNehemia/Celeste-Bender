@@ -170,3 +170,50 @@ extends Resource
 ## Screen shake when a chamber opens: strength (px) and duration (s).
 @export var hidden_crumble_shake_strength: float = 1.5
 @export var hidden_crumble_shake_time: float = 0.2
+
+@export_group("Pebbles")
+## Earth effects leave pebbles that STAY on the ground (Stage E4d, PebbleField).
+## Bends that USE ground (a column's tile, a rock's torn tiles) leave this many per
+## tile, so a big rock (4 tiles) leaves 4x a small one's. Fractions are rolled as a
+## chance, so 2.5 leaves 2 or 3.
+@export var pebbles_per_used_tile: float = 8.0
+## Everything else that sprays gravel (impacts, shatters, the shadow's path, a lifted
+## loose rock) leaves this many pebbles per gravel bit.
+@export var pebbles_per_gravel: float = 0.7
+## Along the shadow's path only a few are left (on top of pebbles_per_gravel), so a
+## long crawl doesn't carpet the floor.
+@export var shadow_path_pebble_fraction: float = 0.4
+## At most this many pebbles lie in one room: when a new one would go over, the
+## oldest disappears.
+@export var pebble_max_per_room: int = 120
+## Gravity on a pebble, px/s². Close to the gravel's 420: pebbles are stones.
+@export var pebble_gravity: float = 400.0
+## Speed a fresh pebble flies out at (min, max), px/s, along the gravel's direction.
+@export var pebble_spawn_speed_min: float = 20.0
+@export var pebble_spawn_speed_max: float = 60.0
+## Hitting the ground, a pebble keeps this much of its fall speed as a bounce...
+@export var pebble_bounce: float = 0.3
+## ...and bounces slower than this (px/s) just settle.
+@export var pebble_settle_speed: float = 25.0
+## Rolling on the ground, the sideways speed shrinks by e^(-friction × t).
+## 6.0 = a kicked pebble stops rolling after about half a second.
+@export var pebble_ground_friction: float = 6.0
+## Something moving at least this fast (px/s) kicks the pebbles at its feet.
+@export var pebble_kick_min_speed: float = 30.0
+## A kick throws a pebble up at (min, max) px/s, and sideways at this share of the
+## kicker's own speed (min, max).
+@export var pebble_kick_up_speed_min: float = 40.0
+@export var pebble_kick_up_speed_max: float = 90.0
+@export var pebble_kick_carry_min: float = 0.4
+@export var pebble_kick_carry_max: float = 1.0
+## Gusts reach pebbles this far from the gust's origin, px...
+@export var pebble_gust_reach: float = 48.0
+## ...and throw them at this share of the gust strength (pebbles are heavier than
+## leaves, so they fly less far).
+@export var pebble_gust_strength_scale: float = 0.6
+## In a wind zone a pebble is pulled toward this share of the wind speed (and floor
+## friction only slows it down to that speed): a sideways current rolls them along. (An updraft can't lift a stone:
+## gravity is much stronger than the wind.)
+@export var pebble_wind_speed_scale: float = 0.5
+## How quickly it reaches that speed, 1/s.
+@export var pebble_wind_grip: float = 4.0

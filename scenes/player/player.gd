@@ -129,7 +129,7 @@ func _physics_process(delta: float) -> void:
 	#    already zeroed velocity.y, so the impact speed is only known here.
 	var was_on_floor: bool = is_on_floor()
 	var fall_speed_before_move: float = velocity.y
-	move_and_slide()
+	_move_without_wall_floor_snap()
 	# 5) Landing = "not on the floor last frame, on it now". Checked here, in one
 	#    place, instead of in every state that can land (Fall, Glide, Dash...).
 	if not was_on_floor and is_on_floor() and not is_dead():
@@ -457,6 +457,36 @@ func get_wind_velocity() -> Vector2:
 
 # --- Floor -------------------------------------------------------------------
 
+## Floor normals must point at least this much "up" (dot with up_direction) to be
+## real ground. 0.7 ~ 45 degrees, the same test get_floor_body() uses.
+const MIN_FLOOR_NORMAL_UP: float = 0.7
+
+
+## move_and_slide(), but never let a WALL pass for our floor.
+## When we were on the floor last frame, move_and_slide() tries to keep us there:
+##  - floor snapping pulls us down by up to floor_snap_length (1 px), and
+##  - floor_block_on_wall (on by default) counts a wall that stops us as floor,
+##    so a body standing at a wall's foot doesn't climb it.
+## If the ground vanishes while we're pressed against a wall (teleported by a
+## respawn, or the earth tile under us torn out), both kick in with no ground
+## below: the wall becomes "our floor", normal (-1, 0), and we creep down it in Run
+## instead of falling. On Godot 4.4 the seam between two wall tiles broke this by
+## luck; since 4.5 TileMapLayer merges tiles into one collision shape, so nothing
+## did. Fix: when our "floor" doesn't face up, switch both off for this one move.
+func _move_without_wall_floor_snap() -> void:
+	var is_floor_a_wall: bool = is_on_floor() and get_floor_normal().dot(up_direction) < MIN_FLOOR_NORMAL_UP
+	if not is_floor_a_wall:
+		move_and_slide()
+		return
+	var normal_snap_length: float = floor_snap_length
+	var normal_block_on_wall: bool = floor_block_on_wall
+	floor_snap_length = 0.0
+	floor_block_on_wall = false
+	move_and_slide()
+	floor_snap_length = normal_snap_length
+	floor_block_on_wall = normal_block_on_wall
+
+
 ## The body we're standing on (a floor, crate, platform...), or null in the air.
 ## move_and_slide() records every contact it made last frame as a "slide collision";
 ## the floor is the one whose normal points up (the surface faces up_direction).
@@ -465,7 +495,7 @@ func get_floor_body() -> Object:
 		return null
 	for collision_index: int in get_slide_collision_count():
 		var collision: KinematicCollision2D = get_slide_collision(collision_index)
-		if collision.get_normal().dot(up_direction) > 0.7:
+		if collision.get_normal().dot(up_direction) > MIN_FLOOR_NORMAL_UP:
 			return collision.get_collider()
 	return null
 

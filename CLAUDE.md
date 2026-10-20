@@ -60,7 +60,8 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
 ## Running and checking
 - If the Godot MCP server is available, use it to run the project and read the debug output after changes.
 - Godot is not on PATH on this machine. Use the console build (prints to the terminal):
-  `D:\Godot_v4.4.1-stable_win64.exe\Godot_v4.4.1-stable_win64_console.exe` (v4.4.1). In the commands below, `godot` means this path.
+  `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe` (v4.7.2). In the commands below, `godot` means this path.
+  (The old 4.4.1 build is still at `D:\Godot_v4.4.1-stable_win64.exe\`, handy for "did this work before the upgrade?" checks.)
 - Node.js LTS is installed and the `godot` MCP server (`@coding-solo/godot-mcp`) is registered for this project (local scope); it needs a Claude Code restart to load its tools.
 - Otherwise, from the project folder:
   - `godot --headless --path . --import` — imports assets and surfaces parse errors in scripts

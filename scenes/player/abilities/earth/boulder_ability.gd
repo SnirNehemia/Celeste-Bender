@@ -109,7 +109,10 @@ func try_tear() -> bool:
 	source_face.layer.get_parent().add_child(boulder)
 	boulder.tore_free.connect(_on_held_boulder_tore_free.bind(boulder))
 	held_boulder = boulder
-	FX.spawn_gravel(source_face.get_global_center(), tuning.eruption_gravel_count, Vector2(source_face.normal))
+	# Pebble fraction 0: the pebbles go by the ground used (one tile), just below.
+	FX.spawn_gravel(source_face.get_global_center(), tuning.eruption_gravel_count, Vector2(source_face.normal), 0.0)
+	PebbleField.leave_pebbles_for_tiles(get_tree(), source_face.get_global_center(), 1,
+		Vector2(source_face.normal))
 	FX.shake(tuning.eruption_shake_strength, tuning.eruption_shake_time)
 	FX.play_sfx(&"earth_boulder")
 	return true
@@ -247,11 +250,16 @@ func _on_held_boulder_tore_free(boulder: Boulder) -> void:
 	var tuning: EarthTuning = player.earth_tuning
 	var layer: EarthLayer = held_source_face.layer
 	var block_center: Vector2 = Vector2.ZERO
+	var torn_count: int = 0
 	for cell: Vector2i in block:
-		layer.tear_out(cell)  # the source tile is already gone: tear_out skips it
+		# The source tile is already gone: tear_out skips it (returns false).
+		if layer.tear_out(cell):
+			torn_count += 1
 		block_center += layer.get_cell_global_center(cell) / block.size()
 	boulder.grow(block_center, tuning.big_rock_size)
-	FX.spawn_gravel(block_center, tuning.big_rock_grow_gravel_count, Vector2(held_source_face.normal))
+	# Pebbles by the ground used: the 3 extra tiles (the first one left its own).
+	FX.spawn_gravel(block_center, tuning.big_rock_grow_gravel_count, Vector2(held_source_face.normal), 0.0)
+	PebbleField.leave_pebbles_for_tiles(get_tree(), block_center, torn_count, Vector2(held_source_face.normal))
 	FX.shake(tuning.big_rock_grow_shake_strength, tuning.big_rock_grow_shake_time)
 	FX.play_sfx(&"earth_big_rock")
 

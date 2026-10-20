@@ -28,6 +28,8 @@ func erupt(face: EarthFace) -> void:
 	# A child of the ROOM (the earth layer's parent), not of the player: it stays in
 	# the world, and the room's reset removes it.
 	face.layer.get_parent().add_child(column)
-	FX.spawn_gravel(face.get_global_center(), tuning.eruption_gravel_count, Vector2(face.normal))
+	# Pebble fraction 0: the pebbles go by the ground used (one tile), just below.
+	FX.spawn_gravel(face.get_global_center(), tuning.eruption_gravel_count, Vector2(face.normal), 0.0)
+	PebbleField.leave_pebbles_for_tiles(get_tree(), face.get_global_center(), 1, Vector2(face.normal))
 	FX.shake(tuning.eruption_shake_strength, tuning.eruption_shake_time)
 	FX.play_sfx(&"earth_column")

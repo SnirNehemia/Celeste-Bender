@@ -9,7 +9,8 @@ extends Node
 ##   FX.flash_screen(Color.WHITE, 0.15) — full-screen flash that fades out
 ##   FX.set_menu_pause(true)  — pause for a menu (pause menu, F2 room picker)
 ##   FX.play_sfx(&"jump")     — the one place sounds will be played (Milestone 2)
-##   FX.spawn_gravel(pos, 6, Vector2.UP) — earth bits that pop out and fall (Earth chapter)
+##   FX.spawn_gravel(pos, 6, Vector2.UP) — earth bits that pop out and fall (Earth chapter),
+##                                         leaving a few pebbles on the ground
 ## without needing a reference to the camera or the scene tree.
 ##
 ## Who calls it: AirDashAbility, GustAbility, the GustAim state (slow motion);
@@ -135,10 +136,16 @@ func flash_screen(color: Color, duration: float) -> void:
 ## impacts. `direction` = ZERO sprays all around. Added to the current scene (the
 ## world), so the bits stay where they were made.
 ## They run on game time, so during a bend's slow motion they drift slowly too.
-func spawn_gravel(world_position: Vector2, amount: int, direction: Vector2) -> void:
+## The gravel fades, but some pebbles STAY (Stage E4d): the room's PebbleField adds
+## about amount × EarthTuning.pebbles_per_gravel × `pebble_fraction` of them.
+## Pass a smaller fraction (or 0) for effects that fire very often.
+func spawn_gravel(world_position: Vector2, amount: int, direction: Vector2,
+		pebble_fraction: float = 1.0) -> void:
 	var world: Node = get_tree().current_scene
 	if world == null or amount <= 0:
 		return
+	if pebble_fraction > 0.0:
+		PebbleField.leave_pebbles(get_tree(), world_position, amount, direction, pebble_fraction)
 	var gravel: CPUParticles2D = CPUParticles2D.new()
 	gravel.one_shot = true
 	gravel.explosiveness = 1.0  # all bits at once

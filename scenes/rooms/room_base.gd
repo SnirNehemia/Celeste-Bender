@@ -22,7 +22,8 @@ extends Node2D
 ## EarthLayer script (scenes/objects/earth/earth_layer.gd), painted with the earth
 ## tileset. It's solid like "Tiles", but each of its cells can be bent once.
 ## Rooms with an Earth layer also get a GroundPainter (made in _ready): it draws the
-## ground as lumpy, depth-shaded earth, turf and stone instead of tiles (Stage E4b).
+## ground as lumpy, depth-shaded earth, turf and stone instead of tiles (Stage E4b),
+## and a PebbleField (Stage E4d) for the pebbles earth bending leaves lying around.
 ##
 ## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
 ## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
@@ -60,6 +61,7 @@ func _ready() -> void:
 		_add_solid_block(rect)
 	if get_node_or_null("Earth") is EarthLayer:
 		_add_ground_painter()
+		_add_pebble_field()
 
 
 ## Adds the GroundPainter right after the tile layers, so it draws where the tiles
@@ -73,6 +75,15 @@ func _add_ground_painter() -> void:
 			last_layer_index = child.get_index()
 	add_child(painter)
 	move_child(painter, last_layer_index + 1)
+
+
+## Adds the room's PebbleField at the room's origin (its local coordinates are the
+## room's). Added last, so it draws over the ground; its z_index puts it in front of
+## the player's feet too.
+func _add_pebble_field() -> void:
+	var field: PebbleField = PebbleField.new()
+	field.name = "PebbleField"
+	add_child(field)
 
 
 ## The room's rectangle in world coordinates.
