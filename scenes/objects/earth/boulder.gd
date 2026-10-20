@@ -16,15 +16,17 @@ extends CharacterBody2D
 ##                 player's head) and drifts AWAY from the player (from a wall: away
 ##                 from the wall, faster), under gravity
 ##              3. lands with a thud and RESTS for boulder_land_rest_time, then
-##                 crumbles. (Hits a wall on the way: slides down it.)
+##                 settles as a LOOSE rock. (Hits a wall on the way: slides down it.)
 ##            PERFECT WINDOW: the moment the rock's middle comes back DOWN level
 ##            with the player's middle (± boulder_perfect_window; on the way up it
 ##            doesn't count, changed after the E4a play-test). Worked out in advance
 ##            from the hop's math (get_perfect_time); the player is rooted, so it holds.
 ##            The rest after landing is what keeps the way-down window open: a floor
 ##            rock lands almost exactly at the player's middle height.
-##            Never thrown = it crumbles after the rest, or when boulder_hold_time
-##            runs out. A rock the player let go of (drop()) shatters when it lands.
+##            Never thrown (the rest ran out, boulder_hold_time ran out, or the player
+##            let go with Jump, drop()) = it settles as a LOOSE rock once it's down.
+##            LIFTED (lift(), Stage E4c3): a loose rock jumps straight into step 2,
+##            exactly like a fresh rock out of its hole.
 ##   FLYING   thrown. Flies straight for float_time_remaining (no gravity), then falls.
 ##            On impact:
 ##              - an EARTH face (the "Earth" layer, fresh or used): STUCK
@@ -35,6 +37,10 @@ extends CharacterBody2D
 ##            one-tile block on physics layer 1 ("world"), so you stand on it and wall-jump off
 ##            it. It tells the EarthLayer which cells it fills (like a risen column),
 ##            so the bend shadow crawls over it and you can start a bend standing on it.
+##   LOOSE    (Stage E4c3) lying on the ground, never thrown: solid ("world", you can
+##            stand on it), falls if the ground under it goes. Pressing S next to it
+##            lifts it again (BoulderAbility, lift()): back to POPPING, no earth used.
+##            At most loose_rock_max_per_room per room: the oldest crumbles.
 ##   SHATTERED a gravel burst, then the node is freed.
 ##
 ## Created by BoulderAbility.try_tear(): Boulder.new(), setup(), then added as a child of
@@ -50,7 +56,11 @@ extends CharacterBody2D
 ## Origin: the CENTER of the boulder (unlike the player and crates, whose origin is at
 ## the feet), since it pops and flies in every direction.
 
-enum Phase { POPPING, FLYING, STUCK, SHATTERED }
+enum Phase { POPPING, FLYING, STUCK, LOOSE, SHATTERED }
+
+## Physics layer bit value of the player (layer 2): a rock doesn't turn solid while
+## overlapping them.
+const PLAYER_MASK: int = 2
 
 ## The tear phase is over: the rock is out of its hole and about to hop. BoulderAbility
 ## listens: if S is still held, it grows the rock right then (grow()).
@@ -111,6 +121,11 @@ var flight_time: float = 0.0
 var perfect_flash_remaining: float = 0.0
 ## STUCK: the EarthLayer we registered our cells with (to unregister on reset).
 var stuck_layer: EarthLayer = null
+## LOOSE: the order it settled in (higher = newer), so the oldest crumbles first.
+var loose_order: int = 0
+## Shared by every boulder: the next loose_order to hand out. `static` = one value for
+## the whole class, like a Python class attribute.
+static var next_loose_order: int = 0
 
 var hitbox: CollisionShape2D
 
@@ -182,6 +197,11 @@ func is_big() -> bool:
 	return size > earth_tuning.boulder_size
 
 
+## True while lying loose on the ground (can be lifted again).
+func is_loose() -> bool:
+	return phase == Phase.LOOSE
+
+
 ## True while the player can still throw it.
 func is_throwable() -> bool:
 	return phase == Phase.POPPING and not is_dropped \
@@ -228,10 +248,31 @@ func grow(new_center: Vector2, new_size: float) -> void:
 	queue_redraw()
 
 
-## The player let go without throwing: it shatters when it lands (or right away if
-## it already has).
+## The player let go without throwing: it settles as a loose rock once it's down.
 func drop() -> void:
 	is_dropped = true
+
+
+## Lifts a LOOSE rock again (BoulderAbility, Stage E4c3): it hops exactly like a rock
+## just out of its hole. `away_velocity_x` and `player_middle_y` as in setup().
+func lift(away_velocity_x: float, player_middle_y: float) -> void:
+	if phase != Phase.LOOSE:
+		return
+	phase = Phase.POPPING
+	collision_layer = 0  # moving again: nothing collides with it
+	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * (size - MOVING_HITBOX_INSET * 2.0)
+	# Pretend it just came out of a hole right under where it lies, so the hop and the
+	# perfect-window math (get_perfect_time) work unchanged.
+	pop_normal = Vector2.UP
+	pop_start_position = global_position + Vector2.DOWN * size
+	hop_velocity_x = away_velocity_x
+	player_center_y = player_middle_y
+	pop_elapsed = earth_tuning.boulder_tear_time
+	perfect_time = get_perfect_time()
+	is_resting = false
+	is_dropped = false
+	_start_hop()
+	set_physics_process(true)
 
 
 # --- Movement ------------------------------------------------------------------------
@@ -243,16 +284,16 @@ func _physics_process(delta: float) -> void:
 			_update_pop(delta)
 		Phase.FLYING:
 			_update_flight(delta)
+		Phase.LOOSE:
+			_update_loose(delta)
 	queue_redraw()  # the white flash and the window tint change over time
 
 
-## The pop: tear, hop, land and rest (see the header). Not thrown in time = shatter.
+## The pop: tear, hop, land and rest (see the header). Not thrown = loose once down.
 func _update_pop(delta: float) -> void:
 	pop_elapsed += delta
 	var tear_time: float = maxf(earth_tuning.boulder_tear_time, 0.001)
-	if pop_elapsed >= earth_tuning.boulder_hold_time:
-		shatter()  # never thrown: "drops and shatters" (Earth_bending.md §6)
-	elif not is_hopping:
+	if not is_hopping:
 		# 1) Tear: slowly out of the hole, one tile along the normal. A straight
 		#    line; the rumble is only drawn (see _draw).
 		var progress: float = minf(pop_elapsed / tear_time, 1.0)
@@ -264,16 +305,18 @@ func _update_pop(delta: float) -> void:
 			if pop_elapsed >= tear_time:
 				_start_hop()
 	elif is_resting:
-		# 3) Landed: rest a moment (still throwable), then crumble.
+		# 3) Landed: rest a moment (still throwable), then lie there loose.
 		rest_remaining -= delta
-		if rest_remaining <= 0.0 or is_dropped:
-			shatter()
+		if rest_remaining <= 0.0 or not is_throwable():
+			_settle()
 	else:
 		# 2) Hop: a small jump under gravity, drifting away from the player.
 		velocity.y = move_toward(velocity.y, earth_tuning.boulder_max_fall_speed, earth_tuning.boulder_gravity * delta)
 		var collision: KinematicCollision2D = move_and_collide(velocity * delta)
 		if collision != null:
 			_on_pop_contact(collision)
+		elif pop_elapsed >= earth_tuning.boulder_hold_time + earth_tuning.boulder_max_flight_time:
+			shatter()  # fell out of the room (a pit): don't fall forever
 
 
 ## Out of the ground: the hop starts, with a little burst of gravel from the hole.
@@ -288,8 +331,8 @@ func _start_hop() -> void:
 func _on_pop_contact(collision: KinematicCollision2D) -> void:
 	var surface_normal: Vector2 = collision.get_normal()
 	if surface_normal.y < -0.7:
-		if is_dropped:
-			shatter()
+		if not is_throwable():
+			_settle()  # let go of, or out of hold time: no rest, just lie there
 			return
 		is_resting = true
 		rest_remaining = earth_tuning.boulder_land_rest_time
@@ -298,6 +341,57 @@ func _on_pop_contact(collision: KinematicCollision2D) -> void:
 		FX.play_sfx(&"boulder_land")
 	else:
 		velocity = velocity.slide(surface_normal)
+
+
+## Down and never thrown: becomes a LOOSE rock (see the header).
+func _settle() -> void:
+	phase = Phase.LOOSE
+	is_resting = false
+	velocity = Vector2.ZERO
+	loose_order = next_loose_order
+	next_loose_order += 1
+	_crumble_oldest_loose_rocks()
+
+
+## Lying loose: solid once the player isn't overlapping it (it was passing through
+## them while it moved), and falling if nothing holds it up.
+func _update_loose(delta: float) -> void:
+	if collision_layer == 0 and not _overlaps_player():
+		collision_layer = 1  # solid "world": standable
+		(hitbox.shape as RectangleShape2D).size = Vector2.ONE * size
+	# test_move: "would moving this little bit down hit something?" without moving.
+	if test_move(global_transform, Vector2.DOWN * 0.5):
+		velocity = Vector2.ZERO
+		return
+	velocity.y = move_toward(velocity.y, earth_tuning.boulder_max_fall_speed, earth_tuning.boulder_gravity * delta)
+	var collision: KinematicCollision2D = move_and_collide(velocity * delta)
+	if collision != null and collision.get_normal().y < -0.7:
+		velocity = Vector2.ZERO
+
+
+## True if the player's body overlaps this rock right now.
+func _overlaps_player() -> bool:
+	var check_shape: RectangleShape2D = RectangleShape2D.new()
+	check_shape.size = Vector2.ONE * size
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = check_shape
+	query.transform = Transform2D(0.0, global_position)
+	query.collision_mask = PLAYER_MASK
+	query.collide_with_areas = false
+	return not get_world_2d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+
+## Keeps at most loose_rock_max_per_room loose rocks in our room (our parent): the
+## oldest ones crumble.
+func _crumble_oldest_loose_rocks() -> void:
+	var loose_rocks: Array[Boulder] = []
+	for sibling: Node in get_parent().get_children():
+		var rock: Boulder = sibling as Boulder
+		if rock != null and rock.is_loose():
+			loose_rocks.append(rock)
+	loose_rocks.sort_custom(func(a: Boulder, b: Boulder) -> bool: return a.loose_order < b.loose_order)
+	while loose_rocks.size() > earth_tuning.loose_rock_max_per_room:
+		loose_rocks.pop_front().shatter()
 
 
 ## Thrown: straight while floating, then gravity. Reacts to the first thing it hits.

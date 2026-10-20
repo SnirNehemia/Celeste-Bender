@@ -34,6 +34,10 @@ extends Node
 ## The charge is tracked here (is_charging): BoulderHold calls stop_charging() as soon
 ## as S is up.
 ##
+## LOOSE ROCKS (Stage E4c3): a rock that comes down without being thrown lies there
+## (Boulder's LOOSE phase). Pressing S next to one lifts it again (_lift): it hops like
+## a fresh rock, perfect window and all, and no earth is used.
+##
 ## Only the rock being HELD is tracked here: a thrown one flies on by itself, so you
 ## can tear the next one while the last is still in the air.
 ##
@@ -72,7 +76,13 @@ func is_holding() -> bool:
 ## Tears a rock out of the tile ahead of the feet, if there's one that fits. Returns
 ## true if it did (the caller then switches to BoulderHold). Called by
 ## player.try_tear_rock() on the frame S is pressed.
+## A LOOSE rock next to the player comes first (Stage E4c3): it's lifted instead, and
+## no earth is used. That works anywhere, not only on earth.
 func try_tear() -> bool:
+	var loose_rock: Boulder = _find_loose_rock_in_reach()
+	if loose_rock != null:
+		_lift(loose_rock)
+		return true
 	var start_face: EarthFace = player.earth_bend.find_start_surface()
 	if start_face == null:
 		return false
@@ -140,7 +150,7 @@ func throw(direction: Vector2) -> void:
 	held_boulder = null
 
 
-## The player lets go without throwing (Jump): the rock shatters when it lands.
+## The player lets go without throwing (Jump): the rock lies loose once it lands.
 func let_go() -> void:
 	if is_instance_valid(held_boulder):
 		held_boulder.drop()
@@ -174,6 +184,47 @@ func _pick_source_face(start_face: EarthFace) -> Array:
 	if not second_ahead.is_empty() and _does_face_fit(second_ahead[0]):
 		return second_ahead
 	return []
+
+
+# --- Loose rocks (Stage E4c3) ----------------------------------------------------
+
+## The nearest loose rock beside the player (within loose_rock_lift_reach of their
+## sides, level with their body), or null. Not one they stand on: lifting that would
+## pull the ground from under their feet.
+func _find_loose_rock_in_reach() -> Boulder:
+	var reach: float = player.earth_tuning.loose_rock_lift_reach
+	# grow_individual(left, top, right, bottom): wider on both sides, and 1 px short
+	# at the bottom so a rock under the feet doesn't count.
+	var reach_rect: Rect2 = player.get_hitbox_rect().grow_individual(reach, 0.0, reach, -1.0)
+	var nearest: Boulder = null
+	var nearest_distance: float = INF
+	for node: Node in get_tree().get_nodes_in_group(Boulder.GROUP):
+		var rock: Boulder = node as Boulder
+		if rock == null or not rock.is_loose():
+			continue
+		var rock_rect: Rect2 = Rect2(rock.global_position - Vector2.ONE * rock.size / 2.0, Vector2.ONE * rock.size)
+		if not reach_rect.intersects(rock_rect):
+			continue
+		var distance: float = rock.global_position.distance_to(player.get_center())
+		if distance < nearest_distance:
+			nearest = rock
+			nearest_distance = distance
+	return nearest
+
+
+## Lifts `rock` off the ground: it hops away from the player like a fresh rock, and
+## we hold it (BoulderHold) until the throw.
+func _lift(rock: Boulder) -> void:
+	var tuning: EarthTuning = player.earth_tuning
+	held_wall_direction = 0.0
+	held_source_face = null
+	is_charging = false  # a lifted rock never grows
+	var offset_x: float = rock.global_position.x - player.get_center().x
+	var away_x: float = signf(offset_x) if absf(offset_x) >= 1.0 else player.facing_direction
+	rock.lift(away_x * tuning.boulder_hop_away_speed, player.get_center().y)
+	held_boulder = rock
+	FX.spawn_gravel(rock.global_position + Vector2.DOWN * rock.size / 2.0, 3, Vector2.UP)
+	FX.play_sfx(&"boulder_lift")
 
 
 # --- Big rock (Stage E4c2) -------------------------------------------------------

@@ -12,9 +12,9 @@ extends PlayerState
 ##   - S pressed again -> BoulderAbility.throw(), away from the player
 ##     (BoulderAbility.get_throw_direction: the arrows, 8 directions, or toward the
 ##     rock's side with none; never into the wall you're on)
-##   - the rock can't be thrown any more (it crumbled, or boulder_hold_time ran
+##   - the rock can't be thrown any more (it settled loose, or boulder_hold_time ran
 ##     out) -> just leave
-##   - Jump -> let go: the rock shatters when it lands, and the press is spent (no
+##   - Jump -> let go: the rock lies loose once it lands, and the press is spent (no
 ##     jump), like cancelling a bend
 ##   - death (Dead state) -> exit() lets go too
 

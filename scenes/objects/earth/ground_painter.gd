@@ -30,7 +30,8 @@ extends Node2D
 ##        edge line a 1 px darker line where the crust ends
 ##        inside    a dark saturated shade of the kind, with diagonal hatch stripes,
 ##                  darkening to almost black a few px further in
-##      plus a few FLECKS: tiny crumbs floating just above top surfaces.
+##      (There used to be FLECKS, crumbs floating above top surfaces: removed after
+##      play-testing, they read as stray pixels. E4d's pebbles do that job.)
 ## EARTH STATES (used: darker plus crack lines, hardened: grayer, shivering: flicker)
 ## are drawn on a child OVERLAY: each such tile's 8x8 piece of the picture again,
 ## tinted by EarthLayer.get_cell_modulate(). Only the overlay redraws while a bend
@@ -64,8 +65,6 @@ const INSIDE_FADE_DEPTH: float = 10.0
 ## hidden chamber opening up in it (Stage E4c) stands out. The hatch stays faintly
 ## visible.
 const INSIDE_DEEPEST_BRIGHTNESS: float = 0.12
-## Chance (0..1) that a top-surface pixel column gets a fleck floating above it.
-const FLECK_CHANCE: float = 0.05
 ## Chance (0..1) that a 2 px stretch of an exposed side is dented 1 px in...
 const EDGE_DENT_CHANCE: float = 0.35
 ## ...and 2 px in. Never 2 on TOP surfaces: feet would look like they float.
@@ -449,17 +448,6 @@ func _paint(region: Rect2i) -> void:
 	for y: int in range(region.position.y, region.end.y):
 		for x: int in range(region.position.x, region.end.x):
 			image.set_pixel(x, y, _get_pixel_color(x, y))
-	# Flecks: tiny crumbs 2-3 px above top surfaces (only where it's open air).
-	for x: int in range(region.position.x, region.end.x):
-		for y: int in range(maxi(region.position.y, 3), region.end.y):
-			var index: int = y * width + x
-			if pixel_kinds[index] == Kind.AIR or pixel_kinds[index - width] != Kind.AIR:
-				continue  # not a top-surface pixel
-			if hash(Vector2i(x, y)) % 1000 >= int(FLECK_CHANCE * 1000.0):
-				continue
-			var lift: int = 2 + hash(Vector2i(y, x)) % 2
-			if pixel_kinds[index - width * lift] == Kind.AIR and pixel_kinds[index - width * (lift - 1)] == Kind.AIR:
-				image.set_pixel(x, y - lift, PALETTE[pixel_kinds[index]][0])
 
 
 ## One pixel's color (see the header, step 3).

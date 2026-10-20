@@ -31,6 +31,7 @@ func _ready() -> void:
 	await _check_e4b_ground(world)
 	await _check_e4c_hidden(world, player)
 	await _check_e4c2_big_rock(world, player)
+	await _check_e4c3_loose_rocks(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -39,7 +40,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -439,8 +440,8 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 	_check(is_instance_valid(boulder) and boulder.is_resting and boulder.is_throwable(), "an un-thrown rock lands and rests, still throwable")
 	_check(player.velocity == Vector2.ZERO, "the player stays rooted while holding")
 	await _wait_game(tuning.boulder_land_rest_time + 0.1)
-	_check(not is_instance_valid(boulder), "an un-thrown rock crumbles after its rest")
-	_check(player.state_machine.current_state.name == &"Idle", "the player is free once the rock is gone, standing (state %s)" % player.state_machine.current_state.name)
+	_check(is_instance_valid(boulder) and boulder.is_loose(), "an un-thrown rock lies loose after its rest (E4c3)")
+	_check(player.state_machine.current_state.name == &"Idle", "the player is free once the rock is down, standing (state %s)" % player.state_machine.current_state.name)
 	room.reset_objects()
 	await _wait_physics_frames(2)
 
@@ -538,7 +539,7 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 	await _wait_physics_frames(2)
 
-	# Jump lets go: no jump, and the rock shatters when it lands.
+	# Jump lets go: no jump, and the rock lies loose once it lands (E4c3).
 	boulder = await _rip_boulder(player)
 	await _press_action("jump")
 	_check(player.state_machine.current_state.name != &"BoulderHold" and player.velocity.y >= 0.0,
@@ -546,7 +547,7 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 			player.velocity, "none" if boulder == null else ("gone" if not is_instance_valid(boulder) else "dropped %s" % boulder.is_dropped)])
 	_check(not is_instance_valid(boulder) or boulder.is_dropped, "the let-go rock is dropped")
 	await _wait_game(0.8)
-	_check(not is_instance_valid(boulder), "the let-go rock shatters when it lands")
+	_check(is_instance_valid(boulder) and boulder.is_loose(), "the let-go rock lies loose once it lands")
 
 	# Digging: in the thick earth (columns 6-11), tear the tile ahead, then from the
 	# same spot the one under it. Never the tile under the feet.
@@ -558,7 +559,7 @@ func _check_e4_boulder(world: RoomManager, player: Player) -> void:
 	_check(boulder != null and not earth.is_earth(Vector2i(8, 20)), "dig: the first rock tears out (8, 20)")
 	_check(earth.is_face_exposed(Vector2i(8, 21), Vector2i.UP) and earth.is_fresh(Vector2i(8, 21)),
 		"dig: the earth under the hole is exposed and fresh")
-	await _wait_game(tuning.boulder_hold_time + 0.2)  # let it crumble
+	await _wait_game(tuning.boulder_hold_time + 0.2)  # let it settle
 	boulder = await _rip_boulder(player)
 	_check(boulder != null and not earth.is_earth(Vector2i(8, 21)), "dig: the second rock tears out the hole's bottom (8, 21)")
 	_check(earth.is_fresh(Vector2i(7, 20)), "dig: the tile under the feet (beside the hole) is never torn")
@@ -843,6 +844,85 @@ func _check_e4c2_big_rock(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 	await _wait_physics_frames(2)
 	finished_sections.append("E4c2")
+
+
+## Stage E4c3: loose rocks, in RoomEarthC (floor surface row 20, y 160).
+func _check_e4c3_loose_rocks(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+	player.respawn_at(room.global_position + Vector2(14 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+
+	# Not thrown: it lands and lies there, solid.
+	var rock: Boulder = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_loose(), tuning.boulder_hold_time + 0.5)
+	_check(is_instance_valid(rock) and rock.is_loose(), "an un-thrown rock lies loose")
+	if not is_instance_valid(rock) or not rock.is_loose():
+		return
+	await _wait_physics_frames(2)
+	_check(rock.collision_layer == 1, "a loose rock is solid")
+	_check(player.state_machine.current_state.name != &"BoulderHold", "the player is free while the rock lies there")
+
+	# S right next to it lifts it: no new earth torn, and it hops like a fresh rock.
+	var rock_left_edge: float = rock.global_position.x - rock.size / 2.0
+	player.respawn_at(Vector2(rock_left_edge - 4.0 - 2.0, room.global_position.y + 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var torn_before: int = earth.torn_cells.size()
+	await _press_action("earth_boulder")
+	_check(player.boulder.held_boulder == rock and rock.phase == Boulder.Phase.POPPING and rock.is_hopping,
+		"S next to a loose rock lifts it (state %s)" % player.state_machine.current_state.name)
+	_check(earth.torn_cells.size() == torn_before, "lifting uses no earth")
+	_check(player.state_machine.current_state.name == &"BoulderHold", "the player holds the lifted rock")
+	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_in_perfect_window(), 1.0)
+	_check(is_instance_valid(rock) and rock.is_in_perfect_window(), "a lifted rock has the perfect window")
+	await _press_action("earth_boulder")
+	_check(is_instance_valid(rock) and rock.phase == Boulder.Phase.FLYING, "a lifted rock can be thrown")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# A loose rock is a step: stand on it. S on top of it doesn't lift it.
+	rock = await _rip_boulder(player)
+	await _press_action("jump")  # let go: it lies loose once it lands
+	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_loose(), 1.5)
+	await _wait_physics_frames(2)
+	if is_instance_valid(rock) and rock.is_loose():
+		var rock_top: float = rock.global_position.y - rock.size / 2.0
+		player.respawn_at(Vector2(rock.global_position.x, rock_top - 1.0))
+		await _wait_game(0.3)
+		_check(player.is_on_floor() and absf(player.global_position.y - rock_top) < 1.0,
+			"the player stands on a loose rock (feet %.1f, rock top %.1f)" % [player.global_position.y, rock_top])
+		await _press_action("earth_boulder")
+		_check(is_instance_valid(rock) and rock.is_loose(), "S standing on a loose rock doesn't lift it from under the feet")
+	else:
+		_check(false, "test setup: a let-go rock lies loose")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	_check(_find_boulders(room).is_empty(), "room reset clears loose rocks")
+
+	# At most loose_rock_max_per_room: the oldest crumbles. Rocks dropped from the air
+	# over the floor, away from the player.
+	var rocks: Array[Boulder] = []
+	for rock_index: int in tuning.loose_rock_max_per_room + 1:
+		var dropped: Boulder = Boulder.new()
+		dropped.setup(room.global_position + Vector2((20 + rock_index * 2) * 8 + 4, 140), Vector2.UP, 0.0, 0.0, tuning)
+		room.add_child(dropped)
+		dropped.drop()
+		rocks.append(dropped)
+		await _wait_game(0.15)  # one after another, so they settle in order
+	await _wait_game(1.0)
+	var loose_count: int = 0
+	for dropped: Boulder in rocks:
+		if is_instance_valid(dropped) and dropped.is_loose():
+			loose_count += 1
+	_check(loose_count == tuning.loose_rock_max_per_room and not is_instance_valid(rocks[0]),
+		"at most %d loose rocks per room, the oldest crumbles (%d loose)" % [tuning.loose_rock_max_per_room, loose_count])
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("E4c3")
 
 
 ## HOLDS S through the rock's tear (a big rock, Stage E4c2), then lets go. Returns the

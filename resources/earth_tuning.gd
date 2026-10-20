@@ -138,6 +138,15 @@ extends Resource
 ## this long, seconds.
 @export var boulder_max_flight_time: float = 3.0
 
+@export_group("Loose rocks")
+## A rock that comes down without being thrown lies there as a LOOSE rock (Stage
+## E4c3): solid, standable, and S next to it lifts it again. At most this many per
+## room: the oldest crumbles.
+@export var loose_rock_max_per_room: int = 3
+## "Next to": a loose rock within this many px of the player's sides (and level with
+## their body, not under their feet) can be lifted.
+@export var loose_rock_lift_reach: float = 6.0
+
 @export_group("Big rock (hold S)")
 ## Holding S until the rock is out of its hole (boulder_tear_time) grows it into a big
 ## rock this size, px (Stage E4c2): 2x2 tiles, torn out of a 2x2 block.
