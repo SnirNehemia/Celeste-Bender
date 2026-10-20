@@ -59,7 +59,12 @@ func describe() -> String:
 	elif normal == Vector2i.DOWN:
 		surface_name = "ceiling"
 	if layer.is_column(cell):
-		# A risen column or a stuck boulder (both register their cells as "column").
-		var creation_name: String = "boulder " if layer.column_cells[cell] is Boulder else "pillar "
+		# A risen column, a stuck boulder or a snake (all register their cells as "column").
+		var creation: Node = layer.column_cells[cell]
+		var creation_name: String = "pillar "
+		if creation is Boulder:
+			creation_name = "boulder "
+		elif creation is EarthSnake:
+			creation_name = "snake "
 		surface_name = creation_name + surface_name
 	return "%s (%d, %d)" % [surface_name, cell.x, cell.y]

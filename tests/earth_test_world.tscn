@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_manager"]
 [ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="2_camera"]
@@ -10,9 +10,11 @@
 [ext_resource type="PackedScene" path="res://tests/rooms/room_earth_b.tscn" id="8_room_earth_b"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_earth_c.tscn" id="9_room_earth_c"]
 [ext_resource type="PackedScene" path="res://tests/rooms/room_earth_d.tscn" id="10_room_earth_d"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_earth_e.tscn" id="11_room_earth_e"]
+[ext_resource type="PackedScene" path="res://tests/rooms/room_earth_f.tscn" id="12_room_earth_f"]
 
 [node name="EarthTestWorld" type="Node2D" node_paths=PackedStringArray("player", "camera")]
-editor_description = "Earth chapter test rooms (Stages E1+): A = ground and shadow, B = columns, C = boulders, D = hidden chambers (F2 to switch). Run this scene with F6 in the editor, or: godot --path . res://tests/earth_test_world.tscn"
+editor_description = "Earth chapter test rooms (Stages E1+): A = ground and shadow, B = columns, C = boulders, D = hidden chambers, E = snake, F = one-key column/snake (F2 to switch). Run this scene with F6 in the editor, or: godot --path . res://tests/earth_test_world.tscn"
 script = ExtResource("1_manager")
 player = NodePath("Player")
 camera = NodePath("RoomCamera")
@@ -27,6 +29,12 @@ position = Vector2(640, 0)
 
 [node name="RoomEarthD" parent="." instance=ExtResource("10_room_earth_d")]
 position = Vector2(960, 0)
+
+[node name="RoomEarthE" parent="." instance=ExtResource("11_room_earth_e")]
+position = Vector2(1280, 0)
+
+[node name="RoomEarthF" parent="." instance=ExtResource("12_room_earth_f")]
+position = Vector2(1600, 0)
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 position = Vector2(24, 160)

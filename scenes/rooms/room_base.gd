@@ -52,6 +52,11 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 @export var air_allowed: bool = true
 ## Earth: column, boulder and snake.
 @export var earth_allowed: bool = true
+## EXPERIMENT (after Stage E5): one key for column AND snake in this room. A's quick
+## tap (released while the shadow is still under the feet) raises a column under you;
+## once the shadow has crawled off, releasing A brings a SNAKE out instead of a column.
+## D still makes snakes. EarthTuning.one_key_column_snake turns it on everywhere.
+@export var one_key_column_snake: bool = false
 
 @onready var spawn_point: Marker2D = $SpawnPoint
 

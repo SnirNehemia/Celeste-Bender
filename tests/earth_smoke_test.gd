@@ -8,6 +8,7 @@ extends Node
 const WORLD_SCENE: PackedScene = preload("res://tests/earth_test_world.tscn")
 const MIXED_WORLD_SCENE: PackedScene = preload("res://tests/mixed_test_world.tscn")
 const WIND_ZONE_SCENE: PackedScene = preload("res://scenes/objects/wind_zone.tscn")
+const CRATE_SCENE: PackedScene = preload("res://scenes/objects/crate.tscn")
 
 var failures: int = 0
 ## Names of the check sections that ran to their end. A script error inside a
@@ -25,8 +26,12 @@ func _ready() -> void:
 	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
 
 	await _check_e1_earth_ground(player, room, earth)
+	# E2 and E3 test the bend and the column AT THE SHADOW with long A bends. With one
+	# key (the default since E5) those would be snakes, so it's off for these two.
+	player.earth_tuning.one_key_column_snake = false
 	await _check_e2_bend_core(player, room, earth)
 	await _check_e3_column(world, player)
+	player.earth_tuning.one_key_column_snake = true
 	await _check_e4_boulder(world, player)
 	await _check_e4b_ground(world)
 	await _check_e4c_hidden(world, player)
@@ -34,6 +39,8 @@ func _ready() -> void:
 	await _check_e4c3_loose_rocks(world, player)
 	await _check_e4d_pebbles(world, player)
 	await _check_e4e_rock_pillar_look(world, player)
+	await _check_e5_snake(world, player)
+	await _check_one_key_column_snake(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -42,7 +49,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "E5", "one-key", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -978,12 +985,24 @@ func _check_e4d_pebbles(world: RoomManager, player: Player) -> void:
 	# A gust blows the ones near its origin away along the gust.
 	player.respawn_at(room.global_position + Vector2(8 * 8, 160))  # out of the way
 	await _wait_physics_frames(3)
-	var before_gust: float = _average_x(field.pebble_positions)
-	var gust_origin: Vector2 = room.to_global(Vector2(_min_x(field.pebble_positions) - 8.0, 156))
-	field.receive_gust_from(Vector2.RIGHT, 260.0, gust_origin)
+	# Blown LEFT, from just right of the pebbles: the run above kicks them right, often
+	# up against the earth wall at x 224, where a rightward gust has no room to move
+	# them. Only pebbles within the gust's reach of its origin are measured (ones past
+	# it rightly don't move).
+	var rightmost_x: float = -INF
+	for point: Vector2 in field.pebble_positions:
+		rightmost_x = maxf(rightmost_x, point.x)
+	var gust_origin_local: Vector2 = Vector2(rightmost_x + 8.0, 156)
+	var reached_indices: Array[int] = []
+	for pebble_index: int in field.pebble_positions.size():
+		if field.pebble_positions[pebble_index].distance_to(gust_origin_local) <= tuning.pebble_gust_reach:
+			reached_indices.append(pebble_index)
+	var before_gust: float = _average_x_of(field.pebble_positions, reached_indices)
+	field.receive_gust_from(Vector2.LEFT, 260.0, room.to_global(gust_origin_local))
 	await _wait_game(1.0)
-	_check(_average_x(field.pebble_positions) > before_gust + 4.0,
-		"a gust blows pebbles away (average x %.1f -> %.1f)" % [before_gust, _average_x(field.pebble_positions)])
+	var after_gust: float = _average_x_of(field.pebble_positions, reached_indices)
+	_check(not reached_indices.is_empty() and after_gust < before_gust - 4.0,
+		"a gust blows pebbles away (%d in reach, average x %.1f -> %.1f)" % [reached_indices.size(), before_gust, after_gust])
 
 	# A sideways wind zone rolls them along the floor.
 	room.reset_objects()
@@ -1093,6 +1112,269 @@ func _check_e4e_rock_pillar_look(world: RoomManager, player: Player) -> void:
 	finished_sections.append("E4e")
 
 
+## Stage E5: the Earth Snake. Room E: an earth patch at columns 8-13 (rows 20-21, 12
+## tiles), a spike pit at columns 14-21, grass beyond, a sentry on the right.
+func _check_e5_snake(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthE") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var sentry: Sentry = room.get_node("Sentry") as Sentry
+	sentry.can_fire = false  # no orbs until the wall check at the end
+	world.jump_to_room(room)
+	var near_wall_cell: Vector2i = Vector2i(13, 20)
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+
+	# The bridge: a long A bend, shadow down the pit's near wall, release, no steering.
+	var snake: EarthSnake = await _bend_snake_at(player, near_wall_cell, Vector2i.RIGHT)
+	_check(snake != null and player.state_machine.current_state.name == &"SnakeSteer",
+		"releasing a long A bend brings a snake out and the player steers it (state %s)" % player.state_machine.current_state.name)
+	if snake == null:
+		return
+	_check(snake.segment_cells[0] == near_wall_cell + Vector2i.RIGHT and not earth.is_fresh(near_wall_cell),
+		"the snake comes out of the wall sideways, using the wall's own tile first")
+	await _wait_until(func() -> bool: return not snake.is_moving(), 2.0)
+	_check(snake.harden_reason == "solid" and snake.segment_cells.size() == 8,
+		"unsteered it runs straight across and hardens against the far side (%s, %d tiles)" % [snake.harden_reason, snake.segment_cells.size()])
+	await _wait_physics_frames(2)
+	_check(player.state_machine.current_state.name != &"SnakeSteer", "the player is free once it hardens")
+	# The patch darkened outward from the emergence point, one tile per snake tile.
+	var spent: Array = earth.used_fade_progress.keys()  # in the order they were used
+	var outward: bool = spent.size() == snake.segment_cells.size()
+	for spent_index: int in range(1, spent.size()):
+		var previous_distance: int = absi(spent[spent_index - 1].x - near_wall_cell.x) + absi(spent[spent_index - 1].y - near_wall_cell.y)
+		var distance: int = absi(spent[spent_index].x - near_wall_cell.x) + absi(spent[spent_index].y - near_wall_cell.y)
+		outward = outward and distance >= previous_distance
+	_check(outward and spent[0] == near_wall_cell, "one patch tile per snake tile, darkening outward (%d used)" % spent.size())
+	# It's a bridge: stand on it. And a bend can start from it.
+	player.respawn_at(room.global_position + Vector2(17 * 8 + 4, 159))
+	await _wait_game(0.3)
+	_check(player.is_on_floor() and absf(player.global_position.y - (room.global_position.y + 160)) < 0.5 and not player.is_dead(),
+		"the hardened snake is a bridge you stand on (feet y %.1f)" % player.global_position.y)
+	_check(player.earth_bend.find_start_surface() != null and player.earth_bend.describe_contact().begins_with("snake floor"),
+		"standing on a snake is a bend start (%s)" % player.earth_bend.describe_contact())
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	_check(_find_snakes(room).is_empty() and earth.is_fresh(near_wall_cell), "room reset removes the snake and puts the earth back")
+
+	# A again hardens it at once.
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	snake = await _bend_snake_at(player, near_wall_cell, Vector2i.RIGHT)
+	await _press_action("earth_column")
+	_check(snake != null and snake.harden_reason == "key" and snake.segment_cells.size() < 8,
+		"pressing A again hardens it early (%d tiles)" % (snake.segment_cells.size() if snake != null else 0))
+	await _wait_physics_frames(2)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Jump hardens it too, and doesn't jump.
+	snake = await _bend_snake_at(player, near_wall_cell, Vector2i.RIGHT)
+	await _press_action("jump")
+	await _wait_physics_frames(2)
+	_check(snake != null and snake.harden_reason == "key" and player.is_on_floor(),
+		"Jump hardens it and the press is spent (no jump)")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# The head pushes a crate: a snake out of the floor going up lifts the crate on it.
+	var crate: Crate = CRATE_SCENE.instantiate() as Crate
+	crate.position = Vector2(80, 160)  # in the room, on columns 9-10
+	room.add_child(crate)
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = -1.0
+	await _wait_physics_frames(5)
+	var crate_start_y: float = crate.global_position.y
+	snake = await _bend_snake_at(player, Vector2i(9, 20), Vector2i.UP)
+	if snake != null:
+		await _wait_until(func() -> bool: return not snake.is_moving(), 2.0)
+	_check(snake != null and crate.global_position.y < crate_start_y - 16.0,
+		"the head pushes a crate along (crate y %.0f -> %.0f)" % [crate_start_y, crate.global_position.y])
+	room.reset_objects()
+	crate.queue_free()
+	await _wait_physics_frames(2)
+
+	# Steered back into the player (rooted at column 11): up one, then left along row
+	# 19 into the player's tile. It shoves them out and throws them left, and hardens.
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	snake = await _bend_snake_at(player, near_wall_cell, Vector2i.RIGHT)
+	if snake != null:
+		await _steer_snake(snake, {1: Vector2i.UP, 2: Vector2i.LEFT})
+	await get_tree().physics_frame
+	_check(snake != null and snake.harden_reason == "player" and not player.is_dead()
+		and player.state_machine.current_state.name == &"Launched" and player.velocity.x < 0.0,
+		"the head running into the player throws them off it and hardens (%s, state %s, velocity %s)" % [
+			snake.harden_reason if snake != null else "-", player.state_machine.current_state.name, player.velocity])
+	await _wait_real(1.0)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Coming DOWN onto the player standing on the floor: pinned against the ground, the
+	# player is crushed. Up 3, left along row 17 over the player, then down.
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	snake = await _bend_snake_at(player, near_wall_cell, Vector2i.RIGHT)
+	if snake != null:
+		await _steer_snake(snake, {1: Vector2i.UP, 4: Vector2i.LEFT, 7: Vector2i.DOWN})
+	_check(snake != null and snake.harden_reason == "player" and player.is_dead(),
+		"the head pinning the player against the ground crushes them (%s)" % (snake.harden_reason if snake != null else "-"))
+	# Let the room manager respawn us (and reset the room) before going on.
+	await _wait_real(player.tuning.death_respawn_delay + 0.3)
+	_check(not player.is_dead() and _find_snakes(room).is_empty(), "test setup: respawned after the crush")
+
+	# Steering + the budget, and a wall against the sentry: with Up held the snake
+	# turns up at its first step and climbs until the 12-tile patch runs out. An orb
+	# already flying at us pops against it.
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	sentry.can_fire = true
+	await _wait_physics_frames(5)
+	var orb: SentryOrb = null
+	var waited_frames: int = 0
+	while orb == null and waited_frames < 200:
+		await get_tree().physics_frame
+		waited_frames += 1
+		for child: Node in room.get_children():
+			if child is SentryOrb and not child.is_queued_for_deletion():
+				orb = child as SentryOrb
+	_check(orb != null, "test setup: the sentry fires at the player")
+	Input.action_press("move_up")
+	snake = await _bend_snake_at(player, near_wall_cell, Vector2i.RIGHT)
+	if snake != null:
+		await _wait_until(func() -> bool: return not snake.is_moving(), 2.0)
+	Input.action_release("move_up")
+	var climbed_straight: bool = snake != null and snake.segment_cells.size() == player.earth_tuning.snake_max_tiles
+	if climbed_straight:
+		for cell: Vector2i in snake.segment_cells:
+			climbed_straight = climbed_straight and cell.x == near_wall_cell.x + 1
+	_check(climbed_straight and snake.harden_reason == "budget",
+		"Up turns the head, and it stops when the patch runs out (%s, %d tiles)" % [
+			snake.harden_reason if snake != null else "-", snake.segment_cells.size() if snake != null else 0])
+	if orb != null:
+		# Watched by its id: a lambda holding the orb itself complains once it's freed.
+		var orb_id: int = orb.get_instance_id()
+		await _wait_until(func() -> bool: return not is_instance_id_valid(orb_id) or player.is_dead(), 6.0)
+		_check(not player.is_dead() and not is_instance_id_valid(orb_id), "a snake wall blocks the sentry's orb (it pops)")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("E5")
+
+
+## One key for column and snake (on everywhere by default since E5; Room F also turns
+## it on for itself): a quick tap of A raises a column under the feet, a long A bend
+## whose shadow crawled off brings out a snake, and A hardens it. With the global
+## switch off, other rooms go back to "a long A bend = a column at the shadow".
+func _check_one_key_column_snake(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthF") as Room
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+	player.respawn_at(room.global_position + Vector2(6 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	_check(tuning.one_key_column_snake and player.is_one_key_column_snake(), "one key is on by default")
+	# The rest runs with the global switch OFF, so room F's own flag is what's tested.
+	tuning.one_key_column_snake = false
+	_check(player.is_one_key_column_snake(), "room F turns one key on for itself")
+
+	# Quick tap A: a column under the feet, the super jump.
+	Input.action_press("earth_column")
+	await _wait_physics_frames(2)
+	Input.action_release("earth_column")
+	await _wait_physics_frames(3)
+	_check(_find_columns(room).size() == 1 and _find_snakes(room).is_empty()
+		and player.state_machine.current_state.name == &"Launched",
+		"one key: a quick tap of A is a column under you (state %s)" % player.state_machine.current_state.name)
+	await _wait_real(1.0)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Long A on the ledge: the shadow crawls down its side, the release brings a snake.
+	player.respawn_at(room.global_position + Vector2(14 * 8 + 4, 112))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var snake: EarthSnake = await _bend_at(player, &"earth_column", Vector2i(16, 14), Vector2i.RIGHT)
+	_check(snake != null and _find_columns(room).is_empty() and player.state_machine.current_state.name == &"SnakeSteer",
+		"one key: releasing A once the shadow crawled off brings out a snake (state %s)" % player.state_machine.current_state.name)
+	if snake != null:
+		await _wait_until(func() -> bool: return not snake.is_moving(), 2.0)
+		_check(snake.harden_reason == "solid" and snake.segment_cells.size() == 9,
+			"one key: it bridges the pit to the far ledge (%s, %d tiles)" % [snake.harden_reason, snake.segment_cells.size()])
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	# A again hardens it.
+	snake = await _bend_at(player, &"earth_column", Vector2i(16, 14), Vector2i.RIGHT)
+	await _press_action("earth_column")
+	_check(snake != null and snake.harden_reason == "key", "one key: A again hardens the snake")
+	await _wait_physics_frames(2)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Room E (experiment off): the same long A bend down the pit wall is a column.
+	var room_e: Room = world.get_node("RoomEarthE") as Room
+	(room_e.get_node("Sentry") as Sentry).can_fire = false
+	world.jump_to_room(room_e)
+	player.respawn_at(room_e.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	_check(not player.is_one_key_column_snake(), "with the switch off, other rooms have separate keys")
+	await _bend_at(player, &"earth_column", Vector2i(13, 20), Vector2i.RIGHT)
+	await _wait_game(0.2)
+	_check(_find_columns(room_e).size() == 1 and _find_snakes(room_e).is_empty(),
+		"with the switch off, a long A bend is a column at the shadow")
+	room_e.reset_objects()
+	await _wait_physics_frames(2)
+	tuning.one_key_column_snake = true
+	(room_e.get_node("Sentry") as Sentry).can_fire = true
+	finished_sections.append("one-key")
+
+
+## A long A bend (one key): holds A until the shadow is on `cell`'s `normal` face,
+## releases. Returns the snake that came out, or null.
+func _bend_snake_at(player: Player, cell: Vector2i, normal: Vector2i) -> EarthSnake:
+	return await _bend_at(player, &"earth_column", cell, normal)
+
+
+## Steers `snake` until it hardens: `turns` maps a tile count to a direction, queued as
+## soon as the snake has that many tiles (so it turns on the next one).
+func _steer_snake(snake: EarthSnake, turns: Dictionary) -> void:
+	while is_instance_valid(snake) and snake.is_moving():
+		var tile_count: int = snake.segment_cells.size()
+		if turns.has(tile_count):
+			snake.queue_turn(turns[tile_count])
+			turns.erase(tile_count)
+		await get_tree().process_frame
+
+
+## Holds `action`, waits (real time) until the shadow is on `cell`'s `normal` face,
+## releases it. Returns the snake being steered afterwards, or null.
+func _bend_at(player: Player, action: StringName, cell: Vector2i, normal: Vector2i) -> EarthSnake:
+	Input.action_press(action)
+	await _wait_physics_frames(2)
+	var waited: float = 0.0
+	while waited < 2.0 and player.earth_bend.is_bending:
+		var face: EarthFace = player.earth_bend.get_shadow_face()
+		if face.cell == cell and face.normal == normal:
+			break
+		await get_tree().process_frame
+		waited += get_process_delta_time() / maxf(Engine.time_scale, 0.001)
+	Input.action_release(action)
+	await _wait_physics_frames(2)
+	return player.earth_snake.active_snake
+
+
+func _find_snakes(room: Room) -> Array[EarthSnake]:
+	var snakes: Array[EarthSnake] = []
+	for child: Node in room.get_children():
+		var snake: EarthSnake = child as EarthSnake
+		if snake != null and not snake.is_queued_for_deletion():
+			snakes.append(snake)
+	return snakes
+
+
 func _count_moved(before: PackedVector2Array, after: PackedVector2Array) -> int:
 	var moved: int = 0
 	for pebble_index: int in mini(before.size(), after.size()):
@@ -1108,6 +1390,16 @@ func _average_x(points: PackedVector2Array) -> float:
 	for point: Vector2 in points:
 		total += point.x
 	return total / points.size()
+
+
+## Average x of the points at `indices`.
+func _average_x_of(points: PackedVector2Array, indices: Array[int]) -> float:
+	if indices.is_empty():
+		return 0.0
+	var total: float = 0.0
+	for point_index: int in indices:
+		total += points[point_index].x
+	return total / indices.size()
 
 
 func _min_x(points: PackedVector2Array) -> float:

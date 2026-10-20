@@ -17,6 +17,8 @@ extends Node
 ##   - tests/rooms/room_earth_b.tscn        Stage E3 column test room (_build_room_earth_b)
 ##   - tests/rooms/room_earth_c.tscn        Stage E4 boulder test room (_build_room_earth_c)
 ##   - tests/rooms/room_earth_d.tscn        Stage E4c hidden chamber room (_build_room_earth_d)
+##   - tests/rooms/room_earth_e.tscn        Stage E5 snake room (_build_room_earth_e)
+##   - tests/rooms/room_earth_f.tscn        one-key column/snake experiment (_build_room_earth_f)
 ##   - tests/rooms/room_mixed_a.tscn        Air + Earth together (_build_room_mixed_a)
 ##   - tests/rooms/room_mixed_b.tscn        Air + Earth vs enemies (_build_room_mixed_b)
 ##                                          Both mixed rooms are in tests/mixed_test_world.tscn.
@@ -33,8 +35,8 @@ extends Node
 ##   godot --headless --path . res://tools/build_earth_rooms.tscn
 ## Running it again OVERWRITES the test rooms (not the tileset). Once you edit a room
 ## in the editor, edit it there instead. Pass room names after `--` to build only
-## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, earth_c, earth_d, mixed_a,
-## mixed_b).
+## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, earth_c, earth_d, earth_e,
+## earth_f, mixed_a, mixed_b).
 ##
 ## Layout units: tiles (8 px), (column, row) from the room's top-left tile.
 
@@ -95,6 +97,10 @@ func _ready() -> void:
 		_build_room_earth_c()
 	if wanted.is_empty() or wanted.has("earth_d"):
 		_build_room_earth_d()
+	if wanted.is_empty() or wanted.has("earth_e"):
+		_build_room_earth_e()
+	if wanted.is_empty() or wanted.has("earth_f"):
+		_build_room_earth_f()
 	if wanted.is_empty() or wanted.has("mixed_a"):
 		_build_room_mixed_a()
 	if wanted.is_empty() or wanted.has("mixed_b"):
@@ -479,6 +485,61 @@ func _build_room_earth_d() -> void:
 	# running under the barrier to the right chamber.
 	_hidden(13, 16, 15, 2)
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_d.tscn")
+
+
+## Earth test room E (Stage E5, the snake). Earth-only. Left to right:
+##   - the start on grass
+##   - a small earth patch, 6 tiles wide and 2 deep (12 tiles: one full snake), right
+##     at the edge of...
+##   - a spike pit 8 tiles wide, gray under the spikes, so a bend can't reach the far
+##     side. Send the shadow along the patch and down the pit's near wall (hold A), release:
+##     the snake comes out of the wall sideways and runs straight across, a bridge.
+##     From the patch's top it comes out going UP: steer it (one up, then right).
+##     Steered back into yourself, it throws you off, or crushes you against the floor.
+##   - the far side on grass, and a sentry on a block at the right: raise the snake as
+##     a wall (straight up) and its orbs pop against it.
+## R puts the earth back and removes the snake.
+func _build_room_earth_e() -> void:
+	_begin_room("RoomEarthE", "Earth E - Snake",
+		"Stage E5 test room. Earth-only. Hold A on the earth patch until the shadow crawls off your feet, release: a snake of earth comes out at the shadow; steer it with the arrows, press A (or Jump) to harden it. Steer it into yourself: it throws you off (or crushes you against the ground). Send the shadow down the pit's near wall for a straight bridge. The patch has 12 tiles: one full snake. Raise a wall against the sentry's orbs. R resets.")
+	room.air_allowed = false
+	_grass_frame()
+	# The earth patch: 6 wide, 2 deep, at the pit's edge.
+	_earth(8, 20, 6, 2)
+	# The spike pit, gray under the spikes.
+	_spike_pit("PitSpikes", 14, 8)
+	# The sentry's low grass block on the right (3 tiles tall).
+	_grass(32, 17, 6, 3)
+	_add(SENTRY_SCENE, "Sentry", Vector2(263, 136))
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_e.tscn")
+
+
+## Earth test room F (after Stage E5): ONE KEY (Room.one_key_column_snake on, so it
+## stays on here even with EarthTuning's switch off): A does both column and snake. Earth-only. Left to right:
+##   - the start, and an earth floor in front of...
+##   - a ledge 6 tiles high (48 px: too high for a jump, fine for a super jump). Quick
+##     tap A on the earth floor: a column under you throws you up; steer onto the ledge.
+##   - the ledge's top is an earth patch (6 wide, 2 deep: 12 tiles, one full snake)
+##   - a spike pit 9 tiles wide, too far to jump, then a second ledge just as high.
+##     Hold A on the patch: the shadow crawls right and down the ledge's side; release:
+##     a SNAKE comes out sideways and runs straight across, a bridge to the far ledge.
+## R resets.
+func _build_room_earth_f() -> void:
+	_begin_room("RoomEarthF", "Earth F - One Key (A)",
+		"One key: A does column AND snake (on everywhere; this room keeps it on even with the global switch off). Quick tap A (shadow still under your feet): a column under you, the super jump, up onto the ledge. Hold A until the shadow crawls off: releasing brings a snake out instead; steer it, A again hardens it. Bridge the spike pit from the ledge's side. R resets.")
+	room.air_allowed = false
+	room.one_key_column_snake = true
+	_grass_frame()
+	# Earth floor for the super jump.
+	_earth(4, 20, 7, 1)
+	# The near ledge: grass body, a 2-deep earth patch on top.
+	_grass(11, 14, 6, 6)
+	_earth(11, 14, 6, 2)
+	# The spike pit between the ledges, gray under the spikes.
+	_spike_pit("PitSpikes", 17, 9)
+	# The far ledge, just as high.
+	_grass(26, 14, 13, 6)
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_f.tscn")
 
 
 ## Mixed test room A: Air AND Earth both allowed, to try how they work together.

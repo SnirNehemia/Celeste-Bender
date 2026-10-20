@@ -23,8 +23,11 @@ extends CharacterBody2D
 ##   │                     (abilities/earth/earth_column_ability.gd)
 ##   ├─ BoulderAbility     Earth move S: tears a rock out right next to the feet and
 ##   │                     throws it (abilities/earth/boulder_ability.gd)
+##   ├─ EarthSnakeAbility  the snake: a long A bend brings it out at the shadow, and
+##   │                     it's steered (abilities/earth/earth_snake_ability.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
-##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold, Dead
+##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
+##                         SnakeSteer, Dead
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed).
 ## The wants_to_*() checks below ask is_element_allowed() before starting a move.
@@ -80,6 +83,7 @@ signal died
 @onready var earth_bend: EarthBendAbility = $EarthBendAbility
 @onready var earth_column: EarthColumnAbility = $EarthColumnAbility
 @onready var boulder: BoulderAbility = $BoulderAbility
+@onready var earth_snake: EarthSnakeAbility = $EarthSnakeAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -111,6 +115,8 @@ func _ready() -> void:
 	# not in the moves' own _ready(): a parent's @onready vars, like earth_bend, are
 	# only filled in just before the PARENT's _ready(), after its children's.)
 	earth_bend.register_move(earth_column)
+	# The snake has no key of its own (D is free): a long A bend brings it out.
+	earth_bend.snake_move = earth_snake
 
 
 ## _physics_process runs at a fixed rate (60 times/s by default), independent of the
@@ -386,6 +392,15 @@ func is_element_allowed(element: StringName) -> bool:
 
 
 # --- Earth -------------------------------------------------------------------
+
+## True if A does both column and snake here (the one-key experiment): on in every room
+## through EarthTuning.one_key_column_snake, or in rooms with Room.one_key_column_snake.
+func is_one_key_column_snake() -> bool:
+	if earth_tuning.one_key_column_snake:
+		return true
+	var room: Room = GameState.current_room
+	return room != null and room.one_key_column_snake
+
 
 ## True on the frame an earth key is pressed while we're touching fresh earth
 ## (standing on it or wall-sliding on it). Idle, Run and WallSlide check this

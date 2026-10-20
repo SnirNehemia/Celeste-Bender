@@ -46,7 +46,7 @@ res://
 ```
 
 ## Input
-Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `earth_snake`, `restart_room`, `pause`. Bindings per `GAME_DESIGN.md` §3 and `Earth_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
+Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `earth_snake`, `restart_room`, `pause`. (`earth_snake` stays bound to D but nothing reads it: the snake moved to A, see `Earth_bending.md` §11 "One key".) Bindings per `GAME_DESIGN.md` §3 and `Earth_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
 
 ## Working rules
 1. **Small steps.** One mechanic per task. Don't build ahead of the current stage in `PROMPTS.md`.

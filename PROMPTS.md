@@ -11,7 +11,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 ## Progress
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
-- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [ ] E5 · [ ] E6 · [ ] E7
+- Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [x] E5 · [ ] E6 · [ ] E7
 
 ---
 
@@ -136,6 +136,8 @@ Rules decided in E0 are written into Earth_bending.md §11 ("Decided in Stage E0
 
 ## Stage E5 — Earth Snake
 > Read Earth_bending.md §7 and §11. Add `EarthSnakeAbility`. Hold D for the shadow, release D: a ribbon of earth emerges at the shadow and its head moves at 80 px/s (real time) on the tile grid, steered by the arrows (4 directions, no reversing onto itself). The world stays slowed and the player stays rooted. Budget: up to 12 tiles, one fresh tile from the emergence patch per snake tile, darkening outward from the emergence point. It hardens when D is pressed again, the budget runs out, the head hits something solid (or the player), or 2.5 s pass. While moving, the head pushes crates and boulders through the Pushable contract. Hardened, it is a solid, standable platform in used-earth color that blocks orbs and enemies. Removed on room reset.
+
+(Changed after the E5 play-test: the snake moved to A, see Earth_bending.md §11 "One key"; D is free. The head throws or crushes the player it runs into.)
 
 **You should see:** hold and release D, then steer a bridge across a gap with the arrows. The patch it came from darkens tile by tile, and the snake stops when the earth runs out. It hardens into a platform you can walk on. A sentry orb pops against it.
 

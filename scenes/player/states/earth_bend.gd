@@ -10,7 +10,9 @@ extends PlayerState
 ##   - EarthBendAbility runs the shadow in real time
 ## Ways out:
 ##   - the earth key is released, or the aim time (bend_max_time, real seconds)
-##     runs out  -> the move fires at the shadow (release_bend)
+##     runs out  -> the move fires at the shadow (release_bend). If the move then
+##     asks for a follow-up state (EarthMoveAbility.get_follow_up_state: the snake's
+##     SnakeSteer), we go there; otherwise back to normal movement
 ##   - Jump is pressed -> cancel, no earth used, and the press is spent so it doesn't
 ##     also jump
 ##   - death (Dead state) -> exit() cancels
@@ -60,7 +62,14 @@ func physics_update(_delta: float) -> void:
 	var time_is_up: bool = earth_bend.bend_real_time >= player.earth_tuning.bend_max_time
 	if not Input.is_action_pressed(earth_bend.bend_action) or time_is_up:
 		earth_bend.release_bend()
-		_leave()
+		# Some moves keep the player busy afterwards (the snake: steering it). Asked of
+		# the move that actually fired (in the one-key experiment A can fire a snake).
+		var move: EarthMoveAbility = earth_bend.fired_move
+		var follow_up_state: StringName = move.get_follow_up_state() if move != null else &""
+		if follow_up_state != &"":
+			transition_requested.emit(follow_up_state)
+		else:
+			_leave()
 
 
 ## Back to normal movement: Idle on the floor, Fall otherwise (Fall turns into

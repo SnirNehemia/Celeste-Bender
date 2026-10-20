@@ -36,7 +36,7 @@ Some surfaces have a layer of **earth** (brown-yellow). The player can only bend
 |---|---|
 | Earth Column | **A** |
 | Boulder | **S** |
-| Earth Snake | **D** |
+| Earth Snake | **A** held until the shadow crawls off (see §11: one key). **D** is free for now |
 | Aim / steer | Arrow keys (same as Air) |
 | Cancel a bend in progress | **Jump** (C). Uses no earth |
 
@@ -211,6 +211,10 @@ These rules were agreed when planning the build. Where they differ from the sect
 - **Loose rocks** (Stage E4c3, replaces "then crumbles" in "Tear, then hop" and "drops and shatters" in §6): a rock that comes down without being thrown (rest over, hold time over, or let go with Jump) lies there as a loose rock: solid and standable, and it falls if the ground under it goes. Pressing S next to one (within 6 px of the player's sides, not the one under the feet) lifts it: it hops exactly like a fresh rock, same perfect window, and uses no earth. This works off earth too. Thrown rocks still stick into earth or shatter. At most 3 loose rocks per room (the oldest crumbles); room reset clears them.
 - **Ground look** (decided in Stage E4b, styled after Celeste): rooms with an Earth layer draw their ground as one picture per room (GroundPainter) instead of tiles; layout and collision stay tile-based. Every surface has a bright crust (~5 px, with a blobby, wobbling inner edge and a darker edge line), and the inside is a dark, saturated shade of the material with diagonal hatching, darkening a little further in but never to black. Exposed edges get 1-2 px dents (top surfaces at most 1 px), platform tops keep square corners (so feet never look like they're on air), bottom corners are rounded, concave corners get a small fillet, borders between materials interlock in small teeth, and a few crumbs float just above top surfaces. Grass blades are rooted 2 px into the ground. Used earth is drawn darker with crack lines. The Air chapter rooms keep their tile look.
 - **Stuck boulders are used earth:** the shadow crawls over them and you can start a bend standing on one (like a pillar), but nothing erupts from them. A boulder hitting a stuck boulder shatters.
+- **One key for column and snake** (after the E5 play-test, replaces "Snake controls" above): hold **A**. Released while the shadow is still under your feet (a quick tap), a column rises under you (the super jump). Released once the shadow has crawled off your feet, a **snake** comes out at the shadow instead of a column; press A again (or Jump) to harden it. The trade-off: no column away from the player (wall/ceiling springs, a column under a far enemy). **D is free** for now. (`EarthTuning.one_key_column_snake` switches back to "long A = column at the shadow", which leaves no snake; a room can force one key with `Room.one_key_column_snake`.)
+- **Snake slow motion:** while steering, the world runs at **0.2x** (`snake_time_scale`), a bit slower than the bend's 0.3x.
+- **Snake head vs the player:** you can steer the head into yourself (you're rooted). It shoves you out of its way and throws you along its direction like a rising column's tip (up = the super jump, sideways = a side spring), and the snake hardens. If something solid is right behind you (the head coming down on you standing on the floor, or pushing you into a wall), you're **crushed**.
+- **Creation bases:** snakes and columns grow out of the ground they came from: no outline on the ground side, a ragged root into the ground tile, and a small fillet where they meet the surface.
 
 ---
 

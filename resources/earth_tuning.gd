@@ -234,3 +234,34 @@ extends Resource
 @export var rock_pebble_shed_interval_max: float = 0.3
 ## A rising pillar crumbles this many pebbles off its sides over the rise.
 @export var column_rise_pebble_count: int = 4
+
+@export_group("Earth Snake")
+## The snake (Earth_bending.md §7, §11, Stage E5): hold A until the shadow crawls off
+## your feet, release A and a ribbon of earth comes out at the shadow; steer it with
+## the arrows, press A again (or Jump) to harden it. Its head running into you throws
+## you off it (like a rising column), or crushes you against the ground.
+## Its head moves this fast, px/s, in REAL time (at 0.3x game speed it would crawl).
+## 80 px/s = 10 tiles a second.
+@export var snake_speed: float = 80.0
+## World speed while steering the snake (the bend itself uses bend_time_scale, 0.3).
+## Slower than the bend: steering takes your attention, so enemies and orbs barely
+## move meanwhile. The snake doesn't care (it moves in real time).
+@export var snake_time_scale: float = 0.2
+## ONE KEY for column and snake, in every room (chosen after play-testing Stage E5): a
+## quick tap of A = a column under you; once the shadow has crawled off your feet,
+## releasing A = a snake instead of a column. Untick to go back to "a long A bend = a
+## column at the shadow" (then there's no snake at all: D is free; a room can still
+## turn one key on for itself: Room.one_key_column_snake).
+@export var one_key_column_snake: bool = true
+## At most this many tiles long. Each snake tile uses one fresh tile of the patch it
+## came out of, so a smaller patch makes a shorter snake.
+@export var snake_max_tiles: int = 12
+## It hardens by itself after steering this long, real seconds.
+@export var snake_max_time: float = 2.5
+## Gravel bits from the head each time it enters a new tile.
+@export var snake_head_gravel_count: int = 2
+## Gravel bits along the snake when it hardens (spread over its tiles).
+@export var snake_harden_gravel_count: int = 10
+## Screen shake when it hardens: strength (px) and duration (s).
+@export var snake_harden_shake_strength: float = 1.0
+@export var snake_harden_shake_time: float = 0.1

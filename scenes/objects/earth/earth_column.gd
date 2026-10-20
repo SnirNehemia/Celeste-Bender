@@ -46,6 +46,8 @@ extends StaticBody2D
 ##     outline following the cut
 ##   - a CRACKED TIP: the top row is dark with its corners cut, a lit row under it,
 ##     and a crack running down from a notch in the top edge
+##   - its BASE grows out of the ground like the snake's: a root into the ground tile
+##     and a fillet on each side (EarthBaseLook)
 ## The rows are random once per column (_build_look). The drawing uses a transform
 ## whose x axis runs ACROSS the column and y axis along `normal`, so one piece of
 ## code draws a column pointing up, down, left or right.
@@ -371,8 +373,10 @@ func _draw() -> void:
 		var row_top: float = length - row_index
 		var row_bottom: float = maxf(row_top - 1.0, 0.0)
 		var row_height: float = row_top - row_bottom
-		var left_x: int = row_left_cuts[row_index]
-		var right_x: int = width_pixels - 1 - row_right_cuts[row_index]  # last filled pixel
+		# No side cuts in the 2 rows at the base: the fillets (below) join there.
+		var is_base_row: bool = row_bottom < 2.0
+		var left_x: int = 0 if is_base_row else row_left_cuts[row_index]
+		var right_x: int = width_pixels - 1 - (0 if is_base_row else row_right_cuts[row_index])  # last filled pixel
 		if row_index == 0:
 			# The tip's edge: dark, corners cut, with the crack's notch left open.
 			for pixel_x: int in range(left_x + 1, right_x):
@@ -386,3 +390,8 @@ func _draw() -> void:
 		draw_rect(Rect2(right_x, row_bottom, 1.0, row_height), OUTLINE_COLOR)
 		if row_index < crack_pixel_xs.size():
 			draw_rect(Rect2(crack_pixel_xs[row_index], row_bottom, 1.0, row_height), CRACK_COLOR)
+	# Where it leaves the ground: a root and fillets, like the snake's (EarthBaseLook),
+	# in the color of the band at the base so the two run together.
+	var base_row_index: int = mini(ceili(length), row_colors.size()) - 1
+	var base_color: Color = TIP_COLOR if base_row_index == 1 else row_colors[base_row_index]
+	EarthBaseLook.draw(self, source_face, earth_tuning.column_width, base_color, OUTLINE_COLOR, [])

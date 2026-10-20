@@ -60,8 +60,14 @@ var queued_action: StringName = &""
 var queued_start_face: EarthFace = null
 ## True between begin_bend() and release_bend() / cancel_bend().
 var is_bending: bool = false
+## The snake (Stage E5). It has no key of its own (D is free since the one-key
+## decision): a long A bend brings it out (get_release_move). Set by Player._ready().
+var snake_move: EarthMoveAbility = null
 ## Which earth key started this bend (a key of `moves`). The state watches it.
 var bend_action: StringName = &""
+## The move the last release_bend() fired (or tried to), or null. EarthBend asks it
+## for a follow-up state. Usually the move of bend_action, but see get_release_move().
+var fired_move: EarthMoveAbility = null
 ## Real seconds since the bend started.
 var bend_real_time: float = 0.0
 ## The faces the shadow has reached, in order. path[0] = under the player.
@@ -223,7 +229,8 @@ func begin_bend(action: StringName, start_face: EarthFace) -> void:
 ## Called by EarthBend when the key is released or time runs out.
 func release_bend() -> EarthFace:
 	var target_face: EarthFace = get_target_face()
-	var move: EarthMoveAbility = moves.get(bend_action) as EarthMoveAbility
+	var move: EarthMoveAbility = get_release_move()
+	fired_move = move
 	_end_bend()
 	if target_face == null:
 		# Nothing to bend here (gray rock or used earth): no gravel, it isn't earth.
@@ -232,6 +239,17 @@ func release_bend() -> EarthFace:
 	if move != null:
 		move.erupt(target_face)
 	return target_face
+
+
+## The move a release would fire right now: the one whose key started the bend, except
+## with ONE KEY (Player.is_one_key_column_snake, on by default): an A bend whose shadow
+## has crawled off the feet (path index > 0) brings out the snake instead of a column.
+## A quick tap (shadow still under the feet) stays a column: the super jump.
+func get_release_move() -> EarthMoveAbility:
+	if bend_action == &"earth_column" and player.is_one_key_column_snake() \
+			and get_shadow_index() > 0 and snake_move != null:
+		return snake_move
+	return moves.get(bend_action) as EarthMoveAbility
 
 
 ## Ends the bend without using any earth (jump pressed, death, room change).

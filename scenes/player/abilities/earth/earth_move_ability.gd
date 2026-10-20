@@ -3,7 +3,7 @@ extends Node
 ## Base class for the three Earth moves (column, boulder, snake). Each move is a
 ## component node under the player, like the Air abilities:
 ##   Player > EarthColumnAbility   (Stage E3)
-##   Player > EarthSnakeAbility    (Stage E5, later)
+##   Player > EarthSnakeAbility    (Stage E5)
 ##
 ## (The rock, key S, is NOT a bend move since Stage E4a: it tears out right next to
 ## the player, with no shadow. See BoulderAbility.)
@@ -32,3 +32,9 @@ func get_bend_action() -> StringName:
 ## The bend was released over fresh earth: make the move happen at `face`.
 func erupt(_face: EarthFace) -> void:
 	pass
+
+
+## Right after erupt(): the player state to switch to instead of normal movement, or
+## &"" for none. The snake (Stage E5) returns &"SnakeSteer" while it's being steered.
+func get_follow_up_state() -> StringName:
+	return &""
