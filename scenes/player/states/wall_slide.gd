@@ -16,6 +16,9 @@ func physics_update(delta: float) -> void:
 	if player.try_start_jet():
 		transition_requested.emit(&"Jetting")
 		return
+	if player.try_start_fireball():
+		transition_requested.emit(&"GustAim")
+		return
 	if player.try_tear_rock():
 		transition_requested.emit(&"BoulderHold")
 		return

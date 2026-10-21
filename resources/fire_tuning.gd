@@ -66,3 +66,38 @@ extends Resource
 ## Sparks in the ignition "whoomp" ring and in a chain's pump flare.
 @export var jet_ignition_spark_count: int = 14
 @export var jet_pump_spark_count: int = 10
+
+@export_group("Fireball")
+## Flight speed, px/s, straight and without gravity (Fire_bending.md §5.1).
+@export var fireball_speed: float = 200.0
+## Distance flown before it gutters out, px.
+@export var fireball_max_range: float = 160.0
+## Gravity on the fireball, as a fraction of the player's gravity (PlayerTuning.gravity):
+## 0.2 = it droops gently over its flight.
+@export_range(0.0, 1.0) var fireball_gravity_scale: float = 0.2
+## Level throws get a small lift that cancels the drop over the full range, so a
+## fireball thrown sideways from standing arcs a little (about 14 px) and comes back
+## to hand height at fireball_max_range instead of hitting the floor after 25 px.
+## Scaled by how sideways the throw is (none straight up or down). Off = no lift.
+@export var fireball_arc_lift: bool = true
+## On a hit, everything flammable within this many px of the hit point catches too.
+@export var fireball_splash: float = 6.0
+## Holding Q aims in slow motion (the GustAim state, shared with the gust): the
+## world's speed while aiming, and the real seconds before it throws by itself.
+@export_range(0.05, 1.0) var fireball_aim_time_scale: float = 0.3
+@export var fireball_aim_max_real_time: float = 0.8
+
+@export_group("Fireball look")
+## Embers left behind in flight, per second.
+@export var fireball_trail_embers_per_second: float = 40.0
+## Sparks in the ring when it bursts on a hit.
+@export var fireball_impact_spark_count: int = 12
+## How long the 1-2 embers that stick to the hit surface keep glowing, seconds.
+@export var fireball_stuck_ember_time: float = 0.5
+
+@export_group("Flame smoke")
+## Smoke given off by the flame tips, per second: the whole jet plume, one brazier,
+## one fireball. (Licks torn off any flame also turn into smoke as they die.)
+@export var jet_plume_smoke_per_second: float = 12.0
+@export var brazier_smoke_per_second: float = 3.0
+@export var fireball_smoke_per_second: float = 24.0

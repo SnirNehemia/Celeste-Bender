@@ -30,6 +30,8 @@ extends CharacterBody2D
 ##   │                     (abilities/fire/fire_pips_display.gd)
 ##   ├─ FlameJetAbility    Fire move W: pays the pip, thrust curve, plume and sputter
 ##   │                     (abilities/fire/flame_jet_ability.gd); Jetting moves the body
+##   ├─ FireballAbility    Fire move Q: pip check, fizzle, aim preview, throw
+##   │                     (abilities/fire/fireball_ability.gd); aims in GustAim
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
 ##                         SnakeSteer, Jetting, Dead
@@ -95,6 +97,7 @@ signal died
 @onready var earth_snake: EarthSnakeAbility = $EarthSnakeAbility
 @onready var fire_bar: FireBar = $FireBar
 @onready var flame_jet: FlameJetAbility = $FlameJetAbility
+@onready var fireball: FireballAbility = $FireballAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -116,6 +119,9 @@ var active_wind_zones: Array[WindZone] = []
 ## (see get_forgiving_aim_input). Updated every physics frame in _update_timers.
 var last_diagonal_aim: Vector2 = Vector2.ZERO
 var last_diagonal_msec: int = -100000
+## Which ability the GustAim state aims for (GustAbility or FireballAbility), set just
+## before switching to it. GustAim clears it on exit. See states/gust_aim.gd.
+var aim_source: Node = null
 
 
 func _ready() -> void:
@@ -393,6 +399,17 @@ func is_jetting() -> bool:
 	return state_machine.current_state.name == &"Jetting"
 
 
+## On the frame Q (fireball) is pressed where fire is allowed, with a pip: makes the
+## fireball the aim source and returns true, and the caller switches to GustAim
+## (slow-motion aim; release throws). With no pip it fizzles and returns false.
+## States that allow it check this right after the jet.
+func try_start_fireball() -> bool:
+	if not fireball.try_start():
+		return false
+	aim_source = fireball
+	return true
+
+
 # --- Gust --------------------------------------------------------------------
 
 ## True on the frame gust is pressed, if the cooldown is over and the gust can be
@@ -406,7 +423,9 @@ func wants_to_gust() -> bool:
 
 ## Which state a gust press leads to: GustAim (slow-motion aiming, then fire on
 ## release) when tuning.gust_hold_to_aim is on, else straight to GustRecoil (fire now).
+## Also makes the gust GustAim's aim source (the fireball shares that state).
 func get_gust_start_state() -> StringName:
+	aim_source = gust
 	return &"GustAim" if tuning.gust_hold_to_aim else &"GustRecoil"
 
 

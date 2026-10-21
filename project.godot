@@ -139,6 +139,7 @@ flame_jet={
 2d_physics/layer_3="hazards"
 2d_physics/layer_4="pushable"
 2d_physics/layer_5="enemies"
+2d_physics/layer_6="flammable"
 
 [rendering]
 

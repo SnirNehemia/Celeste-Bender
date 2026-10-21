@@ -11,13 +11,16 @@ extends "res://tools/build_earth_rooms.gd"
 ## It writes (one test room per Fire stage, all in tests/fire_test_world.tscn):
 ##   - tests/rooms/room_fire_a.tscn   Stage F1 fire bar + fire diamonds (_build_room_fire_a)
 ##   - tests/rooms/room_fire_b.tscn   Stage F3 flame jet: gap, chain shaft, fuel route (_build_room_fire_b)
+##   - tests/rooms/room_fire_c.tscn   Stage F4 fireball + braziers opening doors (_build_room_fire_c)
 ##
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_fire_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- fire_b` (names: fire_a, fire_b).
+## only those, e.g. `-- fire_b` (names: fire_a, fire_b, fire_c).
 
 const FIRE_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/fire/fire_diamond.tscn")
+const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
+const DOOR_SCENE: PackedScene = preload("res://scenes/objects/door.tscn")
 
 
 func _ready() -> void:
@@ -30,6 +33,8 @@ func _ready() -> void:
 		_build_room_fire_a()
 	if wanted.is_empty() or wanted.has("fire_b"):
 		_build_room_fire_b()
+	if wanted.is_empty() or wanted.has("fire_c"):
+		_build_room_fire_c()
 	print("[BuildFireRooms] Done.")
 	get_tree().quit()
 
@@ -126,3 +131,65 @@ func _build_room_fire_b() -> void:
 	_grass(1, 14, 6, 2)
 
 	_finish_room(Vector2(24, 336), "res://tests/rooms/room_fire_b.tscn")
+
+
+## A brazier standing on the floor at tile column `column` (its post's foot on the top
+## of row `floor_row`). `burn_time` 0 = permanent.
+func _brazier(node_name: String, column: int, floor_row: int, burn_time: float = 0.0) -> Node2D:
+	return _add(BRAZIER_SCENE, node_name, Vector2(column * TILE + TILE / 2.0, floor_row * TILE),
+		{"burn_time": burn_time})
+
+
+## A door `height_tiles` tall in tile column `column`, its top at `top_row`, opened by
+## `switch_node`. It retracts up into the ceiling.
+func _door(node_name: String, column: int, top_row: int, height_tiles: int, switch_node: Node2D) -> Node2D:
+	var door: Node2D = _add(DOOR_SCENE, node_name, Vector2(column * TILE, top_row * TILE),
+		{"door_size": Vector2(TILE, height_tiles * TILE)})
+	var door_switches: Array[Switch] = [switch_node as Switch]
+	door.set("switches", door_switches)
+	return door
+
+
+## Fire test room C (Stage F4, fireball and braziers). Fire-only, 400×180 (scrolls),
+## starts with 2 pips. Floor at row 20. Left to right:
+##   1. Across the spike pit (cols 8-15), a permanent brazier (col 18) opens the
+##      full-height door at col 21. Tap Q facing right: the fireball flies over the
+##      pit and lights it. Then jet over the pit (your second pip).
+##   2. A fire diamond (+1), then a TIMED brazier (1.8 s, notched post) at col 24 and
+##      its door at col 35, 11 tiles away: light it and run. Hold Q to aim in slow
+##      motion; C cancels the aim and keeps the pip.
+##   3. Behind that door, a grass block with a low corridor into a chimney (cols
+##      44-46) that bends left at the top into a tunnel with a brazier at its end
+##      (col 39). From the floor no straight fireball can reach it: grab the double
+##      diamond, jet up the chimney (hold W to chain), steer left along the tunnel,
+##      and the plume lights the brazier as you pass.
+func _build_room_fire_c() -> void:
+	_begin_room("RoomFireC", "Fire C - Fireball & Braziers",
+		"Stage F4 test room. Fire-only, starts with 2 pips. Q = fireball (tap throws, hold aims in slow motion, C cancels and keeps the pip; 0 pips = fizzle). 1: fireball the brazier across the pit to open the door, jet over. 2: timed brazier (notched post, 1.8 s) races its door. 3: the tunnel brazier can only be reached with the jet: fly up the chimney and along the tunnel.",
+		Vector2(400, 180))
+	_fire_only(2)
+	# Frame (50 columns).
+	_grass(0, 0, 50, 1)
+	_grass(0, 0, 1, 23)
+	_grass(49, 0, 1, 23)
+	_grass(0, 20, 50, 3)
+
+	# 1. Pit, brazier, door.
+	_spike_pit_at("PitSpikes", 8, 8, 20)
+	var first_brazier: Node2D = _brazier("BrazierPit", 18, 20)
+	_door("DoorPit", 21, 1, 19, first_brazier)
+
+	# 2. Diamond, timed brazier, its door.
+	_fire_diamond("DiamondTimed", Vector2(22 * TILE + 4, 152), 1)
+	var timed_brazier: Node2D = _brazier("BrazierTimed", 25, 20, 1.8)
+	_door("DoorTimed", 35, 1, 19, timed_brazier)
+
+	# 3. The block with the corridor, chimney and tunnel.
+	_grass(37, 1, 12, 19)
+	_open(37, 16, 10, 4)   # corridor, 4 tiles tall, from the door into the chimney
+	_open(44, 4, 3, 12)    # chimney up
+	_open(38, 4, 6, 3)     # tunnel left at the top
+	_fire_diamond("DiamondChimney", Vector2(40 * TILE + 4, 151), 2)
+	_brazier("BrazierTunnel", 39, 7)
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_c.tscn")

@@ -190,6 +190,39 @@ func end_aim() -> void:
 	queue_redraw()  # clear the preview
 
 
+## The rest of the aim source contract (states/gust_aim.gd is shared with the
+## fireball since Stage F4; the contract is written out in fireball_ability.gd).
+func get_aim_action() -> StringName:
+	return &"gust"
+
+
+func get_aim_time_scale() -> float:
+	return player.tuning.gust_aim_time_scale
+
+
+func get_aim_max_real_time() -> float:
+	return player.tuning.gust_aim_max_real_time
+
+
+func get_initial_aim() -> Vector2:
+	return player.get_forgiving_aim_input()
+
+
+## The gust aim can't be cancelled with Jump (unchanged from before Stage F4).
+func can_cancel_aim() -> bool:
+	return false
+
+
+func cancel_aim() -> void:
+	pass
+
+
+## Release: lock the direction in; GustRecoil spends the charge and blows.
+func finish_aim(direction: Vector2) -> StringName:
+	lock_aim(direction)
+	return &"GustRecoil"
+
+
 ## GustAim fixes the direction for the gust it's about to fire (ZERO = neutral).
 func lock_aim(direction: Vector2) -> void:
 	locked_aim = direction

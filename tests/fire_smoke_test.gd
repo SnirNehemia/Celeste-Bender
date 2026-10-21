@@ -22,8 +22,9 @@ func _ready() -> void:
 	await _check_f1_fire_bar(world, world.player)
 	await _check_f2_tuning_panel(world.player)
 	await _check_f3_flame_jet(world, world.player)
+	await _check_f4_fireball(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3"]:
+	for section_name: String in ["F1", "F2", "F3", "F4"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -318,6 +319,135 @@ func _check_f3_flame_jet(world: RoomManager, player: Player) -> void:
 	finished_sections.append("F3")
 
 
+## Stage F4: fireball (Q) through the shared GustAim state, the Flammable contract,
+## braziers opening doors, the jet plume lighting things, FireHazard.
+func _check_f4_fireball(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var bar: FireBar = player.fire_bar
+	var room_c: Room = world.get_node("RoomFireC") as Room
+	var pit_brazier: Brazier = room_c.get_node("BrazierPit") as Brazier
+	var pit_door: Door = room_c.get_node("DoorPit") as Door
+	var timed_brazier: Brazier = room_c.get_node("BrazierTimed") as Brazier
+	var tunnel_brazier: Brazier = room_c.get_node("BrazierTunnel") as Brazier
+	world.jump_to_room(room_c)
+	await _physics_frames(10)
+	_check(bar.pips == 2, "Fire C starts with 2 pips, got %d" % bar.pips)
+	_check(pit_brazier.is_in_group(Flammable.GROUP) and not pit_brazier.is_on() and pit_door.open_amount == 0.0,
+		"braziers start unlit and flammable, the pit door closed")
+
+	# 0 pips: Q fizzles, no aim.
+	var fizzle_count: Array[int] = [0]
+	var on_fizzle: Callable = func() -> void: fizzle_count[0] += 1
+	player.fireball.fizzled.connect(on_fizzle)
+	bar.spend()
+	bar.spend()
+	await _tap(&"fireball")
+	_check(fizzle_count[0] == 1 and player.state_machine.current_state.name != &"GustAim",
+		"Q with 0 pips fizzles and doesn't aim")
+	player.fireball.fizzled.disconnect(on_fizzle)
+
+	# Hold Q: slow-motion aim (the shared GustAim state); C cancels and keeps the pip.
+	bar.gain(1)
+	Input.action_press(&"fireball")
+	await _physics_frames(4)
+	_check(player.state_machine.current_state.name == &"GustAim" and player.aim_source == player.fireball,
+		"holding Q aims in GustAim with the fireball as its aim source")
+	_check(is_equal_approx(Engine.time_scale, tuning.fireball_aim_time_scale),
+		"the world slows to fireball_aim_time_scale (%.2f), got %.2f" % [tuning.fireball_aim_time_scale, Engine.time_scale])
+	Input.action_press(&"jump")
+	await _physics_frames(2)
+	Input.action_release(&"jump")
+	Input.action_release(&"fireball")
+	await _physics_frames(2)
+	_check(player.state_machine.current_state.name != &"GustAim" and bar.pips == 1 and is_equal_approx(Engine.time_scale, 1.0),
+		"C cancels the aim: pip kept (%d), normal speed, state %s" % [bar.pips, player.state_machine.current_state.name])
+	_check(player.state_machine.current_state.name != &"Jump", "the cancel press doesn't also jump")
+	await _physics_frames(20)
+
+	# Tap Q facing right: the fireball flies over the pit and lights the brazier,
+	# which opens its door.
+	player.facing_direction = 1.0
+	var thrown_balls: Array[Fireball] = []
+	var on_thrown: Callable = func(ball: Fireball) -> void: thrown_balls.append(ball)
+	player.fireball.thrown.connect(on_thrown)
+	await _tap(&"fireball")
+	await _physics_frames(3)
+	player.fireball.thrown.disconnect(on_thrown)
+	_check(thrown_balls.size() == 1 and bar.pips == 0, "a tap of Q throws one fireball and spends the pip (pips %d)" % bar.pips)
+	if thrown_balls.size() == 1:
+		var ball: Fireball = thrown_balls[0]
+		_check(ball.direction == Vector2.RIGHT, "no arrow held: thrown the way the player faces, got %s" % ball.direction)
+	await _wait_until(func() -> bool: return pit_brazier.is_on(), 1.5)
+	_check(pit_brazier.is_on(), "the fireball lights the brazier across the pit")
+	await _physics_frames(20)
+	_check(pit_door.open_amount > 0.9, "the lit brazier opens its door (open %.2f)" % pit_door.open_amount)
+
+	# Range: a fireball in open air gutters out after fireball_max_range.
+	var short_tuning: FireTuning = tuning.duplicate() as FireTuning
+	short_tuning.fireball_max_range = 20.0
+	var finish_log: Array = []
+	var stray: Fireball = Fireball.launch(world, room_c.global_position + Vector2(100, 60), Vector2.RIGHT, short_tuning, null)
+	stray.finished.connect(func(hit_node: Node) -> void: finish_log.append(hit_node))
+	await _wait_until(func() -> bool: return not finish_log.is_empty(), 1.0)
+	_check(finish_log.size() == 1 and finish_log[0] == null, "a fireball gutters out at its max range without hitting anything")
+
+	# Splash: lighting near a brazier (within fireball_splash) lights it too.
+	var splash_point: Vector2 = timed_brazier.get_fire_rect().position + Vector2(-tuning.fireball_splash + 1.0, 4.0)
+	Flammable.ignite_near(get_tree(), splash_point, tuning.fireball_splash, null)
+	_check(timed_brazier.is_on(), "a flame within fireball_splash px lights a flammable")
+
+	# Timed brazier: goes out after burn_time; the door follows.
+	var timed_door: Door = room_c.get_node("DoorTimed") as Door
+	await _physics_frames(10)
+	_check(timed_door.wants_open, "the timed brazier opens its door while lit")
+	await _wait_until(func() -> bool: return not timed_brazier.is_on(), timed_brazier.burn_time + 0.5)
+	_check(not timed_brazier.is_on() and not timed_door.wants_open, "the timed brazier goes out after %.1f s and its door closes" % timed_brazier.burn_time)
+
+	# The jet plume lights what it touches: hover just above the tunnel brazier and
+	# jet up (no arrow), so the plume points down onto it.
+	player.respawn_at(tunnel_brazier.global_position + Vector2(0, -26))
+	bar.gain(1)
+	await _tap(&"flame_jet")
+	await _physics_frames(4)
+	_check(tunnel_brazier.is_on(), "the jet plume lights a brazier it touches")
+	await _physics_frames(40)
+
+	# Q mid-jet: an instant throw along the steered direction; the burst goes on.
+	player.respawn_at(room_c.get_spawn_position())
+	await _physics_frames(5)
+	var pips_before_flight: int = bar.pips
+	var mid_jet_balls: Array[Fireball] = []
+	var on_mid_jet_throw: Callable = func(ball: Fireball) -> void: mid_jet_balls.append(ball)
+	player.fireball.thrown.connect(on_mid_jet_throw)
+	await _tap(&"flame_jet")
+	await _physics_frames(3)
+	await _tap(&"fireball")
+	player.fireball.thrown.disconnect(on_mid_jet_throw)
+	_check(mid_jet_balls.size() == 1 and mid_jet_balls[0].direction == Vector2.UP,
+		"Q mid-jet throws at once along the steered direction (up)")
+	_check(player.is_jetting() and bar.pips == pips_before_flight - 2,
+		"the burst goes on; jet + throw cost a pip each (%d -> %d)" % [pips_before_flight, bar.pips])
+	await _physics_frames(60)
+
+	# FireHazard kills the player through die(); the player's own fire never counts.
+	player.respawn_at(room_c.get_spawn_position())
+	await _physics_frames(5)
+	_check(not player.is_dead(), "standing next to your own fire is safe")
+	var hazard: FireHazard = FireHazard.new()
+	hazard.hazard_size = Vector2(12, 12)
+	room_c.add_child(hazard)
+	hazard.global_position = player.get_center()
+	await _physics_frames(3)
+	_check(player.is_dead() and hazard.is_in_group(FireHazard.GROUP), "touching a FireHazard kills the player")
+	hazard.queue_free()
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
+
+	# Death / R: every brazier goes out and the doors close.
+	_check(not pit_brazier.is_on() and not tunnel_brazier.is_on(), "a room reset puts every brazier out")
+	_check(bar.pips == 2, "and brings back the 2 starting pips")
+	finished_sections.append("F4")
+
+
 # --- Helpers ---------------------------------------------------------------------
 
 ## Puts the player's feet just under `diamond` for a few physics frames, then back at
@@ -342,6 +472,15 @@ func _tap(action: StringName) -> void:
 	Input.action_press(action)
 	await _physics_frames(2)
 	Input.action_release(action)
+
+
+## Waits physics frames until `condition` returns true, or `max_seconds` of game time
+## pass (then the check that follows reports the failure).
+func _wait_until(condition: Callable, max_seconds: float) -> void:
+	var waited: float = 0.0
+	while not condition.call() and waited < max_seconds:
+		await get_tree().physics_frame
+		waited += 1.0 / Engine.physics_ticks_per_second
 
 
 func _physics_frames(count: int) -> void:

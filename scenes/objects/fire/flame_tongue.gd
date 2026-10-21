@@ -25,6 +25,9 @@ extends Node2D
 ##     flutter sideways, shrink and cool from orange to red as they drift away along
 ##     the flame's direction. They live in WORLD coordinates, so a moving flame (the
 ##     jet) leaves them behind, like a campfire shedding pieces of flame.
+##   - SMOKE: a lick burns for its first part only, then turns into a wisp of smoke
+##     that floats UP (whichever way the flame points), grows and fades. Tips can also
+##     give off a thin trail of smoke of their own (`smoke_rate`).
 ##
 ## Godot concepts used:
 ##   - _draw(): custom drawing for a CanvasItem; queue_redraw() asks for it again.
@@ -63,12 +66,30 @@ const EDGE_COLOR: Color = Color("#E8431A")
 @export var lick_lifetime: float = 0.25
 ## A fresh lick's size, px (its length; it's about 60% as wide).
 @export var lick_size: float = 4.0
+## Smoke wisps given off by the tip per second (0 = none; licks still turn to smoke).
+@export var smoke_rate: float = 0.0
+## How fast smoke floats up, px/s, and how long a wisp lasts, seconds.
+@export var smoke_rise_speed: float = 16.0
+@export var smoke_lifetime: float = 0.7
 
 ## How hard a lick flutters sideways (px) and how fast (radians per second).
 const LICK_FLUTTER_AMPLITUDE: float = 1.5
 const LICK_FLUTTER_SPEED: float = 30.0
 ## Licks alive at most per tongue, so a long burst can't pile them up.
 const MAX_LICKS: int = 16
+## Shapes smaller than this many square px aren't drawn (see _fill).
+const MIN_FILL_AREA: float = 0.25
+## The share of a lick's life it burns as flame; the rest of the time it's smoke.
+const LICK_FLAME_SHARE: float = 0.55
+## Smoke: a warm mid gray, half see-through at most. Lighter than the §9.1 smoke
+## color, which vanished against the dark sky of the test rooms.
+const SMOKE_COLOR: Color = Color(0.58, 0.53, 0.55)
+const SMOKE_MAX_ALPHA: float = 0.55
+## A wisp's size at birth and at the end of its life, px.
+const SMOKE_START_SIZE: float = 1.5
+const SMOKE_END_SIZE: float = 3.5
+## Wisps alive at most per tongue.
+const MAX_SMOKE: int = 24
 
 ## The additive layer's canvas item (child node), drawn through its `draw` signal.
 var core_layer: Node2D
@@ -80,6 +101,9 @@ var noise_time: float = 0.0
 var licks: Array[Dictionary] = []
 ## Fractional licks owed: lick_rate × delta adds up until a whole one is due.
 var lick_spawn_debt: float = 0.0
+## Smoke wisps. Each: {position (world), velocity (world), age, lifetime, phase}.
+var smoke: Array[Dictionary] = []
+var smoke_spawn_debt: float = 0.0
 
 
 func _ready() -> void:
@@ -101,6 +125,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	noise_time += delta * flicker_speed
 	_update_licks(delta)
+	_update_smoke(delta)
 	queue_redraw()
 	core_layer.queue_redraw()
 
@@ -120,7 +145,56 @@ func _update_licks(delta: float) -> void:
 		lick["position"] += lick["velocity"] * delta
 		# Drag: the lick loses speed as it burns out.
 		lick["velocity"] *= 1.0 - minf(4.0 * delta, 1.0)
-	licks = licks.filter(func(lick: Dictionary) -> bool: return lick["age"] < lick["lifetime"])
+	# A lick past its flame part becomes smoke right where it is.
+	for lick: Dictionary in licks:
+		if lick["age"] >= lick["lifetime"] * LICK_FLAME_SHARE:
+			_add_smoke(lick["position"], lick["velocity"])
+	licks = licks.filter(func(lick: Dictionary) -> bool: return lick["age"] < lick["lifetime"] * LICK_FLAME_SHARE)
+
+
+## Gives off tip smoke (smoke_rate) and floats every wisp up: whatever its first
+## push, smoke turns upward (hot air rises) and sways a little side to side.
+func _update_smoke(delta: float) -> void:
+	if is_visible_in_tree() and smoke_rate > 0.0 and length >= 2.0 and opacity > 0.0:
+		smoke_spawn_debt += smoke_rate * delta
+		while smoke_spawn_debt >= 1.0:
+			smoke_spawn_debt -= 1.0
+			_add_smoke(to_global(Vector2(0.0, -length)), Vector2.ZERO)
+	else:
+		smoke_spawn_debt = 0.0
+	for wisp: Dictionary in smoke:
+		wisp["age"] += delta
+		var velocity: Vector2 = wisp["velocity"]
+		var sway: float = sin(wisp["age"] * 5.0 + wisp["phase"]) * 6.0
+		velocity = velocity.move_toward(Vector2(sway, -smoke_rise_speed), 60.0 * delta)
+		wisp["velocity"] = velocity
+		wisp["position"] += velocity * delta
+	smoke = smoke.filter(func(wisp: Dictionary) -> bool: return wisp["age"] < wisp["lifetime"])
+
+
+func _add_smoke(world_position: Vector2, start_velocity: Vector2) -> void:
+	if smoke.size() >= MAX_SMOKE:
+		return
+	smoke.append({
+		"position": world_position,
+		"velocity": start_velocity * 0.5,
+		"age": 0.0,
+		"lifetime": smoke_lifetime * randf_range(0.7, 1.2),
+		"phase": randf() * TAU,
+	})
+
+
+## Smoke is drawn first (behind the flame), as small soft squares that grow and fade.
+func _draw_smoke() -> void:
+	if absf(global_scale.x) < 0.05 or absf(global_scale.y) < 0.05:
+		return
+	for wisp: Dictionary in smoke:
+		var progress: float = wisp["age"] / wisp["lifetime"]
+		var size: float = lerpf(SMOKE_START_SIZE, SMOKE_END_SIZE, progress) / absf(global_scale.x)
+		# Fade in fast, out slowly.
+		var alpha: float = SMOKE_MAX_ALPHA * minf(progress * 6.0, 1.0) * (1.0 - progress)
+		var center: Vector2 = to_local(wisp["position"])
+		draw_rect(Rect2(center - Vector2(size, size) / 2.0, Vector2(size, size)), Color(SMOKE_COLOR, alpha * opacity))
 
 
 ## A lick starts at the flame's tip (where the noise has it this frame) and flies
@@ -145,7 +219,7 @@ func _spawn_lick() -> void:
 ## A lick's outline in LOCAL space: a teardrop pointing along its flight, shrinking
 ## with age, shifted sideways by the flutter. `scale_factor` < 1 for the inner layer.
 func _make_lick_polygon(lick: Dictionary, scale_factor: float) -> PackedVector2Array:
-	var life_left: float = 1.0 - lick["age"] / lick["lifetime"]
+	var life_left: float = 1.0 - lick["age"] / (lick["lifetime"] * LICK_FLAME_SHARE)
 	var lick_length: float = lick["size"] * life_left * scale_factor
 	var half_width: float = lick_length * 0.3
 	var velocity: Vector2 = lick["velocity"]
@@ -167,20 +241,25 @@ func _make_lick_polygon(lick: Dictionary, scale_factor: float) -> PackedVector2A
 ## Draws every lick into `on_item`: the outer body (normal blend) or, for young
 ## licks, a hot center (into the additive layer).
 func _draw_licks(on_item: CanvasItem, inner: bool) -> void:
+	# Licks are placed through to_local(), which breaks down when this node is
+	# scaled (almost) to nothing.
+	if absf(global_scale.x) < 0.05 or absf(global_scale.y) < 0.05:
+		return
 	for lick: Dictionary in licks:
-		var life_left: float = 1.0 - lick["age"] / lick["lifetime"]
+		var life_left: float = 1.0 - lick["age"] / (lick["lifetime"] * LICK_FLAME_SHARE)
 		if lick["size"] * life_left < 0.6:
 			continue
 		if inner:
 			if life_left > 0.5:
 				_fill(on_item, _make_lick_polygon(lick, 0.5), Color(INNER_COLOR, opacity * life_left))
 		else:
-			# Orange when torn off, cooling to red as it dies.
-			var color: Color = BODY_COLOR.lerp(EDGE_COLOR, 1.0 - life_left)
+			# Orange when torn off, cooling to a dark red as it turns to smoke.
+			var color: Color = BODY_COLOR.lerp(EDGE_COLOR.darkened(0.3), 1.0 - life_left)
 			_fill(on_item, _make_lick_polygon(lick, 1.0), Color(color, opacity))
 
 
 func _draw() -> void:
+	_draw_smoke()
 	_draw_licks(self, false)
 	if length < 0.5 or opacity <= 0.0:
 		return
@@ -246,9 +325,25 @@ func _wander(t: float, row: float) -> float:
 ## Fills `points` on `on_item`. The noise can fold a forked tip over itself, and Godot
 ## can't fill a self-crossing outline ("triangulation failed"); then the convex hull
 ## (the outline with its dents filled in) is drawn instead, for that one frame.
+## Shapes smaller than MIN_FILL_AREA (a lick that has nearly burnt out) are skipped:
+## the renderer rejects near-zero-area polygons even when they triangulate here.
 func _fill(on_item: CanvasItem, points: PackedVector2Array, color: Color) -> void:
+	# not is_finite(): a node scaled to 0 (a fireball guttering out) turns world
+	# positions into infinite local ones.
+	var area: float = absf(_get_signed_area(points))
+	if not is_finite(area) or area < MIN_FILL_AREA:
+		return
 	if Geometry2D.triangulate_polygon(points).is_empty():
 		points = Geometry2D.convex_hull(points)
 		if points.size() < 4:  # convex_hull repeats the first point at the end
 			return
 	on_item.draw_colored_polygon(points, color)
+
+
+## The polygon's area (shoelace formula; the sign says which way it winds).
+func _get_signed_area(points: PackedVector2Array) -> float:
+	var doubled_area: float = 0.0
+	for index: int in points.size():
+		var next: Vector2 = points[(index + 1) % points.size()]
+		doubled_area += points[index].cross(next)
+	return doubled_area / 2.0

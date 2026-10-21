@@ -19,6 +19,9 @@ func physics_update(delta: float) -> void:
 	if player.try_start_jet():
 		transition_requested.emit(&"Jetting")
 		return
+	if player.try_start_fireball():
+		transition_requested.emit(&"GustAim")
+		return
 	# apply_gravity handles apex half-gravity and fast-fall (holding Down).
 	player.apply_gravity(delta)
 	player.apply_horizontal_movement(delta)

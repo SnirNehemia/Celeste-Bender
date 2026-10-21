@@ -22,8 +22,6 @@ extends Node2D
 ## its children, drawn behind the body (z_index -1); sparks, rings and smoke are
 ## added to the world so they stay where they were made.
 
-## Smoke palette (Fire_bending.md §9.1).
-const SMOKE_COLOR: Color = Color("#2E282B")
 ## Half the hitbox (8×11): the nozzle sits on the body's edge, opposite the thrust.
 const BODY_HALF_SIZE: Vector2 = Vector2(4.0, 5.5)
 ## How fast the plume turns to follow a new thrust direction, per second (higher =
@@ -36,6 +34,8 @@ const NOZZLE_FLICKER: float = 3.0
 const SPUTTER_GASP_COUNT: int = 3
 const SPUTTER_GASP_TIME: float = 0.1  # one gasp + the pause after it
 const SPUTTER_GASP_ON_TIME: float = 0.045
+## Points along the plume tested for flammables each frame (see _ignite_along_plume).
+const PLUME_IGNITE_SAMPLES: int = 4
 ## Smoke puff sizes (sputter, Jump cancel).
 const SPUTTER_SMOKE_COUNT: int = 7
 const CANCEL_SMOKE_COUNT: int = 5
@@ -146,8 +146,27 @@ func update_thrust(direction: Vector2, multiplier: float) -> void:
 		_squash_along(direction)
 	thrust_direction = direction
 	thrust_multiplier = multiplier
+	_ignite_along_plume()
 	# A very light constant shake (refreshed every frame, so it lasts the burst).
 	FX.shake(player.fire_tuning.jet_shake_strength * multiplier, 0.05)
+
+
+## The plume lights flammables it touches (Stage F4): a few points from the nozzle
+## to the tip, each with the plume's half-width as its reach. Flammable.ignite()
+## is cheap to repeat, so doing this every physics frame is fine.
+func _ignite_along_plume() -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var nozzle_position: Vector2 = get_nozzle_world_position()
+	var exhaust: Vector2 = -thrust_direction
+	var plume_length: float = tuning.jet_plume_length * lerpf(0.6, 1.0, _get_thrust_share())
+	var reach: float = tuning.jet_plume_fan_width * 0.5
+	var lit: Dictionary = {}
+	for step: int in PLUME_IGNITE_SAMPLES:
+		var point: Vector2 = nozzle_position + exhaust * plume_length * step / float(PLUME_IGNITE_SAMPLES - 1)
+		for target: Node in get_tree().get_nodes_in_group(Flammable.GROUP):
+			if not lit.has(target) and Flammable.get_fire_rect(target).grow(reach).has_point(point):
+				lit[target] = true
+				Flammable.try_ignite(target, self)
 
 
 ## The flight is over. `snapped_off` (Jump cancel): the flame snaps off in a puff.
@@ -313,6 +332,7 @@ func _layout_plume_tongues(nozzle_local: Vector2, plume_direction: Vector2, thru
 		tongue.lick_lifetime = tuning.jet_plume_lick_lifetime
 		tongue.lick_speed = tuning.jet_plume_lick_speed
 		tongue.lick_size = tongue_fan_width * 0.8
+		tongue.smoke_rate = tuning.jet_plume_smoke_per_second / float(count)
 
 
 ## Where tongue `index` sits across the sheaf: -1 (one edge) .. 0 (middle) .. +1.
@@ -342,37 +362,9 @@ func _squash_along(direction: Vector2) -> void:
 		player.movement_effects.hold_squash(squash)
 
 
-## A one-shot puff of soft gray squares that rise slowly, grow and fade.
+## A one-shot puff of smoke (SmokePuff, shared with the fireball and braziers).
 func _spawn_smoke(world_position: Vector2, count: int) -> void:
-	var smoke: CPUParticles2D = CPUParticles2D.new()
-	smoke.amount = count
-	smoke.one_shot = true
-	smoke.explosiveness = 0.8
-	smoke.lifetime = 0.6
-	smoke.local_coords = false
-	smoke.direction = Vector2.UP
-	smoke.spread = 60.0
-	smoke.initial_velocity_min = 6.0
-	smoke.initial_velocity_max = 18.0
-	smoke.gravity = Vector2(0.0, -10.0)
-	smoke.damping_min = 10.0
-	smoke.damping_max = 20.0
-	smoke.scale_amount_min = 2.0
-	smoke.scale_amount_max = 3.0
-	# scale_amount_curve: particles grow over their life (x = age 0..1).
-	var growth: Curve = Curve.new()
-	growth.add_point(Vector2(0.0, 0.7))
-	growth.add_point(Vector2(1.0, 1.4))
-	smoke.scale_amount_curve = growth
-	var fade: Gradient = Gradient.new()
-	fade.set_color(0, Color(SMOKE_COLOR.lightened(0.25), 0.6))
-	fade.set_color(1, Color(SMOKE_COLOR, 0.0))
-	smoke.color_ramp = fade
-	smoke.z_index = 4
-	_get_effects_parent().add_child(smoke)
-	smoke.global_position = world_position
-	smoke.emitting = true
-	smoke.finished.connect(smoke.queue_free)
+	SmokePuff.spawn(_get_effects_parent(), world_position, count)
 
 
 ## Effects go to the player's parent (the world), so they stay put as we fly on.

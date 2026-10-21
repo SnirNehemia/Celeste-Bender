@@ -17,6 +17,8 @@ extends PlayerState
 ##     (pump flare, curve restarts); W held with no pip = a sputter, then the end
 ##   - on Jump: cut short at once (the pip stays spent, and the press doesn't jump)
 ##   - on a head-on ceiling hit (thrusting straight up): a bonk
+## Q during a burst throws a fireball at once toward the steered direction (no aim,
+## the burst doesn't stop).
 ## At the end, jet_end_carry of the velocity is kept and Fall (or Idle/Run) takes over
 ## with normal gravity, apex half-gravity included.
 
@@ -65,6 +67,12 @@ func physics_update(delta: float) -> void:
 	thrust_direction = _read_steer_direction()
 	if thrust_direction.x != 0.0:
 		player.facing_direction = signf(thrust_direction.x)
+
+	# Q mid-jet (after the F4 play-test): an instant throw in the steered direction,
+	# no slow-motion aim, and the burst keeps going. It costs a pip like any throw
+	# (throw() fizzles with none), so it competes with hold-to-chain for fuel.
+	if Input.is_action_just_pressed("fireball") and player.is_element_allowed(Player.ELEMENT_FIRE):
+		player.fireball.throw(thrust_direction)
 
 	burst_elapsed += delta
 	var progress: float = burst_elapsed / maxf(tuning.jet_burst_time, 0.001)

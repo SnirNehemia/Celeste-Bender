@@ -397,6 +397,22 @@ These were agreed when planning the build. Where they differ from the sections a
 - The F1 debug key (F spends a pip) is gone: W spends pips for real now.
 - Starting a jet: from Idle, Run, Jump, Fall, WallSlide, Glide and Launched (checked right after the dash and gust). Not from the Earth states or mid-dash/gust.
 
+### Decided in Stage F4
+
+- **Brazier flames don't kill.** They are not FireHazards, so lighting one with the jet (flying right past it) is safe. Burning grass, bonfires and burning crates will be.
+- **Fireballs ignore enemies until Stage F11.** For now they hit walls (layer 1) and flammables (new physics layer 6, "flammable") only.
+- **Fireball aim:** the GustAim state is shared, not copied. It talks to an "aim source" (GustAbility or FireballAbility) through a small duck-typed contract (written out in `fireball_ability.gd`). The fireball's aim uses `fireball_aim_time_scale` = 0.3 and throws by itself after `fireball_aim_max_real_time` = 0.8 s real time (the gust's is 0.4 s). No arrow held = thrown the way you face.
+- **The pip is spent at the throw**, not at the press: the press only checks there is one (0 = fizzle). So Jump during the aim cancels for free.
+- **Q works from** the same states as the jet: Idle, Run, Jump, Fall, WallSlide, Glide, Launched.
+- **Timed braziers** have two notches on the post, so you can tell them apart before lighting. Relighting a lit timed brazier restarts its time.
+- **Shared smoke:** `SmokePuff` (scenes/objects/fire/smoke_puff.gd) is the third fire building block for now; the jet, fireball and braziers use it.
+- **F4 play-test changes:**
+  - **Smoke:** every flame's torn-off licks burn for about half their life, then turn into smoke that floats up (whichever way the flame points), grows and fades. Flame tips also give off a thin smoke trail (`jet_plume_smoke_per_second`, `brazier_smoke_per_second`, `fireball_smoke_per_second`). The smoke is a lighter warm gray than §9.1's, which vanished against the dark sky.
+  - **Fireball gravity:** `fireball_gravity_scale` = 0.2 of the player's gravity. On its own that made a level throw from standing hit the floor after about 25 px, so level throws get a **lift** (`fireball_arc_lift`, on) that cancels the drop over the full range: a gentle 14 px arc back to hand height at 160 px. The lift scales with how sideways the throw is.
+  - **Held fireball:** while Q is held, a small dancing flame sits in the hand on the aim side (it dances at full speed even though the world is slowed).
+  - **Aim preview:** an arc of embers along the fireball's real path (same gravity and lift), marching outward and cooling from yellow to red, ending in a flame star where it would hit a wall or flammable, or a gray puff where it would gutter out.
+  - **Fireball mid-jet:** Q during a burst throws at once toward the steered direction: no slow-motion aim, and the burst keeps going. It costs a pip, so it competes with hold-to-chain for fuel.
+
 ### Play-test log
 
 *Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*
