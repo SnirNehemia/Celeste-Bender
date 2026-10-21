@@ -31,6 +31,10 @@ extends CharacterBody2D
 ##            On impact:
 ##              - an EARTH face (the "Earth" layer, fresh or used): STUCK
 ##              - a risen Earth Column: bounces off it, keeps flying
+##              - a CRACKED WALL (Stage E6): a BIG rock breaks it open; either size
+##                shatters on it (a small rock is too light to break it)
+##              - an ENEMY (Stage E6): hits it (receive_rock_hit: a wisp is knocked
+##                back and defeated, a sentry destroyed), and shatters
 ##              - anything else (gray rock, grass, a crate, a stuck boulder): shatters
 ##   STUCK    snapped onto the tile grid against the earth face it hit (and that
 ##            tile hardens, so it can't be torn out from under it): a solid
@@ -50,8 +54,12 @@ extends CharacterBody2D
 ## (which node, which way the surface faces), which is all the impact rules need.
 ## While moving it's on NO physics layer (collision_layer = 0): nothing collides with
 ## it, so the player isn't bumped by a boulder flying past. Its mask is layer 1
-## ("world"), so it hits tiles, columns, crates and stuck boulders, but passes through
-## the player and wisps (enemy hits come in Stage E6).
+## ("world"), so it hits tiles, columns, crates, stuck boulders, cracked walls and
+## sentries (they're on layer 1 too), but passes through the player. A THROWN rock
+## also looks at layer 5 ("enemies"), so it hits wisps (Stage E6); a hopping or loose
+## rock doesn't, so tearing a rock next to a wisp never kills it by accident.
+## Sentry orbs: every rock blocks them. Resting (loose, stuck) it's solid "world", so
+## orbs pop on it; moving it pops the orbs it touches itself (_pop_touching_orbs).
 ##
 ## Origin: the CENTER of the boulder (unlike the player and crates, whose origin is at
 ## the feet), since it pops and flies in every direction.
@@ -69,6 +77,20 @@ enum Phase { POPPING, FLYING, STUCK, LOOSE, SHATTERED }
 ## Physics layer bit value of the player (layer 2): a rock doesn't turn solid while
 ## overlapping them.
 const PLAYER_MASK: int = 2
+## Physics layer bit values a moving rock collides with: world (1) always, enemies
+## (layer 5) only once thrown (see the header).
+const WORLD_MASK: int = 1
+const ENEMY_MASK: int = 16
+## Sentry orbs are Area2Ds on layer 4 ("pushable"): a moving rock pops them
+## (_pop_touching_orbs). Max overlaps one check reports.
+const ORB_MASK: int = 8
+const MAX_ORB_RESULTS: int = 8
+## The enemy-hit contract (Stage E6), duck typing like Pushable: an enemy that a thrown
+## rock can hurt has
+##     func receive_rock_hit(knockback_velocity: Vector2, defeat_delay: float) -> void
+## Wisp: flies off at knockback_velocity, defeated defeat_delay later. Sentry:
+## destroyed at once (it's bolted down).
+const ENEMY_HIT_METHOD: StringName = &"receive_rock_hit"
 
 ## The tear phase is over: the rock is out of its hole and about to hop. BoulderAbility
 ## listens: if S is still held, it grows the rock right then (grow()).
@@ -177,7 +199,7 @@ func setup(start_center: Vector2, normal: Vector2, away_velocity_x: float, playe
 
 func _ready() -> void:
 	collision_layer = 0  # nothing collides with a moving boulder (see the header)
-	collision_mask = 1   # bit value of layer 1, "world"
+	collision_mask = WORLD_MASK
 	global_position = pop_start_position
 	add_to_group(GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
@@ -259,6 +281,7 @@ func throw(direction: Vector2, speed: float, float_time: float, is_perfect: bool
 		# starts while it's still coming out.)
 		move_and_collide(pop_start_position + pop_normal * size - global_position)
 	phase = Phase.FLYING
+	collision_mask = WORLD_MASK | ENEMY_MASK  # thrown: now it hits wisps too
 	velocity = direction * speed
 	float_time_remaining = float_time
 	flight_time = 0.0
@@ -320,6 +343,10 @@ func _physics_process(delta: float) -> void:
 			_update_flight(delta)
 		Phase.LOOSE:
 			_update_loose(delta)
+	# A moving rock is on no physics layer, so orbs can't see it: it pops them itself.
+	# (Resting rocks, loose or stuck, are solid "world" and orbs pop on them already.)
+	if phase == Phase.POPPING or phase == Phase.FLYING:
+		_pop_touching_orbs()
 	queue_redraw()  # the white flash and the window tint change over time
 
 
@@ -408,6 +435,26 @@ func _update_loose(delta: float) -> void:
 		velocity = Vector2.ZERO
 
 
+## Pops every sentry orb (reflected or not) overlapping the rock: a rock you're holding
+## or throwing is a shield, like a snake wall. Orbs are Area2Ds on layer 4
+## ("pushable"), so the query looks at areas only.
+func _pop_touching_orbs() -> void:
+	var check_shape: RectangleShape2D = RectangleShape2D.new()
+	check_shape.size = Vector2.ONE * size
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = check_shape
+	query.transform = Transform2D(0.0, global_position)
+	query.collision_mask = ORB_MASK
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	# The room's PebbleField sensor is on that layer too (it covers the whole room),
+	# so ask for a few results and keep only the orbs.
+	for result: Dictionary in get_world_2d().direct_space_state.intersect_shape(query, MAX_ORB_RESULTS):
+		var orb: SentryOrb = result.collider as SentryOrb
+		if orb != null and not orb.is_popped:
+			orb.pop()
+
+
 ## True if the player's body overlaps this rock right now.
 func _overlaps_player() -> bool:
 	var check_shape: RectangleShape2D = RectangleShape2D.new()
@@ -457,6 +504,19 @@ func _on_impact(collision: KinematicCollision2D) -> void:
 	var surface_normal: Vector2 = collision.get_normal()  # points from the surface back at us
 	if collider is EarthColumn:
 		_bounce_off(surface_normal, collision.get_position())
+	elif collider is CrackedWall:
+		# Only a BIG rock breaks it; a small one is too light and just shatters on it.
+		if is_big():
+			(collider as CrackedWall).break_open(velocity.normalized(), earth_tuning)
+		shatter()
+	elif collider is Node and (collider as Node).has_method(ENEMY_HIT_METHOD):
+		# An enemy (a wisp, a sentry): knocked back along the throw and defeated.
+		# move_and_collide() doesn't change `velocity`, so it's still the throw's.
+		(collider as Node).call(ENEMY_HIT_METHOD,
+			velocity.normalized() * earth_tuning.boulder_enemy_knockback_speed,
+			earth_tuning.boulder_enemy_defeat_delay)
+		FX.freeze(0.05)  # a crunchy hit, like dashing a stunned wisp
+		shatter()
 	elif collider is EarthLayer:
 		if not _stick_into(collider as EarthLayer, surface_normal, collision.get_position()):
 			shatter()

@@ -14,7 +14,10 @@ extends StaticBody2D
 ##               - spends one tile of the earth BUDGET (the patch it came out of, in
 ##                 order outward from the emergence point: the patch darkens tile by
 ##                 tile, like earth being pulled out)
-##               - shoves crates, wisps and loose rocks out of the way, one tile along
+##               - shoves crates, wisps and loose rocks out of the way, one tile along.
+##                 An ENEMY it shoves is also KNOCKED BACK that way (Stage E6): stunned
+##                 and sliding (Pushable.try_launch), so the head can ram a wisp off a
+##                 ledge into spikes. A sentry is bolted down: it blocks the head.
 ##               - becomes solid at once (a collision box per tile)
 ##             It HARDENS (harden()) when A or Jump is pressed (SnakeSteer), the budget
 ##             runs out, the next tile is solid or already snake, something it pushes
@@ -62,6 +65,8 @@ const DARK_SPECKLE_COLOR: Color = Color(0.17, 0.11, 0.06)
 ## other solids), pushable (4) and enemies (5: wisps). The player (2) is checked apart.
 const BLOCKING_MASK: int = 1 | 8 | 16
 const PLAYER_MASK: int = 2
+## Physics layer bit value of "enemies" (layer 5): shoved bodies on it get knocked back.
+const ENEMY_MASK: int = 16
 ## The "is something in this tile?" checks use a box this much smaller on each side,
 ## px, so things merely touching the tile's edge (standing next to it) don't count.
 const OVERLAP_INSET: float = 0.5
@@ -277,7 +282,8 @@ func _throw_shoved_player(direction: Vector2i) -> void:
 	FX.spawn_gravel(player.get_center(), earth_tuning.snake_head_gravel_count * 2, Vector2(direction))
 
 
-## Pushes everything in `cell` one tile along `direction` (crates, wisps, loose rocks).
+## Pushes everything in `cell` one tile along `direction` (crates, wisps, loose rocks),
+## and knocks enemies back that way too (see the header).
 ## Returns false if something there can't be moved (stuck against a solid) or isn't
 ## movable at all (a door, a stuck rock): then the head can't go in.
 func _shove_bodies_out_of(cell: Vector2i, direction: Vector2i) -> bool:
@@ -297,6 +303,10 @@ func _shove_bodies_out_of(cell: Vector2i, direction: Vector2i) -> bool:
 		if collision != null and collision.get_travel().length() < motion.length() - 0.01:
 			return false
 		body.global_position += motion
+		if (body.collision_layer & ENEMY_MASK) != 0:
+			# Knocked back along the head's way: stunned and sliding (no hop, unlike a
+			# gust, so a ram along the floor pushes it off the edge instead of over a pit).
+			Pushable.try_launch(body, Vector2(direction) * earth_tuning.snake_enemy_knockback_speed)
 	return true
 
 

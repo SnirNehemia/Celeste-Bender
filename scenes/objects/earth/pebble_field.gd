@@ -48,6 +48,8 @@ const KICK_REACH_BELOW: float = 2.0
 const LOST_DISTANCE: float = 64.0
 ## Pebble colors: fresh earth to dark used earth, plus a stony gray-brown.
 const STONE_COLOR: Color = Color(0.45, 0.4, 0.36)
+## "No color given: pick an earth one" (fully transparent black, never a real pebble).
+const PICK_COLOR: Color = Color(0.0, 0.0, 0.0, 0.0)
 
 ## Feel values. preload() returns the same resource the player holds, so Remote-tab
 ## edits reach the pebbles too.
@@ -131,6 +133,17 @@ static func leave_one_pebble(tree: SceneTree, world_position: Vector2, direction
 		field.add_pebble(world_position, direction)
 
 
+## `count` pebbles at `world_position`, thrown toward `direction`, each a random pick
+## from `colors` (Stage E6: a cracked wall crumbles into gray stone, not earth).
+static func leave_colored_pebbles(tree: SceneTree, world_position: Vector2, count: int,
+		direction: Vector2, colors: Array[Color]) -> void:
+	var field: PebbleField = _find_field(tree, world_position)
+	if field == null or colors.is_empty():
+		return
+	for pebble_number: int in count:
+		field.add_pebble(world_position, direction, colors[field.pebble_random.randi() % colors.size()])
+
+
 ## The field of the room containing `world_position`, or null (no Earth room there).
 static func _find_field(tree: SceneTree, world_position: Vector2) -> PebbleField:
 	for member: Node in tree.get_nodes_in_group(GROUP):
@@ -153,7 +166,8 @@ func add_pebbles(world_position: Vector2, expected_count: float, direction: Vect
 
 ## One new pebble at `world_position`, thrown out toward `direction` (±40°); ZERO =
 ## any upward direction. It spawns moving and lands wherever it falls.
-func add_pebble(world_position: Vector2, direction: Vector2) -> void:
+## `color`: the pebble's color, or PICK_COLOR (the default) for an earth color.
+func add_pebble(world_position: Vector2, direction: Vector2, color: Color = PICK_COLOR) -> void:
 	# Over the cap: the oldest pebble (index 0) goes first.
 	while pebble_positions.size() >= earth_tuning.pebble_max_per_room:
 		_remove_pebble(0)
@@ -170,7 +184,7 @@ func add_pebble(world_position: Vector2, direction: Vector2) -> void:
 	pebble_is_moving.append(1)
 	pebble_is_grounded.append(0)
 	pebble_sizes.append(_pick_pebble_size())
-	pebble_colors.append(_pick_pebble_color())
+	pebble_colors.append(_pick_pebble_color() if color == PICK_COLOR else color)
 	queue_redraw()
 
 

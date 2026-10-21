@@ -41,6 +41,7 @@ func _ready() -> void:
 	await _check_e4e_rock_pillar_look(world, player)
 	await _check_e5_snake(world, player)
 	await _check_one_key_column_snake(world, player)
+	await _check_e6_walls_enemies(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -49,7 +50,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "E5", "one-key", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "E5", "one-key", "E6", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -1559,6 +1560,20 @@ func _check_mixed_enemies() -> void:
 	player.earth_column.erupt(EarthFace.new(earth, Vector2i(28, 20), Vector2i.UP))
 	await _wait_real(2.0)
 	_check(not player.is_dead() and not is_instance_valid(orb), "a column blocks the sentry's orb (it pops)")
+	# Stage E6: a column out of the sentry block's side throws a wisp along the floor
+	# into the spike pit (made in code: with one key, A only raises columns under you).
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	(room.get_node("Sentry") as Sentry).can_fire = false
+	(room.get_node("WispLeft") as Wisp).defeat()
+	player.respawn_at(room.global_position + Vector2(24, 160))
+	var thrown_wisp: Wisp = room.get_node("WispRight") as Wisp
+	thrown_wisp.global_position = room.global_position + Vector2(32 * 8 - 6, 160)
+	await _wait_physics_frames(1)
+	player.earth_column.erupt(EarthFace.new(earth, Vector2i(32, 19), Vector2i.LEFT))
+	await _wait_until(func() -> bool: return thrown_wisp.state == Wisp.State.DEFEATED, 2.0)
+	_check(thrown_wisp.state == Wisp.State.DEFEATED and thrown_wisp.global_position.x < room.global_position.x + 22 * 8,
+		"a column throws a wisp into the spike pit (x %.1f)" % (thrown_wisp.global_position.x - room.global_position.x))
 	world.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("mixed")
@@ -1586,6 +1601,190 @@ func _find_columns(room: Room) -> Array[EarthColumn]:
 func _wait_physics_frames(count: int) -> void:
 	for frame_index: int in count:
 		await get_tree().physics_frame
+
+
+## Stage E6 (RoomEarthG): cracked walls, thrown rocks vs enemies, the snake head
+## ramming a wisp into spikes, and slow motion slowing enemies and orbs.
+## (The column throwing a wisp into spikes is in _check_mixed_enemies: with one key a
+## column only rises under the player, so it's tested with a column made in code.)
+func _check_e6_walls_enemies(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthG") as Room
+	var tuning: EarthTuning = player.earth_tuning
+	var wall: CrackedWall = room.get_node("CrackedWall") as CrackedWall
+	var wisp: Wisp = room.get_node("Wisp") as Wisp
+	var sentry: Sentry = room.get_node("Sentry") as Sentry
+	world.jump_to_room(room)
+	sentry.can_fire = false  # no orbs except in the slow-motion check
+	await _wait_physics_frames(5)
+	_check(wall.collision_layer == 1 and not wall.is_broken, "a cracked wall is solid ground (layer 1) until broken")
+
+	# A SMALL rock is too light: it shatters on the wall, which stays whole.
+	var wall_center: Vector2 = wall.get_global_rect().get_center()
+	var rock: Boulder = _throw_test_rock(room, Vector2(wall.global_position.x - 20.0, wall_center.y), Vector2.RIGHT, tuning)
+	await _wait_game(0.3)
+	_check(not wall.is_broken and wall.collision_layer == 1, "a small rock doesn't break a cracked wall")
+	_check(not is_instance_valid(rock) or rock.phase == Boulder.Phase.SHATTERED, "the small rock shatters on it")
+
+	# A real throw: hold S for a BIG rock, throw it right at the perfect moment.
+	var field: PebbleField = room.get_node("PebbleField") as PebbleField
+	player.respawn_at(room.global_position + Vector2(6 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	rock = await _tear_big_rock(player)
+	_check(rock != null and rock.is_big(), "test setup: a big rock is torn out in front of the cracked wall")
+	if rock == null:
+		return
+	await _wait_until(func() -> bool: return rock.is_in_perfect_window(), 1.0)
+	field.reset()  # count only the wall's pebbles below
+	await _press_action("earth_boulder")
+	# (The condition looks at the wall, not the rock: a lambda must not hold a freed node.)
+	await _wait_until(func() -> bool: return wall.is_broken, 2.0)
+	_check(wall.is_broken and wall.collision_layer == 0 and not wall.visible, "a thrown big rock breaks the cracked wall open")
+	_check(not is_instance_valid(rock) or rock.phase == Boulder.Phase.SHATTERED, "the big rock shatters on the wall")
+	var wall_pebbles: int = 0
+	for pebble_color: Color in field.pebble_colors:
+		if CrackedWall.PEBBLE_COLORS.has(pebble_color):
+			wall_pebbles += 1
+	var wall_tiles: int = wall.wall_size_tiles.x * wall.wall_size_tiles.y
+	_check(wall_pebbles == wall_tiles * tuning.cracked_wall_pebbles_per_tile,
+		"the wall crumbles into gray pebbles, %d per tile (%d for %d tiles)" % [tuning.cracked_wall_pebbles_per_tile, wall_pebbles, wall_tiles])
+	await _wait_physics_frames(1)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	_check(not wall.is_broken and wall.collision_layer == 1 and wall.visible, "room reset puts the cracked wall back")
+
+	# A thrown rock vs the wisp: knocked back along the throw, harmless, then defeated.
+	player.respawn_at(room.global_position + Vector2(24, 160))
+	wisp.global_position = room.global_position + Vector2(20 * 8, 160)
+	var wisp_start_x: float = wisp.global_position.x
+	rock = _throw_test_rock(room, wisp.global_position + Vector2(-24.0, -4.0), Vector2.RIGHT, tuning)
+	await _wait_until(func() -> bool: return wisp.rock_defeat_remaining >= 0.0 or wisp.state == Wisp.State.DEFEATED, 0.5)
+	_check(wisp.rock_defeat_remaining >= 0.0 and wisp.state == Wisp.State.STUNNED and wisp.velocity.x > 0.0,
+		"a thrown rock knocks the wisp back along the throw (stunned, velocity %s)" % wisp.velocity)
+	_check(not is_instance_valid(rock) or rock.phase == Boulder.Phase.SHATTERED, "the rock shatters on the wisp")
+	await _wait_game(tuning.boulder_enemy_defeat_delay + 0.05)
+	_check(wisp.state == Wisp.State.DEFEATED and wisp.global_position.x > wisp_start_x,
+		"...and the wisp is defeated a moment later (flew %.1f px)" % (wisp.global_position.x - wisp_start_x))
+
+	# A thrown rock vs the sentry: destroyed at once.
+	rock = _throw_test_rock(room, sentry.get_eye_position() + Vector2(-30.0, 0.0), Vector2.RIGHT, tuning)
+	await _wait_until(func() -> bool: return sentry.is_destroyed, 0.5)
+	_check(sentry.is_destroyed, "a thrown rock destroys the sentry")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	_check(wisp.state == Wisp.State.PATROL and not sentry.is_destroyed, "room reset brings the wisp and the sentry back")
+	# A rock that's only hopping (not thrown) passes through a wisp: no accidental kills.
+	var hopping: Boulder = Boulder.new()
+	hopping.setup(wisp.global_position + Vector2(0.0, -4.0), Vector2.UP, 0.0, wisp.global_position.y, tuning)
+	room.add_child(hopping)
+	await _wait_game(0.2)
+	_check(wisp.state == Wisp.State.PATROL, "a hopping (unthrown) rock doesn't hit a wisp")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Rocks block orbs: a hopping rock is a shield, a thrown one knocks orbs out of the air.
+	var shield_rock: Boulder = Boulder.new()
+	var shield_center: Vector2 = room.global_position + Vector2(160, 100)
+	shield_rock.setup(shield_center, Vector2.UP, 0.0, shield_center.y, tuning)
+	room.add_child(shield_rock)
+	var shield_orb: SentryOrb = _launch_test_orb(room, shield_center + Vector2(12.0, -8.0), Vector2(-60.0, 0.0))
+	await _wait_game(0.4)
+	_check(not is_instance_valid(shield_orb), "an orb flying into a hopping rock pops")
+	var air_orb: SentryOrb = _launch_test_orb(room, room.global_position + Vector2(200, 60), Vector2(-60.0, 0.0))
+	_throw_test_rock(room, room.global_position + Vector2(120, 60), Vector2.RIGHT, tuning)
+	await _wait_game(0.4)
+	_check(not is_instance_valid(air_orb), "a thrown rock pops an orb in mid-air")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+
+	# Slow motion during a bend slows enemies and orbs (they move in game time).
+	sentry.can_fire = true
+	# Within the sentry's sight_range (220 px), still on the earth floor.
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	wall.break_open(Vector2.RIGHT, tuning)  # so the sentry sees the player and fires
+	var orb: SentryOrb = null
+	var waited_frames: int = 0
+	while orb == null and waited_frames < 150:
+		await get_tree().physics_frame
+		waited_frames += 1
+		for child: Node in room.get_children():
+			if child is SentryOrb and not child.is_queued_for_deletion():
+				orb = child as SentryOrb
+	sentry.can_fire = false
+	_check(orb != null, "test setup: the sentry fires once the wall is open")
+	wisp.global_position = room.global_position + Vector2(19 * 8, 160)
+	wisp.patrol_direction = 1.0
+	await _wait_physics_frames(3)
+	Input.action_press(&"earth_column")
+	await _wait_physics_frames(3)
+	var bend_scale: float = Engine.time_scale
+	var wisp_before: float = wisp.global_position.x
+	var orb_before: Vector2 = orb.global_position if is_instance_valid(orb) else Vector2.ZERO
+	var measured_frames: int = 20
+	await _wait_physics_frames(measured_frames)
+	var frame_time: float = 1.0 / Engine.physics_ticks_per_second
+	var expected_wisp: float = wisp.patrol_speed * frame_time * measured_frames * tuning.bend_time_scale
+	var wisp_moved: float = absf(wisp.global_position.x - wisp_before)
+	_check(is_equal_approx(bend_scale, tuning.bend_time_scale) and absf(wisp_moved - expected_wisp) < 0.5,
+		"a bend slows the wisp to %.1fx (moved %.2f px in %d frames, expected %.2f)" % [bend_scale, wisp_moved, measured_frames, expected_wisp])
+	if is_instance_valid(orb):
+		var expected_orb: float = sentry.orb_speed * frame_time * measured_frames * tuning.bend_time_scale
+		var orb_moved: float = orb.global_position.distance_to(orb_before)
+		_check(absf(orb_moved - expected_orb) < 0.5,
+			"a bend slows the sentry's orb too (moved %.2f px, expected %.2f)" % [orb_moved, expected_orb])
+	else:
+		_check(false, "the orb was still flying during the bend")
+	Input.action_release(&"earth_column")
+	await _wait_physics_frames(3)
+	room.reset_objects()
+	await _wait_real(0.3)
+
+	# The snake head rams the wisp off the floor's edge into the spike pit.
+	player.respawn_at(room.global_position + Vector2(9 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	wall.break_open(Vector2.RIGHT, tuning)
+	wisp.global_position = room.global_position + Vector2(19 * 8, 160)
+	await _wait_physics_frames(5)
+	var snake: EarthSnake = await _bend_snake_at(player, Vector2i(13, 20), Vector2i.UP)
+	_check(snake != null, "test setup: a snake comes out of the floor where the wall stood")
+	if snake == null:
+		return
+	snake.queue_turn(Vector2i.RIGHT)  # out of the floor, then right along it
+	var was_knocked: bool = false
+	var waited: float = 0.0
+	while waited < 4.0 and wisp.state != Wisp.State.DEFEATED:
+		was_knocked = was_knocked or wisp.state == Wisp.State.STUNNED
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+	_check(was_knocked, "the snake head knocks the wisp back (stunned)")
+	_check(wisp.state == Wisp.State.DEFEATED and wisp.global_position.x > room.global_position.x + 25 * 8,
+		"the snake head rams the wisp into the spike pit (x %.1f)" % (wisp.global_position.x - room.global_position.x))
+	_check(not player.is_dead(), "the player survives ramming the wisp")
+	await _wait_real(0.5)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("E6")
+
+
+## A rock made in code and thrown at once (perfect speed, no flash), so its path is
+## exact: it flies from `center` along `direction`. Returns it.
+func _throw_test_rock(room: Room, center: Vector2, direction: Vector2, tuning: EarthTuning) -> Boulder:
+	var rock: Boulder = Boulder.new()
+	# Started one tile below `center`: a throw during the tear yanks it out first, a
+	# tile up, so it really starts flying from `center`.
+	rock.setup(center + Vector2(0.0, tuning.boulder_size), Vector2.UP, 0.0, center.y, tuning)
+	room.add_child(rock)
+	rock.throw(direction, tuning.boulder_perfect_throw_speed, tuning.boulder_perfect_float_time, false)
+	return rock
+
+
+## A sentry orb made in code (no sentry fired it), flying from `world_position` at
+## `orb_velocity`, px/s.
+func _launch_test_orb(room: Room, world_position: Vector2, orb_velocity: Vector2) -> SentryOrb:
+	var orb: SentryOrb = (load("res://scenes/enemies/sentry_orb.tscn") as PackedScene).instantiate() as SentryOrb
+	room.add_child(orb)
+	orb.launch(world_position, orb_velocity, null)
+	return orb
 
 
 ## Starts a bend at `start_face` crawling in `start_tangent` (default: facing right),

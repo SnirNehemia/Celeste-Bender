@@ -265,3 +265,24 @@ extends Resource
 ## Screen shake when it hardens: strength (px) and duration (s).
 @export var snake_harden_shake_strength: float = 1.0
 @export var snake_harden_shake_time: float = 0.1
+
+@export_group("Cracked walls & enemies")
+## Stage E6 (Earth_bending.md §2, §6, §7). A thrown rock breaks a CRACKED WALL open
+## (any size of rock, one hit): this many gravel bits per tile of wall, and a shake.
+@export var cracked_wall_gravel_per_tile: int = 4
+## ...and leaves this many gray pebbles per tile lying around (a 2x6 wall: 72, so it
+## stays under pebble_max_per_room).
+@export var cracked_wall_pebbles_per_tile: int = 6
+@export var cracked_wall_shake_strength: float = 2.0
+@export var cracked_wall_shake_time: float = 0.15
+## A thrown rock hitting a WISP knocks it back along the throw at this speed, px/s...
+@export var boulder_enemy_knockback_speed: float = 200.0
+## ...and it pops (defeated) this long after the hit, seconds (game time): long
+## enough to see it fly, short enough that the hit reads as the kill. Harmless
+## meanwhile. A sentry doesn't fly: it's destroyed at once.
+@export var boulder_enemy_defeat_delay: float = 0.15
+## The snake's HEAD shoving a wisp out of its tile also knocks it back along the
+## head's direction at this speed, px/s: stunned and sliding, no hop (a wisp slides
+## 120² / (2 x 320) ≈ 22 px on the ground). Ram it off a ledge into spikes. Faster
+## (or with a hop like a gust's) and the last shove flings it over a narrow pit.
+@export var snake_enemy_knockback_speed: float = 120.0

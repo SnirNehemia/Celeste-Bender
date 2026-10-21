@@ -24,6 +24,11 @@ extends CharacterBody2D
 ##   - a STUNNED wisp hit by a dashing player -> defeated (freeze frame + shake, and
 ##                                              with tuning.dash_defeat_refills the
 ##                                              player gets their dash back)
+##   - hit by a thrown rock (Stage E6)        -> knocked back along the throw and
+##                                              defeated a moment later (it flies,
+##                                              harmless, then pops)
+## Earth moves that only PUSH it (a rising column's tip, the snake's head) throw it
+## and stun it like a gust: the same "what it hits decides" rule then applies.
 ##
 ## It talks to other objects only through small, existing contracts:
 ##   - Pushable (group "pushable" + receive_gust): the gust and dash wake find it
@@ -31,6 +36,7 @@ extends CharacterBody2D
 ##   - Player.die() / Player.is_dashing(): touching the player
 ##   - Spikes.get_hitbox_global_rect(): the same fair hitbox the player gets
 ##   - SentryOrb.TARGET_GROUP: a reflected orb aims at it and defeats it on hit
+##   - receive_rock_hit(): Boulder's enemy-hit contract (Stage E6)
 ##
 ## Physics layers: the body is on layer 4 ("pushable", so the gust's shape query
 ## sees it) and layer 5 ("enemies"), and collides only with layer 1 ("world"). The
@@ -89,6 +95,8 @@ var patrol_direction: float = 1.0
 var stun_time_remaining: float = 0.0
 ## True once this knockback has already slammed into a wall (one slam per knockback).
 var has_slammed_this_knockback: bool = false
+## Hit by a thrown rock: seconds until it pops (defeated). Negative = not hit.
+var rock_defeat_remaining: float = -1.0
 ## Where it was placed, in world coordinates. reset() puts it back here.
 var start_position: Vector2
 ## Seconds since start; drives the bob and dizzy-stars animations.
@@ -131,6 +139,11 @@ func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint() or state == State.DEFEATED:
 		return
 
+	if rock_defeat_remaining >= 0.0:
+		rock_defeat_remaining -= delta
+		if rock_defeat_remaining <= 0.0:
+			defeat()
+			return
 	match state:
 		State.PATROL:
 			_patrol(delta)
@@ -261,6 +274,23 @@ func receive_launch(launch_velocity: Vector2) -> void:
 	has_slammed_this_knockback = false
 
 
+## Boulder's enemy-hit contract (Stage E6): a thrown rock hit us. Knocked back at
+## `knockback_velocity` (stunned, so harmless while it flies), defeated
+## `defeat_delay` seconds later. A second rock in the meantime changes nothing.
+func receive_rock_hit(knockback_velocity: Vector2, defeat_delay: float) -> void:
+	if state == State.DEFEATED or rock_defeat_remaining >= 0.0:
+		return
+	receive_launch(knockback_velocity)
+	# A small hop up as well (like a gust), so a sideways hit lifts it off the floor
+	# instead of skidding it: minf because "up" is negative y.
+	velocity.y = minf(velocity.y, -knockback_hop_speed)
+	if defeat_delay <= 0.0:
+		defeat()
+		return
+	rock_defeat_remaining = defeat_delay
+	FX.shake(1.5, 0.1)
+
+
 ## Squeezed between a rising column and a solid: crushed.
 func receive_crush() -> void:
 	defeat()
@@ -272,6 +302,7 @@ func defeat() -> void:
 	if state == State.DEFEATED:
 		return
 	state = State.DEFEATED
+	rock_defeat_remaining = -1.0
 	velocity = Vector2.ZERO
 	visible = false
 	collision_layer = 0
@@ -306,6 +337,7 @@ func reset() -> void:
 	velocity = Vector2.ZERO
 	patrol_direction = float(start_direction)
 	stun_time_remaining = 0.0
+	rock_defeat_remaining = -1.0
 	state = State.PATROL
 	visible = true
 	collision_layer = 8 | 16

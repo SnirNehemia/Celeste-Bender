@@ -19,6 +19,7 @@ extends Node
 ##   - tests/rooms/room_earth_d.tscn        Stage E4c hidden chamber room (_build_room_earth_d)
 ##   - tests/rooms/room_earth_e.tscn        Stage E5 snake room (_build_room_earth_e)
 ##   - tests/rooms/room_earth_f.tscn        one-key column/snake experiment (_build_room_earth_f)
+##   - tests/rooms/room_earth_g.tscn        Stage E6 cracked walls + enemies (_build_room_earth_g)
 ##   - tests/rooms/room_mixed_a.tscn        Air + Earth together (_build_room_mixed_a)
 ##   - tests/rooms/room_mixed_b.tscn        Air + Earth vs enemies (_build_room_mixed_b)
 ##                                          Both mixed rooms are in tests/mixed_test_world.tscn.
@@ -36,7 +37,7 @@ extends Node
 ## Running it again OVERWRITES the test rooms (not the tileset). Once you edit a room
 ## in the editor, edit it there instead. Pass room names after `--` to build only
 ## those, e.g. `-- earth_b mixed_a` (names: earth_a, earth_b, earth_c, earth_d, earth_e,
-## earth_f, mixed_a, mixed_b).
+## earth_f, earth_g, mixed_a, mixed_b).
 ##
 ## Layout units: tiles (8 px), (column, row) from the room's top-left tile.
 
@@ -73,6 +74,7 @@ const WISP_SCENE: PackedScene = preload("res://scenes/enemies/wisp.tscn")
 const CRYSTAL_SCENE: PackedScene = preload("res://scenes/objects/wind_crystal.tscn")
 const WIND_ZONE_SCENE: PackedScene = preload("res://scenes/objects/wind_zone.tscn")
 const SENTRY_SCENE: PackedScene = preload("res://scenes/enemies/sentry.tscn")
+const CRACKED_WALL_SCENE: PackedScene = preload("res://scenes/objects/earth/cracked_wall.tscn")
 ## Spikes.Facing value for spikes sitting on a floor (see spikes.gd).
 const FACING_UP: int = 0
 
@@ -101,6 +103,8 @@ func _ready() -> void:
 		_build_room_earth_e()
 	if wanted.is_empty() or wanted.has("earth_f"):
 		_build_room_earth_f()
+	if wanted.is_empty() or wanted.has("earth_g"):
+		_build_room_earth_g()
 	if wanted.is_empty() or wanted.has("mixed_a"):
 		_build_room_mixed_a()
 	if wanted.is_empty() or wanted.has("mixed_b"):
@@ -540,6 +544,39 @@ func _build_room_earth_f() -> void:
 	# The far ledge, just as high.
 	_grass(26, 14, 13, 6)
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_f.tscn")
+
+
+## Earth test room G (Stage E6): cracked walls and enemies. Earth-only, one key.
+## Left to right:
+##   - the start, on an earth floor (2 deep) that runs on under...
+##   - a CRACKED WALL (2x6 tiles) under a grass pillar hanging from the ceiling: it
+##     closes the room off. Hold S for a BIG rock (the floor is 2 deep for it) and
+##     throw it right: the wall breaks open. A small rock just shatters on it. It
+##     also hides you from the sentry until then.
+##   - a WISP patrolling the floor behind the wall. Once the wall is open it can walk
+##     over to you: throw a rock at it (straight throws fly at its height), or bend
+##     a snake out of the floor where the wall stood and steer it right along the
+##     floor: the head rams the wisp ahead of it, off the edge into...
+##   - a spike pit (gray under the spikes), then
+##   - a SENTRY on the far floor: block its orbs with a snake wall (steer one up), or
+##     walk to the pit's edge and throw a rock straight at it.
+## R puts the wall, the wisp, the sentry and the earth back.
+func _build_room_earth_g() -> void:
+	_begin_room("RoomEarthG", "Earth G - Walls & Enemies",
+		"Stage E6 test room. Earth-only, one key. Hold S for a big rock and throw it (S again) at the cracked wall: it breaks into gray pebbles (a small rock just shatters on it). A thrown rock knocks a wisp back and defeats it, and destroys the sentry. A snake out of the floor steered right rams the wisp into the spike pit. Steer a snake up as a wall: the sentry's orbs pop on it. R resets.")
+	room.air_allowed = false
+	room.one_key_column_snake = true
+	_grass_frame()
+	# The earth floor: from the start to just past the wall, 2 tiles deep.
+	_earth(2, 20, 14, 2)
+	# The pillar the cracked wall hangs under (ceiling to row 13).
+	_grass(12, 1, 2, 13)
+	_add(CRACKED_WALL_SCENE, "CrackedWall", Vector2(12 * TILE, 14 * TILE), {"wall_size_tiles": Vector2i(2, 6)})
+	# Behind the wall: the wisp's floor (cols 14-24), the spike pit, the sentry's floor.
+	_add(WISP_SCENE, "Wisp", Vector2(19 * TILE, 160))
+	_spike_pit("PitSpikes", 25, 5)
+	_add(SENTRY_SCENE, "Sentry", Vector2(35 * TILE, 160))
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_earth_g.tscn")
 
 
 ## Mixed test room A: Air AND Earth both allowed, to try how they work together.

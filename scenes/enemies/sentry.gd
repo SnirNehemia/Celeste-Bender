@@ -3,7 +3,8 @@ class_name Sentry
 extends StaticBody2D
 ## Sentry (GAME_DESIGN.md §7): a stationary purple turret. While it can see the
 ## player it fires a slow orange orb (SentryOrb) at them every fire_interval seconds.
-## The gust reflects orbs; a reflected orb that hits the sentry destroys it.
+## The gust reflects orbs; a reflected orb that hits the sentry destroys it. So does
+## a thrown rock (Stage E6, receive_rock_hit).
 ##
 ## Place the node ON the floor (or a ledge), at the bottom-center of the turret.
 ## With mounted_on_ceiling, place it on the CEILING instead (top-center): it hangs
@@ -168,6 +169,12 @@ func destroy() -> void:
 	FX.shake(3.0, 0.2)
 	FX.play_sfx(&"sentry_destroyed")
 	defeated.emit()
+
+
+## Boulder's enemy-hit contract (Stage E6): a thrown rock destroys it at once. It's
+## bolted down, so the knockback and delay a wisp gets don't apply.
+func receive_rock_hit(_knockback_velocity: Vector2, _defeat_delay: float) -> void:
+	destroy()
 
 
 ## Called by Room.reset_objects() when the player dies or restarts the room.
