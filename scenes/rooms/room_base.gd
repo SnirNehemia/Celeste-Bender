@@ -57,6 +57,14 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## once the shadow has crawled off, releasing A brings a SNAKE out instead of a column.
 ## D still makes snakes. EarthTuning.one_key_column_snake turns it on everywhere.
 @export var one_key_column_snake: bool = false
+## Fire: fireball and flame jet (Fire_bending.md). Off by default, unlike Air and
+## Earth: the fire pips are always drawn where fire is allowed, so the Air and Earth
+## chapters (and their test rooms) keep a clean HUD without being regenerated.
+@export var fire_allowed: bool = false
+## Fire pips the player has in this room. Pips are PER ROOM (Fire_bending.md §13):
+## entering the room, dying or R sets the fire bar to this, and leftovers from the
+## previous room are dropped. Clamped to FireTuning.max_pips.
+@export_range(0, 10) var fire_start_pips: int = 0
 
 @onready var spawn_point: Marker2D = $SpawnPoint
 

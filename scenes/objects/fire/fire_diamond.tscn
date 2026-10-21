@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/objects/fire/fire_diamond.gd" id="1_fire_diamond"]
+
+[node name="FireDiamond" type="Area2D"]
+collision_layer = 4
+collision_mask = 2
+script = ExtResource("1_fire_diamond")

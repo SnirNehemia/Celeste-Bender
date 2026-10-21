@@ -36,24 +36,25 @@ A Celeste-style precision platformer where the hero is an air-bender. Current go
 res://
   project.godot
   scenes/
-    player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth)
+    player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth), abilities/fire/ (Fire: fire_bar, fire_pips_display)
     objects/       crate, spikes, wind_zone, wind_crystal, windmill, leaf_platform, door, pressure_plate
       earth/       earth_layer (fresh/used earth tiles), earth_face, ground_painter (draws earth rooms' ground), earth_column, boulder, earth_snake, cracked_wall
+      fire/        fire_diamond
     enemies/       wisp, sentry, sentry_orb
     rooms/         room_01.tscn … room_07.tscn, room_base.gd
       earth/       earth_01.tscn … earth_10.tscn (the Earth chapter, generated)
     earth_world.tscn  the Earth chapter: rooms 1–10 in a row, Goal at the end
     ui/            hud, pause, end_screen
-  resources/       player_tuning.tres, earth_tuning.tres, tiles/ (placeholder + earth tilesets)
+  resources/       player_tuning.tres, earth_tuning.tres, fire_tuning.tres, tiles/ (placeholder + earth tilesets)
   autoload/        game_state.gd (deaths, timer, current checkpoint), fx.gd (shake, freeze, slow motion, gravel)
-  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn (Earth mechanics), earth_chapter_smoke_test.tscn (the 10 Earth rooms)
-  tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), screenshot_rooms.gd (PNG of every room)
+  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn (Earth mechanics), earth_chapter_smoke_test.tscn (the 10 Earth rooms); fire_test_world.tscn + fire_smoke_test.tscn (Fire mechanics)
+  tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), build_fire_rooms.gd (Fire test rooms; extends build_earth_rooms.gd), screenshot_rooms.gd (PNG of every room)
 ```
 
-Fire (planned in `PROMPTS.md` Stages F1–F15; add each path here once it exists): `resources/fire_tuning.tres`, `scenes/player/abilities/fire/` (FireBar, FlameJetAbility, FireballAbility), `scenes/objects/fire/` (fire diamond, brazier, fire grid, flame building blocks, vine, balloon, heat sail), `scenes/enemies/` (leafling, shell), `scenes/ui/tuning_panel`, `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_test_world.tscn` + `fire_smoke_test.tscn` + `fire_chapter_smoke_test.tscn`, `tools/build_fire_rooms.gd` (Fire test rooms) + `build_fire_chapter.gd` (Fire rooms 1–10).
+Fire, still to come (`PROMPTS.md` Stages F2–F15; move each path into the tree above once it exists): `scenes/player/abilities/fire/` (FlameJetAbility, FireballAbility), `scenes/objects/fire/` (brazier, fire grid, flame building blocks, vine, balloon, heat sail), `scenes/enemies/` (leafling, shell), `scenes/ui/tuning_panel`, `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_chapter_smoke_test.tscn`, `tools/build_fire_chapter.gd` (Fire rooms 1–10).
 
 ## Input
-Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `earth_snake`, `restart_room`, `pause`. (`earth_snake` stays bound to D but nothing reads it: the snake moved to A, see `Earth_bending.md` §11 "One key". Stage F1 removes it and adds `fireball` (D) and `flame_jet` (F), `Fire_bending.md` §3.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save tuning to `.tres`, F5 tuning panel (from Stage F2). Bindings per `GAME_DESIGN.md` §3 and `Earth_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
+Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `fireball`, `flame_jet`, `restart_room`, `pause`. (The old `earth_snake` action on D was removed in Stage F1: the snake moved to A, see `Earth_bending.md` §11 "One key". D and F are the Fire keys, `Fire_bending.md` §3; until Stage F3, F only spends a pip, a temporary debug key.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save tuning to `.tres`, F5 tuning panel (from Stage F2). Bindings per `GAME_DESIGN.md` §3, `Earth_bending.md` §3 and `Fire_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
 
 ## Working rules
 1. **Small steps.** One mechanic per task. Don't build ahead of the current stage in `PROMPTS.md`.
@@ -77,6 +78,8 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
   - `godot --headless --path . res://tests/world_smoke_test.tscn` — visits rooms 1–7, checks the room 5 gate, squash/pause polish and the end screen, prints PASS/FAIL
   - `godot --headless --path . res://tools/build_rooms.tscn` — regenerates rooms 1–7 from `tools/build_rooms.gd` (**overwrites editor edits**; add `-- 6 7` to rebuild only those rooms)
   - `godot --headless --path . res://tests/earth_chapter_smoke_test.tscn` — Earth chapter: structure + each room's key move, prints PASS/FAIL
+  - `godot --headless --path . res://tests/fire_smoke_test.tscn` — Fire mechanics, one section per Fire stage, prints PASS/FAIL
+  - `godot --headless --path . res://tools/build_fire_rooms.tscn` — regenerates the Fire test rooms (**overwrites editor edits**; `-- fire_a` for only that one)
   - `godot --headless --path . res://tools/build_earth_chapter.tscn` — regenerates Earth rooms 1–10 (**overwrites editor edits**; `-- 3 7` for only those)
   - `godot --path . res://tools/screenshot_rooms.tscn -- res://scenes/earth_world.tscn <folder>` — windowed: saves a PNG of every room
   - `godot --path .` — runs the game (I'll play-test and report back)

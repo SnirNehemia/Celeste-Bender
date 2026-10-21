@@ -21,6 +21,7 @@ extends Area2D
 ## Other pickups reuse this script by INHERITING from it (`extends WindCrystal`):
 ## GustDiamond (gust_diamond.gd) changes the colors and sound in _init() and
 ## overrides _give_to(), and gets the bobbing, respawn and reset for free.
+## FireDiamond (fire/fire_diamond.gd) does the same, and turns off `respawns`.
 
 ## Green, per the color key (GAME_DESIGN.md §2). Dimmed outline while respawning.
 const CRYSTAL_COLOR: Color = Color(0.3, 0.95, 0.5)
@@ -38,6 +39,9 @@ const BOB_FREQUENCY: float = 0.8
 var ready_color: Color = CRYSTAL_COLOR
 var respawning_color: Color = RESPAWNING_COLOR
 var pickup_sound: StringName = &"crystal"
+## False = single use: once used it stays gone until the room resets (death or R),
+## instead of coming back after respawn_time. FireDiamond sets it in _init().
+var respawns: bool = true
 
 ## True while the crystal is available to touch.
 var is_available: bool = true
@@ -103,6 +107,8 @@ func _use_up() -> void:
 	diamond.color = respawning_color
 	FX.shake(1.0, 0.08)
 	FX.play_sfx(pickup_sound)
+	if not respawns:
+		return  # single use: only reset() brings it back
 	# create_timer() makes a one-shot timer; `await` pauses this function (not the game)
 	# until it fires. Uses game time, so it also pauses during freeze frames.
 	await get_tree().create_timer(respawn_time, false).timeout

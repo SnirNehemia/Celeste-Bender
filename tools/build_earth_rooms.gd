@@ -84,6 +84,9 @@ var cell_kinds: Dictionary = {}
 ## Hidden chamber cells of the room being built (a set: Vector2i -> true). Open air,
 ## drawn as earth until dug into (HiddenLayer).
 var hidden_cells: Dictionary = {}
+## Prefix of the log lines. A generator that extends this one (build_fire_rooms.gd)
+## sets its own.
+var log_prefix: String = "[BuildEarthRooms]"
 
 
 func _ready() -> void:
@@ -349,13 +352,13 @@ func _finish_room(spawn_px: Vector2, path: String) -> void:
 	var packed: PackedScene = PackedScene.new()
 	var pack_error: Error = packed.pack(room)
 	if pack_error != OK:
-		push_error("[BuildEarthRooms] Could not pack %s: %s" % [path, error_string(pack_error)])
+		push_error("%s Could not pack %s: %s" % [log_prefix, path, error_string(pack_error)])
 		return
 	var save_error: Error = ResourceSaver.save(packed, path)
 	if save_error != OK:
-		push_error("[BuildEarthRooms] Could not save %s: %s" % [path, error_string(save_error)])
+		push_error("%s Could not save %s: %s" % [log_prefix, path, error_string(save_error)])
 		return
-	print("[BuildEarthRooms] Wrote %s" % path)
+	print("%s Wrote %s" % [log_prefix, path])
 	room.free()
 
 

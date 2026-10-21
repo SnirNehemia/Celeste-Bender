@@ -382,6 +382,8 @@ These were agreed when planning the build. Where they differ from the sections a
 - **Keys:** `fireball` on D, `flame_jet` on F. The unused `earth_snake` action (still bound to D) is removed in F1.
 - **Shell:** built in the Fire chapter, in its own stage (F12), after the leafling.
 - **Rooms:** built like the Earth chapter: generated (`tools/build_fire_rooms.gd` for test rooms, `tools/build_fire_chapter.gd` for rooms 1–10), painted ground, Fire-only chapter rooms. Test rooms that need the glide or gust (F7, F10) allow Air too.
+- **Full bar keeps the diamond** (Stage F1): a fire diamond is only used up when it adds at least one pip, like a wind crystal, so brushing past one with a full bar doesn't waste it. A double touched with room for one pip is used up and the second pip is lost.
+- **Fire off by default:** `Room.fire_allowed` defaults to false (Air and Earth default to true), because the fire pips are always drawn where fire is allowed. Existing Air and Earth rooms are unchanged.
 - **Testing:** every stage adds a test room to `tests/fire_test_world.tscn` and a section to `tests/fire_smoke_test.tscn`, like the Earth stages did.
 
 ### Play-test log

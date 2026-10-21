@@ -25,11 +25,15 @@ extends CharacterBody2D
 ##   │                     throws it (abilities/earth/boulder_ability.gd)
 ##   ├─ EarthSnakeAbility  the snake: a long A bend brings it out at the shadow, and
 ##   │                     it's steered (abilities/earth/earth_snake_ability.gd)
+##   ├─ FireBar            the fire pips shared by the fire moves (abilities/fire/fire_bar.gd)
+##   ├─ FirePipsDisplay    draws the pips as little flames over the head
+##   │                     (abilities/fire/fire_pips_display.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
 ##                         SnakeSteer, Dead
 ##
-## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed).
+## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed /
+## fire_allowed).
 ## The wants_to_*() checks below ask is_element_allowed() before starting a move.
 ##
 ## Wind: WindZone areas call enter_wind_zone()/exit_wind_zone() on the player.
@@ -56,6 +60,8 @@ extends CharacterBody2D
 ## Earth bending feel values (Earth_bending.md). Same idea as `tuning`, kept in its
 ## own resource so each element's numbers stay together.
 @export var earth_tuning: EarthTuning
+## Fire bending feel values (Fire_bending.md), the third element's own resource.
+@export var fire_tuning: FireTuning
 
 ## Floors with this method catch wind (duck typing, like the Pushable contract):
 ##   func absorb_gust_recoil(direction: Vector2, strength: float) -> void
@@ -67,6 +73,7 @@ const GROUP: StringName = &"player"
 ## Element names for is_element_allowed().
 const ELEMENT_AIR: StringName = &"air"
 const ELEMENT_EARTH: StringName = &"earth"
+const ELEMENT_FIRE: StringName = &"fire"
 
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
@@ -84,6 +91,7 @@ signal died
 @onready var earth_column: EarthColumnAbility = $EarthColumnAbility
 @onready var boulder: BoulderAbility = $BoulderAbility
 @onready var earth_snake: EarthSnakeAbility = $EarthSnakeAbility
+@onready var fire_bar: FireBar = $FireBar
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -209,6 +217,8 @@ func respawn_at(spawn_position: Vector2) -> void:
 	air_dash.refill()
 	glide.refill()
 	gust.reset()
+	# Fire pips are per room: back to what this room starts you with.
+	fire_bar.reset_to_room_start()
 	# Idle switches to Fall by itself on the next frame if there's no floor below.
 	state_machine.transition_to(&"Idle")
 	movement_effects.on_respawned()
@@ -357,6 +367,15 @@ func overcharge_from_diamond() -> bool:
 	return gust.overcharge()
 
 
+## A fire diamond was touched: `amount` pips (1 or 2), up to the cap. Returns true if
+## at least one pip was added, so a diamond touched with a full bar stays where it is
+## (like a wind crystal). Does nothing where fire isn't allowed.
+func gain_fire_pips(amount: int) -> bool:
+	if not is_element_allowed(ELEMENT_FIRE):
+		return false
+	return fire_bar.gain(amount) > 0
+
+
 # --- Gust --------------------------------------------------------------------
 
 ## True on the frame gust is pressed, if the cooldown is over and the gust can be
@@ -376,8 +395,8 @@ func get_gust_start_state() -> StringName:
 
 # --- Elements ----------------------------------------------------------------
 
-## True if the current room lets us use `element` (ELEMENT_AIR or ELEMENT_EARTH).
-## Rooms store the flags (Room.air_allowed / earth_allowed); GameState knows which
+## True if the current room lets us use `element` (ELEMENT_AIR, _EARTH or _FIRE).
+## Rooms store the flags (Room.air_allowed / earth_allowed / fire_allowed); GameState knows which
 ## room we're in. No room yet (a bare test scene) = everything allowed.
 func is_element_allowed(element: StringName) -> bool:
 	var room: Room = GameState.current_room
@@ -388,6 +407,8 @@ func is_element_allowed(element: StringName) -> bool:
 			return room.air_allowed
 		ELEMENT_EARTH:
 			return room.earth_allowed
+		ELEMENT_FIRE:
+			return room.fire_allowed
 	return true
 
 

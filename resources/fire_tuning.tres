@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="FireTuning" format=3]
+
+[ext_resource type="Script" path="res://resources/fire_tuning.gd" id="1_fire_tuning"]
+
+[resource]
+script = ExtResource("1_fire_tuning")

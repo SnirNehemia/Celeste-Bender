@@ -6,6 +6,7 @@ extends Control
 ##   - Earth: scenes/earth_world.tscn       the Earth chapter, rooms 1-10 (Stage E7)
 ##   - Earth tests: tests/earth_test_world.tscn   one test room per Earth stage
 ##   - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
+##   - Fire tests: tests/fire_test_world.tscn     one test room per Fire stage (F1+)
 ##
 ## The whole menu is built in _ready() from code: a title Label and one Button per
 ## chapter in a VBoxContainer (a container that stacks its children vertically).
@@ -22,6 +23,7 @@ const CHAPTERS: Array = [
 	["Earth  -  the Earth chapter (rooms 1-10)", "res://scenes/earth_world.tscn"],
 	["Earth  -  test rooms (F2 to switch)", "res://tests/earth_test_world.tscn"],
 	["Air + Earth  -  mixed test rooms (F2 to switch)", "res://tests/mixed_test_world.tscn"],
+	["Fire  -  test rooms (F2 to switch)", "res://tests/fire_test_world.tscn"],
 ]
 const BACKGROUND_COLOR: Color = Color(0.1, 0.1, 0.13)
 ## Small font: the game renders at 320x180, so default 16 px text would be huge.

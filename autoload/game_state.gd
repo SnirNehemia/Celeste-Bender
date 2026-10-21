@@ -15,13 +15,23 @@ extends Node
 signal deaths_changed(new_death_count: int)
 ## Emitted once when the player reaches the Goal at the end of the last room.
 signal run_finished
+## Emitted when current_room changes to a different room (the first room at startup,
+## every room slide, the F2 room picker). The fire bar listens to it: pips are per room.
+signal room_entered(room: Room)
 
 ## Total deaths this run (R / restart counts too, like Celeste's "Retry").
 var death_count: int = 0
 ## Seconds since the run started. Keeps counting during deaths and room slides.
 var elapsed_time: float = 0.0
 ## The room the player is currently in. Its spawn point is the respawn checkpoint.
-var current_room: Room = null
+## A SETTER (the `set(value):` block) runs every time someone assigns the variable,
+## so RoomManager just writes `GameState.current_room = room` and the signal follows.
+var current_room: Room = null:
+	set(value):
+		var is_new_room: bool = value != current_room
+		current_room = value
+		if is_new_room and value != null:
+			room_entered.emit(value)
 ## True after the Goal is reached: the timer stops and R no longer restarts.
 var is_run_finished: bool = false
 
