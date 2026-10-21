@@ -18,6 +18,7 @@
 | Earth chapter rooms 1–10 | Built (Stage E7), **not yet play-tested** |
 | Two Earth control experiments | Built, **off by default**, waiting to be tried (§7.8) |
 | Main menu | Air chapter, Earth chapter, Earth test rooms, Air + Earth mixed test rooms |
+| **Fire chapter** | Specced (`Fire_bending.md`) and planned as Stages F0–F15 in `PROMPTS.md`; F0 (plan) done, building from F1 |
 
 ## 3. Tech and constraints
 
@@ -47,11 +48,12 @@ Two more rules followed so far: each element **uses its own keys** and never reu
 | **Z** | Air: gust (hold to aim in slow motion) |
 | **A** | Earth: column (quick tap) / snake (hold) |
 | **S** | Earth: rock (tap) / big rock (hold) |
-| **D** | **Free** (it was the snake until the one-key change) |
+| **D** | Fire: fireball (tap) / aim in slow motion (hold), from Stage F4. It was the snake until the one-key change |
+| **F** | Fire: flame jet burst (hold to chain), from Stage F3 |
 | **R** | Restart room |
 | **Esc** | Pause |
 
-A new element needs its own keys that don't clash with these. D is the only freed key in the current layout.
+A new element needs its own keys that don't clash with these. Fire takes D and F. Debug keys: F1 overlay, F2 room picker, F3 debug draw, F4 save tuning, F5 tuning panel (from F2).
 
 ## 6. Core movement
 
@@ -174,7 +176,7 @@ Celeste-style painted ground. Lumpy cracked rocks that tumble in flight. Banded 
 
 1. Play-test Earth rooms 1–10 and fix what feels unfair or confusing.
 2. Try the two Earth experiments and keep or drop each.
-3. **Next elements:** Fire is specced in `Fire_bending.md` (build stages F1… are listed there); Water is a draft in `Water_bending.md`, to refine after Fire. Any further element should be designed in the same format as `Earth_bending.md`:
+3. **Next elements:** Fire is specced in `Fire_bending.md` and planned in `PROMPTS.md` as Stages F1–F15 (jet first, then fireball, burning grass, thicket, bonfires, vines, hot-air objects, gust vs fire, enemies, look pass, rooms, mixed rooms); Water is a draft in `Water_bending.md`, to refine after Fire. Any further element should be designed in the same format as `Earth_bending.md`:
    - the idea in one paragraph
    - its materials or tiles
    - its own keys

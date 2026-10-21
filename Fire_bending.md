@@ -1,6 +1,6 @@
 # Windbound: Fire bending (Chapter 3)
 
-*Spec v1, 21 Oct 2026. Companion to `GAME_DESIGN.md` (core + Air) and `Earth_bending.md` (Earth). Every number marked* **(tune)** *lives in `FireTuning` and is exposed in the live tuning menu. Play-test decisions go in §13.*
+*Spec v1, 21 Oct 2026. Companion to `GAME_DESIGN.md` (core + Air) and `Earth_bending.md` (Earth). Every number marked* **(tune)** *lives in `FireTuning` and is exposed in the live tuning menu (the in-game tuning panel, F5, built in Stage F2). Play-test decisions go in §13. The build stages are planned in §11 and written out as prompts in `PROMPTS.md` (Stages F0–F15); the rules agreed while planning are in §13 "Decided in Stage F0" and override older text above them.*
 
 ---
 
@@ -15,7 +15,7 @@ Fire is the element of **spending**. You carry a small, **non-refilling** fire b
 | Movement first | The flame jet is a steerable, fuel-limited thrust in 8 directions. It's the chapter's main movement verb |
 | One verb, three uses | Fireball and jet each have a movement, puzzle and combat use (§5) |
 | Fail fast | R resets fire, ash, bonfires, pips and diamonds. Touching flames kills like spikes |
-| Readable | Fire and everything fire-owned is red-orange. Ash is dark gray. Fire diamonds are orange, air diamonds white. No health bars: flames kill, so you stay out of them |
+| Readable | Fire and everything fire-owned is red-orange. Ash is dark gray. Fire diamonds are orange; the air diamonds they're made from keep their Air colors (green wind crystal, blue gust diamond). No health bars: flames kill, so you stay out of them |
 
 ## 3. Keys
 
@@ -34,14 +34,16 @@ The jet is **steered, not aimed**. You fly it continuously, so it does **not** s
 - One shared bar feeds both moves. **1 pip = 1 fireball = 1 jet burst of 0.5 s** **(tune: `jet_burst_time` = 0.5)**.
 - **Pips are always whole.** Every fireball and every jet press costs exactly one full pip, spent at the moment of the press. Nothing is ever left half spent.
 - **Max pips: 5** **(tune: `max_pips`)**. Pips start at **0** in a room unless the room sets `fire_start_pips` (rooms 1–2 start with some).
+- **Pips are per room** (decided in F0): entering a room, dying or pressing R sets the bar to that room's `fire_start_pips`. Pips left over from the previous room are dropped, so every room is a self-contained budget.
 - **Pips never refill on their own**: not from the ground, time or updrafts.
 - **At 0 pips:** the fireball "fizzles" (a puff of smoke, short click, no projectile). A jet press with no pips sputters: a dry cough of smoke from the nozzle and no thrust. When you hold F to chain with no pips left, the last burst ends in that same sputter, so running dry is readable.
 
-### 4.2 HUD placement: a row **above** the white air pips
-- Fire pips are gained and spent constantly. A row of their own means the **air pips never shift sideways** when the fire count changes.
+### 4.2 HUD placement: a row over the player's head, **above** the white gust pips
+- The pips float over the player's head, like the gust pips (decided in F0). Unlike the gust pips, which show only while airborne, the fire row is **always visible** in rooms where fire is allowed: pips are a budget you plan with, on the ground too.
+- Fire pips are gained and spent constantly. A row of their own means the **gust pips never shift sideways** when the fire count changes.
 - **Two stacked rows read as two separate pools.** Pips side by side read as one long bar, which would suggest gusts and fireballs share a resource. They don't.
 - It leaves room for the parked "one bar per element" plan: elements stack upward, the active one on top.
-- In Fire-only rooms the air row is hidden and the fire row drops into its slot, so the HUD position is the same for every chapter.
+- In Fire-only rooms there are no gust pips, so the fire row sits in their slot just above the head; in mixed rooms it sits one row higher.
 - **Look:** each pip is a tiny 3×4 flame that flickers out of sync with its neighbors. An empty pip is a dim ember outline. A spent pip **snuffs out at once** with a 2-frame flash and a puff, never a slow drain, so the HUD only ever shows whole pips. On gain, the new pip flares up from a spark.
 
 ### 4.3 Fire diamonds
@@ -50,7 +52,7 @@ The jet is **steered, not aimed**. You fly it continuously, so it does **not** s
   - double-tick fire diamond: **+2 pips**
   - extra pips above the cap are lost
 - **Single use per room life.** A collected fire diamond does not respawn until death or R. This keeps fire a budget, like earth tiles.
-- **Converting air diamonds:** any flame touching an air diamond (single- or double-tick) turns it into a fire diamond with the **same tick count**. Fireballs, the jet, burning grass and bonfires all count. The conversion is a short animation: white → orange wipe from the touching side, then a flare. A converted diamond stays a fire diamond until reset.
+- **Converting air diamonds:** "air diamond" in this doc means the two existing Air pickups (decided in F0): the green **wind crystal** counts as single (→ **+1** fire diamond) and the blue **gust diamond** as double (→ **+2**). Any flame touching one turns it into a fire diamond of that size. Fireballs, the jet, burning grass and bonfires all count. The conversion is a short animation: green/blue → orange wipe from the touching side, then a flare. A converted diamond stays a fire diamond until reset, and like every fire diamond it's single use (it no longer respawns like a crystal).
 - **Pick-up in passing:** you can fly the jet through a diamond to collect it mid-thrust. Chains of diamonds become fuel routes, the fire version of the wind-crystal chain.
 
 ## 5. Moves
@@ -232,7 +234,7 @@ These are moved by **hot updrafts** (§5.3), never by the player directly. They 
   - Burn the thicket floor under it to drop it somewhere harmless.
   - Ride a balloon over it.
   - Time your crossing against its slow patrol.
-- **Home chapter note:** the Shell is an **Earth chapter** enemy. Add it to `Earth_bending.md` as an addendum, with a new Earth room ("Armor", using big rocks against Shells) once the Earth play-test is done. It's built in stage F7 because Fire rooms need it as an obstacle, and its boulder kill uses the existing big-rock hit hook.
+- **Home chapter note:** the Shell is an **Earth chapter** enemy. Add it to `Earth_bending.md` as an addendum, with a new Earth room ("Armor", using big rocks against Shells) once the Earth play-test is done. It's built in Fire stage F12 because Fire rooms need it as an obstacle, and its boulder kill uses the existing big-rock hit hook.
 
 | | Wisp | Sentry | Leafling | Shell |
 |---|---|---|---|---|
@@ -304,6 +306,7 @@ Use **additive blending** (`CanvasItemMaterial.blend_mode = ADD`) for the core, 
 ## 10. Architecture (reuse first)
 
 - **`FireTuning`** resource: all numbers above, exposed in the live tuning menu. Spread speed is meant to be dialed in there.
+- **Tuning panel** (Stage F2): an in-game overlay (F5) generic over every tuning resource (`PlayerTuning`, `EarthTuning`, `FireTuning`), built from their `@export` groups so new values show up by themselves. Keyboard only, live changes, the existing F4 `debug_save_tuning` key (today it saves only `PlayerTuning`) writes all of them back to their `.tres`. `Curve` values are edited in the Inspector.
 - **`FireBar`**: a component on the player holding pips as a **whole number**. `spend()` returns false at 0. Signals `pips_changed` and `ran_dry` for the HUD and FX.
 - **`FireballAbility`** and **`FlameJetAbility`**: components under the player using `FireBar`, the same shared-core pattern as the Earth bend.
 - **`FireGrid`**: a per-room node that owns burnable tile states, the spread queue and the cap. It reuses the Earth shadow's surface-walking for neighbors. It joins the room reset group.
@@ -312,24 +315,33 @@ Use **additive blending** (`CanvasItemMaterial.blend_mode = ADD`) for the core, 
 - **Thicket and overgrown covers** live in `FireGrid` as extra tile states. Spread through thicket uses 4-neighbors; grass keeps surface-walking.
 - **`ElementImmunity`** on enemies: a small per-enemy table (which hits kill, stagger, push or are ignored), so the wisp, sentry, leafling and Shell share one damage path instead of special cases.
 - **`FireHazard` group**: anything that kills on touch, checked by the same code path as spikes.
-- **Rooms:** new flag `fire_allowed`. The main menu gets "Fire chapter", "Fire test rooms" and "Air + Fire test rooms".
+- **Rooms:** new flags `fire_allowed` and `fire_start_pips`. Chapter rooms are Fire-only (Air and Earth off) and built like the Earth ones: generated by a tool script, with painted ground (`GroundPainter`) and `Grass` layers. The main menu gets "Fire chapter", "Fire test rooms", "Air + Fire test rooms" and "Earth + Fire test rooms".
 - **Headless smoke test** for the fire chapter, like the others: every room loads, pips and grid reset on R, no runaway burning count.
 
 ## 11. Build stages
 
+Planned in Stage F0 (replaces the first 9-stage draft): the jet comes right after the fire bar, because it's the chapter's movement verb and needs the most play-test time, and the big stages are split so each one is a single mechanic with its own test room. The full prompts are in `PROMPTS.md`.
+
 | Stage | Contents | Done when |
 |---|---|---|
-| **F1** | `FireBar`, HUD row, fire diamonds (single, double), `FireTuning` in the tuning menu | Pips gained and shown, no spending yet |
-| **F2** | Fireball (tap, hold-aim, fizzle), `Flammable` contract, braziers + doors | Light a brazier from across a room |
-| **F3** | `FireGrid`: grass burning, smolder, ash, spread, kill on touch; thicket tiles; overgrown covers | A grass fuse runs and kills you if you stand in it; a thicket wall burns open; an overgrown cover flashes over to reveal a chamber |
-| **F4** | Leaf pile → bonfire, vines, hot updrafts (`heat` flag), air diamond conversion | All objects in §6.2 burn correctly |
-| **F5** | Flame jet bursts + tapering thrust curve + chaining + Jump cancel + `Jetting` state + plume ignition | Cross a 10-tile gap on 1 burst; climb a shaft with a 3-pip chain; every curve value changes the feel live from the tuning menu |
-| **F6** | Hot-air objects (balloon, heat sail, windmill heat spin) + gust vs fire (snuff, bonfire flare) | A bonfire lifts a balloon; burning grass spins an out-of-reach windmill; a gust snuffs grass and flares a bonfire, and the balloon surges |
-| **F7** | Enemies: leafling (torch run, updraft lift), Shell (boulder-only), `ElementImmunity`; wisp/sentry/orb fire hooks; Air objects burning (crate, leaf platform, sail) | Every cell of the §7.2 table behaves as written, in a test room |
-| **F8** | Look & feel pass (§9) across every source | It looks alive in a still screenshot *and* in motion |
-| **F9** | Rooms 1–10 + mixed test rooms (Air+Fire, Earth+Fire) + smoke test | Chapter playable start to Goal |
+| **F0** | Plan the chapter (this table, §13 "Decided in Stage F0") | Docs updated |
+| **F1** | `FireTuning`, `FireBar`, flame pips above the head, fire diamonds (+1, +2, single use), `Room.fire_allowed` + `fire_start_pips` (per-room pips), `fireball` (D) / `flame_jet` (F) actions, fire test world + smoke test | Pips gained and shown; R resets them to the room's start; a debug key spends one |
+| **F2** | In-game tuning panel (F5) for Player/Earth/Fire tuning; F4 saves every tuning `.tres` | Any tuning value changes live from the keyboard and survives a restart once saved |
+| **F3** | Flame jet: `Jetting` state, bursts, tapering thrust curve, steering, hold-to-chain, Jump cancel, ceiling bonk, sputter; first `FlameTongue` + `EmberEmitter` for the plume | Cross a 10-tile gap on 1 burst; climb a shaft with a 3-pip chain; every curve value changes the feel live |
+| **F4** | Fireball (tap, hold-aim, fizzle), `Flammable` contract, `FireHazard` group, braziers (permanent, timed) + doors; the plume ignites flammables | Light a brazier from across a room, with a fireball or the jet |
+| **F5** | `FireGrid` on grass: burning, smolder, ash, surface spread, kill on touch, cap, reset; jet take-off scorches grass | A grass fuse runs and kills you if you stand in it; ash stops it |
+| **F6** | Thicket tiles (burn through their volume, crumble to open air) + overgrown covers (flash-over) | A thicket wall burns open; a thicket floor drops you; a cover flashes over to reveal a chamber |
+| **F7** | Leaf pile → bonfire, hot updrafts (`WindZone.heat`, `heat_receiver` group), air diamond conversion | A bonfire lifts a glide; a burnt pile's hidden crystal becomes a fire diamond |
+| **F8** | Vines; Air objects burn (crate, leaf platform, sail) | A vine burns and drops what it held; a crate burns off a plate |
+| **F9** | Hot-air objects: balloon, heat sail, windmill heat spin | A bonfire lifts a balloon; burning grass spins an out-of-reach windmill and steps a heat sail |
+| **F10** | Gust vs fire (§5.4: snuff, bonfire flare) and gusts boosted in hot updrafts | A gust snuffs grass and flares a bonfire, and the balloon surges |
+| **F11** | `ElementImmunity`; wisp/sentry/orb fire hooks; Leafling (torch run, updraft lift, snuffed by gusts) | A lit leafling carries fire across a gap; fire kills wisps and sentries as written |
+| **F12** | Shell (big rock only) | Every cell of the §7.2 table behaves as written, in a test room |
+| **F13** | Look & feel pass (§9) across every source, SFX hooks | It looks alive in a still screenshot *and* in motion |
+| **F14** | Fire rooms 1–10 (generated), `fire_world.tscn`, chapter smoke test, main menu entry | Chapter playable start to Goal |
+| **F15** | Mixed test rooms: Air + Fire, Earth + Fire | Both on the main menu, every §12 mixed idea has a spot |
 
-A basic flame (one `FlameTongue` + embers) should exist from F2, so every stage is tested with fire that already looks like fire. F8 is the full pass.
+A basic flame (one `FlameTongue` + embers) exists from F3, so every later stage is tested with fire that already looks like fire. F13 is the full pass.
 
 ## 12. Rooms (draft)
 
@@ -357,6 +369,22 @@ A basic flame (one `FlameTongue` + embers) should exist from F2, so every stage 
   - a rock foothold beside a thicket wall you burn open
 
 ## 13. Decision log (play-test)
+
+### Decided in Stage F0 (planning)
+
+These were agreed when planning the build. Where they differ from the sections above, this list wins.
+
+- **Stage order:** the jet is built right after the fire bar (F3), before the fireball and burning. Stages are small, one mechanic each (§11).
+- **Tuning panel:** the "live tuning menu" doesn't exist yet; Stage F2 builds it as an in-game overlay (F5; F4 is already the save key) over every tuning resource. Changes apply live, and F4 (`debug_save_tuning`) writes all three resources back to their `.tres`. The jet's `Curve` is still edited in the Inspector.
+- **Air diamonds** are the existing wind crystal (→ +1 fire diamond) and gust diamond (→ +2). No new white diamond object.
+- **Pip HUD:** a row of flames over the player's head, always visible where fire is allowed, above the gust pips in mixed rooms (§4.2).
+- **Pips are per room:** entering a room, dying or R sets them to the room's `fire_start_pips` (§4.1).
+- **Keys:** `fireball` on D, `flame_jet` on F. The unused `earth_snake` action (still bound to D) is removed in F1.
+- **Shell:** built in the Fire chapter, in its own stage (F12), after the leafling.
+- **Rooms:** built like the Earth chapter: generated (`tools/build_fire_rooms.gd` for test rooms, `tools/build_fire_chapter.gd` for rooms 1–10), painted ground, Fire-only chapter rooms. Test rooms that need the glide or gust (F7, F10) allow Air too.
+- **Testing:** every stage adds a test room to `tests/fire_test_world.tscn` and a section to `tests/fire_smoke_test.tscn`, like the Earth stages did.
+
+### Play-test log
 
 *Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*
 

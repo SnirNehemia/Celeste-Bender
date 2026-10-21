@@ -8,7 +8,7 @@ A Celeste-style precision platformer where the hero is an air-bender. Current go
 ## Design docs
 - `GAME_DESIGN.md` — core game, movement, Air chapter
 - `Earth_bending.md` — Earth chapter (separate keys A/S/D; later puzzles may mix Earth and Air). Read it for any stage starting with **E**.
-- `Fire_bending.md` — Fire chapter (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass). Its stage table (F1…) is in the doc itself. Read it for any stage starting with **F**. Not built yet.
+- `Fire_bending.md` — Fire chapter (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass). Read it for any stage starting with **F**, especially §13 "Decided in Stage F0", which overrides older text. Stages F1–F15 are written out in `PROMPTS.md` and summarized in `Fire_bending.md` §11. Being built.
 - `Water_bending.md` — Water chapter (Chapter 4, **draft v0**: pull-and-carry model, pools, freezing). To be refined after Fire is built; don't build from it until it is promoted to a spec.
 - `GAME_SUMMARY.md` — snapshot of the whole game so far, handy for bringing a fresh conversation up to speed.
 - Each design doc may end with an "Ideas parking lot". Never build items from it unless I ask.
@@ -50,8 +50,10 @@ res://
   tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), screenshot_rooms.gd (PNG of every room)
 ```
 
+Fire (planned in `PROMPTS.md` Stages F1–F15; add each path here once it exists): `resources/fire_tuning.tres`, `scenes/player/abilities/fire/` (FireBar, FlameJetAbility, FireballAbility), `scenes/objects/fire/` (fire diamond, brazier, fire grid, flame building blocks, vine, balloon, heat sail), `scenes/enemies/` (leafling, shell), `scenes/ui/tuning_panel`, `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_test_world.tscn` + `fire_smoke_test.tscn` + `fire_chapter_smoke_test.tscn`, `tools/build_fire_rooms.gd` (Fire test rooms) + `build_fire_chapter.gd` (Fire rooms 1–10).
+
 ## Input
-Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `earth_snake`, `restart_room`, `pause`. (`earth_snake` stays bound to D but nothing reads it: the snake moved to A, see `Earth_bending.md` §11 "One key".) Bindings per `GAME_DESIGN.md` §3 and `Earth_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
+Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `earth_snake`, `restart_room`, `pause`. (`earth_snake` stays bound to D but nothing reads it: the snake moved to A, see `Earth_bending.md` §11 "One key". Stage F1 removes it and adds `fireball` (D) and `flame_jet` (F), `Fire_bending.md` §3.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save tuning to `.tres`, F5 tuning panel (from Stage F2). Bindings per `GAME_DESIGN.md` §3 and `Earth_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
 
 ## Working rules
 1. **Small steps.** One mechanic per task. Don't build ahead of the current stage in `PROMPTS.md`.

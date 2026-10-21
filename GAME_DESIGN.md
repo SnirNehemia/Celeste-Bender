@@ -205,7 +205,7 @@ Real art, music/sound, story, menus beyond pause/restart, save files, gamepad, o
 ## 11. Later elements (leave room in the code, don't build)
 
 - **Earth:** now specified in `Earth_bending.md` (its own chapter: column, boulder, snake) and planned as Stages E1–E7 in `PROMPTS.md`.
-- **Fire:** now specified in `Fire_bending.md` (Chapter 3: fire bar of pips, fireball, flame jet, burning grass), with its own stages F1 onward.
+- **Fire:** now specified in `Fire_bending.md` (Chapter 3: fire bar of pips, fireball, flame jet, burning grass), planned as Stages F0–F15 in `PROMPTS.md`.
 - **Water:** draft in `Water_bending.md` (Chapter 4, pull-and-carry model, pools and ice), to be refined after Fire is built.
 
 Design rule for all of them: same pattern as Air — each ability has a movement, puzzle and combat use. Abilities should be separate components the player can hold, so swapping or adding an element doesn't require rewriting the player.
