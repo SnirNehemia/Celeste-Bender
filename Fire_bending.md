@@ -21,10 +21,10 @@ Fire is the element of **spending**. You carry a small, **non-refilling** fire b
 
 | Key | Action |
 |---|---|
-| **D** | **Fireball.** Tap = throw in the arrow direction (facing direction if no arrow). Hold = slow-motion aim (world 0.3×, aim moves in real time, like the gust); release throws |
-| **F** | **Flame jet.** Press = fire a fixed-length **burst** (1 pip) toward the arrow direction, steerable live in 8 directions while it burns. Flame pours out the opposite side. **Holding F** at the end of a burst chains the next pip. Jump (C) cuts a burst short, and the pip is still spent |
+| **Q** | **Fireball.** Tap = throw in the arrow direction (facing direction if no arrow). Hold = slow-motion aim (world 0.3×, aim moves in real time, like the gust); release throws |
+| **W** | **Flame jet.** Press = fire a fixed-length **burst** (1 pip) toward the arrow direction, steerable live in 8 directions while it burns. Flame pours out the opposite side. **Holding W** at the end of a burst chains the next pip. Jump (C) cuts a burst short, and the pip is still spent |
 
-Both keys are new and clash with nothing (D was freed by the Earth one-key change). C (Jump) cancels a fireball aim without spending a pip.
+Both keys are new and clash with nothing: Q and W sit above A/S (Earth), so each element has its own row, and the arrows stay free for movement (changed from D/F in Stage F3, see §13). C (Jump) cancels a fireball aim without spending a pip.
 
 The jet is **steered, not aimed**. You fly it continuously, so it does **not** slow the world (same logic as running). Only the fireball aim, which commits a resource to one direction, slows time.
 
@@ -36,7 +36,7 @@ The jet is **steered, not aimed**. You fly it continuously, so it does **not** s
 - **Max pips: 5** **(tune: `max_pips`)**. Pips start at **0** in a room unless the room sets `fire_start_pips` (rooms 1–2 start with some).
 - **Pips are per room** (decided in F0): entering a room, dying or pressing R sets the bar to that room's `fire_start_pips`. Pips left over from the previous room are dropped, so every room is a self-contained budget.
 - **Pips never refill on their own**: not from the ground, time or updrafts.
-- **At 0 pips:** the fireball "fizzles" (a puff of smoke, short click, no projectile). A jet press with no pips sputters: a dry cough of smoke from the nozzle and no thrust. When you hold F to chain with no pips left, the last burst ends in that same sputter, so running dry is readable.
+- **At 0 pips:** the fireball "fizzles" (a puff of smoke, short click, no projectile). A jet press with no pips sputters: a dry cough of smoke from the nozzle and no thrust. When you hold W to chain with no pips left, the last burst ends in that same sputter, so running dry is readable.
 
 ### 4.2 HUD placement: a row over the player's head, **above** the white gust pips
 - The pips float over the player's head, like the gust pips (decided in F0). Unlike the gust pips, which show only while airborne, the fire row is **always visible** in rooms where fire is allowed: pips are a budget you plan with, on the ground too.
@@ -57,7 +57,7 @@ The jet is **steered, not aimed**. You fly it continuously, so it does **not** s
 
 ## 5. Moves
 
-### 5.1 Fireball (D)
+### 5.1 Fireball (Q)
 - **Flight:** 8×8 hitbox, **200 px/s** straight line **(tune: `fireball_speed`)**. No gravity, max range 160 px **(tune)**, then it gutters out. Costs **1 pip**.
 - **On hit:** ignites what it hits plus anything flammable within **6 px** **(tune: `fireball_splash`)**, then bursts.
 - **Recoil:** none. Recoil movement was rejected in the element design; the jet is the movement.
@@ -65,11 +65,11 @@ The jet is **steered, not aimed**. You fly it continuously, so it does **not** s
 - **Puzzle:** light things you can't reach, light a fuse from far away, convert an air diamond across a gap, burn a crate off a plate.
 - **Combat:** defeats wisps in one hit. **Cancels an orb head-on** (both burst). **Destroys a sentry**, but it costs a pip, so reflecting orbs with Air or a rock with Earth stays cheaper in mixed rooms.
 
-### 5.2 Flame jet (F)
+### 5.2 Flame jet (W)
 
 The jet is a **committed burst**: one press = one pip = one fixed-length burst you steer while it burns. Control stays predictable; the chaos is in how it looks (§9.3).
 
-- **The burst:** pressing F spends 1 pip and starts a burst of `jet_burst_time` (0.5 s). The burst runs to the end even if F is released. **Gravity is off** during the burst. No arrow = thrust straight up.
+- **The burst:** pressing W spends 1 pip and starts a burst of `jet_burst_time` (0.5 s). The burst runs to the end even if W is released. **Gravity is off** during the burst. No arrow = thrust straight up.
 - **Thrust curve (the flame tapering):** a burst pushes hard at ignition and tapers toward the end, like a flame bursting and dying. The curve is the same every time, so it can be learned. It's fully tunable:
 
 | Tuning | Start | Meaning |
@@ -85,7 +85,7 @@ The jet is a **committed burst**: one press = one pip = one fixed-length burst y
 
   The multiplier at time *t* in the burst = `jet_thrust_curve.sample(t / jet_burst_time)` if a curve is set, otherwise `lerp(jet_thrust_start, jet_thrust_end, t / jet_burst_time)`. It scales both `jet_max_speed` and `jet_accel`. All values are exposed in the live tuning menu.
 - **Steering:** the arrows steer live throughout the burst (8 directions). Turning uses `jet_turn_accel`, so a sharp change of course happens quickly, while the top speed still follows the curve.
-- **Chaining:** if F is **still held** when a burst ends and you have a pip left, the next pip fires straight away with a visible **"pump" flare**. Each chained burst restarts the thrust curve, so a long flight is a rhythm of surges. Letting go of F means the current burst finishes and nothing more is spent.
+- **Chaining:** if W is **still held** when a burst ends and you have a pip left, the next pip fires straight away with a visible **"pump" flare**. Each chained burst restarts the thrust curve, so a long flight is a rhythm of surges. Letting go of W means the current burst finishes and nothing more is spent.
 - **Cutting short:** pressing **Jump (C)** during a burst ends it immediately. The pip is **still spent**: an escape from a bad line that never refunds fuel. Normal gravity takes over at once.
 - **End of a burst:** you keep `jet_end_carry` of your velocity, then normal gravity takes over (with apex half-gravity as usual).
 - **Distance guide:** one full burst carries you roughly 80–90 px in a straight line, more than twice a dash. Room layouts should be built around that, and re-measured whenever the curve is retuned.
@@ -325,7 +325,7 @@ Planned in Stage F0 (replaces the first 9-stage draft): the jet comes right afte
 | Stage | Contents | Done when |
 |---|---|---|
 | **F0** | Plan the chapter (this table, §13 "Decided in Stage F0") | Docs updated |
-| **F1** | `FireTuning`, `FireBar`, flame pips above the head, fire diamonds (+1, +2, single use), `Room.fire_allowed` + `fire_start_pips` (per-room pips), `fireball` (D) / `flame_jet` (F) actions, fire test world + smoke test | Pips gained and shown; R resets them to the room's start; a debug key spends one |
+| **F1** | `FireTuning`, `FireBar`, flame pips above the head, fire diamonds (+1, +2, single use), `Room.fire_allowed` + `fire_start_pips` (per-room pips), `fireball` / `flame_jet` actions (first D/F, Q/W since F3), fire test world + smoke test | Pips gained and shown; R resets them to the room's start; a debug key spends one |
 | **F2** | In-game tuning panel (F5) for Player/Earth/Fire tuning; F4 saves every tuning `.tres` | Any tuning value changes live from the keyboard and survives a restart once saved |
 | **F3** | Flame jet: `Jetting` state, bursts, tapering thrust curve, steering, hold-to-chain, Jump cancel, ceiling bonk, sputter; first `FlameTongue` + `EmberEmitter` for the plume | Cross a 10-tile gap on 1 burst; climb a shaft with a 3-pip chain; every curve value changes the feel live |
 | **F4** | Fireball (tap, hold-aim, fizzle), `Flammable` contract, `FireHazard` group, braziers (permanent, timed) + doors; the plume ignites flammables | Light a brazier from across a room, with a fireball or the jet |
@@ -379,12 +379,23 @@ These were agreed when planning the build. Where they differ from the sections a
 - **Air diamonds** are the existing wind crystal (→ +1 fire diamond) and gust diamond (→ +2). No new white diamond object.
 - **Pip HUD:** a row of flames over the player's head, always visible where fire is allowed, above the gust pips in mixed rooms (§4.2).
 - **Pips are per room:** entering a room, dying or R sets them to the room's `fire_start_pips` (§4.1).
-- **Keys:** `fireball` on D, `flame_jet` on F. The unused `earth_snake` action (still bound to D) is removed in F1.
+- **Keys:** `fireball` on D, `flame_jet` on F. The unused `earth_snake` action (still bound to D) is removed in F1. *(Superseded in Stage F3: Q and W, see below.)*
 - **Shell:** built in the Fire chapter, in its own stage (F12), after the leafling.
 - **Rooms:** built like the Earth chapter: generated (`tools/build_fire_rooms.gd` for test rooms, `tools/build_fire_chapter.gd` for rooms 1–10), painted ground, Fire-only chapter rooms. Test rooms that need the glide or gust (F7, F10) allow Air too.
 - **Full bar keeps the diamond** (Stage F1): a fire diamond is only used up when it adds at least one pip, like a wind crystal, so brushing past one with a full bar doesn't waste it. A double touched with room for one pip is used up and the second pip is lost.
 - **Fire off by default:** `Room.fire_allowed` defaults to false (Air and Earth default to true), because the fire pips are always drawn where fire is allowed. Existing Air and Earth rooms are unchanged.
 - **Testing:** every stage adds a test room to `tests/fire_test_world.tscn` and a section to `tests/fire_smoke_test.tscn`, like the Earth stages did.
+
+### Decided in Stage F3
+
+- **Keys moved to Q (fireball) and W (flame jet)** (21 Oct 2026, asked by the developer). Q/W sit right above A/S, so the elements read as rows: Earth on A/S, Fire on Q/W. D and F are free again.
+- **Turning backwards counts as turning:** `jet_turn_accel` bleeds off the sideways part of the velocity *and* any part pointing against the steered direction (falling fast when you jet up). With only `jet_accel` (1400 × thrust), jetting out of a 300 px/s fall took a third of the burst just to stop falling.
+- **Bonk = straight up only:** the burst ends on a ceiling only when thrusting straight up. A diagonal slides along the ceiling (and the corner correction still slips past edges).
+- **Plume size:** at full thrust the plume is `jet_plume_length` long and white-hot; at the end of the taper it is 60% as long and orange-red. A chained burst restarts it.
+- **Plume shape (F3 play-test):** the §5.2 width stays (8 px at the nozzle, fanning to 14 px; a narrower 5→8 px was tried and rejected), but the plume is a sheaf of `jet_plume_tongue_count` = 4 FlameTongues spread over `jet_plume_spread_degrees` = 14°, middle ones longest and whitest. The flames **dance**: each tip forks into two points that sway apart and rejoin (`jet_plume_fork_amount`), and small licks tear off the tips (`jet_plume_licks_per_second` = 40, `jet_plume_lick_lifetime` = 0.3 s), flutter, shrink and cool to red as the jet leaves them behind. Both live in `FlameTongue`, so braziers and bonfires get them too.
+- **Measured:** one burst straight up from standing rises 80 px during the burst, then about 10 px more with `jet_end_carry` = 1 (smoke test prints it). Fire B's 10-tile gap is sized for that with a running start.
+- The F1 debug key (F spends a pip) is gone: W spends pips for real now.
+- Starting a jet: from Idle, Run, Jump, Fall, WallSlide, Glide and Launched (checked right after the dash and gust). Not from the Earth states or mid-dash/gust.
 
 ### Play-test log
 
@@ -409,6 +420,6 @@ Open questions to answer in play-test:
 - **Updraft embers:** embers carried by a hot updraft ignite flammable things above it.
 - **More fire enemies:** e.g. a moth drawn to the nearest flame (lure it with a fire), or a soot crawler that walks only on ash.
 - **An Air-only enemy** to complete the "one per element" rule (e.g. a heavy-winged creature only a gust can ground).
-- **Charged fireball:** hold D longer = 2 pips, a bigger splash.
+- **Charged fireball:** hold Q longer = 2 pips, a bigger splash.
 - **Lantern** that carries a flame across a room.
 - **Wet grass** (from Water) that won't burn.

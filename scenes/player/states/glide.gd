@@ -28,6 +28,9 @@ func physics_update(delta: float) -> void:
 	if player.wants_to_gust():
 		transition_requested.emit(player.get_gust_start_state())
 		return
+	if player.try_start_jet():
+		transition_requested.emit(&"Jetting")
+		return
 	# Momentum is kept: speed above run speed (a gust or dash shove) fades slowly
 	# instead of being snapped back by normal air control.
 	player.apply_horizontal_movement(delta, false, player.tuning.glide_overspeed_deceleration)

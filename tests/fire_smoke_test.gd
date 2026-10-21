@@ -21,8 +21,9 @@ func _ready() -> void:
 	await get_tree().create_timer(0.3).timeout
 	await _check_f1_fire_bar(world, world.player)
 	await _check_f2_tuning_panel(world.player)
+	await _check_f3_flame_jet(world, world.player)
 
-	for section_name: String in ["F1", "F2"]:
+	for section_name: String in ["F1", "F2", "F3"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -34,9 +35,9 @@ func _check_f1_fire_bar(world: RoomManager, player: Player) -> void:
 	var bar: FireBar = player.fire_bar
 	var max_pips: int = player.fire_tuning.max_pips
 
-	# Keys: D and F are the fire keys, and the unused earth_snake action is gone.
-	_check(InputMap.has_action("fireball") and _action_has_key("fireball", KEY_D), "fireball is on D")
-	_check(InputMap.has_action("flame_jet") and _action_has_key("flame_jet", KEY_F), "flame_jet is on F")
+	# Keys: Q and W are the fire keys (moved from D/F in Stage F3), and the unused earth_snake action is gone.
+	_check(InputMap.has_action("fireball") and _action_has_key("fireball", KEY_Q), "fireball is on Q")
+	_check(InputMap.has_action("flame_jet") and _action_has_key("flame_jet", KEY_W), "flame_jet is on W")
 	_check(not InputMap.has_action("earth_snake"), "the unused earth_snake action was removed")
 
 	# Room flags.
@@ -71,14 +72,14 @@ func _check_f1_fire_bar(world: RoomManager, player: Player) -> void:
 	bar.pips_changed.disconnect(on_changed)
 	bar.ran_dry.disconnect(on_dry)
 
-	# The temporary debug key (F) spends a pip, like the jet will.
+	# W (the flame jet, Stage F3; a debug key in F1) spends a pip.
 	var pips_before_key: int = bar.pips
 	Input.action_press("flame_jet")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	Input.action_release("flame_jet")
 	await get_tree().physics_frame
-	_check(bar.pips == pips_before_key - 1, "the F debug key spends one pip (%d -> %d)" % [pips_before_key, bar.pips])
+	_check(bar.pips == pips_before_key - 1, "W spends one pip (%d -> %d)" % [pips_before_key, bar.pips])
 
 	# A reset (death or R) brings back the room's starting pips.
 	room.reset_objects()
@@ -208,6 +209,115 @@ func _check_f2_tuning_panel(player: Player) -> void:
 	finished_sections.append("F2")
 
 
+## Stage F3: the flame jet. Presses W/arrows/C through Input.action_press(), so it
+## goes through the real states, and measures what one burst does.
+func _check_f3_flame_jet(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var bar: FireBar = player.fire_bar
+	var room_b: Room = world.get_node("RoomFireB") as Room
+	world.jump_to_room(room_b)
+	await _physics_frames(10)  # land on the floor
+	_check(GameState.current_room == room_b and bar.pips == 0, "Fire B starts with 0 pips, got %d" % bar.pips)
+	_check(player.has_node("FlameJetAbility") and player.state_machine.has_node("Jetting"), "the player has FlameJetAbility and a Jetting state")
+
+	# No pip: a sputter, no state change.
+	var sputter_count: Array[int] = [0]
+	var on_sputter: Callable = func() -> void: sputter_count[0] += 1
+	player.flame_jet.sputtered.connect(on_sputter)
+	await _tap(&"flame_jet")
+	_check(sputter_count[0] == 1 and not player.is_jetting(), "W with 0 pips sputters and doesn't jet")
+
+	# One burst straight up (no arrow): pip spent, gravity off, ends after jet_burst_time.
+	bar.gain(1)
+	var start_y: float = player.global_position.y
+	await _tap(&"flame_jet")
+	_check(player.is_jetting() and bar.pips == 0, "W with a pip starts Jetting and spends it")
+	var burst_frames: int = 1  # the tap's second frame was already a burst frame
+	var lowest_upward_speed: float = -INF  # the largest velocity.y seen (closest to falling)
+	while player.is_jetting() and burst_frames < 120:
+		await get_tree().physics_frame
+		burst_frames += 1
+		if burst_frames > 6:
+			lowest_upward_speed = maxf(lowest_upward_speed, player.velocity.y)
+	var rise: float = start_y - player.global_position.y
+	var expected_frames: int = roundi(tuning.jet_burst_time * Engine.physics_ticks_per_second)
+	_check(absi(burst_frames - expected_frames) <= 2, "a burst lasts jet_burst_time (%d frames, expected ~%d)" % [burst_frames, expected_frames])
+	_check(lowest_upward_speed < 0.0, "no arrow = up, and gravity never wins during the burst (slowest rise %.1f px/s)" % -lowest_upward_speed)
+	_check(player.state_machine.current_state.name == &"Fall", "after the burst: Fall (normal gravity), got %s" % player.state_machine.current_state.name)
+	print("  INFO  one burst from standing rises %.1f px (Fire_bending.md §5.2 guide: 80-90)" % rise)
+	_check(rise > 60.0 and rise < 120.0, "one burst carries roughly 80-90 px, got %.1f" % rise)
+	await _physics_frames(60)  # fall back down
+
+	# Hold W: a second pip chains at the end of the first burst.
+	player.respawn_at(room_b.get_spawn_position())
+	await _physics_frames(5)
+	bar.gain(2)
+	var chain_count: Array[int] = [0]
+	var on_burst: Callable = func(is_chain: bool) -> void: chain_count[0] += 1 if is_chain else 0
+	player.flame_jet.burst_started.connect(on_burst)
+	Input.action_press(&"flame_jet")
+	await _physics_frames(expected_frames + 5)
+	_check(player.is_jetting() and bar.pips == 0 and chain_count[0] == 1, "holding W chains the next pip (pump), pips now %d" % bar.pips)
+	# Held to the end with no pip left: a sputter and the flight ends.
+	sputter_count[0] = 0
+	await _physics_frames(expected_frames)
+	_check(not player.is_jetting() and sputter_count[0] == 1, "a chain that runs dry ends in a sputter")
+	Input.action_release(&"flame_jet")
+	player.flame_jet.burst_started.disconnect(on_burst)
+	await _physics_frames(90)
+
+	# Jump cancels at once; the pip stays spent and the press doesn't jump.
+	player.respawn_at(room_b.get_spawn_position())
+	await _physics_frames(5)
+	bar.gain(1)
+	await _tap(&"flame_jet")
+	await _physics_frames(5)
+	Input.action_press(&"jump")
+	await _physics_frames(2)
+	_check(not player.is_jetting() and bar.pips == 0, "C cuts the burst short and the pip stays spent")
+	await get_tree().physics_frame
+	_check(player.state_machine.current_state.name == &"Fall" and player.jump_buffer_remaining == 0.0,
+		"the cancel press doesn't also jump or glide (state %s)" % player.state_machine.current_state.name)
+	Input.action_release(&"jump")
+	await _physics_frames(60)
+
+	# Steering: Right held = thrust right, and the jet collects a diamond mid-burst.
+	player.respawn_at(room_b.get_spawn_position())
+	await _physics_frames(5)
+	bar.gain(1)
+	Input.action_press(&"move_right")
+	await _tap(&"flame_jet")
+	await _physics_frames(4)
+	_check(player.velocity.x > 100.0 and absf(player.velocity.y) < 5.0, "Right steers the burst right, velocity %s" % player.velocity)
+	# The diamond is 60 px ahead of the spawn: well inside one burst.
+	await _physics_frames(20)
+	_check(bar.pips == 1, "the gap diamond is collected mid-burst (pips %d)" % bar.pips)
+	Input.action_release(&"move_right")
+	await _physics_frames(30)
+
+	# Bonk: straight up into the ledge's underside ends the burst early.
+	player.respawn_at(room_b.global_position + Vector2(290, 160))  # 20 px under the ledge
+	bar.reset_to_room_start()
+	bar.gain(1)
+	await _tap(&"flame_jet")
+	var frames_until_end: int = 0
+	while player.is_jetting() and frames_until_end < 120:
+		await get_tree().physics_frame
+		frames_until_end += 1
+	_check(frames_until_end < expected_frames - 5, "hitting a ceiling head-on ends the burst early (after %d frames)" % frames_until_end)
+
+	# Every jet value is in FireTuning, so the F5 panel lists it.
+	_check(tuning.jet_burst_time == 0.5 and tuning.jet_max_speed == 170.0 and tuning.jet_end_carry == 1.0, "jet values start at the spec numbers")
+	var panel: TuningPanel = get_tree().get_first_node_in_group(&"tuning_panel") as TuningPanel
+	panel.set_open(true)
+	panel.show_tab_named("Fire")
+	var has_jet_rows: bool = panel.select_property("jet_accel") and panel.select_property("jet_thrust_curve")
+	panel.set_open(false)
+	_check(has_jet_rows, "the panel's Fire tab lists the jet values (jet_thrust_curve read-only)")
+	player.flame_jet.sputtered.disconnect(on_sputter)
+	finished_sections.append("F3")
+
+
 # --- Helpers ---------------------------------------------------------------------
 
 ## Puts the player's feet just under `diamond` for a few physics frames, then back at
@@ -222,6 +332,20 @@ func _touch(player: Player, diamond: Node2D) -> void:
 	# A few frames: an Area2D's list of overlapping bodies only catches up with a
 	# teleport after a physics step or two.
 	for frame: int in 3:
+		await get_tree().physics_frame
+
+
+## Presses an action, lets the player see it, then releases it. Two frames: the
+## tree's physics_frame signal fires BEFORE the nodes' _physics_process, so after one
+## await the player hasn't read the press yet.
+func _tap(action: StringName) -> void:
+	Input.action_press(action)
+	await _physics_frames(2)
+	Input.action_release(action)
+
+
+func _physics_frames(count: int) -> void:
+	for frame: int in count:
 		await get_tree().physics_frame
 
 

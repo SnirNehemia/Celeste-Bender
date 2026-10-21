@@ -48,12 +48,12 @@ Two more rules followed so far: each element **uses its own keys** and never reu
 | **Z** | Air: gust (hold to aim in slow motion) |
 | **A** | Earth: column (quick tap) / snake (hold) |
 | **S** | Earth: rock (tap) / big rock (hold) |
-| **D** | Fire: fireball (tap) / aim in slow motion (hold), from Stage F4. It was the snake until the one-key change |
-| **F** | Fire: flame jet burst (hold to chain), from Stage F3 |
+| **Q** | Fire: fireball (tap) / aim in slow motion (hold), from Stage F4 |
+| **W** | Fire: flame jet burst (hold to chain), from Stage F3 |
 | **R** | Restart room |
 | **Esc** | Pause |
 
-A new element needs its own keys that don't clash with these. Fire takes D and F. Debug keys: F1 overlay, F2 room picker, F3 debug draw, F4 save tuning, F5 tuning panel (from F2).
+A new element needs its own keys that don't clash with these. Fire takes Q and W (it had D and F until Stage F3); D and F are free. Debug keys: F1 overlay, F2 room picker, F3 debug draw, F4 save tuning, F5 tuning panel (from F2).
 
 ## 6. Core movement
 

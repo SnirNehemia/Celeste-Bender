@@ -28,9 +28,11 @@ extends CharacterBody2D
 ##   ├─ FireBar            the fire pips shared by the fire moves (abilities/fire/fire_bar.gd)
 ##   ├─ FirePipsDisplay    draws the pips as little flames over the head
 ##   │                     (abilities/fire/fire_pips_display.gd)
+##   ├─ FlameJetAbility    Fire move W: pays the pip, thrust curve, plume and sputter
+##   │                     (abilities/fire/flame_jet_ability.gd); Jetting moves the body
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
-##                         SnakeSteer, Dead
+##                         SnakeSteer, Jetting, Dead
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed /
 ## fire_allowed).
@@ -92,6 +94,7 @@ signal died
 @onready var boulder: BoulderAbility = $BoulderAbility
 @onready var earth_snake: EarthSnakeAbility = $EarthSnakeAbility
 @onready var fire_bar: FireBar = $FireBar
+@onready var flame_jet: FlameJetAbility = $FlameJetAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -374,6 +377,20 @@ func gain_fire_pips(amount: int) -> bool:
 	if not is_element_allowed(ELEMENT_FIRE):
 		return false
 	return fire_bar.gain(amount) > 0
+
+
+# --- Fire --------------------------------------------------------------------
+
+## On the frame W (flame_jet) is pressed where fire is allowed: spends a pip and
+## returns true, and the caller switches to the Jetting state. With no pip the jet
+## sputters (smoke, no thrust) and this returns false, so nothing else changes.
+## States that allow jetting check this right after the dash and gust checks.
+func try_start_jet() -> bool:
+	return flame_jet.try_start()
+
+
+func is_jetting() -> bool:
+	return state_machine.current_state.name == &"Jetting"
 
 
 # --- Gust --------------------------------------------------------------------

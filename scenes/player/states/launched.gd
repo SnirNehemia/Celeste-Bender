@@ -32,6 +32,9 @@ func physics_update(delta: float) -> void:
 	if player.wants_to_gust():
 		transition_requested.emit(player.get_gust_start_state())
 		return
+	if player.try_start_jet():
+		transition_requested.emit(&"Jetting")
+		return
 
 	steer_lock_remaining = maxf(steer_lock_remaining - delta, 0.0)
 	# apply_gravity: apex half-gravity while jump is held, fast-fall on Down.

@@ -36,10 +36,10 @@ A Celeste-style precision platformer where the hero is an air-bender. Current go
 res://
   project.godot
   scenes/
-    player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth), abilities/fire/ (Fire: fire_bar, fire_pips_display)
+    player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth), abilities/fire/ (Fire: fire_bar, fire_pips_display, flame_jet_ability; state: states/jetting)
     objects/       crate, spikes, wind_zone, wind_crystal, windmill, leaf_platform, door, pressure_plate
       earth/       earth_layer (fresh/used earth tiles), earth_face, ground_painter (draws earth rooms' ground), earth_column, boulder, earth_snake, cracked_wall
-      fire/        fire_diamond
+      fire/        fire_diamond, flame_tongue + ember_emitter (fire building blocks), fire_ring
     enemies/       wisp, sentry, sentry_orb
     rooms/         room_01.tscn … room_07.tscn, room_base.gd
       earth/       earth_01.tscn … earth_10.tscn (the Earth chapter, generated)
@@ -51,10 +51,10 @@ res://
   tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), build_fire_rooms.gd (Fire test rooms; extends build_earth_rooms.gd), screenshot_rooms.gd (PNG of every room)
 ```
 
-Fire, still to come (`PROMPTS.md` Stages F2–F15; move each path into the tree above once it exists): `scenes/player/abilities/fire/` (FlameJetAbility, FireballAbility), `scenes/objects/fire/` (brazier, fire grid, flame building blocks, vine, balloon, heat sail), `scenes/enemies/` (leafling, shell), `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_chapter_smoke_test.tscn`, `tools/build_fire_chapter.gd` (Fire rooms 1–10).
+Fire, still to come (`PROMPTS.md` Stages F2–F15; move each path into the tree above once it exists): `scenes/player/abilities/fire/` (FireballAbility), `scenes/objects/fire/` (brazier, fire grid, smoke emitter, heat glow, vine, balloon, heat sail), `scenes/enemies/` (leafling, shell), `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_chapter_smoke_test.tscn`, `tools/build_fire_chapter.gd` (Fire rooms 1–10).
 
 ## Input
-Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `fireball`, `flame_jet`, `restart_room`, `pause`. (The old `earth_snake` action on D was removed in Stage F1: the snake moved to A, see `Earth_bending.md` §11 "One key". D and F are the Fire keys, `Fire_bending.md` §3; until Stage F3, F only spends a pip, a temporary debug key.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save all tuning (Player, Earth, Fire) to their `.tres`, F5 tuning panel (`debug_tuning_panel`; inside it Shift = `debug_tuning_big_step`, R = `debug_tuning_reset`). Bindings per `GAME_DESIGN.md` §3, `Earth_bending.md` §3 and `Fire_bending.md` §3 (arrows only for movement: A/S/D are the Earth keys). Code reads only action names, never raw keys.
+Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `fireball`, `flame_jet`, `restart_room`, `pause`. (The old `earth_snake` action on D was removed in Stage F1: the snake moved to A, see `Earth_bending.md` §11 "One key". Q (`fireball`) and W (`flame_jet`) are the Fire keys since Stage F3, `Fire_bending.md` §3; D and F are free.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save all tuning (Player, Earth, Fire) to their `.tres`, F5 tuning panel (`debug_tuning_panel`; inside it Shift = `debug_tuning_big_step`, R = `debug_tuning_reset`). Bindings per `GAME_DESIGN.md` §3, `Earth_bending.md` §3 and `Fire_bending.md` §3 (arrows only for movement: A/S are the Earth keys, Q/W the Fire keys). Code reads only action names, never raw keys.
 
 ## Working rules
 1. **Small steps.** One mechanic per task. Don't build ahead of the current stage in `PROMPTS.md`.

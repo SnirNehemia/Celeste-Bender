@@ -1,7 +1,7 @@
 class_name FireBar
 extends Node
 ## The fire bar (Fire_bending.md §4): the player's pool of fire PIPS, shared by the
-## fireball (D) and the flame jet (F). A component under the player, like the other
+## fireball (Q) and the flame jet (W). A component under the player, like the other
 ## abilities; it holds the number and nothing else. Drawing is FirePipsDisplay's job
 ## (fire_pips_display.gd), which listens to the signals below.
 ##
@@ -29,9 +29,6 @@ signal ran_dry
 var pips: int = 0
 ## The player this bar belongs to (the parent node).
 var player: Player
-## Stage F1 only, temporary: F (the future flame jet key) spends a pip, so the HUD's
-## snuff can be tried before the jet exists. Stage F3 removes it.
-var debug_spend_key_enabled: bool = true
 
 
 func _ready() -> void:
@@ -39,12 +36,6 @@ func _ready() -> void:
 	# Connecting to an AUTOLOAD's signal: GameState exists before any scene, so the
 	# connection can be made right here. Disconnected automatically when we're freed.
 	GameState.room_entered.connect(_on_room_entered)
-
-
-func _physics_process(_delta: float) -> void:
-	if debug_spend_key_enabled and Input.is_action_just_pressed("flame_jet") \
-			and not player.is_dead() and player.is_element_allowed(Player.ELEMENT_FIRE):
-		spend()
 
 
 ## The most pips the bar holds (from the tuning, read fresh so live edits count).

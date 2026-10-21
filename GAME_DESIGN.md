@@ -34,7 +34,7 @@ Mouse is not needed. Celeste-style 8-direction aiming with the arrow keys is mor
 
 | Action | Key | Notes |
 |---|---|---|
-| Move / aim | Arrow keys | Aim direction for dash and gust = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S/D are the Earth keys (`Earth_bending.md` §3) |
+| Move / aim | Arrow keys | Aim direction for dash and gust = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S are the Earth keys (`Earth_bending.md` §3), Q/W the Fire keys (`Fire_bending.md` §3) |
 | Jump | **C** (Space as alternate) | Hold for higher jump; hold while falling = glide |
 | Air Dash | **X** | |
 | Gust | **Z** | |
