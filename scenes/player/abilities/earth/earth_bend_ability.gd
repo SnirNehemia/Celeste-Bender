@@ -37,6 +37,14 @@ extends Node2D
 ## Each step passes through the same "corner point" (face center + t * half tile),
 ## which is what makes the drawn shadow slide smoothly round corners.
 ##
+## STEERED SHADOW (experiment, EarthTuning.shadow_steerable): the shadow never moves
+## by itself. Holding an arrow moves it along the path at shadow_steer_speed (real
+## time): forward if the arrow points along the crawl direction, back if against it
+## (_pick_steer_sign). While the SAME arrows stay held it keeps going that way, so
+## holding Right carries it over a ledge's edge and down its side. Back past the
+## feet, the path is restarted the other way (_reverse_path), so it can go either
+## side of the player. The bend fires by itself after shadow_steer_max_time.
+##
 ## Drawing: top_level = true, so this node ignores the player's transform and its
 ## own coordinates are world coordinates (like AirBlastDebugDraw).
 
@@ -80,6 +88,10 @@ var shadow_distance: float = 0.0
 ## Countdowns (real seconds) for the "while crawling" gravel.
 var shadow_gravel_timer: float = 0.0
 var feet_gravel_timer: float = 0.0
+## STEERED SHADOW: the arrows held when the current push began, and which way along
+## the path they move the shadow (+1 forward, -1 back, 0 not at all).
+var steer_input: Vector2 = Vector2.ZERO
+var steer_sign: int = 0
 
 
 func _ready() -> void:
@@ -215,6 +227,8 @@ func begin_bend(action: StringName, start_face: EarthFace) -> void:
 	path = [start_face]
 	path_tangents = [get_start_tangent(start_face)]
 	shadow_gravel_timer = 0.0
+	steer_input = Vector2.ZERO
+	steer_sign = 0
 	feet_gravel_timer = tuning.shadow_gravel_interval * 2.0
 	player.movement_effects.hold_squash(tuning.bend_squash)
 	# Bits pop off the ground at the feet: the bend has started.
@@ -290,7 +304,9 @@ func _process(delta: float) -> void:
 	var was_waiting: bool = bend_real_time < tuning.shadow_start_delay
 	bend_real_time += real_delta
 
-	if bend_real_time >= tuning.shadow_start_delay:
+	if tuning.shadow_steerable:
+		_steer_shadow(real_delta)
+	elif bend_real_time >= tuning.shadow_start_delay:
 		if was_waiting:
 			# The crawl starts now: on a wall, Up may have been pressed meanwhile.
 			path_tangents[0] = get_start_tangent(path[0])
@@ -306,6 +322,57 @@ func _process(delta: float) -> void:
 		# at the feet. The bend's start burst already leaves some there.
 		FX.spawn_gravel(path[0].get_global_center(), 1, Vector2(path[0].normal), 0.0)
 	queue_redraw()
+
+
+## How long the aim phase may last, real seconds: longer when you steer the shadow.
+## EarthBend fires the move when it's up.
+func get_max_bend_time() -> float:
+	var tuning: EarthTuning = player.earth_tuning
+	return tuning.shadow_steer_max_time if tuning.shadow_steerable else tuning.bend_max_time
+
+
+## STEERED SHADOW (see the header): moves the shadow along the path while arrows are
+## held. A new set of arrows picks the direction again; the same ones keep it going.
+func _steer_shadow(real_delta: float) -> void:
+	var held: Vector2 = player.get_aim_input()
+	if held == Vector2.ZERO:
+		steer_input = Vector2.ZERO
+		steer_sign = 0
+		return
+	if held != steer_input:
+		steer_input = held
+		steer_sign = _pick_steer_sign(held)
+	if steer_sign == 0:
+		return
+	shadow_distance += steer_sign * player.earth_tuning.shadow_steer_speed * real_delta
+	if shadow_distance < 0.0:
+		# Back past the feet: the path now runs the other way, and "back" became forward.
+		_reverse_path()
+		shadow_distance = -shadow_distance
+		steer_sign = 1
+	_extend_path_to_shadow()
+	_spawn_crawl_gravel(real_delta)
+
+
+## +1 if `held` points along the crawl direction where the shadow is, -1 if against
+## it, 0 if across it. Across (e.g. Right while on a wall): the direction of the step
+## that led here decides, so the arrow that carried it round a corner still counts.
+func _pick_steer_sign(held: Vector2) -> int:
+	var step_index: int = clampi(int(shadow_distance / _get_step_length()), 0, path_tangents.size() - 1)
+	var along: float = held.dot(Vector2(path_tangents[step_index]))
+	if absf(along) < 0.01 and step_index > 0:
+		along = held.dot(Vector2(path_tangents[step_index - 1]))
+	if absf(along) < 0.01:
+		return 0
+	return 1 if along > 0.0 else -1
+
+
+## Restarts the path from under the feet, crawling the opposite way.
+func _reverse_path() -> void:
+	var start_face: EarthFace = path[0]
+	var reversed_tangent: Vector2i = -path_tangents[0]
+	path = [start_face]
+	path_tangents = [reversed_tangent]
 
 
 ## Adds faces to the path until it reaches the shadow. If gray rock blocks the

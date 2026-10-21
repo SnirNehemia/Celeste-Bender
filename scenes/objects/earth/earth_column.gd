@@ -311,6 +311,28 @@ func _register_cells() -> void:
 	source_face.layer.register_column(self, cells)
 
 
+## True once it has finished rising (a plain solid pillar).
+func is_risen() -> bool:
+	return not is_rising
+
+
+## Tap S while touching it (after Stage E7): it breaks into gravel and pebbles along
+## its length and disappears. The tile it rose from stays spent, and its foot stays
+## hardened. Only a risen pillar: a rising one is busy throwing things.
+func shatter() -> void:
+	if is_rising or is_queued_for_deletion():
+		return
+	source_face.layer.unregister_column(self)
+	var tile_size: float = source_face.layer.get_half_tile_size() * 2.0
+	var tile_count: int = maxi(roundi(length / tile_size), 1)
+	for tile_index: int in tile_count:
+		var tile_center: Vector2 = base_position + normal * tile_size * (tile_index + 0.5)
+		FX.spawn_gravel(tile_center, earth_tuning.shatter_gravel_per_tile, normal)
+	FX.shake(earth_tuning.boulder_impact_shake_strength, earth_tuning.boulder_impact_shake_time)
+	FX.play_sfx(&"earth_creation_shatter")
+	queue_free()
+
+
 ## Called by Room.reset_objects() (death or R): columns don't survive a reset.
 func reset() -> void:
 	source_face.layer.unregister_column(self)

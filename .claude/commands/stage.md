@@ -5,7 +5,7 @@ argument-hint: <stage number>
 
 Run **Stage $ARGUMENTS** of the build plan.
 
-1. Read `CLAUDE.md`, `GAME_DESIGN.md` and `PROMPTS.md`. For Earth stages (E0, E1, …) also read `Earth_bending.md`.
+1. Read `CLAUDE.md`, `GAME_DESIGN.md` and `PROMPTS.md`. For Earth stages (E0, E1, …) also read `Earth_bending.md`. For Fire stages (F1, F2, …) also read `Fire_bending.md` (its §-table lists the stages). `Water_bending.md` is only a draft: don't build from it unless I say so.
 2. Check the Progress list in `PROMPTS.md`. If an earlier stage isn't ticked, tell me and ask whether to continue anyway.
 3. If this stage isn't Stage 0, run a quick tools check: is a Godot MCP server available (`claude mcp list`)? If not, say so and offer to set it up using the steps in Stage 0 Part A, but don't block on it.
 4. For a big stage, show me a short plan first and wait for my OK.

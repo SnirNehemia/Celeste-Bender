@@ -417,6 +417,10 @@ func wants_to_bend() -> bool:
 ## the caller (Idle, Run, WallSlide) switches to BoulderHold. No bend shadow and no
 ## slow motion: the rock always comes out right next to you (Earth_bending.md §11).
 func try_tear_rock() -> bool:
+	# A loose rock's press waiting to become a tap (shatter) or a hold (lift) is
+	# settled here, every frame (BoulderAbility.take_ready_lift).
+	if boulder.take_ready_lift():
+		return true
 	return Input.is_action_just_pressed(boulder.get_action()) 		and is_element_allowed(ELEMENT_EARTH) and boulder.try_tear()
 
 

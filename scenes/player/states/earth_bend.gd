@@ -9,8 +9,8 @@ extends PlayerState
 ##     from a wall holds you on the wall
 ##   - EarthBendAbility runs the shadow in real time
 ## Ways out:
-##   - the earth key is released, or the aim time (bend_max_time, real seconds)
-##     runs out  -> the move fires at the shadow (release_bend). If the move then
+##   - the earth key is released, or the aim time (bend_max_time, real seconds;
+##     shadow_steer_max_time when you steer the shadow yourself) runs out  -> the move fires at the shadow (release_bend). If the move then
 ##     asks for a follow-up state (EarthMoveAbility.get_follow_up_state: the snake's
 ##     SnakeSteer), we go there; otherwise back to normal movement
 ##   - Jump is pressed -> cancel, no earth used, and the press is spent so it doesn't
@@ -34,7 +34,7 @@ func enter() -> void:
 	player.velocity = Vector2.ZERO
 	var tuning: EarthTuning = player.earth_tuning
 	# Safety limit a little past our own, like GustAim: we clear it ourselves in exit().
-	FX.set_slow_motion(tuning.bend_time_scale, tuning.bend_max_time + 0.3)
+	FX.set_slow_motion(tuning.bend_time_scale, earth_bend.get_max_bend_time() + 0.3)
 	earth_bend.begin_bend(action, start_face)
 
 
@@ -59,7 +59,7 @@ func physics_update(_delta: float) -> void:
 		_leave()
 		return
 
-	var time_is_up: bool = earth_bend.bend_real_time >= player.earth_tuning.bend_max_time
+	var time_is_up: bool = earth_bend.bend_real_time >= earth_bend.get_max_bend_time()
 	if not Input.is_action_pressed(earth_bend.bend_action) or time_is_up:
 		earth_bend.release_bend()
 		# Some moves keep the player busy afterwards (the snake: steering it). Asked of

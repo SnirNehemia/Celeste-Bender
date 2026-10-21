@@ -3,7 +3,8 @@ extends Control
 ## Main menu: the first screen when the game starts (it's the main scene in
 ## project.godot). Pick a chapter with the arrows + Enter (or C).
 ##   - Air:   scenes/world.tscn             rooms 1-7 (Milestone 1)
-##   - Earth: tests/earth_test_world.tscn   Earth test rooms (until Stage E7 builds the chapter)
+##   - Earth: scenes/earth_world.tscn       the Earth chapter, rooms 1-10 (Stage E7)
+##   - Earth tests: tests/earth_test_world.tscn   one test room per Earth stage
 ##   - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
 ##
 ## The whole menu is built in _ready() from code: a title Label and one Button per
@@ -18,6 +19,7 @@ extends Control
 ## [button text, scene path] per chapter, in menu order.
 const CHAPTERS: Array = [
 	["Air  -  Windbound (rooms 1-7)", "res://scenes/world.tscn"],
+	["Earth  -  the Earth chapter (rooms 1-10)", "res://scenes/earth_world.tscn"],
 	["Earth  -  test rooms (F2 to switch)", "res://tests/earth_test_world.tscn"],
 	["Air + Earth  -  mixed test rooms (F2 to switch)", "res://tests/mixed_test_world.tscn"],
 ]

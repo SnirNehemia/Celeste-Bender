@@ -26,7 +26,13 @@ extends CharacterBody2D
 ##                                              player gets their dash back)
 ##   - hit by a thrown rock (Stage E6)        -> knocked back along the throw and
 ##                                              defeated a moment later (it flies,
-##                                              harmless, then pops)
+##                                              harmless, then pops). Since E7 only a
+##                                              BIG or PERFECTLY thrown rock kills; a
+##                                              sloppy small one only shoves (stunned)
+##
+## It never leaves its ROOM (after Stage E7): the room's side edges count as walls,
+## so it turns at a wall gap instead of walking into the next room, and a knockback
+## stops there (_keep_inside_room).
 ## Earth moves that only PUSH it (a rising column's tip, the snake's head) throw it
 ## and stun it like a gust: the same "what it hits decides" rule then applies.
 ##
@@ -97,6 +103,9 @@ var stun_time_remaining: float = 0.0
 var has_slammed_this_knockback: bool = false
 ## Hit by a thrown rock: seconds until it pops (defeated). Negative = not hit.
 var rock_defeat_remaining: float = -1.0
+## The room we belong to (the nearest Room above us), found in _ready(); null in a
+## scene with no rooms.
+var home_room: Room = null
 ## Where it was placed, in world coordinates. reset() puts it back here.
 var start_position: Vector2
 ## Seconds since start; drives the bob and dizzy-stars animations.
@@ -132,6 +141,7 @@ func _ready() -> void:
 	add_to_group(Pushable.GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
 	add_to_group(SentryOrb.TARGET_GROUP)
+	home_room = Room.find_room_of(self)
 
 
 func _physics_process(delta: float) -> void:
@@ -150,6 +160,7 @@ func _physics_process(delta: float) -> void:
 		State.STUNNED:
 			_be_stunned(delta)
 
+	_keep_inside_room()
 	if global_position.y > start_position.y + fall_out_distance:
 		defeat()
 		return
@@ -277,6 +288,8 @@ func receive_launch(launch_velocity: Vector2) -> void:
 ## Boulder's enemy-hit contract (Stage E6): a thrown rock hit us. Knocked back at
 ## `knockback_velocity` (stunned, so harmless while it flies), defeated
 ## `defeat_delay` seconds later. A second rock in the meantime changes nothing.
+## defeat_delay < 0 (Boulder.ROCK_SHOVE: a small rock, not thrown perfectly): only
+## the knockback, no defeat.
 func receive_rock_hit(knockback_velocity: Vector2, defeat_delay: float) -> void:
 	if state == State.DEFEATED or rock_defeat_remaining >= 0.0:
 		return
@@ -284,7 +297,10 @@ func receive_rock_hit(knockback_velocity: Vector2, defeat_delay: float) -> void:
 	# A small hop up as well (like a gust), so a sideways hit lifts it off the floor
 	# instead of skidding it: minf because "up" is negative y.
 	velocity.y = minf(velocity.y, -knockback_hop_speed)
-	if defeat_delay <= 0.0:
+	if defeat_delay < 0.0:
+		FX.shake(1.0, 0.08)  # shoved: a bump, it lives
+		return
+	if defeat_delay == 0.0:
 		defeat()
 		return
 	rock_defeat_remaining = defeat_delay
@@ -310,6 +326,26 @@ func defeat() -> void:
 	FX.shake(2.0, 0.12)
 	FX.play_sfx(&"wisp_defeated")
 	defeated.emit()
+
+
+## The room's left and right edges act as walls: if our body pokes past one, it's
+## put back, turned around (patrolling) and stopped sideways (knocked back).
+func _keep_inside_room() -> void:
+	if home_room == null:
+		return
+	var bounds: Rect2 = home_room.get_bounds()
+	var half_width: float = body_size.x / 2.0
+	var push_back: float = 0.0
+	if global_position.x - half_width < bounds.position.x:
+		push_back = bounds.position.x - (global_position.x - half_width)
+	elif global_position.x + half_width > bounds.end.x:
+		push_back = bounds.end.x - (global_position.x + half_width)
+	if push_back == 0.0:
+		return
+	global_position.x += push_back
+	# push_back > 0 = we were past the LEFT edge: from now on head right, and back.
+	patrol_direction = signf(push_back)
+	velocity.x = 0.0
 
 
 ## SentryOrb aim assist: where a reflected orb should fly to hit us.

@@ -33,6 +33,16 @@ extends Resource
 @export var bend_max_time: float = 2.5
 ## Body scale while in the bending stance (x = width, y = height): a slight crouch.
 @export var bend_squash: Vector2 = Vector2(1.25, 0.8)
+## EXPERIMENT (after Stage E7, kept off after its play-test: the crawl felt more
+## natural): YOU move the shadow with the arrows instead of it crawling away by itself. Hold an arrow: it moves that way along the surface (round
+## corners too: keep holding the same arrow); let go: it stops. It can come back
+## toward you and out the other side. Tick to try it; untick = it crawls by itself.
+@export var shadow_steerable: bool = false
+## Steered shadow speed along the surface, real px/s.
+@export var shadow_steer_speed: float = 70.0
+## With a steered shadow the bend fires by itself after this long, real seconds
+## (instead of bend_max_time): steering takes longer than watching it crawl.
+@export var shadow_steer_max_time: float = 4.0
 
 @export_group("Gravel")
 ## Bits popped off at the feet when a bend starts.
@@ -138,6 +148,38 @@ extends Resource
 ## this long, seconds.
 @export var boulder_max_flight_time: float = 3.0
 
+@export_group("Boulder: hover aim")
+## The DEFAULT since the E7 play-test: instead of hopping over your head, the rock
+## rises out of its hole and HOVERS beside you at chest height, in slow motion
+## (boulder_hover_time_scale). While it hovers the arrows AIM (8 directions, like the
+## gust's aim: letting go keeps the last aim), shown by faint GHOSTS of the rock in
+## the throw direction. A faint CONTOUR of the rock starts wide and closes in on it:
+## press S again just as it fits the rock (the rock turns white) for the perfect
+## throw, faster and further. Untick for the old hop (boulder_time_scale then).
+@export var boulder_hover_aim: bool = true
+## World speed while the rock hovers (slower than the hop's boulder_time_scale: you
+## aim AND time it). All the times below are game time, so they last 1 / this longer
+## in real time.
+@export var boulder_hover_time_scale: float = 0.4
+## Out of its hole, the rock glides to its hover spot over this long, s (game time).
+@export var boulder_hover_rise_time: float = 0.12
+## Gap between the player's side and the hovering rock, px.
+@export var boulder_hover_gap: float = 3.0
+## Once it's there, the contour closes in on it over this long, s (game time). The
+## perfect moment is when it fits (boulder_perfect_window either side).
+@export var boulder_hover_ring_time: float = 0.3
+## The contour starts this many times the rock's size.
+@export var boulder_hover_ring_start_scale: float = 3.0
+## Not thrown this long after the tear (s, game time) = it drops and lies loose.
+## Longer than the hop's boulder_hold_time: aiming takes a moment.
+@export var boulder_hover_hold_time: float = 1.0
+## The hovering rock bobs up and down this far, px (drawn only).
+@export var boulder_hover_bob: float = 1.0
+## The aim GHOSTS: this many faint copies of the rock in the throw direction, this
+## far apart (px, center to center: the rock's size plus this gap).
+@export var boulder_hover_ghost_count: int = 3
+@export var boulder_hover_ghost_gap: float = 3.0
+
 @export_group("Loose rocks")
 ## A rock that comes down without being thrown lies there as a LOOSE rock (Stage
 ## E4c3): solid, standable, and S next to it lifts it again. At most this many per
@@ -146,6 +188,19 @@ extends Resource
 ## "Next to": a loose rock within this many px of the player's sides (and level with
 ## their body, not under their feet) can be lifted.
 @export var loose_rock_lift_reach: float = 6.0
+
+@export_group("Shatter creations (tap S)")
+## After the E7 play-test: a TAP of S while touching a creation (a stuck or loose rock,
+## a hardened snake, a risen pillar: standing on it, or within loose_rock_lift_reach
+## of your sides) shatters it into pebbles instead of tearing new earth. A whole snake
+## crumbles, tile by tile outward from the one you touch. The earth it used stays spent.
+## A loose rock BESIDE you waits to see: S released within this many REAL seconds =
+## a tap (shatter); still held = lift it as before.
+@export var shatter_tap_time: float = 0.15
+## Gravel bits per tile of a shattered creation (they leave pebbles that stay).
+@export var shatter_gravel_per_tile: int = 8
+## A crumbling snake loses one tile every this many real seconds, from the touched tile out.
+@export var snake_crumble_step_time: float = 0.025
 
 @export_group("Big rock (hold S)")
 ## Holding S until the rock is out of its hole (boulder_tear_time) grows it into a big
@@ -170,6 +225,14 @@ extends Resource
 ## Screen shake when a chamber opens: strength (px) and duration (s).
 @export var hidden_crumble_shake_strength: float = 1.5
 @export var hidden_crumble_shake_time: float = 0.2
+## WIDEN THE BREACH (after the E7 play-test): the player is a tile wide, so a way into
+## a chamber only one tile wide is a dead end (you'd have to dig the last tile beside
+## it, which is fiddly). When a chamber opens, the thin fresh earth beside the breach
+## crumbles too, along the dug hole back up to the surface, so the way in is always
+## 2 tiles wide. Untick to dig it yourself.
+@export var hidden_widen_breach: bool = true
+## Gravel bits per tile that crumbles to widen the breach.
+@export var hidden_breach_gravel_count: int = 4
 
 @export_group("Pebbles")
 ## Earth effects leave pebbles that STAY on the ground (Stage E4d, PebbleField).

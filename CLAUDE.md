@@ -8,6 +8,9 @@ A Celeste-style precision platformer where the hero is an air-bender. Current go
 ## Design docs
 - `GAME_DESIGN.md` — core game, movement, Air chapter
 - `Earth_bending.md` — Earth chapter (separate keys A/S/D; later puzzles may mix Earth and Air). Read it for any stage starting with **E**.
+- `Fire_bending.md` — Fire chapter (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass). Its stage table (F1…) is in the doc itself. Read it for any stage starting with **F**. Not built yet.
+- `Water_bending.md` — Water chapter (Chapter 4, **draft v0**: pull-and-carry model, pools, freezing). To be refined after Fire is built; don't build from it until it is promoted to a spec.
+- `GAME_SUMMARY.md` — snapshot of the whole game so far, handy for bringing a fresh conversation up to speed.
 - Each design doc may end with an "Ideas parking lot". Never build items from it unless I ask.
 
 ## About the developer
@@ -38,11 +41,13 @@ res://
       earth/       earth_layer (fresh/used earth tiles), earth_face, ground_painter (draws earth rooms' ground), earth_column, boulder, earth_snake, cracked_wall
     enemies/       wisp, sentry, sentry_orb
     rooms/         room_01.tscn … room_07.tscn, room_base.gd
+      earth/       earth_01.tscn … earth_10.tscn (the Earth chapter, generated)
+    earth_world.tscn  the Earth chapter: rooms 1–10 in a row, Goal at the end
     ui/            hud, pause, end_screen
   resources/       player_tuning.tres, earth_tuning.tres, tiles/ (placeholder + earth tilesets)
   autoload/        game_state.gd (deaths, timer, current checkpoint), fx.gd (shake, freeze, slow motion, gravel)
-  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn for the Earth chapter
-  tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms)
+  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn (Earth mechanics), earth_chapter_smoke_test.tscn (the 10 Earth rooms)
+  tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), screenshot_rooms.gd (PNG of every room)
 ```
 
 ## Input
@@ -69,6 +74,9 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
     (scripts that use the autoloads `GameState`/`FX` falsely report "Identifier not found" in this mode; a real run is the true check)
   - `godot --headless --path . res://tests/world_smoke_test.tscn` — visits rooms 1–7, checks the room 5 gate, squash/pause polish and the end screen, prints PASS/FAIL
   - `godot --headless --path . res://tools/build_rooms.tscn` — regenerates rooms 1–7 from `tools/build_rooms.gd` (**overwrites editor edits**; add `-- 6 7` to rebuild only those rooms)
+  - `godot --headless --path . res://tests/earth_chapter_smoke_test.tscn` — Earth chapter: structure + each room's key move, prints PASS/FAIL
+  - `godot --headless --path . res://tools/build_earth_chapter.tscn` — regenerates Earth rooms 1–10 (**overwrites editor edits**; `-- 3 7` for only those)
+  - `godot --path . res://tools/screenshot_rooms.tscn -- res://scenes/earth_world.tscn <folder>` — windowed: saves a PNG of every room
   - `godot --path .` — runs the game (I'll play-test and report back)
 - Use `print()` with a clear prefix (e.g. `[Dash]`) for temporary debugging, and remove it once the feature works.
 

@@ -34,7 +34,9 @@ extends CharacterBody2D
 ##              - a CRACKED WALL (Stage E6): a BIG rock breaks it open; either size
 ##                shatters on it (a small rock is too light to break it)
 ##              - an ENEMY (Stage E6): hits it (receive_rock_hit: a wisp is knocked
-##                back and defeated, a sentry destroyed), and shatters
+##                back and defeated, a sentry destroyed), and shatters. Since E7 that
+##                takes a BIG rock or a PERFECT throw; a sloppy small rock only shoves
+##                a wisp (stunned) and clonks off a sentry
 ##              - anything else (gray rock, grass, a crate, a stuck boulder): shatters
 ##   STUCK    snapped onto the tile grid against the earth face it hit (and that
 ##            tile hardens, so it can't be torn out from under it): a solid
@@ -46,6 +48,14 @@ extends CharacterBody2D
 ##            lifts it again (BoulderAbility, lift()): back to POPPING, no earth used.
 ##            At most loose_rock_max_per_room per room: the oldest crumbles.
 ##   SHATTERED a gravel burst, then the node is freed.
+##
+## HOVER AIM (the default since E7, EarthTuning.boulder_hover_aim, set per rock with
+## set_hover_mode()): POPPING's step 2 is replaced. Out of its hole, the rock glides to
+## a spot BESIDE the player at chest height (boulder_hover_rise_time) and hovers there
+## while the arrows aim (BoulderAbility keeps the aim; aim_direction is only for
+## drawing the aim ghosts). A faint contour of the rock starts wide and closes in
+## on it over boulder_hover_ring_time: perfect_time is when it fits. Not thrown by
+## boulder_hover_hold_time = it falls (the hop's step 2 without the jump) and lies loose.
 ##
 ## Created by BoulderAbility.try_tear(): Boulder.new(), setup(), then added as a child of
 ## the ROOM so Room.reset_objects() finds it (RESETTABLE_GROUP) and reset() frees it.
@@ -91,6 +101,9 @@ const MAX_ORB_RESULTS: int = 8
 ## Wisp: flies off at knockback_velocity, defeated defeat_delay later. Sentry:
 ## destroyed at once (it's bolted down).
 const ENEMY_HIT_METHOD: StringName = &"receive_rock_hit"
+## defeat_delay meaning "just a shove, no defeat": a SMALL rock that wasn't thrown
+## perfectly (after Stage E7). A big rock, or a perfect throw, kills.
+const ROCK_SHOVE: float = -1.0
 
 ## The tear phase is over: the rock is out of its hole and about to hop. BoulderAbility
 ## listens: if S is still held, it grows the rock right then (grow()).
@@ -156,6 +169,8 @@ var float_time_remaining: float = 0.0
 var flight_time: float = 0.0
 ## Seconds left of the white flash after a perfect throw.
 var perfect_flash_remaining: float = 0.0
+## True if the throw was perfect (in the window). Decides kill vs shove on enemies.
+var thrown_perfectly: bool = false
 ## STUCK: the EarthLayer we registered our cells with (to unregister on reset).
 var stuck_layer: EarthLayer = null
 ## LOOSE: the order it settled in (higher = newer), so the oldest crumbles first.
@@ -180,6 +195,23 @@ var speckle_is_light: PackedByteArray = PackedByteArray()
 var visual_angle: float = 0.0
 ## Seconds until a moving rock sheds its next pebble.
 var pebble_shed_remaining: float = 0.0
+
+## HOVER AIM (see the header). True = this rock hovers instead of hopping.
+var is_hover_mode: bool = false
+## The player's middle and which side the rock hovers on (-1 left, +1 right), and half
+## the player's size, px: the hover spot is worked out from these (get_hover_target).
+var hover_anchor: Vector2 = Vector2.ZERO
+var hover_side: float = 1.0
+var hover_body_half_size: Vector2 = Vector2(4.0, 5.5)
+## True while gliding to / hovering at the hover spot.
+var is_hovering: bool = false
+## Where the glide started, where it ends, and the pop_elapsed it started at.
+var hover_from: Vector2 = Vector2.ZERO
+var hover_target: Vector2 = Vector2.ZERO
+var hover_start_time: float = 0.0
+## The way a throw would go now (unit vector), for the aim ghosts. Set by
+## BoulderAbility every frame while it hovers.
+var aim_direction: Vector2 = Vector2.ZERO
 
 
 ## Call before adding to the tree. `start_center` = where the rock's center starts
@@ -228,6 +260,9 @@ func get_hop_speed() -> float:
 ## rock hits something on the way.
 func get_perfect_time() -> float:
 	var tear_time: float = maxf(earth_tuning.boulder_tear_time, 0.001)
+	if is_hover_mode:
+		# Hovering: out of the hole, glide over, then the contour closes in.
+		return tear_time + earth_tuning.boulder_hover_rise_time + earth_tuning.boulder_hover_ring_time
 	var hop_start_y: float = pop_start_position.y + pop_normal.y * size
 	# During the hop: y(s) = hop_start_y - v·s + g·s²/2 (s = time since the hop
 	# started; y grows downward). Level when y(s) = player_center_y, a quadratic:
@@ -260,7 +295,12 @@ func is_loose() -> bool:
 ## True while the player can still throw it.
 func is_throwable() -> bool:
 	return phase == Phase.POPPING and not is_dropped \
-		and pop_elapsed < earth_tuning.boulder_hold_time
+		and pop_elapsed < get_hold_time()
+
+
+## How long after the tear it can be thrown, s (game time): longer while hovering.
+func get_hold_time() -> float:
+	return earth_tuning.boulder_hover_hold_time if is_hover_mode else earth_tuning.boulder_hold_time
 
 
 ## True inside the perfect window (±boulder_perfect_window around perfect_time).
@@ -275,7 +315,7 @@ func is_in_perfect_window() -> bool:
 func throw(direction: Vector2, speed: float, float_time: float, is_perfect: bool) -> void:
 	if not is_throwable():
 		return
-	if not is_hopping:
+	if not is_hopping and not is_hovering:
 		# Still tearing out of its hole: yank it the rest of the way out first, or the
 		# throw would slam it into the side of its own hole. (The way-up perfect window
 		# starts while it's still coming out.)
@@ -285,6 +325,7 @@ func throw(direction: Vector2, speed: float, float_time: float, is_perfect: bool
 	velocity = direction * speed
 	float_time_remaining = float_time
 	flight_time = 0.0
+	thrown_perfectly = is_perfect
 	if is_perfect:
 		perfect_flash_remaining = PERFECT_FLASH_TIME
 	queue_redraw()
@@ -310,6 +351,19 @@ func drop() -> void:
 	is_dropped = true
 
 
+## HOVER AIM: `enabled` = this rock hovers beside the player instead of hopping.
+## `player_middle` = the player's middle, `side` = -1 / +1 (which side it hovers on),
+## `body_half_size` = half the player's size, px. Call before it leaves its hole
+## (BoulderAbility does, right after setup() or before lift()).
+func set_hover_mode(enabled: bool, player_middle: Vector2, side: float, body_half_size: Vector2) -> void:
+	is_hover_mode = enabled
+	hover_anchor = player_middle
+	hover_side = side
+	hover_body_half_size = body_half_size
+	aim_direction = Vector2(side, 0.0)
+	perfect_time = get_perfect_time()
+
+
 ## Lifts a LOOSE rock again (BoulderAbility, Stage E4c3): it hops exactly like a rock
 ## just out of its hole. `away_velocity_x` and `player_middle_y` as in setup().
 func lift(away_velocity_x: float, player_middle_y: float) -> void:
@@ -328,7 +382,11 @@ func lift(away_velocity_x: float, player_middle_y: float) -> void:
 	perfect_time = get_perfect_time()
 	is_resting = false
 	is_dropped = false
-	_start_hop()
+	is_hopping = false
+	if is_hover_mode:
+		_start_hover()
+	else:
+		_start_hop()
 	set_physics_process(true)
 
 
@@ -354,7 +412,9 @@ func _physics_process(delta: float) -> void:
 func _update_pop(delta: float) -> void:
 	pop_elapsed += delta
 	var tear_time: float = maxf(earth_tuning.boulder_tear_time, 0.001)
-	if not is_hopping:
+	if is_hovering:
+		_update_hover(delta)
+	elif not is_hopping:
 		# 1) Tear: slowly out of the hole, one tile along the normal. A straight
 		#    line; the rumble is only drawn (see _draw).
 		var progress: float = minf(pop_elapsed / tear_time, 1.0)
@@ -364,7 +424,10 @@ func _update_pop(delta: float) -> void:
 			tore_free.emit()
 			# Still out of the hole? A grow() during the signal restarted the tear instead.
 			if pop_elapsed >= tear_time:
-				_start_hop()
+				if is_hover_mode:
+					_start_hover()
+				else:
+					_start_hop()
 	elif is_resting:
 		# 3) Landed: rest a moment (still throwable), then lie there loose.
 		_turn_toward_square(delta)
@@ -380,8 +443,71 @@ func _update_pop(delta: float) -> void:
 		var collision: KinematicCollision2D = move_and_collide(velocity * delta)
 		if collision != null:
 			_on_pop_contact(collision)
-		elif pop_elapsed >= earth_tuning.boulder_hold_time + earth_tuning.boulder_max_flight_time:
+		elif pop_elapsed >= get_hold_time() + earth_tuning.boulder_max_flight_time:
 			shatter()  # fell out of the room (a pit): don't fall forever
+
+
+## HOVER AIM: out of the ground (or lifted), it starts gliding to its hover spot.
+func _start_hover() -> void:
+	is_hovering = true
+	velocity = Vector2.ZERO
+	hover_from = global_position
+	hover_start_time = pop_elapsed
+	hover_target = get_hover_target()
+	FX.spawn_gravel(global_position, 3, Vector2.UP)
+
+
+## Where it hovers: beside the player at their middle height, on hover_side, just
+## clear of their body. A BIG rock is taller than half the player, so at their middle
+## its bottom would sink into the floor: it's raised until its bottom is just above
+## their feet (that sinking used to block both sides and send it over the head).
+## If the spot is inside something solid (the player faces a wall), the other side;
+## if that's blocked too, above their head.
+func get_hover_target() -> Vector2:
+	var side_offset: float = hover_body_half_size.x + earth_tuning.boulder_hover_gap + size / 2.0
+	var feet_y: float = hover_anchor.y + hover_body_half_size.y
+	var center_y: float = minf(hover_anchor.y, feet_y - size / 2.0 - 0.5)
+	for side: float in [hover_side, -hover_side]:
+		var spot: Vector2 = Vector2(hover_anchor.x + side * side_offset, center_y)
+		if _is_hover_spot_free(spot):
+			return spot
+	return hover_anchor + Vector2(0.0, -(size + earth_tuning.boulder_hover_gap * 3.0))
+
+
+## True if a rock centered at `center` would overlap no solid ("world").
+func _is_hover_spot_free(center: Vector2) -> bool:
+	var check_shape: RectangleShape2D = RectangleShape2D.new()
+	check_shape.size = Vector2.ONE * (size - STICK_CHECK_INSET * 2.0)
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = check_shape
+	query.transform = Transform2D(0.0, center)
+	query.collision_mask = WORLD_MASK
+	query.collide_with_areas = false
+	query.exclude = [get_rid()]
+	return get_world_2d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+
+## HOVER AIM: glide to the spot (fast, then easing in), hover, and when the hold time
+## is over fall like a dropped rock (the hop code, with no jump: it lands loose).
+func _update_hover(delta: float) -> void:
+	if not is_throwable():
+		is_hovering = false
+		is_hopping = true
+		velocity = Vector2.ZERO
+		return
+	var rise_time: float = maxf(earth_tuning.boulder_hover_rise_time, 0.001)
+	var progress: float = clampf((pop_elapsed - hover_start_time) / rise_time, 0.0, 1.0)
+	# Ease out: 1 - (1 - p)^2 starts fast and settles gently into place.
+	var eased: float = 1.0 - (1.0 - progress) * (1.0 - progress)
+	# Set directly: it floats, nothing pushes it (it's on no physics layer anyway).
+	global_position = hover_from.lerp(hover_target, eased)
+	_turn_toward_square(delta)
+
+
+## HOVER AIM: how far the contour has closed, 0 (just appeared, widest) .. 1 (fits).
+func get_hover_ring_progress() -> float:
+	var ring_time: float = maxf(earth_tuning.boulder_hover_ring_time, 0.001)
+	return clampf(1.0 - (perfect_time - pop_elapsed) / ring_time, 0.0, 1.0)
 
 
 ## Out of the ground: the hop starts, with a little burst of gravel from the hole.
@@ -510,12 +636,15 @@ func _on_impact(collision: KinematicCollision2D) -> void:
 			(collider as CrackedWall).break_open(velocity.normalized(), earth_tuning)
 		shatter()
 	elif collider is Node and (collider as Node).has_method(ENEMY_HIT_METHOD):
-		# An enemy (a wisp, a sentry): knocked back along the throw and defeated.
+		# An enemy (a wisp, a sentry): knocked back along the throw, and defeated if
+		# the rock is big or was thrown perfectly; else only shoved (ROCK_SHOVE).
 		# move_and_collide() doesn't change `velocity`, so it's still the throw's.
+		var kills: bool = is_big() or thrown_perfectly
 		(collider as Node).call(ENEMY_HIT_METHOD,
 			velocity.normalized() * earth_tuning.boulder_enemy_knockback_speed,
-			earth_tuning.boulder_enemy_defeat_delay)
-		FX.freeze(0.05)  # a crunchy hit, like dashing a stunned wisp
+			earth_tuning.boulder_enemy_defeat_delay if kills else ROCK_SHOVE)
+		if kills:
+			FX.freeze(0.05)  # a crunchy hit, like dashing a stunned wisp
 		shatter()
 	elif collider is EarthLayer:
 		if not _stick_into(collider as EarthLayer, surface_normal, collision.get_position()):
@@ -627,12 +756,16 @@ func _get_covered_cells(earth_layer: EarthLayer) -> Array[Vector2i]:
 	return cells
 
 
-## Breaks into gravel and disappears.
+## Breaks into gravel and disappears. Also a STUCK rock (tap S, after Stage E7): it
+## stops being part of the ground for the bend shadow first.
 func shatter() -> void:
 	if phase == Phase.SHATTERED:
 		return
 	phase = Phase.SHATTERED
 	set_physics_process(false)
+	if stuck_layer != null:
+		stuck_layer.unregister_column(self)
+		stuck_layer = null
 	# A big rock breaks into more gravel (by area: 4x for 2x the size).
 	var area_factor: int = roundi(pow(size / earth_tuning.boulder_size, 2.0))
 	FX.spawn_gravel(global_position, earth_tuning.boulder_shatter_gravel_count * area_factor, Vector2.ZERO)
@@ -731,6 +864,9 @@ func _draw() -> void:
 		rumble_offset = along_surface * roundf(sin(pop_elapsed * 90.0) * earth_tuning.boulder_tear_rumble)
 	# draw_set_transform: everything drawn after it is shifted and turned, like drawing
 	# on a rotated sheet of paper. It changes only the picture, not the node.
+	if is_hovering:
+		# Hovering: a gentle bob (drawn only, like the rumble).
+		rumble_offset.y += roundf(sin(pop_elapsed * 9.0) * earth_tuning.boulder_hover_bob)
 	draw_set_transform(rumble_offset, visual_angle)
 	var is_white: bool = perfect_flash_remaining > 0.0 or (is_throwable() and is_in_perfect_window())
 	draw_colored_polygon(outline_points, Color.WHITE if is_white else BODY_COLOR)
@@ -751,3 +887,33 @@ func _draw() -> void:
 	var closed_outline: PackedVector2Array = outline_points.duplicate()
 	closed_outline.append(outline_points[0])
 	draw_polyline(closed_outline, OUTLINE_COLOR, 1.0)
+	if is_hovering and is_throwable():
+		_draw_hover_guides(closed_outline)
+
+
+## HOVER AIM: the timing contour closing in on the rock, and the aim ghosts.
+## `closed_outline` = the rock's outline as a closed loop (drawn already).
+func _draw_hover_guides(closed_outline: PackedVector2Array) -> void:
+	var ring_progress: float = get_hover_ring_progress()
+	# The contour: the rock's own outline, scaled from ring_start_scale down to 1. It
+	# disappears once the perfect moment is past (late throws only get weaker).
+	if pop_elapsed <= perfect_time + earth_tuning.boulder_perfect_window:
+		var ring_scale: float = lerpf(earth_tuning.boulder_hover_ring_start_scale, 1.0, ring_progress)
+		var ring_points: PackedVector2Array = PackedVector2Array()
+		for point: Vector2 in closed_outline:
+			ring_points.append(point * ring_scale)
+		# Faint while wide, clearer as it closes in.
+		draw_polyline(ring_points, Color(1.0, 1.0, 1.0, lerpf(0.15, 0.6, ring_progress)), 1.0)
+	# The aim GHOSTS: faint copies of the rock's outline in the throw direction, each
+	# fainter than the last, like the rock's path frozen in time. Drawn from the rock's
+	# real middle (not the bob), turned like the rock so they match its shape.
+	var direction: Vector2 = aim_direction.normalized()
+	var spacing: float = size + earth_tuning.boulder_hover_ghost_gap
+	var ghost_count: int = maxi(earth_tuning.boulder_hover_ghost_count, 0)
+	for ghost_index: int in ghost_count:
+		var ghost_offset: Vector2 = (direction * spacing * (ghost_index + 1)).round()
+		draw_set_transform(ghost_offset, visual_angle)
+		var fade: float = 1.0 - float(ghost_index) / maxf(ghost_count, 1)
+		draw_colored_polygon(outline_points, Color(1.0, 1.0, 1.0, 0.08 * fade))
+		draw_polyline(closed_outline, Color(1.0, 1.0, 1.0, 0.4 * fade), 1.0)
+	draw_set_transform(Vector2.ZERO, 0.0)

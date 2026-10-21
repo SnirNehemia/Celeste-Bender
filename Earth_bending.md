@@ -145,6 +145,8 @@ The goal is to *show energy traveling through the earth* from the player to the 
 
 ## 9. Chapter rooms (suggested)
 
+*Built in Stage E7 as 10 rooms instead (see `tools/build_earth_chapter.gd` for each room's intent): 1 Solid Ground, 2 Spending Earth, 3 Stone Throw, 4 Breakthrough, 5 First Wisp, 6 The Long Bridge, 7 Sentry Line, 8 Heavy Earth, 9 Siege, 10 Summit. The five below are folded into them.*
+
 1. **"Solid Ground"** — what earth looks like; column under yourself to reach a ledge.
 2. **"Springs"** — place columns on walls and the ceiling to redirect jumps; shadow wraps a corner.
 3. **"Stone Throw"** — boulders: break a cracked wall, then stick boulders into an earth wall to climb it. Teaches the perfect throw.
@@ -215,6 +217,14 @@ These rules were agreed when planning the build. Where they differ from the sect
 - **Snake slow motion:** while steering, the world runs at **0.2x** (`snake_time_scale`), a bit slower than the bend's 0.3x.
 - **Snake head vs the player:** you can steer the head into yourself (you're rooted). It shoves you out of its way and throws you along its direction like a rising column's tip (up = the super jump, sideways = a side spring), and the snake hardens. If something solid is right behind you (the head coming down on you standing on the floor, or pushing you into a wall), you're **crushed**.
 - **Cracked walls and enemies** (Stage E6): a cracked wall is gray stone with cracks, placed in tiles; one thrown **big** rock breaks the whole wall open (gray rubble, a shake, and gray pebbles in the wall's colors that stay, a few per tile, so a bigger wall leaves a bigger heap) and shatters; a small rock is too light and just shatters on it (after the E6 play-test). Every rock blocks sentry orbs: resting it's solid, and a hopping or flying rock pops any orb it touches, so a held rock is a shield. Only a *thrown* rock hits enemies (a hopping or loose one passes through them): a wisp is knocked back along the throw, harmless, and defeated 0.15 s later; a sentry is destroyed at once. The snake head shoving a wisp also knocks it back along its direction (stunned, sliding, no hop), so a snake steered along the floor rams it off an edge into spikes; a sentry blocks the head. With one key a column only rises under you, so throwing a wisp into spikes with a column needs a room with one key off (no Earth room has one yet).
+- **After the E7 play-test:**
+  - **Hover aim is the default** (`boulder_hover_aim`): the rock rises out of its hole and hovers beside you at chest height in slow motion (`boulder_hover_time_scale`, 0.4x). The arrows aim it (8 directions; letting go keeps the aim), shown by faint ghosts of the rock in the throw direction. A faint contour of the rock closes in on it: S as it fits (the rock turns white) is the perfect throw. A big rock hovers beside you too, its bottom just above your feet. Unthrown, it drops and lies loose. The old hop is still there (untick the toggle).
+  - **Small rocks shove, big rocks kill:** a small rock kills an enemy only on a PERFECT throw; otherwise it shoves a wisp (stunned, knocked back, still alive) and clonks off a sentry. A big rock always kills.
+  - **The shadow keeps crawling by itself.** A steerable shadow (arrows move it) was tried and felt less natural; it stays behind the `shadow_steerable` toggle, off.
+  - **Enemies stay in their room:** wisps turn at a room's side edges (wall gaps too), and orbs pop when they leave their room.
+  - **Tap S to shatter a creation:** touching (standing on, or within 6 px of your sides) a stuck or loose rock, a hardened snake or a risen pillar, a tap of S breaks it into pebbles instead of tearing new earth; a whole snake crumbles outward from where you touch it. The earth it used stays spent. A loose rock beside you waits ~0.15 s to tell a tap (shatter) from a hold (lift it, as before).
+  - **The breach widens itself** (`hidden_widen_breach`): when a dig opens a chamber through a gap only one tile wide, the fresh earth beside it crumbles too (beside the breach and up the dug hole), so the way in is always 2 tiles wide. Grass, gray rock, spent and hardened earth never crumble.
+  - **Hidden chambers hide what's inside:** objects in a covered chamber are invisible and switched off until the crumble reaches them.
 - **Creation bases:** snakes and columns grow out of the ground they came from: no outline on the ground side, a ragged root into the ground tile, and a small fillet where they meet the surface.
 
 ---

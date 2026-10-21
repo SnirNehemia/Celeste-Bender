@@ -172,8 +172,12 @@ func destroy() -> void:
 
 
 ## Boulder's enemy-hit contract (Stage E6): a thrown rock destroys it at once. It's
-## bolted down, so the knockback and delay a wisp gets don't apply.
-func receive_rock_hit(_knockback_velocity: Vector2, _defeat_delay: float) -> void:
+## bolted down, so the knockback and delay a wisp gets don't apply. A shove
+## (defeat_delay < 0: a small rock, not thrown perfectly) can't move it: nothing.
+func receive_rock_hit(_knockback_velocity: Vector2, defeat_delay: float) -> void:
+	if defeat_delay < 0.0:
+		FX.shake(0.5, 0.06)  # a clonk off the armour
+		return
 	destroy()
 
 

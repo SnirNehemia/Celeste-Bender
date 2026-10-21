@@ -29,7 +29,11 @@ extends StaticBody2D
 ## (Player.launch_from_column: up = the super jump, sideways = a side spring), and
 ## hardens. If you can't be shoved (the ground or a wall right behind you, e.g. the
 ## head coming down on you), you're CRUSHED (Player.die), like under a column.
-##   HARDENED  a plain solid platform in used-earth color. It stays until room reset.
+##   HARDENED  a plain solid platform in used-earth color. It stays until room reset,
+##             or until a tap of S while touching it (after Stage E7):
+##   CRUMBLING shatter(): no longer solid at once; its tiles break into gravel and
+##             pebbles one by one, outward from the tile you touched, then it's freed.
+##             The earth it used stays spent.
 ##
 ## Steering: queue_turn() remembers the last arrow pressed; the head turns when it
 ## reaches the next tile (a press between two tiles isn't lost). A turn straight back
@@ -46,7 +50,7 @@ extends StaticBody2D
 ## Coordinates: the node sits at the room's origin (position 0), so its local
 ## coordinates are the room's. Tiles are drawn and collide at their cell's center.
 
-enum Phase { MOVING, HARDENED }
+enum Phase { MOVING, HARDENED, CRUMBLING }
 
 ## Emitted once when it hardens. `reason` says why (for the debug label and tests):
 ## "key", "budget", "solid", "player", "blocked" or "time".
@@ -102,6 +106,10 @@ var speckle_random: RandomNumberGenerator = RandomNumberGenerator.new()
 ## The player the head just shoved out of a tile it entered: thrown (and the snake
 ## hardened) once that tile is in (_throw_shoved_player). Null otherwise.
 var shoved_player: Player = null
+## CRUMBLING: the tiles still to break, nearest the touched tile first, and real
+## seconds until the next one goes.
+var crumble_queue: Array[Vector2i] = []
+var crumble_wait: float = 0.0
 
 
 ## Call before adding to the tree. `face` = the face it comes out of, `patch_cells` =
@@ -158,7 +166,7 @@ func queue_turn(direction: Vector2i) -> void:
 
 ## Stops moving and becomes a plain platform. `reason`: see the `hardened` signal.
 func harden(reason: String) -> void:
-	if phase == Phase.HARDENED:
+	if phase != Phase.MOVING:
 		return
 	phase = Phase.HARDENED
 	harden_reason = reason
@@ -177,6 +185,9 @@ func harden(reason: String) -> void:
 
 ## _process runs every rendered frame: the head moves in real time (see the header).
 func _process(delta: float) -> void:
+	if phase == Phase.CRUMBLING:
+		_update_crumble(delta / maxf(Engine.time_scale, 0.001))
+		return
 	if phase != Phase.MOVING:
 		return
 	var real_delta: float = delta / maxf(Engine.time_scale, 0.001)
@@ -338,6 +349,52 @@ func _get_tile_size() -> float:
 	return earth_layer.get_half_tile_size() * 2.0
 
 
+## The tile of ours nearest to `world_point` (to know where you touched it).
+func get_nearest_cell(world_point: Vector2) -> Vector2i:
+	var nearest: Vector2i = segment_cells[0]
+	var nearest_distance: float = INF
+	for cell: Vector2i in segment_cells:
+		var distance: float = earth_layer.get_cell_global_center(cell).distance_to(world_point)
+		if distance < nearest_distance:
+			nearest = cell
+			nearest_distance = distance
+	return nearest
+
+
+## Tap S while touching a hardened snake (BoulderAbility): the whole snake crumbles,
+## starting at `touched_cell` and spreading along it. Not solid from now on.
+func shatter(touched_cell: Vector2i) -> void:
+	if phase != Phase.HARDENED or segment_cells.is_empty():
+		return
+	phase = Phase.CRUMBLING
+	earth_layer.unregister_column(self)
+	# Every tile's collision box goes at once: nobody stands on a crumbling snake.
+	for child: Node in get_children():
+		if child is CollisionShape2D:
+			child.queue_free()
+	# Nearest first: sort by steps along the ribbon from the touched tile.
+	var touched_index: int = maxi(segment_cells.find(touched_cell), 0)
+	crumble_queue = segment_cells.duplicate()
+	crumble_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return absi(segment_cells.find(a) - touched_index) < absi(segment_cells.find(b) - touched_index))
+	crumble_wait = 0.0
+	FX.shake(earth_tuning.boulder_impact_shake_strength, earth_tuning.boulder_impact_shake_time)
+	FX.play_sfx(&"earth_creation_shatter")
+	set_process(true)
+
+
+## CRUMBLING, in real time: one tile breaks every snake_crumble_step_time.
+func _update_crumble(real_delta: float) -> void:
+	crumble_wait -= real_delta
+	while crumble_wait <= 0.0 and not crumble_queue.is_empty():
+		crumble_wait += earth_tuning.snake_crumble_step_time
+		var cell: Vector2i = crumble_queue.pop_front()
+		FX.spawn_gravel(earth_layer.get_cell_global_center(cell), earth_tuning.shatter_gravel_per_tile, Vector2.ZERO)
+	queue_redraw()
+	if crumble_queue.is_empty():
+		queue_free()
+
+
 ## Called by Room.reset_objects() (death or R): snakes don't survive a reset.
 func reset() -> void:
 	earth_layer.unregister_column(self)
@@ -358,11 +415,14 @@ func _draw() -> void:
 	var tile_size: float = _get_tile_size()
 	for segment_index: int in segment_cells.size():
 		var cell: Vector2i = segment_cells[segment_index]
+		# Crumbling: only the tiles that haven't broken yet.
+		if phase == Phase.CRUMBLING and not crumble_queue.has(cell):
+			continue
 		var top_left: Vector2 = to_local(earth_layer.get_cell_global_center(cell)) - Vector2.ONE * tile_size / 2.0
 		# The first tile is joined to the ground on the face's side, like to a neighbour.
 		var ground_side: Vector2i = -source_face.normal if segment_index == 0 else Vector2i.ZERO
 		_draw_tile(cell, top_left, tile_size, _get_tile_color(segment_index), ground_side)
-	if not segment_cells.is_empty():
+	if not segment_cells.is_empty() and (phase != Phase.CRUMBLING or crumble_queue.has(segment_cells[0])):
 		# Root and fillets where it leaves the ground (shared with the pillar).
 		EarthBaseLook.draw(self, source_face, tile_size, _get_tile_color(0), OUTLINE_COLOR, segment_cells)
 	if phase == Phase.MOVING and not segment_cells.is_empty():
@@ -420,7 +480,7 @@ func _draw_tile(cell: Vector2i, top_left: Vector2, tile_size: float, fill_color:
 	for speckle_index: int in 2:
 		var spot: Vector2 = Vector2(speckle_random.randi_range(2, int(tile_size) - 3), speckle_random.randi_range(2, int(tile_size) - 3))
 		draw_rect(Rect2(top_left + spot, Vector2.ONE), speckle_color)
-	if phase == Phase.HARDENED:
+	if phase != Phase.MOVING:
 		# A short diagonal crack (3 px), like the ones the GroundPainter draws on used
 		# earth, so the snake reads as the same spent earth as the patch it came from.
 		var crack_start: Vector2 = Vector2(speckle_random.randi_range(2, 3), speckle_random.randi_range(2, 3))

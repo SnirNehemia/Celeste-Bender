@@ -38,8 +38,22 @@ extends Node
 ## (Boulder's LOOSE phase). Pressing S next to one lifts it again (_lift): it hops like
 ## a fresh rock, perfect window and all, and no earth is used.
 ##
+## SHATTERING CREATIONS (after the E7 play-test): S while TOUCHING a creation (a
+## stuck or loose rock, a hardened snake, a risen pillar: standing on it, or within
+## loose_rock_lift_reach of your sides, _find_touched_creation) breaks it into
+## pebbles instead of tearing earth. Touching wins over tearing. A loose rock BESIDE
+## you is the one case that waits: released within shatter_tap_time it shatters,
+## still held it's lifted (pending_lift_rock, settled in take_ready_lift(), which the
+## player's Idle/Run/WallSlide call every frame through player.try_tear_rock()).
+##
 ## Only the rock being HELD is tracked here: a thrown one flies on by itself, so you
 ## can tear the next one while the last is still in the air.
+##
+## HOVER AIM (the default since E7, EarthTuning.boulder_hover_aim): the rock hovers beside the
+## player instead of hopping (Boulder.set_hover_mode). While it hovers BoulderHold
+## feeds the arrows to update_hover_aim(): the aim sticks like the gust's (letting go
+## of the arrows keeps it), starts at straight ahead, and get_chosen_throw_direction()
+## throws that way. The timing is the same perfect window, at the contour's close.
 ##
 ## The rock itself (tear, hop, flight, sticking, shattering) is
 ## scenes/objects/earth/boulder.gd.
@@ -57,6 +71,18 @@ var held_source_face: EarthFace = null
 var held_source_tangent: Vector2i = Vector2i.ZERO
 ## True from the tear while S stays held: the rock grows when it's out of its hole.
 var is_charging: bool = false
+## HOVER AIM: the way the held rock will be thrown (a unit vector).
+var hover_aim: Vector2 = Vector2.RIGHT
+## A loose rock beside the player whose S press hasn't been decided yet: a tap
+## shatters it, a hold lifts it. Null when nothing is pending.
+var pending_lift_rock: Boulder = null
+## Real clock (ms) when that press started.
+var pending_press_msec: int = 0
+
+## Physics layer bit value of "world" (layer 1): creations are solid on it.
+const WORLD_MASK: int = 1
+## Max bodies one touch check reports.
+const MAX_TOUCH_RESULTS: int = 8
 
 
 func _ready() -> void:
@@ -81,8 +107,14 @@ func is_holding() -> bool:
 func try_tear() -> bool:
 	var loose_rock: Boulder = _find_loose_rock_in_reach()
 	if loose_rock != null:
-		_lift(loose_rock)
-		return true
+		# Tap or hold? Decided in take_ready_lift() over the next few frames.
+		pending_lift_rock = loose_rock
+		pending_press_msec = Time.get_ticks_msec()
+		return false
+	var creation: Node2D = _find_touched_creation()
+	if creation != null:
+		shatter_creation(creation)
+		return false
 	var start_face: EarthFace = player.earth_bend.find_start_surface()
 	if start_face == null:
 		return false
@@ -108,6 +140,9 @@ func try_tear() -> bool:
 	# A child of the ROOM, like columns: it stays in the world and the reset removes it.
 	source_face.layer.get_parent().add_child(boulder)
 	boulder.tore_free.connect(_on_held_boulder_tore_free.bind(boulder))
+	# Hover aim: beside the player on the side they face (away from the wall on one).
+	var hover_side: float = -held_wall_direction if held_wall_direction != 0.0 else player.facing_direction
+	_set_hover_mode(boulder, hover_side)
 	held_boulder = boulder
 	# Pebble fraction 0: the pebbles go by the ground used (one tile), just below.
 	FX.spawn_gravel(source_face.get_global_center(), tuning.eruption_gravel_count, Vector2(source_face.normal), 0.0)
@@ -116,6 +151,90 @@ func try_tear() -> bool:
 	FX.shake(tuning.eruption_shake_strength, tuning.eruption_shake_time)
 	FX.play_sfx(&"earth_boulder")
 	return true
+
+
+## A loose rock's S press, decided (see SHATTERING CREATIONS in the header): S already
+## up = a tap, shatter it; held for shatter_tap_time = lift it and return true (the
+## caller switches to BoulderHold, like after try_tear()). False while undecided.
+func take_ready_lift() -> bool:
+	if pending_lift_rock == null:
+		return false
+	var rock: Boulder = pending_lift_rock
+	if not is_instance_valid(rock) or not rock.is_loose():
+		pending_lift_rock = null
+		return false
+	var held_seconds: float = (Time.get_ticks_msec() - pending_press_msec) / 1000.0
+	if not Input.is_action_pressed(get_action()):
+		pending_lift_rock = null
+		shatter_creation(rock)
+		return false
+	if held_seconds < player.earth_tuning.shatter_tap_time:
+		return false
+	pending_lift_rock = null
+	# Still next to it? (The player may have walked away meanwhile.)
+	if _find_loose_rock_in_reach() != rock:
+		return false
+	_lift(rock)
+	return true
+
+
+## Breaks `creation` (a Boulder, EarthSnake or EarthColumn) into gravel and pebbles.
+func shatter_creation(creation: Node2D) -> void:
+	var snake: EarthSnake = creation as EarthSnake
+	if snake != null:
+		snake.shatter(snake.get_nearest_cell(player.get_center()))
+		return
+	var rock: Boulder = creation as Boulder
+	if rock != null:
+		# More pebbles than a thrown rock's shatter: the gravel per tile of rock.
+		var tiles: int = roundi(pow(rock.size / player.earth_tuning.boulder_size, 2.0))
+		FX.spawn_gravel(rock.global_position, player.earth_tuning.shatter_gravel_per_tile * tiles, Vector2.UP)
+		rock.shatter()
+		return
+	var column: EarthColumn = creation as EarthColumn
+	if column != null:
+		column.shatter()
+
+
+## The creation the player touches (see the header), nearest first, or null: a rock
+## stuck or lying loose, a hardened snake, a risen pillar. "Touching" = in a box
+## around the body, loose_rock_lift_reach wider on each side and 1 px under the feet.
+## A shape query on "world" finds them (all creations are solid there).
+func _find_touched_creation() -> Node2D:
+	var reach: float = player.earth_tuning.loose_rock_lift_reach
+	var touch_rect: Rect2 = player.get_hitbox_rect().grow_individual(reach, 0.0, reach, 1.0)
+	var check_shape: RectangleShape2D = RectangleShape2D.new()
+	check_shape.size = touch_rect.size
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = check_shape
+	query.transform = Transform2D(0.0, touch_rect.get_center())
+	query.collision_mask = WORLD_MASK
+	query.collide_with_areas = false
+	var nearest: Node2D = null
+	var nearest_distance: float = INF
+	for result: Dictionary in player.get_world_2d().direct_space_state.intersect_shape(query, MAX_TOUCH_RESULTS):
+		var body: Node2D = result.collider as Node2D
+		var distance: float = _get_creation_distance(body)
+		if distance < nearest_distance:
+			nearest = body
+			nearest_distance = distance
+	return nearest
+
+
+## How far `body` is from the player's middle if it's a creation that can shatter,
+## or INF if it isn't one (a tile layer, a crate, a door, a rising pillar...).
+func _get_creation_distance(body: Node2D) -> float:
+	var center: Vector2 = player.get_center()
+	var rock: Boulder = body as Boulder
+	if rock != null and (rock.phase == Boulder.Phase.STUCK or rock.phase == Boulder.Phase.LOOSE):
+		return rock.global_position.distance_to(center)
+	var snake: EarthSnake = body as EarthSnake
+	if snake != null and snake.phase == EarthSnake.Phase.HARDENED and not snake.segment_cells.is_empty():
+		return snake.earth_layer.get_cell_global_center(snake.get_nearest_cell(center)).distance_to(center)
+	var column: EarthColumn = body as EarthColumn
+	if column != null and column.is_risen():
+		return column.hitbox.global_position.distance_to(center)
+	return INF
 
 
 ## Which way a throw goes for the held arrows `aim` (a unit vector, or ZERO): away
@@ -135,6 +254,36 @@ func get_throw_direction(aim: Vector2) -> Vector2:
 	if held_wall_direction != 0.0 and signf(aim.x) == held_wall_direction:
 		aim.x = -aim.x
 	return aim
+
+
+## True while the held rock hovers and the arrows aim it (hover aim mode).
+func is_hover_aiming() -> bool:
+	return is_holding() and held_boulder.is_hover_mode
+
+
+## HOVER AIM: the arrows `held` (unit vector, or ZERO) aim the hovering rock. ZERO
+## keeps the last aim, like the gust. Never into the wall you're on (get_throw_direction).
+func update_hover_aim(held: Vector2) -> void:
+	if held != Vector2.ZERO:
+		hover_aim = get_throw_direction(held)
+	if is_instance_valid(held_boulder):
+		held_boulder.aim_direction = hover_aim
+
+
+## The direction S throws the held rock now: the hover aim in hover mode, else the
+## arrows held right now (get_throw_direction).
+func get_chosen_throw_direction() -> Vector2:
+	if is_hover_aiming():
+		return hover_aim
+	return get_throw_direction(player.get_aim_input())
+
+
+## Turns hover aim on or off for `rock` (from EarthTuning, read at every tear/lift, so
+## the Inspector toggle works mid-game), and starts the aim straight out on `side`.
+func _set_hover_mode(rock: Boulder, side: float) -> void:
+	var enabled: bool = player.earth_tuning.boulder_hover_aim
+	rock.set_hover_mode(enabled, player.get_center(), side, player.get_hitbox_rect().size / 2.0)
+	hover_aim = Vector2(side, 0.0)
 
 
 ## Throws the held rock toward `direction` (a unit vector, 8 directions; see
@@ -224,6 +373,7 @@ func _lift(rock: Boulder) -> void:
 	is_charging = false  # a lifted rock never grows
 	var offset_x: float = rock.global_position.x - player.get_center().x
 	var away_x: float = signf(offset_x) if absf(offset_x) >= 1.0 else player.facing_direction
+	_set_hover_mode(rock, away_x)
 	rock.lift(away_x * tuning.boulder_hop_away_speed, player.get_center().y)
 	held_boulder = rock
 	FX.spawn_gravel(rock.global_position + Vector2.DOWN * rock.size / 2.0, 3, Vector2.UP)

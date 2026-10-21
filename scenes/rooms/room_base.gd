@@ -91,6 +91,15 @@ func _add_pebble_field() -> void:
 	add_child(field)
 
 
+## The nearest Room above `node` in the tree (its own room), or null.
+## Static: called on the class, Room.find_room_of(self).
+static func find_room_of(node: Node) -> Room:
+	var ancestor: Node = node.get_parent()
+	while ancestor != null and not ancestor is Room:
+		ancestor = ancestor.get_parent()
+	return ancestor as Room
+
+
 ## The room's rectangle in world coordinates.
 func get_bounds() -> Rect2:
 	return Rect2(global_position, room_size)

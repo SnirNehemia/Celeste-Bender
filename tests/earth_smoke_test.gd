@@ -25,6 +25,12 @@ func _ready() -> void:
 	var room: Room = world.current_room
 	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
 
+	# The rock sections below (E4-E6) were written for the HOP. Hover aim is the default
+	# since E7: off for them; _check_hover_aim turns it on for its own checks.
+	player.earth_tuning.boulder_hover_aim = false
+	# The shadow sections need the crawling shadow, whatever earth_tuning.tres says
+	# (the steerable one is a toggle you may have saved on while trying it).
+	player.earth_tuning.shadow_steerable = false
 	await _check_e1_earth_ground(player, room, earth)
 	# E2 and E3 test the bend and the column AT THE SHADOW with long A bends. With one
 	# key (the default since E5) those would be snakes, so it's off for these two.
@@ -42,6 +48,10 @@ func _ready() -> void:
 	await _check_e5_snake(world, player)
 	await _check_one_key_column_snake(world, player)
 	await _check_e6_walls_enemies(world, player)
+	await _check_hover_aim(world, player)
+	await _check_steered_shadow(world, player)
+	await _check_hidden_objects(world, player)
+	await _check_shatter_creations(world, player)
 	await _check_grass_blades(world, player)
 	# Let FX's slow-motion safety timer run out before switching worlds (a timer still
 	# pending at quit is reported as a leak).
@@ -50,7 +60,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await _check_mixed_enemies()
 
-	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "E5", "one-key", "E6", "grass", "mixed"]:
+	for section_name: String in ["E1", "E2", "E3", "E4", "E4b", "E4c", "E4c2", "E4c3", "E4d", "E4e", "E5", "one-key", "E6", "hover-aim", "steered-shadow", "hidden-objects", "shatter", "grass", "mixed"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EarthSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -882,9 +892,10 @@ func _check_e4c3_loose_rocks(world: RoomManager, player: Player) -> void:
 	player.facing_direction = 1.0
 	await _wait_physics_frames(5)
 	var torn_before: int = earth.torn_cells.size()
-	await _press_action("earth_boulder")
+	# HELD S lifts it (a tap would shatter it, after E7).
+	await _hold_action("earth_boulder", player.earth_tuning.shatter_tap_time + 0.1)
 	_check(player.boulder.held_boulder == rock and rock.phase == Boulder.Phase.POPPING and rock.is_hopping,
-		"S next to a loose rock lifts it (state %s)" % player.state_machine.current_state.name)
+		"holding S next to a loose rock lifts it (state %s)" % player.state_machine.current_state.name)
 	_check(earth.torn_cells.size() == torn_before, "lifting uses no earth")
 	_check(player.state_machine.current_state.name == &"BoulderHold", "the player holds the lifted rock")
 	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_in_perfect_window(), 1.0)
@@ -894,7 +905,8 @@ func _check_e4c3_loose_rocks(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 	await _wait_physics_frames(2)
 
-	# A loose rock is a step: stand on it. S on top of it doesn't lift it.
+	# A loose rock is a step: stand on it. A tap of S on top of it shatters it (after
+	# E7: touching a creation + tap = pebbles), it can't be lifted from under the feet.
 	rock = await _rip_boulder(player)
 	await _press_action("jump")  # let go: it lies loose once it lands
 	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_loose(), 1.5)
@@ -906,7 +918,8 @@ func _check_e4c3_loose_rocks(world: RoomManager, player: Player) -> void:
 		_check(player.is_on_floor() and absf(player.global_position.y - rock_top) < 1.0,
 			"the player stands on a loose rock (feet %.1f, rock top %.1f)" % [player.global_position.y, rock_top])
 		await _press_action("earth_boulder")
-		_check(is_instance_valid(rock) and rock.is_loose(), "S standing on a loose rock doesn't lift it from under the feet")
+		_check(not is_instance_valid(rock) or rock.phase == Boulder.Phase.SHATTERED,
+			"a tap of S standing on a loose rock shatters it (never lifts it from under the feet)")
 	else:
 		_check(false, "test setup: a let-go rock lies loose")
 	room.reset_objects()
@@ -1653,8 +1666,24 @@ func _check_e6_walls_enemies(world: RoomManager, player: Player) -> void:
 	await _wait_physics_frames(2)
 	_check(not wall.is_broken and wall.collision_layer == 1 and wall.visible, "room reset puts the cracked wall back")
 
-	# A thrown rock vs the wisp: knocked back along the throw, harmless, then defeated.
+	# A SLOPPY small rock only shoves the wisp: stunned and knocked back, still alive.
 	player.respawn_at(room.global_position + Vector2(24, 160))
+	wisp.global_position = room.global_position + Vector2(20 * 8, 160)
+	_throw_test_rock(room, wisp.global_position + Vector2(-24.0, -4.0), Vector2.RIGHT, tuning, false)
+	await _wait_until(func() -> bool: return wisp.state == Wisp.State.STUNNED, 0.5)
+	await _wait_game(tuning.boulder_enemy_defeat_delay + 0.1)
+	_check(wisp.state == Wisp.State.STUNNED and wisp.rock_defeat_remaining < 0.0,
+		"a sloppy small rock only shoves the wisp (stunned, alive)")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	# A BIG rock always kills, even thrown sloppily.
+	wisp.global_position = room.global_position + Vector2(20 * 8, 160)
+	_throw_test_rock(room, wisp.global_position + Vector2(-30.0, -9.0), Vector2.RIGHT, tuning, false, true)
+	await _wait_game(tuning.boulder_enemy_defeat_delay + 0.3)
+	_check(wisp.state == Wisp.State.DEFEATED, "a big rock defeats the wisp even when thrown sloppily")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	# A PERFECT small rock vs the wisp: knocked back along the throw, harmless, then defeated.
 	wisp.global_position = room.global_position + Vector2(20 * 8, 160)
 	var wisp_start_x: float = wisp.global_position.x
 	rock = _throw_test_rock(room, wisp.global_position + Vector2(-24.0, -4.0), Vector2.RIGHT, tuning)
@@ -1666,10 +1695,13 @@ func _check_e6_walls_enemies(world: RoomManager, player: Player) -> void:
 	_check(wisp.state == Wisp.State.DEFEATED and wisp.global_position.x > wisp_start_x,
 		"...and the wisp is defeated a moment later (flew %.1f px)" % (wisp.global_position.x - wisp_start_x))
 
-	# A thrown rock vs the sentry: destroyed at once.
+	# A sloppy small rock clonks off the sentry; a perfect one destroys it at once.
+	_throw_test_rock(room, sentry.get_eye_position() + Vector2(-30.0, 0.0), Vector2.RIGHT, tuning, false)
+	await _wait_game(0.3)
+	_check(not sentry.is_destroyed, "a sloppy small rock doesn't destroy the sentry")
 	rock = _throw_test_rock(room, sentry.get_eye_position() + Vector2(-30.0, 0.0), Vector2.RIGHT, tuning)
 	await _wait_until(func() -> bool: return sentry.is_destroyed, 0.5)
-	_check(sentry.is_destroyed, "a thrown rock destroys the sentry")
+	_check(sentry.is_destroyed, "a perfectly thrown rock destroys the sentry")
 	room.reset_objects()
 	await _wait_physics_frames(2)
 	_check(wisp.state == Wisp.State.PATROL and not sentry.is_destroyed, "room reset brings the wisp and the sentry back")
@@ -1766,15 +1798,259 @@ func _check_e6_walls_enemies(world: RoomManager, player: Player) -> void:
 	finished_sections.append("E6")
 
 
-## A rock made in code and thrown at once (perfect speed, no flash), so its path is
-## exact: it flies from `center` along `direction`. Returns it.
-func _throw_test_rock(room: Room, center: Vector2, direction: Vector2, tuning: EarthTuning) -> Boulder:
+## EXPERIMENT (EarthTuning.boulder_hover_aim): the rock hovers beside the player at
+## chest height, the arrows aim it (the aim sticks), the contour closes at the perfect
+## moment, and S throws it the aimed way. Not thrown, it drops and lies loose.
+func _check_hover_aim(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+	player.facing_direction = 1.0
+	await _wait_physics_frames(10)
+	tuning.boulder_hover_aim = true
+	var rock: Boulder = await _rip_boulder(player)
+	_check(rock != null and rock.is_hover_mode, "hover aim: S tears out a hovering rock")
+	if rock == null:
+		tuning.boulder_hover_aim = false
+		return
+	await _wait_game(tuning.boulder_tear_time + tuning.boulder_hover_rise_time + 0.05)
+	var offset: Vector2 = rock.global_position - player.get_center()
+	_check(rock.is_hovering and offset.x > 0.0 and absf(offset.y) < 1.0,
+		"hover aim: it hovers beside the player at chest height (offset %s)" % offset)
+	# Up+Right aims diagonally; letting go keeps the aim (like the gust).
+	Input.action_press(&"move_right")
+	Input.action_press(&"move_up")
+	await _wait_physics_frames(3)
+	Input.action_release(&"move_right")
+	Input.action_release(&"move_up")
+	await _wait_physics_frames(6)
+	_check(player.boulder.hover_aim.x > 0.5 and player.boulder.hover_aim.y < -0.5,
+		"hover aim: the arrows aim it, and the aim sticks after letting go (%s)" % player.boulder.hover_aim)
+	_check(not rock.is_in_perfect_window() and rock.get_hover_ring_progress() < 1.0,
+		"hover aim: the contour is still closing in (%.2f)" % rock.get_hover_ring_progress())
+	await _wait_until(func() -> bool: return rock.is_in_perfect_window(), 1.0)
+	_check(rock.is_in_perfect_window() and rock.get_hover_ring_progress() > 0.6,
+		"hover aim: the perfect moment is when the contour fits (%.2f)" % rock.get_hover_ring_progress())
+	await _press_action("earth_boulder")
+	_check(rock.phase == Boulder.Phase.FLYING and rock.velocity.x > 0.0 and rock.velocity.y < 0.0 \
+		and absf(rock.velocity.length() - tuning.boulder_perfect_throw_speed) < 1.0,
+		"hover aim: S throws it the aimed way at perfect speed (velocity %s)" % rock.velocity)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	# Never thrown: after its hold time it drops and lies loose.
+	rock = await _rip_boulder(player)
+	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_loose(), tuning.boulder_hover_hold_time + 1.0)
+	_check(is_instance_valid(rock) and rock.is_loose(), "hover aim: an unthrown rock drops and lies loose")
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	# The hover has its own, slower slow motion.
+	rock = await _rip_boulder(player)
+	_check(is_equal_approx(Engine.time_scale, tuning.boulder_hover_time_scale),
+		"hover aim: slow motion while it hovers (%.2f)" % Engine.time_scale)
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	# A BIG rock hovers beside the player too (it used to go over the head), its
+	# bottom just above the feet. In the thick earth (columns 6-11).
+	player.respawn_at(room.global_position + Vector2(7 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	rock = await _tear_big_rock(player)
+	_check(rock != null and rock.is_big(), "hover aim: holding S still grows a big rock")
+	if rock != null:
+		await _wait_game(tuning.boulder_tear_time + tuning.boulder_hover_rise_time + 0.05)
+		var big_offset: Vector2 = rock.global_position - player.get_center()
+		var big_bottom: float = rock.global_position.y + rock.size / 2.0
+		_check(rock.is_hovering and big_offset.x > 8.0 and big_bottom <= player.global_position.y,
+			"hover aim: a big rock hovers BESIDE the player, not overhead (offset %s)" % big_offset)
+	tuning.boulder_hover_aim = false
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("hover-aim")
+
+
+## EXPERIMENT (EarthTuning.shadow_steerable): the shadow moves only while an arrow is
+## held, goes back when the opposite arrow is held, and past the feet the other way.
+func _check_steered_shadow(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthE") as Room
+	var tuning: EarthTuning = player.earth_tuning
+	world.jump_to_room(room)
+	player.respawn_at(room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	tuning.shadow_steerable = true
+	var bend: EarthBendAbility = player.earth_bend
+	Input.action_press(&"earth_column")
+	await _wait_real(tuning.shadow_start_delay + 0.2)
+	_check(bend.is_bending and bend.shadow_distance == 0.0, "steered shadow: it doesn't move by itself")
+	Input.action_press(&"move_right")
+	await _wait_real(0.2)
+	Input.action_release(&"move_right")
+	var moved_right: float = bend.shadow_distance
+	await _wait_real(0.2)
+	_check(moved_right > 8.0 and is_equal_approx(bend.shadow_distance, moved_right),
+		"steered shadow: Right moves it along the floor, letting go stops it (%.1f px)" % moved_right)
+	Input.action_press(&"move_left")
+	await _wait_real(0.5)
+	Input.action_release(&"move_left")
+	var shadow_x: float = bend.get_shadow_position().x - player.global_position.x
+	_check(bend.path_tangents[0] == Vector2i.LEFT and shadow_x < -4.0,
+		"steered shadow: Left brings it back and out the other side (%.1f px left of the feet)" % -shadow_x)
+	# Cancel with Jump (no earth used), and the press is spent.
+	Input.action_release(&"earth_column")
+	tuning.shadow_steerable = false
+	await _wait_physics_frames(3)
+	if player.state_machine.current_state.name == &"SnakeSteer":
+		await _press_action("earth_column")
+	room.reset_objects()
+	await _wait_real(0.3)
+	finished_sections.append("steered-shadow")
+
+
+## After E7: objects inside a covered hidden chamber are hidden and switched off until
+## the crumble reaches them; a room reset hides them again.
+func _check_hidden_objects(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthD") as Room
+	var hidden: HiddenLayer = room.get_node("Hidden") as HiddenLayer
+	world.jump_to_room(room)
+	await _wait_physics_frames(2)
+	var wisp: Wisp = (load("res://scenes/enemies/wisp.tscn") as PackedScene).instantiate() as Wisp
+	# Placed BEFORE it enters the tree: _ready() remembers this as its reset position.
+	wisp.position = Vector2(22 * 8 + 4, 18 * 8)  # on the tunnel floor (room coordinates)
+	room.add_child(wisp)
+	hidden.track_object(wisp)
+	await _wait_physics_frames(5)
+	var start_x: float = wisp.global_position.x
+	_check(hidden.is_object_hidden(wisp) and not wisp.visible and wisp.process_mode == Node.PROCESS_MODE_DISABLED,
+		"a wisp inside a covered chamber is hidden and switched off")
+	await _wait_physics_frames(20)
+	_check(wisp.global_position.x == start_x, "...so it doesn't patrol")
+	hidden.reveal_chamber(Vector2i(13, 16))
+	await _wait_real(2.0)
+	_check(not hidden.is_object_hidden(wisp) and wisp.visible and wisp.process_mode == Node.PROCESS_MODE_INHERIT,
+		"the crumble reaching it brings the wisp back")
+	room.reset_objects()
+	await _wait_physics_frames(3)
+	_check(hidden.is_object_hidden(wisp) and not wisp.visible, "a room reset hides it again")
+	wisp.queue_free()
+	await _wait_physics_frames(2)
+	finished_sections.append("hidden-objects")
+
+
+## After E7: a TAP of S while touching a creation shatters it into pebbles: a loose rock
+## beside you (a hold still lifts it), a stuck rock, a hardened snake (all of it), a
+## risen pillar. Away from creations S still tears earth.
+func _check_shatter_creations(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomEarthC") as Room
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var field: PebbleField = room.get_node("PebbleField") as PebbleField
+	var tuning: EarthTuning = player.earth_tuning
+	tuning.boulder_hover_aim = false
+	world.jump_to_room(room)
+	player.facing_direction = 1.0
+	await _wait_physics_frames(10)
+	# A loose rock beside the player: tap = shatter, into pebbles.
+	var rock: Boulder = await _rip_boulder(player)
+	await _press_action("jump")  # let go: it lies loose
+	await _wait_until(func() -> bool: return is_instance_valid(rock) and rock.is_loose(), 1.5)
+	await _wait_physics_frames(2)
+	if is_instance_valid(rock):
+		player.respawn_at(Vector2(rock.global_position.x - rock.size / 2.0 - 6.0, room.global_position.y + 160))
+		await _wait_physics_frames(5)
+		field.reset()
+		var torn_before: int = earth.torn_cells.size()
+		await _press_action("earth_boulder")
+		await _wait_real(tuning.shatter_tap_time + 0.05)
+		await _wait_physics_frames(2)
+		_check(not is_instance_valid(rock) and earth.torn_cells.size() == torn_before and field.pebble_positions.size() > 0,
+			"a tap of S beside a loose rock shatters it into pebbles (no earth torn, %d pebbles)" % field.pebble_positions.size())
+	# A stuck rock (a foothold made in code) next to the player.
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	player.respawn_at(room.global_position + Vector2(7 * 8 + 4, 160))
+	await _wait_physics_frames(5)
+	var stuck: Boulder = _throw_test_rock(room, player.get_center() + Vector2(16.0, -16.0), Vector2.DOWN, tuning)
+	await _wait_until(func() -> bool: return not is_instance_valid(stuck) or stuck.phase != Boulder.Phase.FLYING, 1.0)
+	if is_instance_valid(stuck) and stuck.phase == Boulder.Phase.STUCK:
+		player.respawn_at(Vector2(stuck.global_position.x - 4.0 - 4.0 - 2.0, room.global_position.y + 160))
+		await _wait_physics_frames(5)
+		var stuck_cell: Vector2i = earth.get_cell_at(stuck.global_position)
+		await _press_action("earth_boulder")
+		await _wait_physics_frames(2)
+		_check(not is_instance_valid(stuck) and not earth.is_column(stuck_cell),
+			"a tap of S beside a stuck rock shatters it (and it's no longer ground)")
+	else:
+		_check(false, "test setup: a stuck rock beside the player")
+	# A risen pillar: stand on it and tap S.
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	player.respawn_at(room.global_position + Vector2(5 * 8 + 4, 160))
+	await _wait_physics_frames(5)
+	player.earth_column.erupt(EarthFace.new(earth, Vector2i(7, 20), Vector2i.UP))
+	await _wait_game(0.3)
+	var columns: Array[EarthColumn] = _find_columns(room)
+	if not columns.is_empty():
+		player.respawn_at(room.global_position + Vector2(7 * 8 + 4, 160 - tuning.column_length))
+		await _wait_game(0.2)
+		await _press_action("earth_boulder")
+		await _wait_physics_frames(2)
+		_check(_find_columns(room).is_empty() and not earth.is_fresh(Vector2i(7, 20)),
+			"a tap of S standing on a pillar shatters it (its tile stays spent)")
+	else:
+		_check(false, "test setup: a risen pillar")
+	# A hardened snake (RoomEarthE): stand on the ledge right beside the bridge's first
+	# tile (not on the bridge: you'd fall into the spikes) and tap S: all of it crumbles.
+	room.reset_objects()
+	await _wait_physics_frames(2)
+	var snake_room: Room = world.get_node("RoomEarthE") as Room
+	var snake_earth: EarthLayer = snake_room.get_node("Earth") as EarthLayer
+	(snake_room.get_node("Sentry") as Sentry).can_fire = false
+	world.jump_to_room(snake_room)
+	player.respawn_at(snake_room.global_position + Vector2(11 * 8 + 4, 160))
+	player.facing_direction = 1.0
+	await _wait_physics_frames(5)
+	var snake: EarthSnake = await _bend_snake_at(player, Vector2i(13, 20), Vector2i.RIGHT)
+	await _wait_until(func() -> bool: return snake == null or not snake.is_moving(), 3.0)
+	await _wait_physics_frames(3)
+	if snake != null and not snake.is_moving():
+		player.respawn_at(snake_room.global_position + Vector2(13 * 8 + 4, 160))
+		await _wait_game(0.3)
+		var spent: int = snake_earth.used_fade_progress.size()
+		await _press_action("earth_boulder")
+		_check(snake.phase == EarthSnake.Phase.CRUMBLING and not snake_earth.is_column(Vector2i(16, 20)),
+			"a tap of S beside a snake makes it crumble (not solid any more)")
+		await _wait_real(0.6)
+		_check(not is_instance_valid(snake) and snake_earth.used_fade_progress.size() >= spent,
+			"the whole snake crumbles away, its earth stays spent")
+	else:
+		_check(false, "test setup: a hardened snake bridge")
+	snake_room.reset_objects()
+	await _wait_physics_frames(2)
+	finished_sections.append("shatter")
+
+
+## Holds `action` for `real_seconds` (real time), then releases it, as input events.
+func _hold_action(action: StringName, real_seconds: float) -> void:
+	Input.parse_input_event(_make_action_event(action, true))
+	await get_tree().process_frame
+	await _wait_real(real_seconds)
+	Input.parse_input_event(_make_action_event(action, false))
+	await get_tree().process_frame
+	await get_tree().physics_frame
+
+
+## A rock made in code and thrown at once at perfect speed, so its path is exact: it
+## flies from `center` along `direction`. `is_perfect` = counts as a perfect throw
+## (kills enemies even when small); `is_big` = a big rock. Returns it.
+func _throw_test_rock(room: Room, center: Vector2, direction: Vector2, tuning: EarthTuning,
+		is_perfect: bool = true, is_big: bool = false) -> Boulder:
 	var rock: Boulder = Boulder.new()
-	# Started one tile below `center`: a throw during the tear yanks it out first, a
-	# tile up, so it really starts flying from `center`.
-	rock.setup(center + Vector2(0.0, tuning.boulder_size), Vector2.UP, 0.0, center.y, tuning)
+	rock.setup(center, Vector2.UP, 0.0, center.y, tuning)
 	room.add_child(rock)
-	rock.throw(direction, tuning.boulder_perfect_throw_speed, tuning.boulder_perfect_float_time, false)
+	if is_big:
+		rock.grow(center, tuning.big_rock_size)
+	# As if it had already hopped out: then throw() doesn't yank it out of a hole first.
+	rock.is_hopping = true
+	rock.throw(direction, tuning.boulder_perfect_throw_speed, tuning.boulder_perfect_float_time, is_perfect)
 	return rock
 
 

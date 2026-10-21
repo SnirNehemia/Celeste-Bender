@@ -16,6 +16,7 @@ extends Area2D
 ##   - hits anything solid   -> pops (walls, crates, doors). Unreflected orbs fly
 ##                              past wisps.
 ##   - after max_lifetime     -> pops
+##   - leaves its room         -> pops (after Stage E7: orbs never fly into the next room)
 ##
 ## Enemies opt in as reflection targets by joining TARGET_GROUP and having:
 ##     func get_orb_target_position() -> Vector2   (where to aim, world space)
@@ -82,7 +83,7 @@ func _physics_process(delta: float) -> void:
 		return
 	global_position += velocity * delta
 	lifetime_remaining -= delta
-	if lifetime_remaining <= 0.0:
+	if lifetime_remaining <= 0.0 or not _is_inside_room():
 		pop()
 		return
 	_check_hits()
@@ -120,6 +121,13 @@ func _check_hits() -> void:
 		# Anything else on layer 1 is solid: walls, crates, doors, other sentries.
 		pop()
 		return
+
+
+## True while we're inside the room we were fired into (our parent). Not a Room
+## (a test scene): always true.
+func _is_inside_room() -> bool:
+	var room: Room = get_parent() as Room
+	return room == null or room.get_bounds().has_point(global_position)
 
 
 ## The Pushable contract (simple form). We prefer the version with a source.

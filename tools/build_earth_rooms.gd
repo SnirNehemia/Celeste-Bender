@@ -198,10 +198,12 @@ func _load_or_create_grass_tileset() -> void:
 
 # --- Building blocks -------------------------------------------------------------
 
-func _begin_room(node_name: String, title: String, description: String) -> void:
+## `size_px`: the room's size (one screen by default; bigger rooms scroll the camera).
+func _begin_room(node_name: String, title: String, description: String,
+		size_px: Vector2 = Vector2(320, 180)) -> void:
 	room = _new_room(node_name)
 	room.display_title = title
-	room.room_size = Vector2(320, 180)
+	room.room_size = size_px
 	room.editor_description = description
 	cell_kinds.clear()
 	hidden_cells.clear()
