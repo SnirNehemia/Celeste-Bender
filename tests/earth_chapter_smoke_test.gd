@@ -41,6 +41,7 @@ func _ready() -> void:
 	await _check_room_08()
 	await _check_room_10()
 	await _check_room_edges()
+	await _check_one_tile_gap()
 	await _check_goal()
 	print("[EarthChapterTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -283,6 +284,27 @@ func _check_room_edges() -> void:
 	orb.launch(room.global_position + Vector2(12.0, 15 * TILE), Vector2(-60.0, 0.0), null)
 	await _wait_game(0.5)
 	_check(not is_instance_valid(orb), "an orb flying out through room 9's left gap pops at the edge")
+
+
+## A snake raised one tile from a wall, with the player in the gap (after the E7
+## play-test): the player used to be exactly a tile wide and got wedged there, unable
+## to fall or jump. The hitbox is now a little narrower than a tile.
+func _check_one_tile_gap() -> void:
+	var room: Room = await _enter(0)
+	# Room 1: earth columns 17-21, the ledge wall at column 22. Stand at 21 facing left.
+	await _place(room, Vector2i(21, 20))
+	player.facing_direction = -1.0
+	var snake: EarthSnake = await _bend_snake_at(Vector2i(20, 20), Vector2i.UP)
+	await _wait_until(func() -> bool: return snake == null or not snake.is_moving(), 3.0)
+	await _wait_physics_frames(10)
+	_check(snake != null and snake.segment_cells.has(Vector2i(20, 19)) and player.is_on_floor(),
+		"a snake one tile from the wall: the player in the gap still stands on the floor")
+	var feet_before: float = player.global_position.y
+	await _press_action(&"jump")
+	await _wait_game(0.15)
+	_check(player.global_position.y < feet_before - 8.0,
+		"...and can jump up the 1-tile gap (rose %.1f px)" % (feet_before - player.global_position.y))
+	await _wait_game(0.6)
 
 
 ## Touching the Goal ends the run (the end screen listens to GameState.run_finished).
