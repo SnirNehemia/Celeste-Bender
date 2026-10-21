@@ -20,8 +20,9 @@ func _ready() -> void:
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
 	await _check_f1_fire_bar(world, world.player)
+	await _check_f2_tuning_panel(world.player)
 
-	for section_name: String in ["F1"]:
+	for section_name: String in ["F1", "F2"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -126,6 +127,85 @@ func _check_f1_fire_bar(world: RoomManager, player: Player) -> void:
 	_check(single.is_available and double.is_available and high_double.is_available, "room reset brings every fire diamond back")
 	_check(bar.pips == 2, "room reset brings back the 2 starting pips")
 	finished_sections.append("F1")
+
+
+## Stage F2: the F5 tuning panel. Drives it through its methods (and one real key
+## press for F5), and puts every value it touched back, so no test leaks into play.
+## It never presses F4: the test must not write the real .tres files.
+func _check_f2_tuning_panel(player: Player) -> void:
+	_check(InputMap.has_action("debug_tuning_panel") and _action_has_key("debug_tuning_panel", KEY_F5), "debug_tuning_panel is on F5")
+	_check(_action_has_key("debug_tuning_big_step", KEY_SHIFT), "Shift is the big-step key")
+	_check(_action_has_key("debug_tuning_reset", KEY_R), "R resets a value in the panel")
+	var panel: TuningPanel = get_tree().get_first_node_in_group(&"tuning_panel") as TuningPanel
+	_check(panel != null, "the debug overlay created a TuningPanel")
+	if panel == null:
+		return
+
+	# F5 opens it and pauses the game.
+	var f5_press: InputEventAction = InputEventAction.new()
+	f5_press.action = &"debug_tuning_panel"
+	f5_press.pressed = true
+	get_viewport().push_input(f5_press)
+	_check(panel.is_open() and get_tree().paused, "F5 opens the panel and pauses the game")
+	_check(panel.tab_names == ["Player", "Earth", "Fire"], "three tabs: Player, Earth, Fire, got %s" % [panel.tab_names])
+
+	# Rows come from the property list: groups, exported vars, no Resource internals.
+	var labels: Array[String] = []
+	var groups: Array[String] = []
+	for row: Dictionary in panel.rows:
+		if row["kind"] == "group":
+			groups.append(row["text"])
+		else:
+			labels.append(row["label"])
+	_check(groups.has("Run") and labels.has("max_run_speed"), "the Player tab lists the Run group and max_run_speed")
+	_check(not labels.has("resource_name") and not labels.has("script"), "Resource's own fields are not listed")
+	_check(labels.has("jump_squash.x") and labels.has("jump_squash.y"), "a Vector2 gets an x row and a y row")
+
+	# Stepping a float: magnitude step (90 -> 1), Shift x10, R back to the saved value.
+	var tuning: PlayerTuning = player.tuning
+	var saved_speed: float = tuning.max_run_speed
+	panel.select_property("max_run_speed")
+	panel.change_selected(1)
+	_check(is_equal_approx(tuning.max_run_speed, saved_speed + 1.0), "Right raises max_run_speed by 1 (live on the resource)")
+	panel.change_selected(1, true)
+	_check(is_equal_approx(tuning.max_run_speed, saved_speed + 11.0), "Shift+Right raises it by 10 more")
+	panel.reset_selected()
+	_check(is_equal_approx(tuning.max_run_speed, saved_speed), "R puts it back to the saved value")
+
+	# Vector2 half, bool flip.
+	var saved_squash: Vector2 = tuning.jump_squash
+	panel.select_property("jump_squash", "y")
+	panel.change_selected(-1)
+	_check(is_equal_approx(tuning.jump_squash.x, saved_squash.x) and tuning.jump_squash.y < saved_squash.y, "a Vector2 row changes only its own half")
+	panel.reset_selected()
+	var saved_flag: bool = tuning.dash_uses_stamina
+	panel.select_property("dash_uses_stamina")
+	panel.change_selected(1)
+	_check(tuning.dash_uses_stamina != saved_flag, "Left/Right flips a bool")
+	panel.reset_selected()
+
+	# Fire tab: an int with an @export_range clamps at its max.
+	panel.show_tab_named("Fire")
+	var fire_tuning: FireTuning = player.fire_tuning
+	var saved_pips: int = fire_tuning.max_pips
+	panel.select_property("max_pips")
+	for press: int in 20:
+		panel.change_selected(1)
+	_check(fire_tuning.max_pips == 10, "max_pips stops at its range max (10), got %d" % fire_tuning.max_pips)
+	panel.reset_selected()
+	_check(fire_tuning.max_pips == saved_pips, "R puts max_pips back")
+	panel.switch_tab(1)
+	_check(panel.tab_names[panel.current_tab] == "Player", "PageDown wraps from Fire to Player")
+
+	# Closing resumes the game and tells listeners through Resource.changed.
+	var heard_changed: Array[bool] = [false]
+	var on_changed: Callable = func() -> void: heard_changed[0] = true
+	fire_tuning.changed.connect(on_changed)
+	panel.set_open(false)
+	fire_tuning.changed.disconnect(on_changed)
+	_check(not panel.is_open() and not get_tree().paused, "closing the panel resumes the game")
+	_check(heard_changed[0], "closing emits `changed` on an edited resource")
+	finished_sections.append("F2")
 
 
 # --- Helpers ---------------------------------------------------------------------
