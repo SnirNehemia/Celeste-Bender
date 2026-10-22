@@ -172,9 +172,15 @@ func _ignite_along_plume() -> void:
 ## Taking off from grass scorches the cell under the feet (Fire_bending.md §5.2): it
 ## catches spread_delay later (FireGrid.ignite_at delays the jet's fire), when you're
 ## already up and away.
+## Only when the flame actually points at the ground (after the F6 play-test): fire
+## burns what it touches, so a flame pointing up, or straight sideways (the plume
+## itself lights what it brushes), leaves the floor under you alone.
 func _scorch_take_off_ground() -> void:
 	if not player.is_on_floor():
 		return
+	var exhaust: Vector2 = -thrust_direction
+	if exhaust.y <= 0.0:
+		return  # the flame points up or sideways, away from the floor
 	var grid: FireGrid = FireGrid.find_grid_at(get_tree(), player.global_position)
 	if grid != null:
 		# This node's origin = the feet; 2 px down is inside the floor tile.

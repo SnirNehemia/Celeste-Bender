@@ -50,10 +50,23 @@ extends Node2D
 ## the tile grid. The shape doesn't change, so only the changed cells' pixels (plus
 ## a small margin) are repainted (_on_fire_cells_changed).
 ##
+## THICKET and OVERGROWN COVERS (Stage F6): the room's "Thicket" layer (ThicketLayer)
+## is drawn as dark tangled brambles: criss-crossing branch strokes through crust and
+## inside (_is_bramble_branch), and thorns poking 1-2 px out of its sides and
+## underside (_mask_thorns; never on top, where you stand). Burning thicket gets a
+## charred palette with ember-red branches (the FireGrid's glow layer adds the inner
+## glow on top). Cells that burnt away are gone from the layer, so they're air here.
+## "Overgrown" cells (OvergrownLayer) are drawn as grass or thicket (whichever they
+## pass for), their crust a shade off (OVERGROWN_TINT): one half of the tell; the
+## layer draws the root tendrils itself. A covered HiddenLayer chamber touching a
+## cover is drawn in the cover's kind instead of earth.
+## Thicket crumbling and covers collapsing change the shape many times in a row, so
+## those redraws are batched: one per frame at most (_queue_rebuild).
+##
 ## Updates: when only some cells changed (a tear, an opened chamber, a reset filling
 ## holes) only the pixels near them are recomputed; the first build does everything.
 
-enum Kind { AIR, GRAY, GRASS, EARTH }
+enum Kind { AIR, GRAY, GRASS, EARTH, THICKET }
 
 ## Crust thickness, px (from open air to where the edge line starts)...
 const CRUST_WIDTH: float = 5.0
@@ -82,6 +95,11 @@ const CORNER_CUT: int = 3
 ## A tear recomputes the pixels within this many tiles of the hole (enough to cover
 ## the crust and the inside's fade).
 const TEAR_REDRAW_RADIUS: int = 5
+## Thicket burning away (Stage F6) redraws only this many tiles around the change:
+## colors stop changing ~17 px in (crust + its wobble + the inside's fade), and a
+## smaller area keeps the redraw short, since it runs several times a second while
+## thicket burns (~25-45 ms at 5 tiles, too long for one frame).
+const BURN_REDRAW_RADIUS: int = 3
 
 ## Palette per kind (Celeste-like: bright crust, deep saturated inside).
 ## [crust, rim (top surfaces), edge line, inside, hatch stripe]
@@ -93,6 +111,19 @@ const PALETTE: Dictionary = {
 	Kind.GRAY: [Color(0.36, 0.37, 0.43), Color(0.52, 0.52, 0.58), Color(0.18, 0.18, 0.23),
 		Color(0.1, 0.1, 0.15), Color(0.14, 0.14, 0.2)],
 }
+## Thicket (Stage F6): [crust, rim, edge line, inside, hatch stripe, branch, thorn].
+const THICKET_PALETTE: Array[Color] = [Color(0.15, 0.3, 0.15), Color(0.22, 0.4, 0.18), Color(0.04, 0.1, 0.05),
+	Color(0.05, 0.12, 0.07), Color(0.07, 0.16, 0.08), Color(0.27, 0.39, 0.16), Color(0.36, 0.27, 0.14)]
+## Burning thicket, same order: charred, its branches ember red.
+const THICKET_BURNING_PALETTE: Array[Color] = [Color(0.14, 0.09, 0.06), Color(0.3, 0.13, 0.05), Color(0.05, 0.03, 0.02),
+	Color(0.06, 0.04, 0.03), Color(0.09, 0.05, 0.03), Color(0.55, 0.2, 0.05), Color(0.22, 0.1, 0.05)]
+## Overgrown covers' crust is pulled this far toward OVERGROWN_TINT (a dry, yellowish
+## shade): the cover's subtle tell. 0 = no difference.
+const OVERGROWN_TINT: Color = Color(0.55, 0.52, 0.2)
+const OVERGROWN_TINT_AMOUNT: float = 0.14
+## Thorns: about one 2 px stretch of a thicket side in this many gets one.
+const THORN_EVERY: int = 3
+
 ## Burnt grass, per FireGrid.State (Stage F5), in the same order as PALETTE, plus a
 ## sixth color for ash: its pale flecks (Fire_bending.md §9.1).
 const FIRE_PALETTES: Dictionary = {
@@ -117,6 +148,13 @@ var earth_layer: EarthLayer
 var gray_layer: TileMapLayer
 var grass_layer: TileMapLayer
 var hidden_layer: HiddenLayer
+## Thicket and overgrown covers (Stage F6), or null.
+var thicket_layer: ThicketLayer
+var overgrown_layer: OvergrownLayer
+## Cells drawn as part of an overgrown cover (a set), for OVERGROWN_TINT.
+var overgrown_cells: Dictionary = {}
+## True while a batched rebuild waits for the end of the frame (_queue_rebuild).
+var is_rebuild_queued: bool = false
 ## The room's FireGrid (Stage F5), or null: burnt grass gets FIRE_PALETTES.
 var fire_grid: FireGrid
 ## True while a repainted picture waits to be uploaded (see _on_fire_cells_changed).
@@ -154,6 +192,8 @@ func _ready() -> void:
 	gray_layer = room.get_node_or_null("Tiles") as TileMapLayer
 	grass_layer = room.get_node_or_null("Grass") as TileMapLayer
 	hidden_layer = room.get_node_or_null("Hidden") as HiddenLayer
+	thicket_layer = room.get_node_or_null("Thicket") as ThicketLayer
+	overgrown_layer = room.get_node_or_null("Overgrown") as OvergrownLayer
 	fire_grid = room.get_node_or_null("FireGrid") as FireGrid
 	if earth_layer != null:
 		tile_size = earth_layer.tile_set.tile_size.x
@@ -162,7 +202,7 @@ func _ready() -> void:
 	height = cell_bounds.size.y * tile_size
 	# Hide the layers' own tiles (collision stays). self_modulate tints only the node
 	# itself, not its children, so the grass blades (a child of "Grass") still draw.
-	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer, hidden_layer]:
+	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer, hidden_layer, thicket_layer, overgrown_layer]:
 		if layer != null:
 			layer.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
 	_build_noise_grid()
@@ -184,6 +224,10 @@ func _ready() -> void:
 		hidden_layer.crumble_changed.connect(cover.queue_redraw)
 	if fire_grid != null:
 		fire_grid.cells_changed.connect(_on_fire_cells_changed)
+	if thicket_layer != null:
+		thicket_layer.shape_changed.connect(_queue_rebuild)
+	if overgrown_layer != null:
+		overgrown_layer.shape_changed.connect(_queue_rebuild)
 	rebuild()
 
 
@@ -203,26 +247,30 @@ func get_pixel_distance(pixel: Vector2i) -> float:
 
 ## Recomputes the picture. When some cells changed (a tear, an opened chamber, holes
 ## filled by a reset) only the pixels within TEAR_REDRAW_RADIUS tiles of them are
-## redone; the first build (or a rebuild with nothing changed) redoes it all.
-func rebuild() -> void:
+## redone; the first build (or a rebuild with nothing changed) redoes it all, unless
+## `only_if_changed` (then nothing changed = nothing to do). `redraw_radius`: how many
+## tiles around the changed cells are redone.
+func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RADIUS) -> void:
 	var previous_kinds: Dictionary = kinds.duplicate()
 	_find_kinds()
 	var region: Rect2i = Rect2i(0, 0, width, height)
 	if image != null:
-		# Which cells changed since last time?
+		# Which cells changed since last time (appeared, disappeared, another kind)?
 		var changed: Array[Vector2i] = []
 		for cell: Vector2i in previous_kinds:
-			if not kinds.has(cell):
+			if not kinds.has(cell) or kinds[cell] != previous_kinds[cell]:
 				changed.append(cell)
 		for cell: Vector2i in kinds:
 			if not previous_kinds.has(cell):
 				changed.append(cell)
+		if changed.is_empty() and only_if_changed:
+			return
 		if not changed.is_empty():
 			# The smallest rectangle of cells holding every change, grown by the radius.
 			var changed_cells: Rect2i = Rect2i(changed[0], Vector2i.ONE)
 			for cell: Vector2i in changed:
 				changed_cells = changed_cells.expand(cell).expand(cell + Vector2i.ONE)
-			changed_cells = changed_cells.grow(TEAR_REDRAW_RADIUS)
+			changed_cells = changed_cells.grow(redraw_radius)
 			region = Rect2i(changed_cells.position * tile_size, changed_cells.size * tile_size) \
 				.intersection(Rect2i(0, 0, width, height))
 	if region.size == Vector2i(width, height) or image == null:
@@ -241,10 +289,26 @@ func rebuild() -> void:
 	overlay.queue_redraw()
 
 
-## Which kind fills each cell: earth wins over grass over gray. A covered hidden
-## chamber is drawn as earth.
+## Thicket burnt away or a cover collapsed or came back: redraw once at the end of
+## the frame, however many times it changed (call_deferred).
+func _queue_rebuild() -> void:
+	if is_rebuild_queued:
+		return
+	is_rebuild_queued = true
+	_run_queued_rebuild.call_deferred()
+
+
+func _run_queued_rebuild() -> void:
+	is_rebuild_queued = false
+	rebuild(true, BURN_REDRAW_RADIUS)
+
+
+## Which kind fills each cell: earth wins over grass over gray over thicket over a
+## cover (drawn as what it passes for). A covered hidden chamber is drawn as earth,
+## or as the cover it touches.
 func _find_kinds() -> void:
 	kinds.clear()
+	overgrown_cells.clear()
 	for x: int in range(cell_bounds.position.x, cell_bounds.end.x):
 		for y: int in range(cell_bounds.position.y, cell_bounds.end.y):
 			var cell: Vector2i = Vector2i(x, y)
@@ -255,10 +319,41 @@ func _find_kinds() -> void:
 				kind = Kind.GRASS
 			elif gray_layer != null and gray_layer.get_cell_source_id(cell) != -1:
 				kind = Kind.GRAY
+			elif thicket_layer != null and thicket_layer.has_thicket(cell):
+				kind = Kind.THICKET
+			elif overgrown_layer != null and overgrown_layer.has_cover(cell):
+				kind = Kind.THICKET if overgrown_layer.is_thicket_look(cell) else Kind.GRASS
+				overgrown_cells[cell] = true
 			elif hidden_layer != null and hidden_layer.is_covered(cell):
 				kind = Kind.EARTH
 			if kind != Kind.AIR:
 				kinds[cell] = kind
+	_give_chambers_their_cover_look()
+
+
+## Covered hidden chambers behind an overgrown cover take the cover's kind (a flood
+## fill from the cover through the covered cells), so a thicket cover doesn't have
+## earth behind it.
+func _give_chambers_their_cover_look() -> void:
+	if hidden_layer == null or overgrown_cells.is_empty():
+		return
+	var queue: Array[Vector2i] = []
+	var looks: Dictionary = {}
+	for cover_cell: Vector2i in overgrown_cells:
+		for direction: Vector2i in EarthLayer.FACE_NORMALS:
+			var neighbour: Vector2i = cover_cell + direction
+			if hidden_layer.is_covered(neighbour) and not looks.has(neighbour):
+				looks[neighbour] = kinds[cover_cell]
+				queue.append(neighbour)
+	while not queue.is_empty():
+		var cell: Vector2i = queue.pop_front()
+		for direction: Vector2i in EarthLayer.FACE_NORMALS:
+			var neighbour: Vector2i = cell + direction
+			if hidden_layer.is_covered(neighbour) and not looks.has(neighbour):
+				looks[neighbour] = looks[cell]
+				queue.append(neighbour)
+	for cell: Vector2i in looks:
+		kinds[cell] = looks[cell]
 
 
 ## True for open cells inside the room. Outside the room counts as solid, so the
@@ -284,6 +379,7 @@ func _build_mask(cell_region: Rect2i) -> void:
 				_mask_material_teeth(cell)
 			else:
 				_mask_fillets(cell)
+				_mask_thorns(cell)
 
 
 ## One cell's pixels: all its kind if buried; dented and cut if it touches open air.
@@ -422,6 +518,40 @@ func _mask_fillets(cell: Vector2i) -> void:
 				pixel_kinds[(origin.y + pixel.y) * width + origin.x + pixel.x] = kinds[cell + vertical]
 
 
+## Thorns (Stage F6): an open cell with thicket on its left, right or top side (the
+## thicket's right side, left side or underside) gets a few thorns poking 1-2 px
+## into it, 1 px wide, at hashed spots. Never above thicket: its top is ground you
+## stand on, and thorns there would read as spikes.
+func _mask_thorns(cell: Vector2i) -> void:
+	if not cell_bounds.has_point(cell):
+		return
+	var last: int = tile_size - 1
+	var origin: Vector2i = cell * tile_size
+	for direction: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP]:
+		if kinds.get(cell + direction, Kind.AIR) != Kind.THICKET:
+			continue
+		for i: int in tile_size:
+			var along: int = (origin.y if direction.x != 0 else origin.x) + i
+			# & 0x7FFFFFFF keeps the hash positive, so % never goes negative.
+			var roll: int = hash(Vector3i(along / 2, origin.x * 3 + origin.y * 7, direction.x + direction.y * 3)) & 0x7FFFFFFF
+			# Only the even pixel of a chosen 2 px stretch: thorns stay 1 px thin.
+			if roll % THORN_EVERY != 0 or along % 2 != 0:
+				continue
+			var length: int = 2 if (roll >> 4) % 2 == 0 else 1
+			for step: int in length:
+				var pixel: Vector2i
+				match direction:
+					Vector2i.LEFT:
+						pixel = Vector2i(step, i)
+					Vector2i.RIGHT:
+						pixel = Vector2i(last - step, i)
+					_:
+						pixel = Vector2i(i, step)
+				var index: int = (origin.y + pixel.y) * width + origin.x + pixel.x
+				if pixel_kinds[index] == Kind.AIR:
+					pixel_kinds[index] = Kind.THICKET
+
+
 # --- 2. Distance -----------------------------------------------------------------------
 
 ## Distance from every ground pixel in `region` to the nearest open air, by a two-pass
@@ -485,13 +615,21 @@ func _get_pixel_color(x: int, y: int) -> Color:
 	var kind: int = pixel_kinds[index]
 	if kind == Kind.AIR:
 		return Color(0.0, 0.0, 0.0, 0.0)
+	if kind == Kind.THICKET:
+		return _get_thicket_pixel_color(x, y, index)
 	var colors: Array = PALETTE[kind]
 	var is_ash: bool = false
 	if kind == Kind.GRASS and fire_grid != null:
 		var fire_state: FireGrid.State = _get_fire_state_at(x, y)
-		if fire_state != FireGrid.State.GRASS:
+		if FIRE_PALETTES.has(fire_state):
 			colors = FIRE_PALETTES[fire_state]
 			is_ash = fire_state == FireGrid.State.ASH
+	return _tint_if_overgrown(x, y, index, _get_layered_color(x, y, index, kind, colors, is_ash))
+
+
+## A ground pixel's crust / edge line / hatched inside, in the palette `colors` (the
+## header's step 3).
+func _get_layered_color(x: int, y: int, index: int, kind: int, colors: Array, is_ash: bool) -> Color:
 	var depth: float = distances[index] - 1.0  # 0 on the outermost ground pixel
 	var crust_end: float = CRUST_WIDTH + _get_noise(x, y) * CRUST_WOBBLE
 	if depth < crust_end - 1.0:
@@ -515,6 +653,44 @@ func _get_pixel_color(x: int, y: int) -> Color:
 	# darkened(), not `inside * factor`: multiplying a Color scales its alpha too, which
 	# made the deep inside see-through.
 	return inside.darkened(1.0 - lerpf(INSIDE_EDGE_BRIGHTNESS, INSIDE_DEEPEST_BRIGHTNESS, fade))
+
+
+## One thicket pixel (Stage F6): thorns (pixels poking into an open cell) in the
+## thorn color, branch strokes in the branch color (darker deeper in), the rest
+## layered like any ground. Burning thicket uses the charred palette.
+func _get_thicket_pixel_color(x: int, y: int, index: int) -> Color:
+	var colors: Array = THICKET_PALETTE
+	if fire_grid != null and _get_fire_state_at(x, y) == FireGrid.State.BURNING:
+		colors = THICKET_BURNING_PALETTE
+	if not kinds.has(Vector2i(x / tile_size, y / tile_size)):
+		return colors[6]  # a thorn, poking into an open cell
+	var color: Color = _get_layered_color(x, y, index, Kind.THICKET, colors, false)
+	if _is_bramble_branch(x, y):
+		var depth_past_crust: float = distances[index] - 1.0 - CRUST_WIDTH
+		color = (colors[5] as Color).darkened(clampf(depth_past_crust / INSIDE_FADE_DEPTH, 0.0, 0.8))
+	return _tint_if_overgrown(x, y, index, color)
+
+
+## Tangled brambles: two families of diagonal strokes that wobble on the crust noise
+## and cross each other, the same every run. Each stroke is broken into short pieces
+## (a hash per stroke and 3-4 px stretch decides which pieces exist), so the pattern
+## reads as a tangle of separate stems, not a lattice. posmod = a % that is never
+## negative.
+func _is_bramble_branch(x: int, y: int) -> bool:
+	var shifted: int = x + y + int(_get_noise(x, y) * 4.0)
+	if posmod(shifted, 9) == 0 and (hash(Vector2i(floori(shifted / 9.0), y / 3)) & 0x7FFFFFFF) % 5 < 3:
+		return true
+	var other_shifted: int = x - y + int(_get_noise((x + 31) % width, y) * 4.0)
+	return posmod(other_shifted, 11) == 0 and (hash(Vector2i(floori(other_shifted / 11.0) + 500, y / 4)) & 0x7FFFFFFF) % 5 < 3
+
+
+## A cover's crust is a shade off (OVERGROWN_TINT): half of its tell.
+func _tint_if_overgrown(x: int, y: int, index: int, color: Color) -> Color:
+	if overgrown_cells.is_empty() or not overgrown_cells.has(Vector2i(x / tile_size, y / tile_size)):
+		return color
+	if distances[index] - 1.0 > CRUST_WIDTH:
+		return color  # only the crust: deep inside, everything is dark anyway
+	return color.lerp(OVERGROWN_TINT, OVERGROWN_TINT_AMOUNT)
 
 
 ## Some grass cells caught fire, smoldered, turned to ash or were reset: repaint just
@@ -543,17 +719,33 @@ func _upload_picture() -> void:
 	queue_redraw()
 
 
-## The fire state that colors grass pixel (x, y): the state of the cell under a point
+## The fire state that colors pixel (x, y): the state of the cell under a point
 ## nudged by smooth noise (FIRE_EDGE_RAGGEDNESS), so the border between burnt and
-## unburnt cells wanders in blobs. A nudge that lands off the grass keeps the pixel's
-## own cell.
+## unburnt cells wanders in blobs. A nudge that lands off anything burnable, or on
+## another material than the pixel's own cell, keeps the pixel's own cell (grass
+## never borrows a thicket cell's state or the other way round).
 func _get_fire_state_at(x: int, y: int) -> FireGrid.State:
 	var nudge_x: float = _get_noise((x + 53) % width, y) * FIRE_EDGE_RAGGEDNESS
 	var nudge_y: float = _get_noise(x, (y + 71) % height) * FIRE_EDGE_RAGGEDNESS
+	if fire_grid.cell_states.is_empty():
+		return FireGrid.State.GRASS  # nothing has burnt: skip the lookups (fast path)
 	var cell: Vector2i = Vector2i(floori((x + nudge_x) / tile_size), floori((y + nudge_y) / tile_size))
-	if not fire_grid.is_grass_cell(cell):
-		cell = Vector2i(x / tile_size, y / tile_size)
+	var own_cell: Vector2i = Vector2i(x / tile_size, y / tile_size)
+	var own_material: int = _get_material_class(own_cell)
+	var nudged_material: int = _get_material_class(cell)
+	if nudged_material == Kind.AIR or (own_material != Kind.AIR and nudged_material != own_material):
+		cell = own_cell
 	return fire_grid.get_state(cell)
+
+
+## A number that is the same for cells of the same material: their Kind, made
+## different for overgrown covers. Read from our own `kinds` (one lookup) instead of
+## asking the tile layers (FireGrid.get_fuel: up to three lookups) for every pixel.
+func _get_material_class(cell: Vector2i) -> int:
+	var kind: int = kinds.get(cell, Kind.AIR)
+	if kind != Kind.AIR and overgrown_cells.has(cell):
+		return kind + 100
+	return kind
 
 
 ## Random numbers (-1..1) on a coarse grid, the same every run (seeded).

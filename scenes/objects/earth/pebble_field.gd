@@ -29,6 +29,14 @@ extends Node2D
 ##
 ## Physics: a sensor Area2D covering the whole room, on layer 4 ("pushable") so gusts
 ## find it, looking at layers 1, 2 and 5 to notice crates, the player and wisps.
+##
+## ASH FLAKES (after the F6 play-test): the field also holds light gray flakes that
+## fire leaves behind (leave_ash: burnt grass, crumbled thicket). Same arrays, flagged
+## in pebble_is_ash, with their own cap (FireTuning.ash_max_per_room). They follow
+## other rules than stones (_apply_ash_forces): light gravity and strong air drag, so
+## they drift down slowly with a flutter; they take on the wind's speed in every
+## direction (an updraft lifts them); anything moving within ash_kick_reach of them
+## stirs them, in the air too; gusts blow them further; they never bounce.
 
 ## Every field joins this group, so leave_pebbles() can find the right one.
 const GROUP: StringName = &"pebble_fields"
@@ -54,6 +62,8 @@ const PICK_COLOR: Color = Color(0.0, 0.0, 0.0, 0.0)
 ## Feel values. preload() returns the same resource the player holds, so Remote-tab
 ## edits reach the pebbles too.
 var earth_tuning: EarthTuning = preload("res://resources/earth_tuning.tres")
+## Ash flake values (the fire's tuning).
+var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
 
 ## Per-pebble state, in this node's local coordinates (= the room's). Index i =
 ## pebble i; index 0 is the oldest, so the cap removes from the front.
@@ -67,6 +77,13 @@ var pebble_is_grounded: PackedByteArray = PackedByteArray()
 ## Size in px (1x1, 2x1 or 2x2) and color, picked when the pebble is made.
 var pebble_sizes: PackedVector2Array = PackedVector2Array()
 var pebble_colors: PackedColorArray = PackedColorArray()
+## 1 = an ash flake (see the header), 0 = a stone. And each one's flutter phase.
+var pebble_is_ash: PackedByteArray = PackedByteArray()
+var pebble_phases: PackedFloat32Array = PackedFloat32Array()
+## How many of the pebbles are ash flakes (for the two caps).
+var ash_count: int = 0
+## Seconds this field has simulated, for the flakes' flutter.
+var flutter_clock: float = 0.0
 
 ## The room we belong to (our parent), for its bounds and "is it the current room?".
 var room: Room
@@ -144,6 +161,20 @@ static func leave_colored_pebbles(tree: SceneTree, world_position: Vector2, coun
 		field.add_pebble(world_position, direction, colors[field.pebble_random.randi() % colors.size()])
 
 
+## `count` ash flakes (see the header) scattered over `area` px centered on
+## `world_position`, drifting off with a little speed. `colors`: picked at random.
+static func leave_ash(tree: SceneTree, world_position: Vector2, count: int, area: Vector2,
+		colors: Array[Color]) -> void:
+	var field: PebbleField = _find_field(tree, world_position)
+	if field == null or colors.is_empty():
+		return
+	for flake_number: int in count:
+		var spot: Vector2 = world_position + Vector2(field.pebble_random.randf_range(-0.5, 0.5) * area.x,
+			field.pebble_random.randf_range(-0.5, 0.5) * area.y)
+		var drift: Vector2 = Vector2(field.pebble_random.randf_range(-12.0, 12.0), field.pebble_random.randf_range(-15.0, 5.0))
+		field.add_ash_flake(spot, drift, colors[field.pebble_random.randi() % colors.size()])
+
+
 ## The field of the room containing `world_position`, or null (no Earth room there).
 static func _find_field(tree: SceneTree, world_position: Vector2) -> PebbleField:
 	for member: Node in tree.get_nodes_in_group(GROUP):
@@ -168,9 +199,9 @@ func add_pebbles(world_position: Vector2, expected_count: float, direction: Vect
 ## any upward direction. It spawns moving and lands wherever it falls.
 ## `color`: the pebble's color, or PICK_COLOR (the default) for an earth color.
 func add_pebble(world_position: Vector2, direction: Vector2, color: Color = PICK_COLOR) -> void:
-	# Over the cap: the oldest pebble (index 0) goes first.
-	while pebble_positions.size() >= earth_tuning.pebble_max_per_room:
-		_remove_pebble(0)
+	# Over the cap: the oldest stone goes first.
+	while pebble_positions.size() - ash_count >= earth_tuning.pebble_max_per_room:
+		_remove_oldest(false)
 	var throw_direction: Vector2 = direction.normalized() if direction != Vector2.ZERO else Vector2.UP
 	var spread: float = SPAWN_SPREAD if direction != Vector2.ZERO else PI / 2.0
 	throw_direction = throw_direction.rotated(pebble_random.randf_range(-spread, spread))
@@ -179,13 +210,44 @@ func add_pebble(world_position: Vector2, direction: Vector2, color: Color = PICK
 	# Gravel is often made right ON a surface (an impact point, a tile face): start
 	# 2 px out along the direction, so most pebbles begin in open air. Any that are
 	# still inside a solid pop out on their first step (_unbury_pebble).
-	pebble_positions.append(to_local(world_position) + throw_direction * 2.0)
-	pebble_velocities.append(throw_direction * speed)
+	_append_pebble(to_local(world_position) + throw_direction * 2.0, throw_direction * speed,
+		_pick_pebble_size(), _pick_pebble_color() if color == PICK_COLOR else color, false)
+
+
+## One ash flake at `world_position` with `start_velocity` (see the header). Over the
+## ash cap, the oldest flake goes first. Mostly single pixels, a few 2x1.
+func add_ash_flake(world_position: Vector2, start_velocity: Vector2, color: Color) -> void:
+	if fire_tuning.ash_max_per_room <= 0:
+		return
+	while ash_count >= fire_tuning.ash_max_per_room:
+		_remove_oldest(true)
+	var flake_size: Vector2 = Vector2(2, 1) if pebble_random.randf() < 0.3 else Vector2(1, 1)
+	_append_pebble(to_local(world_position), start_velocity, flake_size, color, true)
+
+
+## Adds one moving pebble or flake to every per-pebble array (same index in each).
+func _append_pebble(local_position: Vector2, start_velocity: Vector2, pebble_size: Vector2, color: Color,
+		is_ash: bool) -> void:
+	pebble_positions.append(local_position)
+	pebble_velocities.append(start_velocity)
 	pebble_is_moving.append(1)
 	pebble_is_grounded.append(0)
-	pebble_sizes.append(_pick_pebble_size())
-	pebble_colors.append(_pick_pebble_color() if color == PICK_COLOR else color)
+	pebble_sizes.append(pebble_size)
+	pebble_colors.append(color)
+	pebble_is_ash.append(1 if is_ash else 0)
+	pebble_phases.append(pebble_random.randf() * TAU)
+	if is_ash:
+		ash_count += 1
 	queue_redraw()
+
+
+## Removes the oldest ash flake (`is_ash`) or the oldest stone.
+func _remove_oldest(is_ash: bool) -> void:
+	var wanted: int = 1 if is_ash else 0
+	for pebble_index: int in pebble_positions.size():
+		if pebble_is_ash[pebble_index] == wanted:
+			_remove_pebble(pebble_index)
+			return
 
 
 ## Called by Room.reset_objects() when the player dies or restarts the room.
@@ -196,12 +258,16 @@ func reset() -> void:
 	pebble_is_grounded.clear()
 	pebble_sizes.clear()
 	pebble_colors.clear()
+	pebble_is_ash.clear()
+	pebble_phases.clear()
+	ash_count = 0
 	queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
 	if pebble_positions.is_empty() or not _is_current_room():
 		return
+	flutter_clock += delta
 	var any_changed: bool = _kick_from_moving_bodies()
 	if _check_resting_pebbles():
 		any_changed = true
@@ -246,6 +312,8 @@ func receive_gust_from(direction: Vector2, strength: float, source_position: Vec
 		var falloff: float = 1.0 - 0.5 * distance / reach
 		var launch_speed: float = strength * earth_tuning.pebble_gust_strength_scale \
 			* falloff * pebble_random.randf_range(0.5, 1.0)
+		if pebble_is_ash[pebble_index] == 1:
+			launch_speed *= fire_tuning.ash_gust_strength_scale  # light: it flies
 		# Plus a small hop: air gets under a stone lying on the floor, so it doesn't
 		# just scrape along the ground.
 		_launch_pebble(pebble_index, push_direction * launch_speed
@@ -262,23 +330,31 @@ func _move_pebble(pebble_index: int, delta: float) -> void:
 	var velocity: Vector2 = pebble_velocities[pebble_index]
 	var wind: Vector2 = _get_wind_at(position_now)
 	var is_on_ground: bool = _is_solid(position_now + Vector2.DOWN)
+	var is_ash: bool = pebble_is_ash[pebble_index] == 1
+	var motion: Vector2 = Vector2.ZERO
 
-	# Wind: pull the sideways speed toward the (scaled) wind speed. Vertical wind
-	# only pushes a little (it can't lift a stone, but an updraft slows its fall).
-	var wind_target: Vector2 = wind * tuning.pebble_wind_speed_scale
-	if wind.x != 0.0:
-		velocity.x = lerpf(velocity.x, wind_target.x, minf(tuning.pebble_wind_grip * delta, 1.0))
-	velocity.y += wind_target.y * tuning.pebble_wind_grip * delta
-
-	if is_on_ground and velocity.y >= 0.0:
-		# Rolling on the floor: no falling, friction slows it (exponential decay)
-		# down to the wind's speed (0 without wind), so a current keeps it rolling.
-		velocity.y = 0.0
-		velocity.x = wind_target.x + (velocity.x - wind_target.x) * exp(-tuning.pebble_ground_friction * delta)
+	if is_ash:
+		velocity = _apply_ash_forces(velocity, wind, is_on_ground, delta)
+		if not is_on_ground:
+			# Flutter: a sideways sway on top of the velocity (it doesn't build up).
+			motion.x = sin(flutter_clock * 5.0 + pebble_phases[pebble_index]) * fire_tuning.ash_flutter_speed * delta
 	else:
-		velocity.y += tuning.pebble_gravity * delta
+		# Wind: pull the sideways speed toward the (scaled) wind speed. Vertical wind
+		# only pushes a little (it can't lift a stone, but an updraft slows its fall).
+		var wind_target: Vector2 = wind * tuning.pebble_wind_speed_scale
+		if wind.x != 0.0:
+			velocity.x = lerpf(velocity.x, wind_target.x, minf(tuning.pebble_wind_grip * delta, 1.0))
+		velocity.y += wind_target.y * tuning.pebble_wind_grip * delta
 
-	var motion: Vector2 = velocity * delta
+		if is_on_ground and velocity.y >= 0.0:
+			# Rolling on the floor: no falling, friction slows it (exponential decay)
+			# down to the wind's speed (0 without wind), so a current keeps it rolling.
+			velocity.y = 0.0
+			velocity.x = wind_target.x + (velocity.x - wind_target.x) * exp(-tuning.pebble_ground_friction * delta)
+		else:
+			velocity.y += tuning.pebble_gravity * delta
+
+	motion += velocity * delta
 	if motion.x != 0.0:
 		var position_sideways: Vector2 = position_now + Vector2(motion.x, 0.0)
 		if _is_solid(position_sideways):
@@ -298,7 +374,7 @@ func _move_pebble(pebble_index: int, delta: float) -> void:
 				position_now.y += 1.0
 			# Half a pixel into its last free pixel: a stable spot to re-check from.
 			position_now.y = floorf(position_now.y) + 0.5
-			velocity.y = -velocity.y * tuning.pebble_bounce
+			velocity.y = 0.0 if is_ash else -velocity.y * tuning.pebble_bounce  # flakes never bounce
 			if -velocity.y < tuning.pebble_settle_speed:
 				velocity.y = 0.0
 		else:
@@ -312,12 +388,27 @@ func _move_pebble(pebble_index: int, delta: float) -> void:
 	pebble_positions[pebble_index] = position_now
 	pebble_velocities[pebble_index] = velocity
 	pebble_is_grounded[pebble_index] = 1 if is_grounded_now else 0
-	# Stopped on the ground, and no wind to roll it on: it rests.
-	if is_grounded_now and absf(velocity.x) < REST_SPEED and wind.x == 0.0:
+	# Stopped on the ground, and no wind to roll it on (or lift a flake): it rests.
+	if is_grounded_now and absf(velocity.x) < REST_SPEED and wind.x == 0.0 and not (is_ash and wind.y < 0.0):
 		pebble_velocities[pebble_index] = Vector2.ZERO
 		pebble_is_moving[pebble_index] = 0
 	elif position_now.y > room.room_size.y + LOST_DISTANCE:
 		_remove_pebble(pebble_index)  # fell into a pit
+
+
+## The forces on an ash flake for one step (see the header): on the ground it slides
+## to a stop (or with the wind), and an updraft lifts it off; in the air it takes on
+## the air's speed (air drag toward the wind, still air = 0) while light gravity
+## pulls, so it falls at about ash_gravity / ash_air_drag px/s.
+func _apply_ash_forces(velocity: Vector2, wind: Vector2, is_on_ground: bool, delta: float) -> Vector2:
+	var air: Vector2 = wind * fire_tuning.ash_wind_speed_scale
+	if is_on_ground and velocity.y >= 0.0:
+		velocity.x = air.x + (velocity.x - air.x) * exp(-fire_tuning.ash_ground_friction * delta)
+		velocity.y = minf(air.y, 0.0)  # an updraft lifts it off the floor
+		return velocity
+	velocity += (air - velocity) * minf(fire_tuning.ash_air_drag * delta, 1.0)
+	velocity.y += fire_tuning.ash_gravity * delta
+	return velocity
 
 
 ## Resting pebbles are checked every 4th frame (each on a different frame, so the
@@ -332,8 +423,10 @@ func _check_resting_pebbles() -> bool:
 		var resting_position: Vector2 = pebble_positions[pebble_index]
 		# Buried (a rock stuck into the wall over it) or nothing underneath (a torn
 		# tile): wake it, and _move_pebble pops it out or lets it fall.
+		var wind: Vector2 = _get_wind_at(resting_position)
+		var lifts_ash: bool = pebble_is_ash[pebble_index] == 1 and wind.y < 0.0  # an updraft
 		if _is_solid(resting_position) or not _is_solid(resting_position + Vector2.DOWN) \
-				or _get_wind_at(resting_position).x != 0.0:
+				or wind.x != 0.0 or lifts_ash:
 			_launch_pebble(pebble_index, Vector2.ZERO)
 			pebble_is_grounded[pebble_index] = 0
 			any_woke = true
@@ -372,7 +465,11 @@ func _kick_from_moving_bodies() -> bool:
 		# The player, crates and wisps all have their origin at the bottom-center.
 		var feet: Vector2 = to_local(mover.global_position)
 		var half_width: float = _get_body_half_width(mover) + 1.0
+		if ash_count > 0:
+			_stir_ash(mover, feet, half_width)
 		for pebble_index: int in pebble_positions.size():
+			if pebble_is_ash[pebble_index] == 1:
+				continue  # flakes were stirred above
 			# Only pebbles on the ground: one already kicked into the air would get
 			# kicked again every frame while it's still by the feet.
 			if pebble_is_moving[pebble_index] == 1 and pebble_is_grounded[pebble_index] == 0:
@@ -393,6 +490,30 @@ func _kick_from_moving_bodies() -> bool:
 	return any_kicked
 
 
+## Ash flakes near a moving body swirl: any flake (on the ground or in the air) within
+## ash_kick_reach px of its box is pulled toward ash_kick_carry of the body's speed and
+## pushed away from its middle; ones on the ground are lifted too. Pulled, not set,
+## so a flake by the body every frame drifts along instead of shooting off.
+func _stir_ash(mover: CharacterBody2D, feet: Vector2, half_width: float) -> void:
+	var reach: float = fire_tuning.ash_kick_reach
+	var body_height: float = 12.0  # about the player's 11 px; crates and wisps are close
+	var stir_area: Rect2 = Rect2(feet.x - half_width - reach, feet.y - body_height - reach,
+		(half_width + reach) * 2.0, body_height + reach + KICK_REACH_BELOW)
+	var middle: Vector2 = feet + Vector2(0.0, -body_height / 2.0)
+	var carried: Vector2 = mover.velocity * fire_tuning.ash_kick_carry
+	for pebble_index: int in pebble_positions.size():
+		if pebble_is_ash[pebble_index] == 0:
+			continue
+		var flake: Vector2 = pebble_positions[pebble_index]
+		if not stir_area.has_point(flake):
+			continue
+		var away: Vector2 = (flake - middle).normalized() * 20.0
+		var velocity: Vector2 = pebble_velocities[pebble_index].lerp(carried + away, 0.25)
+		if pebble_is_grounded[pebble_index] == 1:
+			velocity.y = -fire_tuning.ash_kick_up_speed * pebble_random.randf_range(0.5, 1.5)
+		_launch_pebble(pebble_index, velocity)
+
+
 func _launch_pebble(pebble_index: int, launch_velocity: Vector2) -> void:
 	pebble_is_moving[pebble_index] = 1
 	pebble_is_grounded[pebble_index] = 0
@@ -400,6 +521,10 @@ func _launch_pebble(pebble_index: int, launch_velocity: Vector2) -> void:
 
 
 func _remove_pebble(pebble_index: int) -> void:
+	if pebble_is_ash[pebble_index] == 1:
+		ash_count -= 1
+	pebble_is_ash.remove_at(pebble_index)
+	pebble_phases.remove_at(pebble_index)
 	pebble_positions.remove_at(pebble_index)
 	pebble_velocities.remove_at(pebble_index)
 	pebble_is_moving.remove_at(pebble_index)

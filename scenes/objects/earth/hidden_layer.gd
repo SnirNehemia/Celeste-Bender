@@ -26,6 +26,11 @@ extends TileMapLayer
 ## some gravel. The painter draws the fading cover (get_cover_alpha) on top of the
 ## freshly redrawn ground.
 ##
+## Fire opens them too (Stage F6): when an overgrown cover (OvergrownLayer) next to a
+## covered cell collapses, the FireGrid calls reveal_chamber() on it. The painter
+## then draws the chamber's cover in the look of that overgrown cover (grass or
+## thicket), not as earth, so the chamber reads as part of the cover.
+##
 ## WIDENING THE BREACH (after the E7 play-test, EarthTuning.hidden_widen_breach): the
 ## player is a tile wide, so a way in only one tile wide is a dead end. Right after a
 ## reveal, _widen_breach() crumbles the thin fresh earth beside the breach (and beside

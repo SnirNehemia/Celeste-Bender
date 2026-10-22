@@ -31,6 +31,7 @@ extends TileMapLayer
 ## Fire (Stage F5): in rooms with a FireGrid, blades on a burning cell curl over,
 ## shrink and blacken from the base up, each as the fire creeping across the cell
 ## reaches it; on a smoldering cell only a black stub is left, and ash has none.
+## A cell that burnt away (an overgrown cover, Stage F6) has none either.
 
 ## Blade colors: two greens, alternating, so a field of blades doesn't look flat.
 const BLADE_COLOR: Color = Color(0.48, 0.76, 0.3)
@@ -117,7 +118,7 @@ func _generate_blades() -> void:
 	var top_cells: Array[Vector2i] = []
 	for cell: Vector2i in get_used_cells():
 		# Row 0 is the room's top edge: nothing grows on top of the ceiling.
-		if cell.y > 0 and not _is_solid_anywhere(cell + Vector2i.UP):
+		if cell.y > 0 and not _is_solid_anywhere(cell + Vector2i.UP) and _grows_blades(cell):
 			top_cells.append(cell)
 	# Sorting row by row, left to right, makes each run of neighbours consecutive.
 	top_cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
@@ -146,6 +147,12 @@ func _generate_blades() -> void:
 		var is_strip_end: bool = cell_index == top_cells.size() - 1 or top_cells[cell_index + 1] != cell + Vector2i.RIGHT
 		if is_strip_end:
 			_add_gust_sensor(strip_start, cell)
+
+
+## True if blades grow on `cell` (when it has open air above). Every grass cell does;
+## OvergrownLayer (Stage F6) overrides this so covers that look like thicket don't.
+func _grows_blades(_cell: Vector2i) -> bool:
+	return true
 
 
 ## True if any tile layer of this room (grass, earth, gray) has a tile at `cell`.

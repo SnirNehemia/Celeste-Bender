@@ -13,6 +13,15 @@ extends "res://tools/build_earth_rooms.gd"
 ##   - tests/rooms/room_fire_b.tscn   Stage F3 flame jet: gap, chain shaft, fuel route (_build_room_fire_b)
 ##   - tests/rooms/room_fire_c.tscn   Stage F4 fireball + braziers opening doors (_build_room_fire_c)
 ##   - tests/rooms/room_fire_d.tscn   Stage F5 burning grass: fuse, shelter, jet run (_build_room_fire_d)
+##   - tests/rooms/room_fire_e.tscn   Stage F6 thicket and an overgrown cover (_build_room_fire_e)
+##   - resources/tiles/thicket_tileset.tres  (Stage F6) the thicket tile and the
+##                                    grass-looking cover tile, solid on layer 1.
+##                                    Only written when missing.
+##
+## Plant terrain (Stage F6): _thicket() paints cells of the room's "Thicket" layer
+## (ThicketLayer), _overgrown() cells of its "Overgrown" layer (OvergrownLayer), as
+## grass-looking or thicket-looking cover. Both erase whatever else was painted there.
+## The layers are added through the Earth generator's _make_extra_layers() hook.
 ##
 ## Ground: grass BURNS since Stage F5, so rooms are built of earth (never burns, still
 ## painted like grass's neighbour) and grass is only laid where a room wants fire to
@@ -22,11 +31,22 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_fire_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- fire_b` (names: fire_a, fire_b, fire_c, fire_d).
+## only those, e.g. `-- fire_b` (names: fire_a, fire_b, fire_c, fire_d, fire_e).
 
 const FIRE_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/fire/fire_diamond.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
 const DOOR_SCENE: PackedScene = preload("res://scenes/objects/door.tscn")
+const THICKET_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/thicket_layer.gd")
+const OVERGROWN_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/overgrown_layer.gd")
+## Thicket tile picture colors: dark bramble green, lighter branches, brown thorns.
+const THICKET_BODY_COLOR: Color = Color(0.1, 0.22, 0.11)
+const THICKET_BRANCH_COLOR: Color = Color(0.27, 0.39, 0.16)
+const THICKET_THORN_COLOR: Color = Color(0.36, 0.27, 0.14)
+
+## Plant terrain of the room being built (sets: Vector2i -> true / atlas coords).
+var thicket_cells: Dictionary = {}
+## Overgrown cover cells -> ThicketLayer.GRASS_LOOK_TILE or THICKET_TILE.
+var overgrown_cells: Dictionary = {}
 
 
 func _ready() -> void:
@@ -34,6 +54,7 @@ func _ready() -> void:
 	# The tilesets already exist (the Earth generator made them); these only load them.
 	_load_or_create_earth_tileset()
 	_load_or_create_grass_tileset()
+	_load_or_create_thicket_tileset()
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
 	if wanted.is_empty() or wanted.has("fire_a"):
 		_build_room_fire_a()
@@ -43,8 +64,104 @@ func _ready() -> void:
 		_build_room_fire_c()
 	if wanted.is_empty() or wanted.has("fire_d"):
 		_build_room_fire_d()
+	if wanted.is_empty() or wanted.has("fire_e"):
+		_build_room_fire_e()
 	print("[BuildFireRooms] Done.")
 	get_tree().quit()
+
+
+# --- Plant terrain (Stage F6) ------------------------------------------------------
+
+## The thicket tile pictures, side by side in one 16x8 image: [thicket | grass look].
+## Only the editor ever shows them (the GroundPainter draws the room), so they just
+## need to read as "brambles" and "grass" while painting.
+func _make_thicket_image() -> Image:
+	var image: Image = Image.create(TILE * 2, TILE, false, Image.FORMAT_RGBA8)
+	image.fill(THICKET_BODY_COLOR)
+	for i: int in TILE:
+		image.set_pixel(i, i, THICKET_BRANCH_COLOR)  # two crossing branches
+		image.set_pixel(TILE - 1 - i, (i + 3) % TILE, THICKET_BRANCH_COLOR)
+	for pixel: Vector2i in [Vector2i(0, 2), Vector2i(7, 5), Vector2i(4, 7)]:
+		image.set_pixelv(pixel, THICKET_THORN_COLOR)
+	var grass_look: Image = _make_grass_image()
+	image.blit_rect(grass_look, Rect2i(0, 0, TILE, TILE), Vector2i(TILE, 0))
+	return image
+
+
+func _load_or_create_thicket_tileset() -> void:
+	if ResourceLoader.exists(ThicketLayer.TILESET_PATH):
+		return
+	var new_tile_set: TileSet = TileSet.new()
+	new_tile_set.tile_size = Vector2i(TILE, TILE)
+	new_tile_set.add_physics_layer()
+	new_tile_set.set_physics_layer_collision_layer(0, 1)  # layer 1, "world": solid ground
+	new_tile_set.set_physics_layer_collision_mask(0, 0)
+	var source: TileSetAtlasSource = TileSetAtlasSource.new()
+	source.texture = ImageTexture.create_from_image(_make_thicket_image())
+	source.texture_region_size = Vector2i(TILE, TILE)
+	new_tile_set.add_source(source, 0)
+	var half: float = TILE / 2.0
+	for atlas_coords: Vector2i in [ThicketLayer.THICKET_TILE, ThicketLayer.GRASS_LOOK_TILE]:
+		source.create_tile(atlas_coords)
+		var tile_data: TileData = source.get_tile_data(atlas_coords, 0)
+		tile_data.add_collision_polygon(0)
+		tile_data.set_collision_polygon_points(0, 0, PackedVector2Array([
+			Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half),
+		]))
+	ResourceSaver.save(new_tile_set, ThicketLayer.TILESET_PATH)
+	print("[BuildFireRooms] Wrote %s" % ThicketLayer.TILESET_PATH)
+
+
+## Starting a room also forgets the last room's plant terrain.
+func _begin_room(node_name: String, title: String, description: String,
+		size_px: Vector2 = Vector2(320, 180)) -> void:
+	super(node_name, title, description, size_px)
+	thicket_cells.clear()
+	overgrown_cells.clear()
+
+
+## Thicket: solid brambles that burn away (erases whatever was painted there).
+func _thicket(column: int, row: int, width: int, height: int) -> void:
+	_open(column, row, width, height)
+	for x: int in range(column, column + width):
+		for y: int in range(row, row + height):
+			thicket_cells[Vector2i(x, y)] = true
+
+
+## An overgrown cover that looks like grass ground (`looks_like_thicket` false) or a
+## thicket wall (true). Erases whatever was painted there.
+func _overgrown(column: int, row: int, width: int, height: int, looks_like_thicket: bool = false) -> void:
+	_open(column, row, width, height)
+	for x: int in range(column, column + width):
+		for y: int in range(row, row + height):
+			overgrown_cells[Vector2i(x, y)] = ThicketLayer.THICKET_TILE if looks_like_thicket else ThicketLayer.GRASS_LOOK_TILE
+
+
+## The Earth generator's hook: "Thicket" and "Overgrown" layers, only in rooms that
+## have such cells.
+func _make_extra_layers() -> Array[TileMapLayer]:
+	var layers: Array[TileMapLayer] = []
+	# _open() in another helper may have cleared a cell after we painted it: only
+	# cells still free of other kinds are kept.
+	if not thicket_cells.is_empty():
+		var thicket: TileMapLayer = TileMapLayer.new()
+		thicket.name = "Thicket"
+		thicket.set_script(THICKET_LAYER_SCRIPT)
+		thicket.tile_set = load(ThicketLayer.TILESET_PATH) as TileSet
+		for cell: Vector2i in thicket_cells:
+			if not cell_kinds.has(cell):
+				thicket.set_cell(cell, 0, ThicketLayer.THICKET_TILE)
+		layers.append(thicket)
+	if not overgrown_cells.is_empty():
+		var overgrown: TileMapLayer = TileMapLayer.new()
+		overgrown.name = "Overgrown"
+		overgrown.set_script(OVERGROWN_LAYER_SCRIPT)
+		overgrown.tile_set = load(ThicketLayer.TILESET_PATH) as TileSet
+		for cell: Vector2i in overgrown_cells:
+			if not cell_kinds.has(cell):
+				overgrown.set_cell(cell, 0, overgrown_cells[cell])
+		layers.append(overgrown)
+	return layers
 
 
 ## Makes the room being built a Fire-only room (Air and Earth off) that starts the
@@ -252,3 +369,51 @@ func _build_room_fire_d() -> void:
 	_grass(49, 20, 4, 1)
 
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_d.tscn")
+
+
+## Fire test room E (Stage F6, thicket and overgrown covers). Fire-only, 400×180
+## (scrolls), starts with 3 pips. Earth frame, floor at row 20. Left to right:
+##   1. A thicket wall (cols 12-13), ceiling to floor: tap Q facing right. It glows,
+##      burns through (thicket lights its 4 neighbours) and crumbles: the way is open.
+##   2. A step (cols 14-15) and an earth block (cols 16-21, top at row 14), then a
+##      thicket FLOOR (cols 22-27, rows 14-15) over a lower corridor (rows 16-19). The
+##      upper floor runs on (earth, cols 28-33) into a gray barrier (cols 34-35,
+##      ceiling to row 15): a dead end. Burn the thicket floor (a fireball down at
+##      it, or take off from it with W and come back down through the hole) and
+##      drop into the corridor, which runs under the barrier.
+##   3. Past the barrier: an earth block (cols 41-48, rows 12-19) whose left face
+##      (cols 41-42, rows 15-19) is an overgrown cover that passes for a thicket bush
+##      (tell: browner leaves, a shade off, roots poking out of its side). Behind it, a hidden chamber
+##      (cols 43-47, rows 15-19) with a double fire diamond. A grass fuse on the
+##      floor (cols 36-40) ends in a tuft against the cover: light the fuse (or hit
+##      the cover itself) and the whole cover flashes over.
+func _build_room_fire_e() -> void:
+	_begin_room("RoomFireE", "Fire E - Thicket & Overgrown",
+		"Stage F6 test room. Fire-only, starts with 3 pips. 1: fireball the thicket wall: it glows, burns through and crumbles away. 2: the upper way ends at a gray barrier: burn the thicket floor (fireball it, or jet off it) and drop to the corridor below. 3: a grass fuse runs to a bush that is really an overgrown cover (browner leaves, roots): when the fire reaches it, the whole cover flashes over and opens a chamber with a fire diamond. R brings it all back.",
+		Vector2(400, 180))
+	_fire_only(3)
+	# Frame (50 columns).
+	_earth(0, 0, 50, 1)
+	_earth(0, 0, 1, 23)
+	_earth(49, 0, 1, 23)
+	_earth(0, 20, 50, 3)
+
+	# 1. The thicket wall.
+	_thicket(12, 1, 2, 19)
+
+	# 2. Step, block, thicket floor over the corridor, upper dead end at the barrier.
+	_earth(14, 17, 2, 3)
+	_earth(16, 14, 6, 6)
+	_thicket(22, 14, 6, 2)
+	_earth(28, 14, 6, 2)
+	_gray(34, 1, 2, 15)
+
+	# 3. The fuse, the block with its overgrown face and the hidden chamber.
+	_grass(36, 20, 5, 1)
+	_grass(40, 19, 1, 1)
+	_earth(41, 12, 8, 8)
+	_overgrown(41, 15, 2, 5, true)
+	_hidden(43, 15, 5, 5)
+	_fire_diamond("ChamberDiamond", Vector2(45 * TILE + 4, 151), 2)
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_e.tscn")

@@ -297,6 +297,12 @@ func _spikes(node_name: String, column: int, row: int, count: int) -> void:
 	})
 
 
+## More tile layers for the room being built, made by a generator that extends this
+## one (build_fire_rooms.gd: "Thicket" and "Overgrown"). None here.
+func _make_extra_layers() -> Array[TileMapLayer]:
+	return []
+
+
 func _finish_room(spawn_px: Vector2, path: String) -> void:
 	var tiles: TileMapLayer = TileMapLayer.new()
 	tiles.name = "Tiles"
@@ -334,6 +340,8 @@ func _finish_room(spawn_px: Vector2, path: String) -> void:
 		for cell: Vector2i in hidden_cells:
 			hidden.set_cell(cell, 0, TILE_EARTH)
 		layers.append(hidden)
+	# A generator that extends this one may add layers of its own (Fire: thicket).
+	layers.append_array(_make_extra_layers())
 	# Drawn first (in this order), so objects appear in front of the ground.
 	var layer_index: int = 0
 	for layer: TileMapLayer in layers:

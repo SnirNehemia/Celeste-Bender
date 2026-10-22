@@ -24,8 +24,9 @@ func _ready() -> void:
 	await _check_f3_flame_jet(world, world.player)
 	await _check_f4_fireball(world, world.player)
 	await _check_f5_burning_grass(world, world.player)
+	await _check_f6_thicket(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -599,6 +600,227 @@ func _check_f5_burning_grass(world: RoomManager, player: Player) -> void:
 	player.respawn_at(room_d.get_spawn_position())
 	await _physics_frames(5)
 	finished_sections.append("F5")
+
+
+## Stage F6: thicket burns through and crumbles to open air, grass and thicket light
+## each other, an overgrown cover flashes over as one and opens its hidden chamber,
+## burning thicket kills (after its glow), and R brings it all back.
+func _check_f6_thicket(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_e: Room = world.get_node("RoomFireE") as Room
+	var grid: FireGrid = room_e.get_node_or_null("FireGrid") as FireGrid
+	var thicket: ThicketLayer = room_e.get_node_or_null("Thicket") as ThicketLayer
+	var overgrown: OvergrownLayer = room_e.get_node_or_null("Overgrown") as OvergrownLayer
+	var hidden: HiddenLayer = room_e.get_node_or_null("Hidden") as HiddenLayer
+	var earth: EarthLayer = room_e.get_node("Earth") as EarthLayer
+	var painter: GroundPainter = room_e.get_node("GroundPainter") as GroundPainter
+	var diamond: Node2D = room_e.get_node("ChamberDiamond") as Node2D
+	_check(grid != null and thicket != null and overgrown != null and hidden != null,
+		"Fire E has a FireGrid, a Thicket, an Overgrown and a Hidden layer")
+	if grid == null or thicket == null or overgrown == null or hidden == null:
+		return
+	_check(tuning.thicket_spread_delay == 0.15 and tuning.thicket_burn_time == 0.8 and tuning.overgrown_flashover_time == 0.3,
+		"thicket values start at the spec's numbers (spread 0.15 s, burn 0.8 s, flash-over 0.3 s)")
+	world.jump_to_room(room_e)
+	await _physics_frames(10)
+	_check(player.fire_bar.pips == 3, "Fire E starts with 3 pips, got %d" % player.fire_bar.pips)
+
+	# Thicket is solid ground the Earth shadow crosses, painted as brambles.
+	var wall_cell: Vector2i = Vector2i(12, 10)
+	_check(grid.get_fuel(wall_cell) == FireGrid.Fuel.THICKET and grid.is_solid(wall_cell) and not earth.is_shadow_blocking(wall_cell),
+		"thicket is solid, burnable, and the Earth shadow may cross it")
+	_check(painter.kinds.get(wall_cell) == GroundPainter.Kind.THICKET, "the painter draws it as thicket")
+	_check(grid.can_catch(Vector2i(12, 10)), "buried thicket can catch (it burns through its volume)")
+	# Spread: thicket to its 4 neighbours, grass into a touching cover.
+	var floor_targets: Array[Vector2i] = []
+	for target: Array in grid.get_spread_targets(Vector2i(22, 14)):
+		floor_targets.append(target[0])
+	_check(floor_targets.has(Vector2i(23, 14)) and floor_targets.has(Vector2i(22, 15)) and not floor_targets.has(Vector2i(21, 14)),
+		"thicket spreads to its thicket neighbours, never into earth, got %s" % [floor_targets])
+	var tuft_targets: Array[Vector2i] = []
+	for target: Array in grid.get_spread_targets(Vector2i(40, 19)):
+		tuft_targets.append(target[0])
+	# (40, 20) under the tuft is buried: the surface walk goes round to (39, 20).
+	_check(tuft_targets.has(Vector2i(41, 19)) and tuft_targets.has(Vector2i(39, 20)),
+		"the grass tuft spreads along the fuse and into the touching cover, got %s" % [tuft_targets])
+
+	# 1. A fireball into the wall: it glows, burns through, crumbles to open air.
+	player.respawn_at(room_e.get_spawn_position())
+	await _physics_frames(5)
+	Fireball.launch(world, room_e.global_position + Vector2(60, 150), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return grid.burning_count > 0, 1.0)
+	var first_lit: Vector2i = Vector2i(-1, -1)
+	for cell: Vector2i in grid.cell_states:
+		first_lit = cell
+	_check(grid.burning_count > 0 and not grid.is_deadly(first_lit),
+		"a fireball lights the thicket wall, which first only glows (harmless)")
+	await _wait_until(func() -> bool: return grid.is_deadly(first_lit), 1.0)
+	_check(grid.is_deadly(first_lit), "then its flames break out and kill on touch")
+	var wall_gone: Callable = func() -> bool:
+		for x: int in range(12, 14):
+			for y: int in range(1, 20):
+				if thicket.has_thicket(Vector2i(x, y)):
+					return false
+		return true
+	await _wait_until(wall_gone, 8.0)
+	_check(wall_gone.call(), "the whole wall burns through and crumbles")
+	_check(grid.get_state(wall_cell) == FireGrid.State.GONE and not grid.is_solid(wall_cell),
+		"a crumbled cell is open air")
+	await get_tree().process_frame  # the painter's batched redraw
+	_check(not painter.kinds.has(wall_cell), "and the painter draws it as air")
+	_check(grid.peak_burning_count <= tuning.max_burning_tiles, "never more than max_burning_tiles burning (peak %d)" % grid.peak_burning_count)
+	_check(not player.is_dead(), "the player at the start stayed safe")
+
+	# Ash that stays (F6 play-test): light flakes that drift down slowly and swirl
+	# round the player.
+	var field: PebbleField = room_e.get_node("PebbleField") as PebbleField
+	_check(field.ash_count > 0, "the crumbled wall leaves ash flakes in the room (%d)" % field.ash_count)
+	var fastest_fall: float = 0.0
+	for frame: int in 30:
+		await get_tree().physics_frame
+		for flake_index: int in field.pebble_positions.size():
+			if field.pebble_is_ash[flake_index] == 1 and field.pebble_is_grounded[flake_index] == 0:
+				fastest_fall = maxf(fastest_fall, field.pebble_velocities[flake_index].y)
+	_check(fastest_fall < 45.0, "flakes fall slowly (fastest %.0f px/s; a pebble falls at hundreds)" % fastest_fall)
+	await _wait_until(func() -> bool:
+		for flake_index: int in field.pebble_positions.size():
+			if field.pebble_is_ash[flake_index] == 1 and field.pebble_is_moving[flake_index] == 1:
+				return false
+		return true, 6.0)
+	var settled_positions: PackedVector2Array = field.pebble_positions.duplicate()
+	player.respawn_at(room_e.global_position + Vector2(9 * 8, 160))
+	await _physics_frames(3)
+	Input.action_press(&"move_right")
+	await _physics_frames(30)
+	Input.action_release(&"move_right")
+	var stirred: int = 0
+	for flake_index: int in mini(field.pebble_positions.size(), settled_positions.size()):
+		if field.pebble_is_ash[flake_index] == 1 and field.pebble_positions[flake_index].distance_to(settled_positions[flake_index]) > 1.0:
+			stirred += 1
+	_check(stirred > 0, "walking through the ash stirs it (%d flakes moved)" % stirred)
+
+	# 2. The thicket floor burns away; standing over the hole, you drop to the corridor.
+	grid.ignite_at(room_e.global_position + Vector2(22 * 8, 14 * 8 + 4), 1.0, null)
+	var floor_gone: Callable = func() -> bool:
+		for x: int in range(22, 28):
+			for y: int in range(14, 16):
+				if thicket.has_thicket(Vector2i(x, y)):
+					return false
+		return true
+	await _wait_until(floor_gone, 6.0)
+	_check(floor_gone.call(), "the thicket floor burns away")
+	await _wait_until(func() -> bool: return grid.burning_count == 0, 3.0)
+	player.respawn_at(room_e.global_position + Vector2(25 * 8, 13 * 8))
+	await _physics_frames(45)
+	_check(player.global_position.y > room_e.global_position.y + 19 * 8 and not player.is_dead(),
+		"over the hole you drop to the corridor below (feet at y %.0f)" % (player.global_position.y - room_e.global_position.y))
+
+	# 3. The overgrown cover: a thicket bush with browner leaves and roots; the diamond
+	# behind it hidden.
+	_check(painter.overgrown_cells.has(Vector2i(41, 17)) and painter.kinds.get(Vector2i(41, 17)) == GroundPainter.Kind.THICKET,
+		"the cover is painted as thicket")
+	var cover_leaves: ThicketLeaves = overgrown.get_node_or_null("Leaves") as ThicketLeaves
+	var thicket_leaves: ThicketLeaves = thicket.get_node("Leaves") as ThicketLeaves
+	var cover_redness: float = 0.0
+	var thicket_redness: float = 0.0
+	if cover_leaves != null and not cover_leaves.leaf_colors.is_empty():
+		for color: Color in cover_leaves.leaf_colors:
+			cover_redness += color.r / color.g
+		cover_redness /= cover_leaves.leaf_colors.size()
+		for color: Color in thicket_leaves.leaf_colors:
+			thicket_redness += color.r / color.g
+		thicket_redness /= thicket_leaves.leaf_colors.size()
+	_check(cover_leaves != null and cover_leaves.leaf_anchors.size() > 20 and cover_redness > thicket_redness + 0.1,
+		"it grows the thicket's bush, its leaves browner (red/green %.2f vs %.2f)" % [cover_redness, thicket_redness])
+	_check(hidden.is_object_hidden(diamond) and not diamond.visible, "the diamond in the chamber is hidden")
+	_check(painter.kinds.get(Vector2i(45, 17)) == GroundPainter.Kind.THICKET, "the covered chamber looks like the cover, not earth")
+	grid.ignite_at(room_e.global_position + Vector2(37 * 8, 20 * 8), 1.0, null)
+	await _wait_until(func() -> bool: return grid.get_state(Vector2i(41, 19)) == FireGrid.State.BURNING, 6.0)
+	var all_flashing: bool = true
+	for x: int in range(41, 43):
+		for y: int in range(15, 20):
+			all_flashing = all_flashing and grid.get_state(Vector2i(x, y)) == FireGrid.State.BURNING
+	_check(all_flashing, "the fuse reaches the cover and the WHOLE cover flashes over at once")
+	await _wait_until(func() -> bool: return not overgrown.has_cover(Vector2i(41, 19)), 1.0)
+	var all_gone: bool = true
+	for x: int in range(41, 43):
+		for y: int in range(15, 20):
+			all_gone = all_gone and not overgrown.has_cover(Vector2i(x, y))
+	_check(all_gone, "it collapses all at once, within overgrown_flashover_time")
+	_check(not hidden.is_covered(Vector2i(45, 17)), "and the chamber behind it opens")
+	await get_tree().create_timer(1.0).timeout
+	_check(not hidden.is_object_hidden(diamond) and diamond.visible, "the fire diamond inside appears")
+
+	# R: thicket, cover, chamber and diamond all back.
+	room_e.reset_objects()
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	_check(thicket.has_thicket(wall_cell) and thicket.has_thicket(Vector2i(24, 14)) and overgrown.has_cover(Vector2i(41, 17)),
+		"a room reset puts the thicket and the cover back")
+	_check(hidden.is_covered(Vector2i(45, 17)) and hidden.is_object_hidden(diamond), "and covers the chamber, hiding the diamond again")
+	_check(grid.cell_states.is_empty() and grid.burning_count == 0 and grid.pending.is_empty(), "and the grid forgets every fire")
+	await get_tree().process_frame
+	_check(painter.kinds.get(wall_cell) == GroundPainter.Kind.THICKET, "and the painter draws the thicket again")
+
+	# Burning thicket kills (once its flames are out).
+	player.respawn_at(room_e.global_position + Vector2(11 * 8 + 4, 160))
+	await _physics_frames(3)
+	grid.ignite_at(room_e.global_position + Vector2(12 * 8, 18 * 8 + 4), 0.5, null)
+	await _physics_frames(2)
+	_check(not player.is_dead(), "touching thicket that only glows is safe")
+	await get_tree().create_timer(tuning.thicket_burn_time * 0.5).timeout
+	_check(player.is_dead(), "touching burning thicket kills")
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
+	_check(grid.cell_states.is_empty() and thicket.has_thicket(Vector2i(12, 18)) and not player.is_dead(),
+		"dying resets the thicket")
+	room_e.reset_objects()
+	await _physics_frames(5)
+
+	# Leaves (F6 play-test): on every open face, pushed by the player and by gusts.
+	var leaves: ThicketLeaves = thicket.get_node_or_null("Leaves") as ThicketLeaves
+	_check(leaves != null and leaves.leaf_anchors.size() > 40, "thicket grows leaves on its open faces (%d)" % (leaves.leaf_anchors.size() if leaves != null else 0))
+	if leaves != null:
+		player.respawn_at(room_e.global_position + Vector2(11 * 8 + 4, 160))
+		await _physics_frames(20)
+		var most_bent: float = 0.0
+		for leaf_index: int in leaves.leaf_anchors.size():
+			if leaves.leaf_cells[leaf_index].y >= 18:
+				most_bent = maxf(most_bent, leaves.leaf_bends[leaf_index].length())
+		_check(most_bent > tuning.leaf_idle_sway + 0.3, "the player standing against the wall pushes its leaves (%.1f px)" % most_bent)
+		leaves.receive_gust_from(Vector2.RIGHT, 160.0, room_e.global_position + Vector2(80, 80))
+		var kicked: int = 0
+		for leaf_index: int in leaves.leaf_anchors.size():
+			if leaves.leaf_bend_speeds[leaf_index].x > 20.0:
+				kicked += 1
+		_check(kicked > 10, "a gust whips the leaves near it (%d)" % kicked)
+
+	# The jet's take-off only scorches the floor when the flame points at it: standing
+	# on the thicket floor, flame pointing UP (thrust down) leaves it alone.
+	player.respawn_at(room_e.global_position + Vector2(24 * 8 + 4, 14 * 8))
+	await _physics_frames(5)
+	player.fire_bar.gain(1)
+	# Down held through the whole burst (let go and it steers up: the flame then
+	# points down and rightly lights the floor).
+	Input.action_press(&"move_down")
+	await _tap(&"flame_jet")
+	await get_tree().create_timer(tuning.jet_burst_time + 0.1).timeout
+	Input.action_release(&"move_down")
+	_check(grid.get_state(Vector2i(24, 14)) == FireGrid.State.GRASS and not grid.pending.has(Vector2i(24, 14)),
+		"a flame pointing up doesn't scorch the thicket floor under you")
+	room_e.reset_objects()
+	player.respawn_at(room_e.global_position + Vector2(24 * 8 + 4, 14 * 8))
+	await _physics_frames(5)
+	player.fire_bar.gain(1)
+	await _tap(&"flame_jet")
+	await _physics_frames(3)
+	_check(grid.pending.has(Vector2i(24, 14)) or grid.get_state(Vector2i(24, 14)) != FireGrid.State.GRASS,
+		"a flame pointing down (thrust up) still lights the floor you take off from")
+	await get_tree().create_timer(1.5).timeout
+	room_e.reset_objects()
+	player.respawn_at(room_e.get_spawn_position())
+	await _physics_frames(5)
+	finished_sections.append("F6")
+
 
 
 # --- Helpers ---------------------------------------------------------------------

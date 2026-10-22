@@ -57,6 +57,26 @@ extends Node2D
 ##     makes the edges between burnt and unburnt ground ragged). The grass blades
 ##     curl and blacken as the creep reaches each one (get_burn_progress_at).
 ##
+## THICKET and OVERGROWN COVERS (Stage F6, Fire_bending.md §6.1b): two more burnable
+## materials, on the room's "Thicket" (ThicketLayer) and "Overgrown" (OvergrownLayer)
+## layers. The grid owns their fire too:
+##   - Thicket burns through its whole VOLUME: a burning thicket cell lights its 4
+##     neighbours (thicket, touching grass, a cover) after thicket_spread_delay, and
+##     grass lights touching thicket after spread_delay. Buried thicket catches too.
+##     A thicket cell first glows from inside (thicket_glow_share of its burn,
+##     harmless), then its flames break out and kill on touch like grass, then it
+##     CRUMBLES (GONE): the ThicketLayer erases the tile and it's open air. A burnt
+##     floor drops whatever stood on it; the grass under a crumbled cell catches.
+##     No smolder, no ash crust: it falls away as a shower of flakes.
+##   - Overgrown covers: fire reaching any cell starts a FLASH-OVER of the whole
+##     connected cover (flood fill): a bright front races across it in the first half
+##     of overgrown_flashover_time, the cover burns as one deadly sheet, then it
+##     collapses at once (GONE): freeze frames, a shake, a burst of ash, and any
+##     HiddenLayer chamber it touches is revealed (with whatever was hidden inside).
+##     The collapse lights the grass and thicket it touched.
+## Cells are told apart by get_fuel(). A cell's State is shared by all three
+## materials: GRASS means "not burnt yet" whatever the material.
+##
 ## Time: game time (physics delta), so slow motion slows the fire too. Only the room
 ## on screen burns (like the grass blades); a fire left behind waits.
 
@@ -64,7 +84,11 @@ extends Node2D
 ## were reset). GroundPainter repaints them.
 signal cells_changed(cells: Array[Vector2i])
 
-enum State { GRASS, BURNING, SMOLDERING, ASH }
+## GRASS = not burnt yet (any material). GONE = burnt away: thicket that crumbled, a
+## cover that collapsed (open air now). Grass never gets GONE, thicket never ASH.
+enum State { GRASS, BURNING, SMOLDERING, ASH, GONE }
+## What a cell is made of (see the header). NONE: not burnable (or burnt away).
+enum Fuel { NONE, GRASS, THICKET, OVERGROWN }
 
 const GROUP: StringName = &"fire_grid"
 ## A cell's flames light flammables this many px beyond its hazard band (enough to
@@ -76,10 +100,10 @@ const CHAR_COLOR: Color = Color(0.09, 0.07, 0.07)
 const EMBER_COLOR: Color = Color("#8A2410")
 const EMBER_HOT_COLOR: Color = Color("#FF8A1E")
 const SPECKS_PER_CELL: int = 8
-## Ash flakes left in the PebbleField when a cell turns to ash (§6.1: "ash flakes get
-## kicked like pebbles").
-const ASH_FLAKE_COLORS: Array[Color] = [Color("#4A4545"), Color("#7A7470")]
-const ASH_FLAKES_PER_CELL: int = 2
+## Colors of the ash flakes left in the PebbleField when grass turns to ash or thicket
+## crumbles (§6.1: "ash flakes get kicked like pebbles"; light ones since the F6
+## play-test, PebbleField.leave_ash). How many: FireTuning's "Ash flakes" group.
+const ASH_FLAKE_COLORS: Array[Color] = [Color("#4A4545"), Color("#7A7470"), Color("#5E5858")]
 ## Smoldering cells puff a little smoke this often, on average per second.
 const SMOLDER_SMOKE_CHANCE: float = 0.8
 ## A tongue grows in over this many seconds, and dies down over the last part of
@@ -98,6 +122,18 @@ const GLOW_RADIUS_SHARE: float = 0.7
 const GLOW_ALPHA: float = 0.22
 ## Size of the shared glow picture, px (it's stretched to each glow's size).
 const GLOW_TEXTURE_SIZE: int = 32
+## Thicket glowing from inside: glowing branch strokes per cell.
+const THICKET_BRANCHES_PER_CELL: int = 3
+## A burning thicket cell drops a clump of glowing ash this often, on average per
+## second (only if its underside is open).
+const THICKET_CLUMP_CHANCE: float = 2.5
+## Flames on burning thicket and on a flashing cover are this much longer than grass
+## flames: a wall of brambles burns big.
+const THICKET_FLAME_SCALE: float = 1.4
+const OVERGROWN_FLAME_SCALE: float = 1.7
+## The flash-over front crosses the cover in this share of overgrown_flashover_time;
+## the rest is the whole sheet burning before it collapses.
+const FLASHOVER_FRONT_SHARE: float = 0.5
 
 ## One soft round glow picture shared by every glow (made on first use). A `static
 ## var` belongs to the class, not to one grid, like a Python class attribute.
@@ -112,7 +148,16 @@ static var glow_texture: GradientTexture2D
 ## panel and Remote-tab edits reach the grid at once.
 var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
 var room: Room
+## The room's burnable layers; any of them may be missing (null).
 var grass_layer: TileMapLayer
+var thicket_layer: ThicketLayer
+var overgrown_layer: OvergrownLayer
+## The room's HiddenLayer, or null: an overgrown cover's collapse opens the chambers
+## it touches.
+var hidden_layer: HiddenLayer
+## Any one of the burnable layers: they all sit at the room's origin with the same
+## tile size, so cell <-> pixel math works with whichever is there.
+var geometry_layer: TileMapLayer
 ## The room's EarthLayer, if any: its is_solid() knows about every tile layer,
 ## columns and covered hidden chambers. Without one, we look at the tile layers.
 var earth_layer: EarthLayer
@@ -136,6 +181,9 @@ var ignite_origin: Dictionary = {}
 ## where their fire will come in.
 var pending: Dictionary = {}
 var pending_origin: Dictionary = {}
+## Burning thicket cells -> their glowing branch strokes (local px), laid out when
+## they catch: Array of [from, to].
+var branches: Dictionary = {}
 ## How many cells burn right now, and the most ever at once (the smoke test checks
 ## it never passes the cap).
 var burning_count: int = 0
@@ -156,12 +204,19 @@ var glow_layer: Node2D
 
 func _ready() -> void:
 	room = get_parent() as Room
-	grass_layer = room.get_node("Grass") as TileMapLayer
+	grass_layer = room.get_node_or_null("Grass") as TileMapLayer
+	thicket_layer = room.get_node_or_null("Thicket") as ThicketLayer
+	overgrown_layer = room.get_node_or_null("Overgrown") as OvergrownLayer
+	hidden_layer = room.get_node_or_null("Hidden") as HiddenLayer
 	earth_layer = room.get_node_or_null("Earth") as EarthLayer
+	for layer: TileMapLayer in [grass_layer, thicket_layer, overgrown_layer]:
+		if layer != null:
+			geometry_layer = layer
+			break
 	for child: Node in room.get_children():
 		if child is TileMapLayer and not child is HiddenLayer:
 			solid_layers.append(child)
-	tile_size = grass_layer.tile_set.tile_size.x
+	tile_size = geometry_layer.tile_set.tile_size.x
 	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
 	add_to_group(GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
@@ -207,10 +262,14 @@ func get_burn_progress(cell: Vector2i) -> float:
 
 
 ## How long after `cell` caught the fire creeping across it reaches `point` (local
-## px): the distance from where it came in, at one tile per spread_delay.
+## px): the distance from where it came in, at one tile per spread delay (grass's or
+## thicket's). A flashing cover has no creep: its front is the flash-over itself.
 func get_creep_delay(cell: Vector2i, point: Vector2) -> float:
+	var material: Fuel = get_fuel(cell)
+	if material == Fuel.OVERGROWN:
+		return 0.0
 	var origin: Vector2 = ignite_origin.get(cell, get_cell_rect(cell).get_center())
-	return minf(point.distance_to(origin) / tile_size, 1.2) * fire_tuning.spread_delay
+	return minf(point.distance_to(origin) / tile_size, 1.2) * _get_spread_delay_from(material)
 
 
 ## Like get_burn_progress, but for one spot of the cell (local px): 0 until the creep
@@ -224,7 +283,18 @@ func get_burn_progress_at(cell: Vector2i, point: Vector2) -> float:
 
 
 func is_grass_cell(cell: Vector2i) -> bool:
-	return grass_layer.get_cell_source_id(cell) != -1
+	return grass_layer != null and grass_layer.get_cell_source_id(cell) != -1
+
+
+## What `cell` is made of right now. A cell that burnt away is NONE (open air).
+func get_fuel(cell: Vector2i) -> Fuel:
+	if is_grass_cell(cell):
+		return Fuel.GRASS
+	if thicket_layer != null and thicket_layer.has_thicket(cell):
+		return Fuel.THICKET
+	if overgrown_layer != null and overgrown_layer.has_cover(cell):
+		return Fuel.OVERGROWN
+	return Fuel.NONE
 
 
 ## Solid ground for the surface walk: any tile, a column, a covered chamber, or
@@ -249,9 +319,17 @@ func get_open_sides(cell: Vector2i) -> Array[Vector2i]:
 	return sides
 
 
-## True if fire could take hold of `cell`: unburnt grass with at least one open side.
+## True if fire could take hold of `cell`: unburnt grass with at least one open side,
+## or unburnt thicket or cover (they burn through their volume: buried ones too).
 func can_catch(cell: Vector2i) -> bool:
-	return is_grass_cell(cell) and get_state(cell) == State.GRASS and not get_open_sides(cell).is_empty()
+	if get_state(cell) != State.GRASS:
+		return false
+	match get_fuel(cell):
+		Fuel.GRASS:
+			return not get_open_sides(cell).is_empty()
+		Fuel.THICKET, Fuel.OVERGROWN:
+			return true
+	return false
 
 
 ## The grass cells fire spreads to from `cell`: one surface step each way along
@@ -270,9 +348,36 @@ func get_spread_neighbours(cell: Vector2i) -> Array[Vector2i]:
 	return neighbours
 
 
+## Every cell a burning `cell` lights, and after how many seconds (the caller adds
+## the jitter): [[cell, delay], ...]. Grass spreads along its surface, and into
+## touching thicket and covers; thicket and covers spread to all 4 neighbours of any
+## burnable material.
+func get_spread_targets(cell: Vector2i) -> Array:
+	var targets: Array = []
+	var material: Fuel = get_fuel(cell)
+	if material == Fuel.GRASS:
+		for neighbour: Vector2i in get_spread_neighbours(cell):
+			targets.append([neighbour, fire_tuning.spread_delay])
+	for normal: Vector2i in EarthLayer.FACE_NORMALS:
+		var neighbour: Vector2i = cell + normal
+		var neighbour_material: Fuel = get_fuel(neighbour)
+		if neighbour_material == Fuel.NONE:
+			continue
+		if material == Fuel.GRASS and neighbour_material == Fuel.GRASS:
+			continue  # grass to grass goes along the surface (above)
+		targets.append([neighbour, _get_spread_delay_from(material)])
+	return targets
+
+
+## Grass is the slow fuel: what it lights catches spread_delay later. What burning
+## brambles (or a cover) light catches thicket_spread_delay later.
+func _get_spread_delay_from(material: Fuel) -> float:
+	return fire_tuning.spread_delay if material == Fuel.GRASS else fire_tuning.thicket_spread_delay
+
+
 ## The cell's rectangle in our (= the room's) local coordinates.
 func get_cell_rect(cell: Vector2i) -> Rect2:
-	var center: Vector2 = grass_layer.position + grass_layer.map_to_local(cell)
+	var center: Vector2 = geometry_layer.position + geometry_layer.map_to_local(cell)
 	return Rect2(center - Vector2.ONE * tile_size / 2.0, Vector2.ONE * tile_size)
 
 
@@ -299,8 +404,8 @@ func get_flame_band(cell: Vector2i, normal: Vector2i) -> Rect2:
 ## The jet's flames catch a moment later (spread_delay; see the header).
 func ignite_at(world_point: Vector2, radius: float, source: Node) -> bool:
 	var point: Vector2 = to_local(world_point)
-	var first: Vector2i = grass_layer.local_to_map(point - Vector2.ONE * (radius + 0.5) - grass_layer.position)
-	var last: Vector2i = grass_layer.local_to_map(point + Vector2.ONE * (radius + 0.5) - grass_layer.position)
+	var first: Vector2i = geometry_layer.local_to_map(point - Vector2.ONE * (radius + 0.5) - geometry_layer.position)
+	var last: Vector2i = geometry_layer.local_to_map(point + Vector2.ONE * (radius + 0.5) - geometry_layer.position)
 	var delayed: bool = source is FlameJetAbility
 	var any_caught: bool = false
 	for x: int in range(first.x, last.x + 1):
@@ -368,27 +473,76 @@ func _process_pending() -> void:
 
 
 func _start_burning(cell: Vector2i, origin: Vector2) -> void:
+	var material: Fuel = get_fuel(cell)
+	if material == Fuel.OVERGROWN:
+		_start_flashover(cell, origin)
+		return
 	cell_states[cell] = State.BURNING
-	var duration: float = _jitter(fire_tuning.burn_time)
+	var duration: float = _jitter(fire_tuning.thicket_burn_time if material == Fuel.THICKET else fire_tuning.burn_time)
 	time_left[cell] = duration
 	state_duration[cell] = duration
 	ignite_clock[cell] = fire_clock
 	ignite_origin[cell] = origin
 	burning_count += 1
 	peak_burning_count = maxi(peak_burning_count, burning_count)
+	if material == Fuel.THICKET:
+		branches[cell] = _make_branches(cell)
 	_add_flames(cell)
-	# The next cells along the surface catch a little later, each with its own jitter,
-	# their fire coming in at the edge they share with us.
+	# The next cells catch a little later, each with its own jitter, their fire
+	# coming in at the edge they share with us.
 	var rect: Rect2 = get_cell_rect(cell)
-	for neighbour: Vector2i in get_spread_neighbours(cell):
+	for target: Array in get_spread_targets(cell):
+		var neighbour: Vector2i = target[0]
 		var neighbour_rect: Rect2 = get_cell_rect(neighbour)
 		var entry: Vector2 = rect.get_center().clamp(neighbour_rect.position, neighbour_rect.end)
 		var jitter: float = randf_range(-fire_tuning.spread_jitter, fire_tuning.spread_jitter)
-		queue_ignition(neighbour, fire_tuning.spread_delay + jitter, entry)
+		queue_ignition(neighbour, float(target[1]) + jitter, entry)
 	_ignite_touching_flammables(cell)
 	EmberEmitter.burst(room, to_global(origin), 3, Vector2.UP, 50.0, 40.0)
 	FX.play_sfx(&"fire_ignite")
 	_announce_cell(cell)
+
+
+## Fire reached `start_cell` of an overgrown cover: the whole connected cover flashes
+## over. A flood fill (BFS over the 4 neighbours, like HiddenLayer.reveal_chamber)
+## gives each cell its step count from where the fire came in. The front reaches
+## each cell at its share of FLASHOVER_FRONT_SHARE x overgrown_flashover_time, and
+## every cell collapses together at the end (their time_left all run out at once).
+func _start_flashover(start_cell: Vector2i, origin: Vector2) -> void:
+	var steps: Dictionary = {start_cell: 0}
+	var queue: Array[Vector2i] = [start_cell]
+	var cover: Array[Vector2i] = []
+	var most_steps: int = 0
+	while not queue.is_empty():
+		var cell: Vector2i = queue.pop_front()
+		cover.append(cell)
+		most_steps = maxi(most_steps, int(steps[cell]))
+		for normal: Vector2i in EarthLayer.FACE_NORMALS:
+			var neighbour: Vector2i = cell + normal
+			if not steps.has(neighbour) and get_fuel(neighbour) == Fuel.OVERGROWN \
+					and get_state(neighbour) == State.GRASS:
+				steps[neighbour] = int(steps[cell]) + 1
+				queue.append(neighbour)
+	var total_time: float = maxf(fire_tuning.overgrown_flashover_time, 0.01)
+	var front_time: float = total_time * FLASHOVER_FRONT_SHARE
+	for cell: Vector2i in cover:
+		pending.erase(cell)
+		pending_origin.erase(cell)
+		var arrival: float = front_time * float(steps[cell]) / maxf(float(most_steps), 1.0)
+		cell_states[cell] = State.BURNING
+		# "Caught" when the front arrives: until then get_time_burning() is negative,
+		# so its flames and its deadly band wait for the front (is_deadly).
+		ignite_clock[cell] = fire_clock + arrival
+		ignite_origin[cell] = origin if cell == start_cell else get_cell_rect(cell).get_center()
+		state_duration[cell] = total_time - arrival
+		time_left[cell] = total_time
+		burning_count += 1
+		_add_flames(cell)
+	peak_burning_count = maxi(peak_burning_count, burning_count)
+	EmberEmitter.burst(room, to_global(origin), 6, Vector2.UP, 70.0, 60.0)
+	FX.play_sfx(&"fire_ignite")
+	cells_changed.emit(cover)
+	glow_layer.queue_redraw()
 
 
 ## `base` give or take burn_time_jitter (a fraction), per cell.
@@ -423,13 +577,97 @@ func _start_smoldering(cell: Vector2i) -> void:
 	_announce_cell(cell)
 
 
+## Burnt-out thicket cells crumble into falling ash and become open air (the
+## ThicketLayer erases them, in one batch).
+func _crumble_thicket(cells: Array[Vector2i]) -> void:
+	for cell: Vector2i in cells:
+		_end_burning(cell)
+		var rect: Rect2 = get_cell_rect(cell)
+		# Glowing bits that die out on the way down, and gray flakes that stay
+		# (PebbleField ash: light, they drift down and swirl round the player).
+		AshFall.spawn(room, to_global(rect.get_center()), fire_tuning.thicket_ash_flakes, rect.size, 0.8)
+		if randf() < 0.5:
+			SmokePuff.spawn(room, to_global(rect.get_center()), 1)
+	thicket_layer.remove_cells(cells)
+	# After the tiles are gone, so the flakes start in open air.
+	for cell: Vector2i in cells:
+		var rect: Rect2 = get_cell_rect(cell)
+		PebbleField.leave_ash(get_tree(), to_global(rect.get_center()), fire_tuning.ash_flakes_per_thicket_cell,
+			rect.size - Vector2(2.0, 2.0), ASH_FLAKE_COLORS)
+	_after_cells_gone(cells)
+
+
+## The flash-over is done: the whole cover collapses at once in a burst of ash and
+## embers (freeze frames + shake, like a cracked wall breaking) and becomes open air.
+## Hidden chambers it touched open.
+func _collapse_cover(cells: Array[Vector2i]) -> void:
+	for cell: Vector2i in cells:
+		_end_burning(cell)
+		var rect: Rect2 = get_cell_rect(cell)
+		AshFall.spawn(room, to_global(rect.get_center()), fire_tuning.thicket_ash_flakes, rect.size, 0.5)
+		if randf() < 0.35:
+			EmberEmitter.burst(room, to_global(rect.get_center()), 3, Vector2.UP, 90.0, 50.0)
+	# Covered chambers next to the cover, found BEFORE its tiles go.
+	var chamber_cells: Array[Vector2i] = []
+	if hidden_layer != null:
+		for cell: Vector2i in cells:
+			for normal: Vector2i in EarthLayer.FACE_NORMALS:
+				if hidden_layer.is_covered(cell + normal) and not chamber_cells.has(cell + normal):
+					chamber_cells.append(cell + normal)
+	overgrown_layer.remove_cells(cells)
+	for chamber_cell: Vector2i in chamber_cells:
+		hidden_layer.reveal_chamber(chamber_cell)  # does nothing if already revealed
+	_after_cells_gone(cells)
+	FX.shake(fire_tuning.overgrown_shake_strength, fire_tuning.overgrown_shake_time)
+	FX.freeze(fire_tuning.overgrown_freeze_time)
+	FX.play_sfx(&"overgrown_flashover")
+
+
+## A burning thicket or cover cell stops burning: it's GONE (open air).
+func _end_burning(cell: Vector2i) -> void:
+	cell_states[cell] = State.GONE
+	time_left.erase(cell)
+	state_duration.erase(cell)
+	branches.erase(cell)
+	burning_count -= 1
+	_remove_flames(cell)
+
+
+## Cells just turned into open air: what they touched burns on. Grass under them
+## catches (its top is open now: the glowing ash falls on it), thicket and covers
+## they touched catch if the fire hadn't got there yet, and burning neighbours grow
+## flames on the sides that just opened.
+func _after_cells_gone(cells: Array[Vector2i]) -> void:
+	for cell: Vector2i in cells:
+		for normal: Vector2i in EarthLayer.FACE_NORMALS:
+			var neighbour: Vector2i = cell + normal
+			if get_state(neighbour) == State.BURNING:
+				_add_missing_flames(neighbour)
+			elif can_catch(neighbour) and not pending.has(neighbour):
+				var neighbour_rect: Rect2 = get_cell_rect(neighbour)
+				var entry: Vector2 = get_cell_rect(cell).get_center().clamp(neighbour_rect.position, neighbour_rect.end)
+				queue_ignition(neighbour, _get_spread_delay_from(get_fuel(neighbour)), entry)
+	cells_changed.emit(cells)
+	glow_layer.queue_redraw()
+
+
+## Burning thicket with an open underside now and then drops a clump of glowing ash.
+func _drop_thicket_clumps(delta: float) -> void:
+	for cell: Vector2i in branches:
+		if randf() >= THICKET_CLUMP_CHANCE * delta or is_solid(cell + Vector2i.DOWN):
+			continue
+		var rect: Rect2 = get_cell_rect(cell)
+		var bottom: Vector2 = Vector2(rect.position.x + randf_range(1.0, rect.size.x - 1.0), rect.end.y)
+		AshFall.spawn(room, to_global(bottom), randi_range(2, 3), Vector2(2.0, 1.0), 0.8)
+
+
 func _become_ash(cell: Vector2i) -> void:
 	cell_states[cell] = State.ASH
 	time_left.erase(cell)
 	state_duration.erase(cell)
 	specks.erase(cell)
-	PebbleField.leave_colored_pebbles(get_tree(), to_global(_get_top_point(cell)), ASH_FLAKES_PER_CELL,
-		Vector2.UP, ASH_FLAKE_COLORS)
+	PebbleField.leave_ash(get_tree(), to_global(_get_top_point(cell)) + Vector2(0.0, -1.0),
+		fire_tuning.ash_flakes_per_grass_cell, Vector2(tile_size, 1.0), ASH_FLAKE_COLORS)
 	_announce_cell(cell)
 
 
@@ -454,6 +692,7 @@ func reset() -> void:
 	ignite_clock.clear()
 	ignite_origin.clear()
 	specks.clear()
+	branches.clear()
 	pending.clear()
 	pending_origin.clear()
 	burning_count = 0
@@ -483,12 +722,54 @@ func _physics_process(delta: float) -> void:
 				smoldered_out.append(cell)
 		elif cell_states[cell] == State.SMOLDERING and randf() < SMOLDER_SMOKE_CHANCE * delta:
 			SmokePuff.spawn(room, to_global(_get_random_surface_point(cell)), 1)
+	# Grass smolders; thicket crumbles and covers collapse, each in one batch, so the
+	# layer and the painter redo their tiles once.
+	var crumbled: Array[Vector2i] = []
+	var collapsed: Array[Vector2i] = []
 	for cell: Vector2i in burnt_out:
-		_start_smoldering(cell)
+		match get_fuel(cell):
+			Fuel.THICKET:
+				crumbled.append(cell)
+			Fuel.OVERGROWN:
+				collapsed.append(cell)
+			_:
+				_start_smoldering(cell)
 	for cell: Vector2i in smoldered_out:
 		_become_ash(cell)
+	if not crumbled.is_empty():
+		_crumble_thicket(crumbled)
+	if not collapsed.is_empty():
+		_collapse_cover(collapsed)
+	_drop_thicket_clumps(delta)
 	_process_pending()
 	_check_player()
+
+
+## True if `cell`'s flames kill right now: burning grass from the moment it catches,
+## thicket once its flames break out of the inside glow, a cover once the
+## flash-over front has reached it.
+func is_deadly(cell: Vector2i) -> bool:
+	if get_state(cell) != State.BURNING:
+		return false
+	var since_lit: float = get_time_burning_signed(cell)
+	if since_lit < 0.0:
+		return false  # the flash-over front isn't here yet
+	if get_fuel(cell) == Fuel.THICKET:
+		return since_lit >= _get_glow_time(cell)
+	return true
+
+
+## Seconds since `cell` caught: negative while a flash-over front is still on its
+## way to it, 0 for cells that aren't burning.
+func get_time_burning_signed(cell: Vector2i) -> float:
+	if get_state(cell) != State.BURNING:
+		return 0.0
+	return fire_clock - float(ignite_clock[cell])
+
+
+## Seconds a burning thicket cell only glows before its flames break out.
+func _get_glow_time(cell: Vector2i) -> float:
+	return float(state_duration.get(cell, 0.0)) * fire_tuning.thicket_glow_share
 
 
 ## Kills the player if their body touches a burning cell's band of flame.
@@ -501,12 +782,12 @@ func _check_player() -> void:
 	var hitbox: Rect2 = player.get_hitbox_rect()
 	hitbox.position = to_local(hitbox.position)
 	var reach: float = fire_tuning.grass_fire_hazard_height
-	var first: Vector2i = grass_layer.local_to_map(hitbox.position - Vector2.ONE * reach - grass_layer.position)
-	var last: Vector2i = grass_layer.local_to_map(hitbox.end + Vector2.ONE * reach - grass_layer.position)
+	var first: Vector2i = geometry_layer.local_to_map(hitbox.position - Vector2.ONE * reach - geometry_layer.position)
+	var last: Vector2i = geometry_layer.local_to_map(hitbox.end + Vector2.ONE * reach - geometry_layer.position)
 	for x: int in range(first.x, last.x + 1):
 		for y: int in range(first.y, last.y + 1):
 			var cell: Vector2i = Vector2i(x, y)
-			if get_state(cell) != State.BURNING:
+			if not is_deadly(cell):
 				continue
 			for normal: Vector2i in get_open_sides(cell):
 				# intersects() ignores rectangles that only share an edge: standing on
@@ -529,30 +810,50 @@ func _process(_delta: float) -> void:
 ## 1 to grass_tongues_per_tile + 1, walls 1-2, ceilings 1), each placed at random.
 func _add_flames(cell: Vector2i) -> void:
 	var cell_flames: Array[Dictionary] = []
-	for normal: Vector2i in get_open_sides(cell):
-		var count: int = 1
-		if normal == Vector2i.UP:
-			count = randi_range(1, fire_tuning.grass_tongues_per_tile + 1)
-		elif normal.x != 0:
-			count = randi_range(1, 2)
-		for index: int in count:
-			var tongue: FlameTongue = FlameTongue.new()
-			tongue.base_width = randf_range(2.5, 3.5)
-			tongue.fan_width = randf_range(3.2, 4.8)
-			tongue.flicker_speed = randf_range(0.8, 1.8)
-			tongue.wobble_amount = randf_range(0.3, 0.45)
-			tongue.breath_amount = randf_range(0.15, 0.3)
-			tongue.fork_amount = randf_range(0.2, 0.6)
-			tongue.lick_rate = randf_range(1.5, 4.0)
-			tongue.lick_size = 2.5
-			tongue.lick_speed = 14.0
-			tongue.smoke_rate = fire_tuning.grass_smoke_per_second / float(count)
-			tongue.visible = false
-			add_child(tongue)
-			var flame: Dictionary = {"node": tongue, "normal": normal}
-			_place_flame(cell, flame, 0.0)
-			cell_flames.append(flame)
 	flames[cell] = cell_flames
+	for normal: Vector2i in get_open_sides(cell):
+		_add_side_flames(cell, normal)
+
+
+## Burning `cell` got a new open side (a neighbour burnt away): flames there too.
+func _add_missing_flames(cell: Vector2i) -> void:
+	if not flames.has(cell):
+		return
+	var sides_with_flames: Array[Vector2i] = []
+	for flame: Dictionary in flames[cell]:
+		if not sides_with_flames.has(flame["normal"]):
+			sides_with_flames.append(flame["normal"])
+	for normal: Vector2i in get_open_sides(cell):
+		if not sides_with_flames.has(normal):
+			_add_side_flames(cell, normal)
+
+
+## A random number of flames on one open side of `cell`, added to flames[cell].
+func _add_side_flames(cell: Vector2i, normal: Vector2i) -> void:
+	var cell_flames: Array[Dictionary] = flames[cell]
+	var count: int = 1
+	if normal == Vector2i.UP:
+		count = randi_range(1, fire_tuning.grass_tongues_per_tile + 1)
+	elif normal.x != 0:
+		count = randi_range(1, 2)
+	for index: int in count:
+		var tongue: FlameTongue = FlameTongue.new()
+		tongue.base_width = randf_range(2.5, 3.5)
+		tongue.fan_width = randf_range(3.2, 4.8)
+		tongue.flicker_speed = randf_range(0.8, 1.8)
+		tongue.wobble_amount = randf_range(0.3, 0.45)
+		tongue.breath_amount = randf_range(0.15, 0.3)
+		tongue.fork_amount = randf_range(0.2, 0.6)
+		tongue.lick_rate = randf_range(1.5, 4.0)
+		tongue.lick_size = 2.5
+		tongue.lick_speed = 14.0
+		tongue.smoke_rate = fire_tuning.grass_smoke_per_second / float(count)
+		tongue.visible = false
+		add_child(tongue)
+		var flame: Dictionary = {"node": tongue, "normal": normal}
+		# A flame added late (a side opened up) starts now, not back at the catch.
+		_place_flame(cell, flame, maxf(get_time_burning_signed(cell), 0.0))
+		cell_flames.append(flame)
 
 
 ## Puts `flame` at a random spot on its side of `cell`, with a random size and lean,
@@ -572,6 +873,13 @@ func _place_flame(cell: Vector2i, flame: Dictionary, earliest: float) -> void:
 		length_factor *= 0.7
 	elif normal == Vector2i.DOWN:
 		length_factor *= 0.45
+	match get_fuel(cell):
+		Fuel.THICKET:
+			length_factor *= THICKET_FLAME_SCALE
+			# The flames break out of the inside glow.
+			earliest = maxf(earliest, _get_glow_time(cell))
+		Fuel.OVERGROWN:
+			length_factor *= OVERGROWN_FLAME_SCALE
 	var duration: float = float(state_duration[cell])
 	var start: float = maxf(get_creep_delay(cell, base), earliest)
 	var life: float = duration * randf_range(TONGUE_MIN_LIFE, TONGUE_MAX_LIFE)
@@ -672,6 +980,51 @@ func _draw_glow() -> void:
 					Color(FlameTongue.INNER_COLOR, 0.35 * flare))
 	for cell: Vector2i in specks:
 		_draw_specks(cell, now)
+	for cell: Vector2i in branches:
+		_draw_thicket_glow(cell, now)
+	for cell: Vector2i in flames:
+		if get_fuel(cell) == Fuel.OVERGROWN:
+			_draw_flashover(cell)
+
+
+## A burning thicket cell glows from inside along its branches: brightening over the
+## glow phase, flickering, dimming as it's about to crumble.
+func _draw_thicket_glow(cell: Vector2i, now: float) -> void:
+	var since_lit: float = get_time_burning(cell)
+	var glow_time: float = maxf(_get_glow_time(cell), 0.001)
+	var rise: float = clampf(since_lit / glow_time, 0.0, 1.0)
+	var fade: float = 1.0 - 0.5 * get_burn_progress(cell)
+	var center: Vector2 = get_cell_rect(cell).get_center()
+	var flicker: float = 0.75 + 0.25 * sin(now * 17.0 + center.x * 0.9 + center.y * 0.4)
+	var strength: float = rise * fade * flicker
+	_draw_soft_glow(center, tile_size * 0.8, Color(EMBER_HOT_COLOR, 0.3 * strength))
+	for branch: Array in branches[cell]:
+		glow_layer.draw_line(branch[0], branch[1], Color(EMBER_HOT_COLOR.lerp(FlameTongue.INNER_COLOR, rise * 0.5), strength), 1.0)
+
+
+## A flashing cover cell: a white-hot flash as the front reaches it (the bright line
+## racing across the cover), then a steady sheet of glow until the collapse.
+func _draw_flashover(cell: Vector2i) -> void:
+	var since_front: float = get_time_burning_signed(cell)
+	if since_front < 0.0:
+		return  # the front isn't here yet
+	var rect: Rect2 = get_cell_rect(cell)
+	var flash: float = 1.0 - smoothstep(0.0, 0.08, since_front)
+	if flash > 0.0:
+		glow_layer.draw_rect(rect.grow(1.0), Color(FlameTongue.CORE_COLOR, 0.8 * flash))
+	_draw_soft_glow(rect.get_center(), tile_size * 1.1, Color(FlameTongue.INNER_COLOR, 0.35 + 0.3 * flash))
+
+
+## A thicket cell's glowing branches: a few short strokes at random angles through
+## the cell (local px), laid out once when it catches.
+func _make_branches(cell: Vector2i) -> Array:
+	var rect: Rect2 = get_cell_rect(cell).grow(-1.0)
+	var cell_branches: Array = []
+	for branch_index: int in THICKET_BRANCHES_PER_CELL:
+		var from: Vector2 = Vector2(randf_range(rect.position.x, rect.end.x), randf_range(rect.position.y, rect.end.y)).floor() + Vector2(0.5, 0.5)
+		var to: Vector2 = (from + Vector2.from_angle(randf() * TAU) * randf_range(3.0, 6.0)).clamp(rect.position, rect.end)
+		cell_branches.append([from, to])
+	return cell_branches
 
 
 ## A round glow that fades toward its edge: the shared glow picture stretched to

@@ -39,13 +39,13 @@ res://
     player/        player.tscn, player.gd, states/, abilities/ (Air), abilities/earth/ (Earth), abilities/fire/ (Fire: fire_bar, fire_pips_display, flame_jet_ability, fireball_ability; states: jetting, and gust_aim is shared by the gust and the fireball)
     objects/       crate, spikes, wind_zone, wind_crystal, windmill, leaf_platform, door, pressure_plate
       earth/       earth_layer (fresh/used earth tiles), earth_face, ground_painter (draws earth rooms' ground), earth_column, boulder, earth_snake, cracked_wall
-      fire/        fire_diamond, flame_tongue + ember_emitter + smoke_puff (fire building blocks), fire_ring, fire_impact, fireball, brazier, flammable (contract), fire_hazard, fire_grid (burning grass, made by Room)
+      fire/        fire_diamond, flame_tongue + ember_emitter + smoke_puff (fire building blocks), fire_ring, fire_impact, fireball, brazier, flammable (contract), fire_hazard, fire_grid (burning grass, thicket and overgrown covers, made by Room), thicket_layer + overgrown_layer (plant terrain) + thicket_leaves, ash_fall
     enemies/       wisp, sentry, sentry_orb
     rooms/         room_01.tscn … room_07.tscn, room_base.gd
       earth/       earth_01.tscn … earth_10.tscn (the Earth chapter, generated)
     earth_world.tscn  the Earth chapter: rooms 1–10 in a row, Goal at the end
     ui/            hud, pause, end_screen, debug_overlay, room_picker, tuning_panel (F5, created by debug_overlay)
-  resources/       player_tuning.tres, earth_tuning.tres, fire_tuning.tres, tiles/ (placeholder + earth tilesets)
+  resources/       player_tuning.tres, earth_tuning.tres, fire_tuning.tres, tiles/ (placeholder, earth, grass and thicket tilesets)
   autoload/        game_state.gd (deaths, timer, current checkpoint), fx.gd (shake, freeze, slow motion, gravel)
   tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn (Earth mechanics), earth_chapter_smoke_test.tscn (the 10 Earth rooms); fire_test_world.tscn + fire_smoke_test.tscn (Fire mechanics)
   tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), build_fire_rooms.gd (Fire test rooms; extends build_earth_rooms.gd), screenshot_rooms.gd (PNG of every room)
@@ -79,7 +79,7 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
   - `godot --headless --path . res://tools/build_rooms.tscn` — regenerates rooms 1–7 from `tools/build_rooms.gd` (**overwrites editor edits**; add `-- 6 7` to rebuild only those rooms)
   - `godot --headless --path . res://tests/earth_chapter_smoke_test.tscn` — Earth chapter: structure + each room's key move, prints PASS/FAIL
   - `godot --headless --path . res://tests/fire_smoke_test.tscn` — Fire mechanics, one section per Fire stage, prints PASS/FAIL
-  - `godot --headless --path . res://tools/build_fire_rooms.tscn` — regenerates the Fire test rooms (**overwrites editor edits**; `-- fire_a` for only that one)
+  - `godot --headless --path . res://tools/build_fire_rooms.tscn` — regenerates the Fire test rooms (**overwrites editor edits**; `-- fire_e` for only that one)
   - `godot --headless --path . res://tools/build_earth_chapter.tscn` — regenerates Earth rooms 1–10 (**overwrites editor edits**; `-- 3 7` for only those)
   - `godot --path . res://tools/screenshot_rooms.tscn -- res://scenes/earth_world.tscn <folder>` — windowed: saves a PNG of every room
   - `godot --path .` — runs the game (I'll play-test and report back)
