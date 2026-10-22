@@ -15,6 +15,7 @@ extends "res://tools/build_earth_rooms.gd"
 ##   - tests/rooms/room_fire_d.tscn   Stage F5 burning grass: fuse, shelter, jet run (_build_room_fire_d)
 ##   - tests/rooms/room_fire_e.tscn   Stage F6 thicket and an overgrown cover (_build_room_fire_e)
 ##   - tests/rooms/room_fire_f.tscn   Stage F7 bonfires, hot updrafts, air diamond conversion (_build_room_fire_f)
+##   - tests/rooms/room_fire_g.tscn   Stage F8 vines (drawbridge, swinging plank), burning crate, leaf platform and sail (_build_room_fire_g)
 ##   - resources/tiles/thicket_tileset.tres  (Stage F6) the thicket tile and the
 ##                                    grass-looking cover tile, solid on layer 1.
 ##                                    Only written when missing.
@@ -32,13 +33,18 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_fire_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- fire_b` (names: fire_a, fire_b, fire_c, fire_d, fire_e, fire_f).
+## only those, e.g. `-- fire_b` (names: fire_a … fire_g).
 
 const FIRE_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/fire/fire_diamond.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
 const DOOR_SCENE: PackedScene = preload("res://scenes/objects/door.tscn")
 const LEAF_PILE_SCENE: PackedScene = preload("res://scenes/objects/leaf_pile.tscn")
 const GUST_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/gust_diamond.tscn")
+const VINE_SCENE: PackedScene = preload("res://scenes/objects/fire/vine.tscn")
+const HANGING_PLATFORM_SCENE: PackedScene = preload("res://scenes/objects/fire/hanging_platform.tscn")
+const PLATE_SCENE: PackedScene = preload("res://scenes/objects/pressure_plate.tscn")
+const LEAF_SCENE: PackedScene = preload("res://scenes/objects/leaf_platform.tscn")
+const SAIL_SCENE: PackedScene = preload("res://scenes/objects/sail_platform.tscn")
 const THICKET_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/thicket_layer.gd")
 const OVERGROWN_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/overgrown_layer.gd")
 ## Thicket tile picture colors: dark bramble green, lighter branches, brown thorns.
@@ -71,6 +77,8 @@ func _ready() -> void:
 		_build_room_fire_e()
 	if wanted.is_empty() or wanted.has("fire_f"):
 		_build_room_fire_f()
+	if wanted.is_empty() or wanted.has("fire_g"):
+		_build_room_fire_g()
 	print("[BuildFireRooms] Done.")
 	get_tree().quit()
 
@@ -479,3 +487,75 @@ func _build_room_fire_f() -> void:
 	_add(GUST_DIAMOND_SCENE, "GapGustDiamond", Vector2(344, 150))
 
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_f.tscn")
+
+
+## A vine from `from_px` to `to_px` (room pixels).
+func _vine(node_name: String, from_px: Vector2, to_px: Vector2) -> Node2D:
+	return _add(VINE_SCENE, node_name, from_px, {"end_point": to_px - from_px})
+
+
+## Fire test room G (Stage F8, vines and burning Air objects; reworked after the F8
+## play-test: vines are burning ropes and planks swing). All elements, 560×180
+## (scrolls), starts with 5 pips. Earth frame, floor at row 20 (y 160). Left to right:
+##   1. The drawbridge: an 88 px plank stands on end on the far rim of a 9-tile spike
+##      pit (cols 6-14), leaning a little toward you, held upright by a vine from its
+##      top up to the ceiling on the right. Throw a fireball over the plank's top at
+##      the vine: the vine burns through, the plank topples and falls across the
+##      pit, a bridge. The two halves of the vine burn away as they dangle.
+##   2. The swinging plank: an 88 px plank hung flat from two vines over a second
+##      pit (cols 20-28). Burn one vine: that end drops and the plank swings on the
+##      other vine. Burn that one too and it falls (into the pit, or across it if
+##      it's flat when it goes).
+##   3. The crate on a plate: the plate (col 35) holds the door at col 42 SHUT (it's
+##      open while the plate is off). Grass under the plate (cols 32-38). Fireball the
+##      crate: it burns 1.5 s (deadly), lights the grass, collapses into ash, the plate
+##      lifts and the door opens. Wait on the earth (cols 29-31) while the grass burns.
+##   4. A leaf platform (x 360) under a fire diamond (puff to ride it up; light it
+##      under you and you have 0.8 s), and a sail across an 18-tile spike pit (cols
+##      47-64). Gust right to sail, then fireball (or jet) the sail: it stops catching
+##      wind and coasts on to the end of its rail.
+## (The F8 vine gate was dropped after the play-test: a door a vine holds shut did
+## nothing a thicket wall doesn't.)
+func _build_room_fire_g() -> void:
+	_begin_room("RoomFireG", "Fire G - Vines & Burning Objects",
+		"Stage F8 test room. All elements, starts with 5 pips. 1: fireball the vine holding the standing plank (over its top): it burns through, the plank topples across the pit. 2: burn one vine of the hanging plank and it swings on the other; burn both and it falls. 3: burn the crate on the plate (wait on the earth while the grass burns): it collapses, the plate lifts, the door opens. 4: a leaf platform (burns away in 0.8 s, harmless) and a sail: gust right to sail over the pit, burn the sail and it coasts to the end. R brings everything back.",
+		Vector2(560, 180))
+	_fire_room(5)
+	# Frame (70 columns).
+	_earth(0, 0, 70, 1)
+	_earth(0, 0, 1, 23)
+	_earth(69, 0, 1, 23)
+	_earth(0, 20, 70, 3)
+
+	# 1. The drawbridge: the pit (x 48-120), the plank standing on the far rim (its
+	#    foot at x 126.5, its top at y 72, leaning 2 degrees left), its vine.
+	_spike_pit_at("BridgePitSpikes", 6, 9, 20)
+	var bridge_vine: Node2D = _vine("DrawbridgeVine", Vector2(152, 8), Vector2(123.5, 72))
+	var drawbridge: Node2D = _add(HANGING_PLATFORM_SCENE, "Drawbridge", Vector2(125, 116),
+		{"platform_width": 88.0, "rotation_degrees": -92.0})
+	var drawbridge_vines: Array[Switch] = [bridge_vine as Switch]
+	drawbridge.set("vines", drawbridge_vines)
+
+	# 2. The swinging plank (x 152-240, its middle line at y 50) over the second pit
+	#    (x 160-232), a vine 4 px in from each end.
+	_spike_pit_at("SwingPitSpikes", 20, 9, 20)
+	var left_vine: Node2D = _vine("SwingVineLeft", Vector2(156, 8), Vector2(156, 50))
+	var right_vine: Node2D = _vine("SwingVineRight", Vector2(236, 8), Vector2(236, 50))
+	var swing_plank: Node2D = _add(HANGING_PLATFORM_SCENE, "SwingPlank", Vector2(196, 50), {"platform_width": 88.0})
+	var swing_vines: Array[Switch] = [left_vine as Switch, right_vine as Switch]
+	swing_plank.set("vines", swing_vines)
+
+	# 3. The crate on the plate, grass under it, and the door the plate holds shut.
+	_grass(32, 20, 7, 1)
+	var plate: Node2D = _add(PLATE_SCENE, "CratePlate", Vector2(284, 160), {"plate_width": 24.0})
+	_add(CRATE_SCENE, "PlateCrate", Vector2(284, 160))
+	var plate_door: Node2D = _door("PlateDoor", 42, 1, 19, plate)
+	plate_door.set("open_when_off", true)
+
+	# 4. The leaf platform under a fire diamond, and the sail over the long pit.
+	_add(LEAF_SCENE, "BurnLeaf", Vector2(360, 136), {"leaf_width": 24.0, "travel": Vector2(0, -48)})
+	_fire_diamond("LeafDiamond", Vector2(360, 78), 1)
+	_spike_pit_at("SailPitSpikes", 47, 18, 20)
+	_add(SAIL_SCENE, "BurnSail", Vector2(392, 152), {"rail_start": Vector2(0, 0), "rail_end": Vector2(128, 0)})
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_g.tscn")

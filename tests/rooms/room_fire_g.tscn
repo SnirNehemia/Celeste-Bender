@@ -1,0 +1,102 @@
+[gd_scene format=4]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="1_5qajw"]
+[ext_resource type="TileSet" path="res://resources/tiles/placeholder_tileset.tres" id="2_d7oef"]
+[ext_resource type="TileSet" path="res://resources/tiles/grass_tileset.tres" id="3_ts3ex"]
+[ext_resource type="Script" path="res://scenes/objects/earth/grass_layer.gd" id="4_hj5rq"]
+[ext_resource type="TileSet" path="res://resources/tiles/earth_tileset.tres" id="5_8owyt"]
+[ext_resource type="Script" path="res://scenes/objects/earth/earth_layer.gd" id="6_2py6k"]
+[ext_resource type="PackedScene" path="res://scenes/objects/spikes.tscn" id="7_5jgfg"]
+[ext_resource type="PackedScene" path="res://scenes/objects/fire/vine.tscn" id="8_lot77"]
+[ext_resource type="PackedScene" path="res://scenes/objects/fire/hanging_platform.tscn" id="9_bflen"]
+[ext_resource type="PackedScene" path="res://scenes/objects/pressure_plate.tscn" id="10_7e8ma"]
+[ext_resource type="PackedScene" path="res://scenes/objects/crate.tscn" id="11_i0iox"]
+[ext_resource type="PackedScene" path="res://scenes/objects/door.tscn" id="12_wr6u0"]
+[ext_resource type="PackedScene" path="res://scenes/objects/leaf_platform.tscn" id="13_pmiuq"]
+[ext_resource type="PackedScene" path="res://scenes/objects/fire/fire_diamond.tscn" id="14_vfg6n"]
+[ext_resource type="PackedScene" path="res://scenes/objects/sail_platform.tscn" id="15_exhfe"]
+
+[node name="RoomFireG" type="Node2D" unique_id=1204297459]
+editor_description = "Stage F8 test room. All elements, starts with 5 pips. 1: fireball the vine holding the standing plank (over its top): it burns through, the plank topples across the pit. 2: burn one vine of the hanging plank and it swings on the other; burn both and it falls. 3: burn the crate on the plate (wait on the earth while the grass burns): it collapses, the plate lifts, the door opens. 4: a leaf platform (burns away in 0.8 s, harmless) and a sail: gust right to sail over the pit, burn the sail and it coasts to the end. R brings everything back."
+script = ExtResource("1_5qajw")
+display_title = "Fire G - Vines & Burning Objects"
+room_size = Vector2(560, 180)
+fire_allowed = true
+fire_start_pips = 5
+
+[node name="Tiles" type="TileMapLayer" parent="." unique_id=1743581150]
+tile_map_data = PackedByteArray("AAAGABYAAAABAAAAAAAHABYAAAABAAAAAAAIABYAAAABAAAAAAAJABYAAAABAAAAAAAKABYAAAABAAAAAAALABYAAAABAAAAAAAMABYAAAABAAAAAAANABYAAAABAAAAAAAOABYAAAABAAAAAAAUABYAAAABAAAAAAAVABYAAAABAAAAAAAWABYAAAABAAAAAAAXABYAAAABAAAAAAAYABYAAAABAAAAAAAZABYAAAABAAAAAAAaABYAAAABAAAAAAAbABYAAAABAAAAAAAcABYAAAABAAAAAAAvABYAAAABAAAAAAAwABYAAAABAAAAAAAxABYAAAABAAAAAAAyABYAAAABAAAAAAAzABYAAAABAAAAAAA0ABYAAAABAAAAAAA1ABYAAAABAAAAAAA2ABYAAAABAAAAAAA3ABYAAAABAAAAAAA4ABYAAAABAAAAAAA5ABYAAAABAAAAAAA6ABYAAAABAAAAAAA7ABYAAAABAAAAAAA8ABYAAAABAAAAAAA9ABYAAAABAAAAAAA+ABYAAAABAAAAAAA/ABYAAAABAAAAAABAABYAAAABAAAAAAA=")
+tile_set = ExtResource("2_d7oef")
+
+[node name="Grass" type="TileMapLayer" parent="." unique_id=1463080192 groups=["shadow_passable"]]
+tile_map_data = PackedByteArray("AAAgABQAAAAAAAAAAAAhABQAAAAAAAAAAAAiABQAAAAAAAAAAAAjABQAAAAAAAAAAAAkABQAAAAAAAAAAAAlABQAAAAAAAAAAAAmABQAAAAAAAAAAAA=")
+tile_set = ExtResource("3_ts3ex")
+script = ExtResource("4_hj5rq")
+
+[node name="Earth" type="TileMapLayer" parent="." unique_id=460286369]
+tile_map_data = PackedByteArray("AAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAACAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAJAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAALAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAANAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAPAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAARAAAAAAAAAAAAAAASAAAAAAAAAAAAAAATAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAAVAAAAAAAAAAAAAAAWAAAAAAAAAAAAAAAXAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAZAAAAAAAAAAAAAAAaAAAAAAAAAAAAAAAbAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAAdAAAAAAAAAAAAAAAeAAAAAAAAAAAAAAAfAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAhAAAAAAAAAAAAAAAiAAAAAAAAAAAAAAAjAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAAlAAAAAAAAAAAAAAAmAAAAAAAAAAAAAAAnAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAApAAAAAAAAAAAAAAAqAAAAAAAAAAAAAAArAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAAtAAAAAAAAAAAAAAAuAAAAAAAAAAAAAAAvAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAxAAAAAAAAAAAAAAAyAAAAAAAAAAAAAAAzAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA1AAAAAAAAAAAAAAA2AAAAAAAAAAAAAAA3AAAAAAAAAAAAAAA4AAAAAAAAAAAAAAA5AAAAAAAAAAAAAAA6AAAAAAAAAAAAAAA7AAAAAAAAAAAAAAA8AAAAAAAAAAAAAAA9AAAAAAAAAAAAAAA+AAAAAAAAAAAAAAA/AAAAAAAAAAAAAABAAAAAAAAAAAAAAABBAAAAAAAAAAAAAABCAAAAAAAAAAAAAABDAAAAAAAAAAAAAABEAAAAAAAAAAAAAABFAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA4AAAAAAAAAAAAAAA8AAAAAAAAAAAAAABAAAAAAAAAAAAAAABEAAAAAAAAAAAAAABIAAAAAAAAAAAAAABMAAAAAAAAAAAAAABQAAAAAAAAAAAAAABUAAAAAAAAAAAAAABYAAAAAAAAAAABFAAEAAAAAAAAAAABFAAIAAAAAAAAAAABFAAMAAAAAAAAAAABFAAQAAAAAAAAAAABFAAUAAAAAAAAAAABFAAYAAAAAAAAAAABFAAcAAAAAAAAAAABFAAgAAAAAAAAAAABFAAkAAAAAAAAAAABFAAoAAAAAAAAAAABFAAsAAAAAAAAAAABFAAwAAAAAAAAAAABFAA0AAAAAAAAAAABFAA4AAAAAAAAAAABFAA8AAAAAAAAAAABFABAAAAAAAAAAAABFABEAAAAAAAAAAABFABIAAAAAAAAAAABFABMAAAAAAAAAAABFABQAAAAAAAAAAABFABUAAAAAAAAAAABFABYAAAAAAAAAAAABABQAAAAAAAAAAAABABUAAAAAAAAAAAABABYAAAAAAAAAAAACABQAAAAAAAAAAAACABUAAAAAAAAAAAACABYAAAAAAAAAAAADABQAAAAAAAAAAAADABUAAAAAAAAAAAADABYAAAAAAAAAAAAEABQAAAAAAAAAAAAEABUAAAAAAAAAAAAEABYAAAAAAAAAAAAFABQAAAAAAAAAAAAFABUAAAAAAAAAAAAFABYAAAAAAAAAAAAPABQAAAAAAAAAAAAPABUAAAAAAAAAAAAPABYAAAAAAAAAAAAQABQAAAAAAAAAAAAQABUAAAAAAAAAAAAQABYAAAAAAAAAAAARABQAAAAAAAAAAAARABUAAAAAAAAAAAARABYAAAAAAAAAAAASABQAAAAAAAAAAAASABUAAAAAAAAAAAASABYAAAAAAAAAAAATABQAAAAAAAAAAAATABUAAAAAAAAAAAATABYAAAAAAAAAAAAdABQAAAAAAAAAAAAdABUAAAAAAAAAAAAdABYAAAAAAAAAAAAeABQAAAAAAAAAAAAeABUAAAAAAAAAAAAeABYAAAAAAAAAAAAfABQAAAAAAAAAAAAfABUAAAAAAAAAAAAfABYAAAAAAAAAAAAgABUAAAAAAAAAAAAgABYAAAAAAAAAAAAhABUAAAAAAAAAAAAhABYAAAAAAAAAAAAiABUAAAAAAAAAAAAiABYAAAAAAAAAAAAjABUAAAAAAAAAAAAjABYAAAAAAAAAAAAkABUAAAAAAAAAAAAkABYAAAAAAAAAAAAlABUAAAAAAAAAAAAlABYAAAAAAAAAAAAmABUAAAAAAAAAAAAmABYAAAAAAAAAAAAnABQAAAAAAAAAAAAnABUAAAAAAAAAAAAnABYAAAAAAAAAAAAoABQAAAAAAAAAAAAoABUAAAAAAAAAAAAoABYAAAAAAAAAAAApABQAAAAAAAAAAAApABUAAAAAAAAAAAApABYAAAAAAAAAAAAqABQAAAAAAAAAAAAqABUAAAAAAAAAAAAqABYAAAAAAAAAAAArABQAAAAAAAAAAAArABUAAAAAAAAAAAArABYAAAAAAAAAAAAsABQAAAAAAAAAAAAsABUAAAAAAAAAAAAsABYAAAAAAAAAAAAtABQAAAAAAAAAAAAtABUAAAAAAAAAAAAtABYAAAAAAAAAAAAuABQAAAAAAAAAAAAuABUAAAAAAAAAAAAuABYAAAAAAAAAAABBABQAAAAAAAAAAABBABUAAAAAAAAAAABBABYAAAAAAAAAAABCABQAAAAAAAAAAABCABUAAAAAAAAAAABCABYAAAAAAAAAAABDABQAAAAAAAAAAABDABUAAAAAAAAAAABDABYAAAAAAAAAAABEABQAAAAAAAAAAABEABUAAAAAAAAAAABEABYAAAAAAAAAAAA=")
+tile_set = ExtResource("5_8owyt")
+script = ExtResource("6_2py6k")
+
+[node name="SpawnPoint" type="Marker2D" parent="." unique_id=1316027417]
+position = Vector2(24, 160)
+
+[node name="BridgePitSpikes" parent="." unique_id=111808535 instance=ExtResource("7_5jgfg")]
+position = Vector2(48, 168)
+tile_count = 9
+
+[node name="DrawbridgeVine" parent="." unique_id=2081056233 instance=ExtResource("8_lot77")]
+position = Vector2(152, 8)
+end_point = Vector2(-28.5, 64)
+
+[node name="Drawbridge" parent="." unique_id=2054501810 node_paths=PackedStringArray("vines") instance=ExtResource("9_bflen")]
+position = Vector2(125, 116)
+rotation = -1.6057029
+platform_width = 88.0
+vines = [NodePath("../DrawbridgeVine")]
+
+[node name="SwingPitSpikes" parent="." unique_id=189697452 instance=ExtResource("7_5jgfg")]
+position = Vector2(160, 168)
+tile_count = 9
+
+[node name="SwingVineLeft" parent="." unique_id=1258940614 instance=ExtResource("8_lot77")]
+position = Vector2(156, 8)
+end_point = Vector2(0, 42)
+
+[node name="SwingVineRight" parent="." unique_id=1286938624 instance=ExtResource("8_lot77")]
+position = Vector2(236, 8)
+end_point = Vector2(0, 42)
+
+[node name="SwingPlank" parent="." unique_id=1932348335 node_paths=PackedStringArray("vines") instance=ExtResource("9_bflen")]
+position = Vector2(196, 50)
+platform_width = 88.0
+vines = [NodePath("../SwingVineLeft"), NodePath("../SwingVineRight")]
+
+[node name="CratePlate" parent="." unique_id=160844455 instance=ExtResource("10_7e8ma")]
+position = Vector2(284, 160)
+
+[node name="PlateCrate" parent="." unique_id=1865768425 instance=ExtResource("11_i0iox")]
+position = Vector2(284, 160)
+
+[node name="PlateDoor" parent="." unique_id=1873114741 node_paths=PackedStringArray("switches") instance=ExtResource("12_wr6u0")]
+position = Vector2(336, 8)
+switches = [NodePath("../CratePlate")]
+open_when_off = true
+door_size = Vector2(8, 152)
+
+[node name="BurnLeaf" parent="." unique_id=338379473 instance=ExtResource("13_pmiuq")]
+position = Vector2(360, 136)
+leaf_width = 24.0
+travel = Vector2(0, -48)
+
+[node name="LeafDiamond" parent="." unique_id=1317104436 instance=ExtResource("14_vfg6n")]
+position = Vector2(360, 78)
+
+[node name="SailPitSpikes" parent="." unique_id=98162014 instance=ExtResource("7_5jgfg")]
+position = Vector2(376, 168)
+tile_count = 18
+
+[node name="BurnSail" parent="." unique_id=132807834 instance=ExtResource("15_exhfe")]
+position = Vector2(392, 152)
+rail_start = Vector2(0, 0)
+rail_end = Vector2(128, 0)

@@ -27,8 +27,9 @@ func _ready() -> void:
 	await _check_f5_burning_grass(world, world.player)
 	await _check_f6_thicket(world, world.player)
 	await _check_f7_bonfire(world, world.player)
+	await _check_f8_burning_objects(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -1167,6 +1168,179 @@ func _check_f7_bonfire(world: RoomManager, player: Player) -> void:
 	player.respawn_at(room_f.get_spawn_position())
 	await _physics_frames(5)
 	finished_sections.append("F7")
+
+
+## Stage F8: vines (burning ropes), a drawbridge and a swinging plank, burning
+## crates, leaf platforms and sails.
+func _check_f8_burning_objects(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_g: Room = world.get_node("RoomFireG") as Room
+	var bridge_vine: Vine = room_g.get_node("DrawbridgeVine") as Vine
+	var drawbridge: HangingPlatform = room_g.get_node("Drawbridge") as HangingPlatform
+	var left_vine: Vine = room_g.get_node("SwingVineLeft") as Vine
+	var right_vine: Vine = room_g.get_node("SwingVineRight") as Vine
+	var swing_plank: HangingPlatform = room_g.get_node("SwingPlank") as HangingPlatform
+	var plate: PressurePlate = room_g.get_node("CratePlate") as PressurePlate
+	var crate: Crate = room_g.get_node("PlateCrate") as Crate
+	var plate_door: Door = room_g.get_node("PlateDoor") as Door
+	var leaf: LeafPlatform = room_g.get_node("BurnLeaf") as LeafPlatform
+	var sail: SailPlatform = room_g.get_node("BurnSail") as SailPlatform
+	var grid: FireGrid = room_g.get_node_or_null("FireGrid") as FireGrid
+	var origin: Vector2 = room_g.global_position
+	world.jump_to_room(room_g)
+	await _physics_frames(10)
+	_check(player.fire_bar.pips == 5, "Fire G gives 5 pips, got %d" % player.fire_bar.pips)
+	var all_flammable: bool = true
+	for node: Node in [bridge_vine, crate, leaf, sail]:
+		all_flammable = all_flammable and node.is_in_group(Flammable.GROUP)
+	_check(all_flammable, "vines, crates, leaf platforms and sails are flammable")
+	_check(tuning.crate_burn_time == 1.5 and tuning.leaf_platform_burn_time == 0.8,
+		"crate and leaf platform burn times start at the spec numbers (1.5, 0.8 s)")
+	_check(not room_g.has_node("VineGate"), "the vine gate is gone (F8 play-test)")
+	_check(not drawbridge.is_awake and not swing_plank.is_awake, "planks sleep while their vines hold")
+
+	# A flame only lights a vine where it touches its line.
+	_check(not left_vine.ignite_at(origin + Vector2(156 + 20, 30), 2.0, null) and not left_vine.is_burning(),
+		"a flame 20 px from a vine doesn't light it")
+
+	# 1. The drawbridge: a fireball over the plank's top cuts its vine, and the fire
+	#    runs both ways from where it hit.
+	Fireball.launch(world, origin + Vector2(20, 40), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return bridge_vine.is_burning(), 1.0)
+	var lit_ms: int = Time.get_ticks_msec()
+	await _physics_frames(3)
+	_check(bridge_vine.is_burning() and bridge_vine.front_flames[0].visible and bridge_vine.front_flames[1].visible,
+		"a fireball lights the vine mid-way and the fire runs both ways")
+	await _wait_until(func() -> bool: return bridge_vine.is_on(), 1.0)
+	var cut_seconds: float = (Time.get_ticks_msec() - lit_ms) / 1000.0
+	_check(bridge_vine.is_on() and cut_seconds < tuning.vine_cut_time + 0.12,
+		"it burns through where it was lit after about vine_cut_time (%.2f s)" % cut_seconds)
+	_check(bridge_vine.is_burning(), "the two halves keep burning after the snap")
+	await _wait_until(func() -> bool: return drawbridge.is_resting(), 4.0)
+	var low_x: float = minf(drawbridge.plank_ends[0].x, drawbridge.plank_ends[1].x) - origin.x
+	var high_x: float = maxf(drawbridge.plank_ends[0].x, drawbridge.plank_ends[1].x) - origin.x
+	var top_y: float = drawbridge.global_position.y - origin.y - HangingPlatform.PLANK_THICKNESS / 2.0
+	_check(drawbridge.is_resting() and absf(sin(drawbridge.global_rotation)) < 0.08 and absf(top_y - 156.0) < 1.5
+		and low_x < 48.0 and high_x > 120.0,
+		"the drawbridge topples and lies flat across the pit (x %.0f-%.0f, top y %.1f)" % [low_x, high_x, top_y])
+	player.respawn_at(origin + Vector2(84, 150))
+	await _physics_frames(20)
+	_check(not player.is_dead() and player.is_on_floor(), "the fallen drawbridge is a bridge over the spikes")
+	await _wait_until(func() -> bool: return bridge_vine.burn_state == Vine.BurnState.BURNT, 3.0)
+	_check(bridge_vine.burn_state == Vine.BurnState.BURNT, "both halves burn away to nothing")
+	# A burnt vine doesn't stop fireballs (F8 play-test bug).
+	var through: Fireball = Fireball.launch(world, origin + Vector2(146, 20), Vector2.LEFT, tuning, null)
+	await _physics_frames(12)
+	_check(is_instance_valid(through) and through.global_position.x < origin.x + 120.0,
+		"a fireball flies through where the burnt vine was")
+
+	# 2. The swinging plank: one vine cut, it swings on the other; both cut, it falls.
+	player.respawn_at(room_g.get_spawn_position())
+	left_vine.ignite_at(origin + Vector2(156, 30), 2.0, null)
+	await _wait_until(func() -> bool: return swing_plank.has_fallen, 1.0)
+	await get_tree().create_timer(0.6).timeout
+	var right_tie: Vector2 = swing_plank._get_point_at(swing_plank.tie_fractions[1])
+	_check(swing_plank.has_fallen and left_vine.is_on()
+		and right_tie.distance_to(right_vine.global_position) <= swing_plank.leash_lengths[1] + 1.0,
+		"with one vine cut, the plank still hangs from the other")
+	_check(swing_plank.plank_ends[0].y > swing_plank.plank_ends[1].y + 30.0,
+		"its free end has swung down (%.0f px below the tied end)" % (swing_plank.plank_ends[0].y - swing_plank.plank_ends[1].y))
+	right_vine.ignite(null)  # it has swung away from where it hung: light it wherever it is
+	await _wait_until(func() -> bool: return swing_plank.is_resting() or swing_plank.is_gone, 6.0)
+	_check(swing_plank.is_resting() and swing_plank.global_position.y > origin.y + 100.0,
+		"with both cut it falls and comes to rest below (y %.0f)" % (swing_plank.global_position.y - origin.y))
+
+	# 3. The crate on the plate: lit, it kills, lights the grass, collapses; the plate lifts, the door opens.
+	_check(plate.is_on() and plate_door.open_amount == 0.0, "the crate holds the plate down and its door shut")
+	player.respawn_at(origin + Vector2(244, 160))
+	await _physics_frames(5)
+	Fireball.launch(world, origin + Vector2(250, 150), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return crate.is_burning(), 1.0)
+	_check(crate.is_burning() and crate.fire_hazard.active, "a fireball sets the crate burning (a deadly flame)")
+	await _wait_until(func() -> bool: return grid != null and grid.get_state(Vector2i(35, 20)) == FireGrid.State.BURNING, 1.0)
+	_check(grid != null and grid.get_state(Vector2i(35, 20)) == FireGrid.State.BURNING,
+		"the burning crate lights the grass under it")
+	await _wait_until(func() -> bool: return crate.burn_state == Crate.BurnState.GONE, 2.5)
+	_check(crate.burn_state == Crate.BurnState.GONE and not crate.is_in_group(PressurePlate.HEAVY_GROUP),
+		"after crate_burn_time it collapses and is gone")
+	await _wait_until(func() -> bool: return plate_door.open_amount >= 1.0, 1.5)
+	_check(not plate.is_on() and plate_door.open_amount >= 1.0, "with the crate gone the plate lifts and the door opens")
+	_check(not player.is_dead(), "standing on the earth next to the grass is safe")
+	await get_tree().create_timer(tuning.burn_time * 1.3 + 0.5).timeout  # let the grass burn out
+
+	# R brings everything back.
+	room_g.reset_objects()
+	await _physics_frames(10)
+	_check(bridge_vine.burn_state == Vine.BurnState.INTACT and not bridge_vine.is_on()
+		and not left_vine.is_on() and not right_vine.is_on(), "R grows the vines back")
+	_check(drawbridge.global_transform.is_equal_approx(drawbridge.start_transform)
+		and swing_plank.global_transform.is_equal_approx(swing_plank.start_transform)
+		and not drawbridge.is_awake and not swing_plank.has_fallen, "R puts both planks back where they were")
+	_check(plate_door.open_amount == 0.0, "R shuts the door")
+	_check(crate.burn_state == Crate.BurnState.SOLID and plate.is_on() and crate.is_in_group(PressurePlate.HEAVY_GROUP),
+		"R brings the crate back onto its plate")
+
+	# A burning crate kills on touch.
+	player.respawn_at(origin + Vector2(284, 144))
+	await _physics_frames(10)
+	crate.ignite(null)
+	await _physics_frames(3)
+	_check(player.is_dead(), "standing on a burning crate kills")
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
+	_check(crate.burn_state == Crate.BurnState.SOLID and not crate.fire_hazard.active, "dying puts the crate out")
+
+	# The jet's flame catches a crate late (F8 play-test: jetting up off a crate killed you).
+	crate.ignite(player.get_node("FlameJetAbility"))
+	await _physics_frames(5)
+	_check(not crate.is_burning() and crate.catch_remaining > 0.0, "the jet's flame makes a crate glow first, not burn")
+	await get_tree().create_timer(tuning.crate_jet_catch_delay).timeout
+	_check(crate.is_burning(), "it catches crate_jet_catch_delay later (%.2f s)" % tuning.crate_jet_catch_delay)
+
+	# Fire by the coils round the plank lights the vine (F8 play-test).
+	room_g.reset_objects()
+	await _physics_frames(5)
+	right_vine.ignite_at(origin + Vector2(226, 50), 3.0, null)
+	_check(right_vine.is_burning(), "fire on the plank by a vine's coils lights the vine")
+	room_g.reset_objects()
+	await _physics_frames(5)
+
+	# 4. A leaf platform burns away under you without killing you; then you fall.
+	player.respawn_at(origin + Vector2(360, 135))
+	await _physics_frames(10)
+	_check(player.is_on_floor(), "standing on the leaf platform")
+	leaf.ignite(null)
+	await get_tree().create_timer(tuning.leaf_platform_burn_time * 0.5).timeout
+	_check(leaf.is_burning() and not player.is_dead() and player.is_on_floor(), "a burning leaf holds you and doesn't kill")
+	await _wait_until(func() -> bool: return leaf.burn_state == LeafPlatform.BurnState.GONE, 1.0)
+	await _physics_frames(5)
+	_check(leaf.burn_state == LeafPlatform.BurnState.GONE and not player.is_on_floor(),
+		"after leaf_platform_burn_time it's gone and you fall")
+
+	# 5. A burning sail stops catching wind and coasts, without friction, to the end of its rail.
+	player.respawn_at(room_g.get_spawn_position())
+	sail.receive_gust(Vector2.RIGHT, 160.0)
+	await _physics_frames(5)
+	sail.ignite(null)
+	var coast_speed: float = sail.rail_speed
+	await _physics_frames(10)
+	_check(sail.is_burning() and coast_speed > 0.0 and is_equal_approx(sail.rail_speed, coast_speed),
+		"a burning sail keeps its speed (no friction): %.1f px/s" % sail.rail_speed)
+	sail.receive_gust(Vector2.LEFT, 160.0)
+	_check(is_equal_approx(sail.rail_speed, coast_speed), "a gust no longer moves a burning sail")
+	await _wait_until(func() -> bool: return sail.rail_speed == 0.0, 3.0)
+	_check(is_equal_approx(sail.distance_along_rail, 128.0) and sail.sail_state == SailPlatform.SailState.BURNT,
+		"it coasts to the end of its rail and stops there, the sail burnt")
+	_check(sail.sail_area.collision_layer & Flammable.LAYER_BIT == 0, "a burnt sail no longer stops fireballs")
+
+	room_g.reset_objects()
+	await _physics_frames(5)
+	_check(leaf.burn_state == LeafPlatform.BurnState.LEAF and sail.sail_state == SailPlatform.SailState.CLOTH
+		and is_equal_approx(sail.distance_along_rail, sail.start_distance)
+		and sail.sail_area.collision_layer & Flammable.LAYER_BIT != 0,
+		"R brings back the leaf and the sail")
+	player.respawn_at(room_g.get_spawn_position())
+	await _physics_frames(5)
+	finished_sections.append("F8")
 
 
 # --- Helpers ---------------------------------------------------------------------

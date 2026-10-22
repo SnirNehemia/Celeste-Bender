@@ -26,6 +26,13 @@ extends AnimatableBody2D
 ##
 ## The body is on physics layer 1 ("world", so you can stand on it) and layer 4
 ## ("pushable"), and it is the node the gust finds (Pushable contract, pushable.gd).
+##
+## Fire (Fire_bending.md §6.2, Stage F8): the leaf is FLAMMABLE (contract in
+## scenes/objects/fire/flammable.gd; fireballs hit its body on layer 1). Lit, it
+## burns away in `leaf_platform_burn_time` (FireTuning, 0.8 s): it blackens and curls
+## from both tips while flames run along it, then it crumbles to ash and is gone
+## (no collision) until death or R. It is NOT a FireHazard: the burn is your time to
+## jump off (decided in Stage F8). It keeps riding its rail while it burns.
 
 ## Not in the §2 color key: an olive-green leaf, paler while away from home.
 const LEAF_COLOR: Color = Color(0.5, 0.72, 0.28)
@@ -41,6 +48,13 @@ const PINWHEEL_BLADE_LENGTH: float = 3.5
 ## Pinwheel spin speeds, radians/s: driven out by the wind, and drifting home.
 const PINWHEEL_DRIVEN_SPEED: float = 25.0
 const PINWHEEL_RETURN_SPEED: float = -4.0
+## A burning leaf blackens toward this.
+const CHARRED_COLOR: Color = Color(0.12, 0.1, 0.08)
+const ASH_FLAKE_COLORS: Array[Color] = [Color("#4A4545"), Color("#7A7470"), Color("#5E5858")]
+## Flame tongues spread along a burning leaf.
+const FLAME_COUNT: int = 3
+
+enum BurnState { LEAF, BURNING, GONE }
 
 ## Width of the leaf, px.
 @export var leaf_width: float = 32.0:
@@ -72,6 +86,11 @@ var hover_remaining: float = 0.0
 var pinwheel_angle: float = 0.0
 var pinwheel_speed: float = 0.0
 
+var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
+var burn_state: BurnState = BurnState.LEAF
+var burn_remaining: float = 0.0
+var flames: Array[FlameTongue] = []
+
 var surface: CollisionShape2D
 
 
@@ -88,11 +107,33 @@ func _ready() -> void:
 	home_position = position
 	add_to_group(Pushable.GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
+	add_to_group(Flammable.GROUP)
+	var flame_merge: FlameMerge = FlameMerge.make(self)
+	for flame_index: int in FLAME_COUNT:
+		var flame: FlameTongue = FlameTongue.new()
+		flame.position = Vector2(((flame_index + 0.5) / FLAME_COUNT - 0.5) * leaf_width * 0.8, 1.0)
+		flame.length = 7.0
+		flame.base_width = 5.0
+		flame.fan_width = 6.0
+		flame.heat = 0.5
+		flame.lick_rate = 4.0
+		flame.lick_size = 2.5
+		flame.smoke_rate = 3.0 if flame_index == 1 else 0.0
+		flame.z_index = 1
+		flame.visible = false
+		add_child(flame)
+		flame_merge.add_tongue(flame)
+		flames.append(flame)
 
 
 func _physics_process(delta: float) -> void:
-	if Engine.is_editor_hint():
+	if Engine.is_editor_hint() or burn_state == BurnState.GONE:
 		return
+	if burn_state == BurnState.BURNING:
+		burn_remaining -= delta
+		if burn_remaining <= 0.0:
+			_crumble()
+			return
 	var rail_length: float = travel.length()
 	var target_pinwheel_speed: float = 0.0
 	if is_driven:
@@ -124,12 +165,61 @@ func _physics_process(delta: float) -> void:
 ## The Pushable contract: any gust (direction and strength don't matter) sends it
 ## to the far end again, even if it's partway home.
 func receive_gust(_direction: Vector2, _strength: float) -> void:
+	if burn_state == BurnState.GONE:
+		return
 	is_driven = true
 	hover_remaining = 0.0
 
 
+# --- The Flammable contract (Stage F8) -----------------------------------------------
+
+func ignite(_source: Node) -> void:
+	if burn_state != BurnState.LEAF:
+		return
+	burn_state = BurnState.BURNING
+	burn_remaining = fire_tuning.leaf_platform_burn_time
+	for flame: FlameTongue in flames:
+		flame.visible = true
+	EmberEmitter.burst(get_parent(), global_position, 6, Vector2.UP, 160.0, 50.0)
+	FX.play_sfx(&"fire_ignite")
+
+
+func is_burning() -> bool:
+	return burn_state == BurnState.BURNING
+
+
+## Gusts against fire come in Stage F10.
+func snuff() -> void:
+	pass
+
+
+## The leaf, in world coordinates (top surface down to its belly).
+func get_fire_rect() -> Rect2:
+	if burn_state == BurnState.GONE:
+		return Rect2()
+	return Rect2(global_position + Vector2(-leaf_width / 2.0, -1.0), Vector2(leaf_width, 6.0))
+
+
+## Burnt away: ash falls, and the leaf is gone (no collision) until death or R.
+func _crumble() -> void:
+	burn_state = BurnState.GONE
+	for flame: FlameTongue in flames:
+		flame.visible = false
+	# Deferred: physics shapes can't change in the middle of a physics step.
+	surface.set_deferred("disabled", true)
+	AshFall.spawn(get_parent(), global_position + Vector2(0.0, 2.0), 16, Vector2(leaf_width, 4.0), 0.3)
+	PebbleField.leave_ash(get_tree(), global_position, 4, Vector2(leaf_width, 2.0), ASH_FLAKE_COLORS)
+	SmokePuff.spawn(get_parent(), global_position, 3)
+	queue_redraw()
+
+
 ## Called by Room.reset_objects() when the player dies or restarts the room.
 func reset() -> void:
+	if burn_state != BurnState.LEAF:
+		burn_state = BurnState.LEAF
+		for flame: FlameTongue in flames:
+			flame.visible = false
+		surface.set_deferred("disabled", false)
 	is_driven = false
 	hover_remaining = 0.0
 	distance_along_rail = 0.0
@@ -153,8 +243,14 @@ func _draw() -> void:
 	if not Engine.is_editor_hint():
 		home_local = home_position - position
 	RailTrack.draw(self, home_local + PINWHEEL_HUB, home_local + travel + PINWHEEL_HUB)
+	if burn_state == BurnState.GONE:
+		return  # only the rail is left
 
-	var half_width: float = leaf_width / 2.0
+	# Burning: the leaf shrinks in from both tips as it curls, and blackens.
+	var burnt_amount: float = 0.0
+	if burn_state == BurnState.BURNING:
+		burnt_amount = 1.0 - clampf(burn_remaining / maxf(fire_tuning.leaf_platform_burn_time, 0.01), 0.0, 1.0)
+	var half_width: float = leaf_width / 2.0 * (1.0 - burnt_amount * 0.4)
 	# A leaf shape: flat top (the walkable surface), curved belly underneath.
 	var leaf: PackedVector2Array = PackedVector2Array([
 		Vector2(-half_width, 1.0), Vector2(-half_width * 0.6, 0.0),
@@ -162,8 +258,10 @@ func _draw() -> void:
 		Vector2(half_width * 0.6, 3.5), Vector2(0.0, 4.5), Vector2(-half_width * 0.6, 3.5),
 	])
 	var is_away: bool = distance_along_rail > 0.0 or is_driven
-	draw_colored_polygon(leaf, LEAF_AWAY_COLOR if is_away else LEAF_COLOR)
-	draw_line(Vector2(-half_width + 2.0, 2.0), Vector2(half_width - 2.0, 2.0), VEIN_COLOR, 1.0)
+	var leaf_color: Color = LEAF_AWAY_COLOR if is_away else LEAF_COLOR
+	draw_colored_polygon(leaf, leaf_color.lerp(CHARRED_COLOR, burnt_amount))
+	draw_line(Vector2(-half_width + 2.0, 2.0), Vector2(half_width - 2.0, 2.0),
+		VEIN_COLOR.lerp(Color("#E8431A"), burnt_amount), 1.0)
 	# A little stem off the right tip.
 	draw_line(Vector2(half_width, 1.0), Vector2(half_width + 3.0, -1.0), VEIN_COLOR, 1.0)
 

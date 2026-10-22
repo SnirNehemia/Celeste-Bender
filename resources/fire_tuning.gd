@@ -302,3 +302,28 @@ extends Resource
 ## before it flares into a fire diamond (Fire_bending.md §4.3, §9.3).
 @export var conversion_wipe_time: float = 0.25
 @export var conversion_spark_count: int = 10
+
+@export_group("Burning objects")
+## A vine lit at any point burns through THERE after vine_cut_time seconds and snaps
+## (what it held is let go); meanwhile the fire runs outward both ways along the two
+## hanging halves at vine_burn_speed px/s. Each burnt piece glows, chars and drops
+## off vine_char_time seconds after the fire reached it (Fire_bending.md §6.2, F8
+## play-test).
+@export var vine_cut_time: float = 0.15
+@export var vine_burn_speed: float = 110.0
+@export var vine_char_time: float = 0.25
+## A burning crate is a deadly flame for this long, seconds, then collapses into ash
+## and is gone until R (§6.2: 1.5 s).
+@export var crate_burn_time: float = 1.5
+## While it burns, a crate lights flammables (grass under it) within this many px.
+@export var crate_ignite_reach: float = 3.0
+## A crate lit by the JET catches this many seconds later (it smokes and glows
+## meanwhile), like grass does (spread_delay) but a little longer: jetting up off a
+## crate must not kill you on the spot (F8 play-test). Fireballs light it at once.
+@export var crate_jet_catch_delay: float = 0.45
+## A leaf platform burns away in this many seconds (§6.2: 0.8 s). It is harmless
+## while it burns: that's your time to jump off.
+@export var leaf_platform_burn_time: float = 0.8
+## A sail's cloth burns away in this many seconds; then it no longer catches wind and
+## the platform coasts to the end of its rail (§6.2).
+@export var sail_burn_time: float = 0.6
