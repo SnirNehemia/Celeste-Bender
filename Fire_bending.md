@@ -183,6 +183,8 @@ Fire can **burn its way through** plant terrain. That is how Fire opens paths an
 
 ### 6.4 Hot-air objects
 
+> **Dropped (after Stage F9 was built and play-tested, 22 Oct 2026):** balloons, heat sails and heated windmills are not in the game. Fire's continuous-push puzzles will come from steam (Fire + Water, Water chapter). See §13 "Decided after Stage F9".
+
 These are moved by **hot updrafts** (§5.3), never by the player directly. They give fire a **continuous** push, in contrast to the gust's discrete shoves. They're objects, not abilities, so they work in Fire-only rooms. All of them join the `heat_receiver` group.
 
 | Object | Behavior |
@@ -333,8 +335,8 @@ Planned in Stage F0 (replaces the first 9-stage draft): the jet comes right afte
 | **F6** | Thicket tiles (burn through their volume, crumble to open air) + overgrown covers (flash-over) | A thicket wall burns open; a thicket floor drops you; a cover flashes over to reveal a chamber |
 | **F7** | Leaf pile → bonfire, hot updrafts (`WindZone.heat`, `heat_receiver` group), air diamond conversion | A bonfire lifts a glide; a burnt pile's hidden crystal becomes a fire diamond |
 | **F8** | Vines; Air objects burn (crate, leaf platform, sail) | A vine burns and drops what it held; a crate burns off a plate |
-| **F9** | Hot-air objects: balloon, heat sail, windmill heat spin | A bonfire lifts a balloon; burning grass spins an out-of-reach windmill and steps a heat sail |
-| **F10** | Gust vs fire (§5.4: snuff, bonfire flare) and gusts boosted in hot updrafts | A gust snuffs grass and flares a bonfire, and the balloon surges |
+| **F9** (dropped) | Hot-air objects: balloon, heat sail, windmill heat spin | A bonfire lifts a balloon; burning grass spins an out-of-reach windmill and steps a heat sail |
+| **F10** (done in F7, rest dropped) | Gust vs fire (§5.4: snuff, bonfire flare) and gusts boosted in hot updrafts | A gust snuffs grass and flares a bonfire, and the balloon surges |
 | **F11** | `ElementImmunity`; wisp/sentry/orb fire hooks; Leafling (torch run, updraft lift, snuffed by gusts) | A lit leafling carries fire across a gap; fire kills wisps and sentries as written |
 | **F12** | Shell (big rock only) | Every cell of the §7.2 table behaves as written, in a test room |
 | **F13** | Look & feel pass (§9) across every source, SFX hooks | It looks alive in a still screenshot *and* in motion |
@@ -351,7 +353,7 @@ A basic flame (one `FlameTongue` + embers) exists from F3, so every later stage 
 4. **Ember Diamonds:** the first fire diamonds, double-tick, and converting air diamonds across a gap with a fireball.
 5. **Jet:** the flame jet. A diamond chain is a fuel route; taking off from grass lights a fire behind you that chases you to the next safe ledge.
 6. **Hidden Heat:** leaf piles hide air diamonds; burning a pile converts what it hid. An overgrown cover hides a chamber with a fire diamond: find the tell, light the fuse.
-7. **Hot Air:** light a bonfire under a balloon to ride it up; a grass run steps a heat sail across a pit; an out-of-reach windmill spins while the grass below it burns. Don't set the balloon on fire.
+7. **Hot Air** (needs a new idea: its hot-air objects were dropped with F9)**:** light a bonfire under a balloon to ride it up; a grass run steps a heat sail across a pit; an out-of-reach windmill spins while the grass below it burns. Don't set the balloon on fire.
 8. **Leaflings:** the fire enemy. Kill them with fireballs, or light one as a moving fuse to reach a brazier behind a gap. Wisps return too.
 9. **Wildfire:** scrolling room. A grass fire is lit behind you at the start and the front chases you. Shells you can't kill block the way, so burn thicket floors to drop them, or ride over them. Sentries cover the end.
 10. **Summit:** everything together, the Goal.
@@ -359,9 +361,7 @@ A basic flame (one `FlameTongue` + embers) exists from F3, so every later stage 
 **Mixed test rooms:**
 - **Air + Fire:**
   - bonfire elevators with glide
-  - gust a bonfire into a flare to pump a balloon higher
   - snuff a grass fire to make a safe path
-  - enhanced gusts in hot updrafts pushing heavy loads
   - a burning sail platform
 - **Earth + Fire:**
   - a Shell and leaflings together (boulders for one, fire for the other)
@@ -498,6 +498,12 @@ These were agreed when planning the build. Where they differ from the sections a
 - New FireTuning group "Burning objects": `vine_cut_time`, `vine_burn_speed`, `vine_char_time`, `crate_burn_time`, `crate_ignite_reach`, `crate_jet_catch_delay`, `leaf_platform_burn_time`, `sail_burn_time`.
 - **Fire G** test room (560×180): a drawbridge plank standing on a pit's far rim, a plank hung from two vines over a second pit (swings, falls), a crate on a plate holding a door shut over grass, and a leaf platform and a sail to burn.
 
+### Decided after Stage F9 (dropped) and F10 (covered)
+
+- **Stage F9 dropped** (developer's call after it was built: "didn't like it"). No balloon, heat sail or heated windmill; the work was reverted, not committed. Fire will get its continuous-push puzzles with Water, as steam. Hot updrafts keep only one job: lifting a glider (and, in F11, leaflings).
+- **Stage F10 counted as done** by the F7 play-test work: gusts snuff burning grass and thicket, and a close gust scatters a bonfire and blows out lone embers. The bonfire **flare** (§5.4, §9.3) is replaced by the scatter. Dropped: snuffing fireballs, vine burns and burning crates by gust, and the ×1.5 boosted gust from inside a hot updraft (§5.3 item 2). `snuff()` stays a no-op on vines, crates and sails.
+- Room 7 ("Hot Air") of §12 needs a new idea before Stage F14.
+
 ### Play-test log
 
 *Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*
@@ -510,7 +516,6 @@ Open questions to answer in play-test:
 - Leafling torch run: chaotic in a fun way, or unfair? Is 1.5 s right, and should it run toward the player or keep its direction?
 - Shell: does a falling loose big rock count as a kill?
 - Overgrown covers: is the tell readable enough without being obvious?
-- Balloon envelope burning: a good trap, or too easy to trigger by accident with your own jet?
 - Crates burning away: fun puzzle, or a frustrating way to lose a needed object?
 - Should the fireball aim root you on the ground, or let you keep walking slowly?
 

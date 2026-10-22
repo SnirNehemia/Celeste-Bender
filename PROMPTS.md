@@ -12,7 +12,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
 - Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [x] E5 · [x] E6 · [x] E7
-- Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · [ ] F9 · [ ] F10 · [ ] F11 · [ ] F12 · [ ] F13 · [ ] F14 · [ ] F15
+- Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · ~~F9~~ (dropped) · [x] F10 (covered by F7) · [ ] F11 · [ ] F12 · [ ] F13 · [ ] F14 · [ ] F15
 
 ---
 
@@ -205,12 +205,16 @@ Every Fire stage adds its test room to `tests/fire_test_world.tscn` (rooms gener
 
 **You should see:** a fireball cuts a vine: a glowing line runs along it, it snaps and the platform drops. A vine gate burns open. A burning crate on a plate collapses into ash and the plate lifts. R brings everything back.
 
-## Stage F9 — Hot-air objects
+## Stage F9 — Hot-air objects (DROPPED)
+**Dropped after building it (22 Oct 2026, developer's call):** the balloon, heat sail and heated windmill didn't add enough. Fire's continuous-push puzzles will come from Fire + Water making steam (Water chapter). Hot updrafts stay as the glide's elevator only. Don't build this stage; the text below is kept for reference.
+
 > Read Fire_bending.md §6.4, §9.3 (balloon, heat sail) and §13. Add the balloon platform (an envelope over a 16 px basket whose top is a solid platform; it rises up to `balloon_rise_speed` while its mouth is in a hot updraft and sinks at `balloon_sink_speed` back to its rest point otherwise; the envelope is flammable, burns in `balloon_envelope_burn_time` and the basket drops) and the heat sail (a platform on a rail pushed toward its drive end while a hot updraft overlaps its sail, slowing to a stop outside heat; the sail is flammable). Windmills join `heat_receiver`: a hot updraft under the blades spins them and holds the door open; when the heat stops they wind down and the normal door timer starts. Test room Fire H: a bonfire under a balloon, a grass run under a heat sail across a pit, an out-of-reach windmill over grass.
 
 **You should see:** light the pile under the balloon and it rises to the top and stays; ride it up. Burning grass under the rail moves the heat sail in steps across the pit. Lighting the grass under the windmill spins it and opens its door until the fire dies. A careless jet sets the balloon's envelope on fire and the basket drops.
 
-## Stage F10 — Gust against fire
+## Stage F10 — Gust against fire (DONE in F7, rest dropped)
+**Covered by the F7 play-test work** (Fire_bending.md §13 "Decided in Stage F7"): a gust snuffs burning grass and thicket, a close gust scatters a bonfire (this replaced the flare) and blows out lone embers. The rest is dropped: a gust doesn't snuff fireballs, stop vine burns or char burning crates, and there is no boosted gust in hot updrafts. The text below is kept for reference.
+
 > Read Fire_bending.md §5.3 (gusts), §5.4, §9.3 (bonfire flare, snuff) and §13. In rooms with Air and Fire, a gust acts on fire inside its cone (an all-around gust in its radius): a burning grass or thicket cell turns to ash at once (already done in the F7 play-test: `FireGrid.snuff_in`; burning leaves too), a fireball in flight is snuffed, a vine burn stops, a burning crate is charred (still solid, can be lit again); braziers aren't affected; a bonfire flares for `bonfire_flare_time` (flame ×1.6, blue base, updraft ×1.5, gusting again restarts it). A gust fired from inside a hot updraft gets ×1.5 force and ×1.25 cone length, tinted orange with sparks (`WindZone.gust_multiplier`). Test room Fire I (Air + Fire): a grass fire to snuff into a safe path, a bonfire to flare under a balloon, a heavy push only a boosted gust manages.
 
 **You should see:** a gust at burning grass blows it out into ash and the fire stops there. A gust at a bonfire makes it flare with a blue base and the balloon surges up. A gust from inside a hot updraft is orange and pushes further.
@@ -238,7 +242,7 @@ Every Fire stage adds its test room to `tests/fire_test_world.tscn` (rooms gener
 ## Stage F15 — Mixed test rooms
 > Read Fire_bending.md §12 (mixed test rooms) and §13. Build the Air + Fire and Earth + Fire test rooms from §12 into their own test worlds (like tests/mixed_test_world.tscn) and add "Air + Fire test rooms" and "Earth + Fire test rooms" to the main menu.
 
-**You should see:** Air + Fire: bonfire glide elevators, a flared bonfire pumping a balloon, a snuffed safe path, boosted gusts, a burning sail. Earth + Fire: a Shell with leaflings, a leafling launched by a column into a leaf pile, a rock foothold next to a thicket wall you burn open.
+**You should see:** Air + Fire: bonfire glide elevators, a snuffed safe path, a burning sail (the balloon and boosted gusts were dropped with F9/F10). Earth + Fire: a Shell with leaflings, a leafling launched by a column into a leaf pile, a rock foothold next to a thicket wall you burn open.
 
 ---
 
