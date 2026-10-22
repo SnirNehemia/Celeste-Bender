@@ -16,7 +16,8 @@ extends WindCrystal
 ##
 ## gain_fire_pips() returns false when the bar is already full (or fire isn't allowed
 ## in the room), so brushing past with a full bar doesn't waste the diamond.
-## Later (Stage F7), flames turn wind crystals and gust diamonds into these.
+## Since Stage F7, flames turn wind crystals and gust diamonds into these
+## (WindCrystal.ignite: the air diamond hides and spawns one of these in its place).
 
 ## Fire palette (Fire_bending.md §9.1): the diamond is the orange body color with a
 ## red-orange rim; the inner flame is yellow with a pale core.
@@ -54,6 +55,8 @@ func _init() -> void:
 	respawning_color = Color(DIAMOND_COLOR, 0.0)  # gone, not dimmed (see _use_up)
 	pickup_sound = &"fire_diamond"
 	respawns = false
+	fire_pip_value = 0  # already fire: nothing to convert
+	has_air_look = false  # its own rim and flames (_build_look)
 
 
 func _ready() -> void:

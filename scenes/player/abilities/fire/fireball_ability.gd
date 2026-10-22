@@ -198,6 +198,7 @@ func _build_held_flame() -> void:
 	core.material = additive
 	held_flame.add_child(core)
 	core.draw.connect(_draw_held_core.bind(core))
+	var flame_merge: FlameMerge = FlameMerge.make(held_flame)  # the two tongues as one flame
 	for tongue_index: int in 2:
 		var tongue: FlameTongue = FlameTongue.new()
 		tongue.position = Vector2(-1.0 + tongue_index * 2.0, 0.0)
@@ -213,6 +214,7 @@ func _build_held_flame() -> void:
 		tongue.smoke_rate = 3.0
 		tongue.smoke_lifetime = 0.5
 		held_flame.add_child(tongue)
+		flame_merge.add_tongue(tongue)
 		held_tongues.append(tongue)
 
 

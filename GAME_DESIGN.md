@@ -78,7 +78,7 @@ Each ability lists its movement, puzzle and combat use.
 
 ### 5.1 Air Dash (X)
 - Burst of 240 px/s in the aimed direction (8 directions; default = facing) for 0.15 s, ignores gravity during the dash.
-- **1 charge**, refilled on touching ground or touching a **wind crystal** (floating green diamond that respawns after 2.5 s).
+- **1 charge**, refilled on touching ground or touching a **wind crystal** (floating very light blue diamond with wind blowing inside; respawns after 2.5 s).
 - Brief freeze frame (~3 frames) on dash start + small screen shake + afterimage trail.
 - **Wake:** the dash blows a small gust *backward* from its start point (cone 24 px, push 120 px/s vs the gust's 40 px / 160). It looks like the gust and pushes Pushable things behind you. Toggle: `dash_wake_enabled`.
 - **Movement:** cross gaps, reach ledges, chain off crystals.
@@ -105,7 +105,7 @@ Each ability lists its movement, puzzle and combat use.
 ### 5.3 Gust (Z)
 - Short-range blast (a cone ~40 px long; was 32) in the aimed direction. 0.6 s cooldown (mostly matters on the ground; in the air the charge is the limit).
 - **One gust per jump** (`gust_charges_per_airtime = 1`, 0 = unlimited): every gust in the air, aimed or neutral, spends the airtime's **charge**. **Landing** refills it (only landing: not wall slides or wall jumps, same rule as dash and breath). **Ground gusts are free.** A **wind crystal** gives the charge back (to 1). Pressing gust in the air with no charge plays the small "fizzle" puff. The charges show as small **white pips above the player** while airborne (faint = spent).
-- **Gust diamond** (blue, white core): sets the charges to **2 for the current airtime only** (`gust_diamond_charges`); the next landing brings you back to 1, used or not. It does nothing on the ground or if you already have 2 (so it isn't wasted), and respawns like a wind crystal. Placed where a jump needs two gusts (room 7's climb).
+- **Gust diamond** (the same light blue, bigger, with more wind inside): sets the charges to **2 for the current airtime only** (`gust_diamond_charges`); the next landing brings you back to 1, used or not. It does nothing on the ground or if you already have 2 (so it isn't wasted), and respawns like a wind crystal. Placed where a jump needs two gusts (room 7's climb).
 - **Recoil:** the player is pushed the *opposite* way (120 px/s). **On the ground** the sideways recoil is halved (`gust_ground_recoil_multiplier`) and braked by strong friction (`gust_ground_recoil_friction`), so you can knock an enemy off a platform without sliding off yourself. Gusting down mid-air acts as an extra jump (`gust_down_boost_speed`). It sets the upward speed, so it also works mid-fall. There is no separate down-boost count any more: the down-gust is simply the airtime's one gust.
 - **Neutral gust (no arrow held):** a burst in *all* directions (circle, 28 px radius) that pushes everything nearby straight away from the player. No recoil: instead it is an **air brake**: for 0.2 s gravity is off and the player's speed slows toward a stop (a hard stop on the ground). Mid-air it is followed by a **float** (0.4 s): quarter gravity, fall capped at 25 px/s, full steering, so the player drifts down gently and is in control when it ends. Glide, dash and jumps can cut the float short.
 - **Hold to aim (experimental, `gust_hold_to_aim`, on by default):** holding Z slows time (×0.25) and the arrows only aim (no steering), with a cone preview. Releasing Z fires; a tap fires almost at once; holding over 0.4 s real time fires by itself. This solves "running right, want to gust left". Off = the gust fires the instant Z is pressed.
@@ -135,7 +135,7 @@ Each ability lists its movement, puzzle and combat use.
 | Spikes | Instant death on touch (with a fair, slightly smaller hitbox) |
 | Wind zone | Constant force in one direction while inside (horizontal currents or updrafts) |
 | Wind crystal | Refills dash (or breath) and the gust charge on touch; respawns after 2.5 s, or at once when the room resets |
-| Gust diamond | Blue diamond with a white core: two gust charges for the current airtime (§5.3); respawns after 2.5 s, or at once when the room resets |
+| Gust diamond | Bigger light blue diamond (the wind crystal's color) with more wind inside: two gust charges for the current airtime (§5.3); respawns after 2.5 s, or at once when the room resets |
 | Crate | Pushable box with its own simple physics (not a RigidBody): a gust slides it a predictable ~40 px. Can rest on pressure plates; player can stand on it. The player can't push it by walking, only with air. |
 | Pressure plate | Active while something **heavy** (a crate) sits on it. The player doesn't count, so crate puzzles can't be skipped. |
 | Windmill | Gust-activated timer (4 s, refreshed by each gust) that powers a linked door. Blades slow down over the last second as a warning. |

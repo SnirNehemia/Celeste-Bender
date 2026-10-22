@@ -63,6 +63,8 @@ var sputter_elapsed: float = -1.0
 ## The visuals (built in _ready). The plume is a sheaf of tongues, rebuilt when
 ## jet_plume_tongue_count changes (so the F5 panel can change it live).
 var plume_tongues: Array[FlameTongue] = []
+## Draws the nozzle and the plume tongues as one flame (no outlines between them).
+var plume_merge: FlameMerge
 ## Per tongue: a fixed length factor (outer tongues shorter, plus a random nudge), so
 ## the tips never line up.
 var tongue_length_factors: Array[float] = []
@@ -236,6 +238,9 @@ func _build_plume() -> void:
 	nozzle.breath_amount = 0.0  # its flicker is done by hand below (±3 px)
 	nozzle.visible = false
 	add_child(nozzle)
+	plume_merge = FlameMerge.make(self)
+	plume_merge.name = "PlumeMerge"
+	plume_merge.add_tongue(nozzle)
 	plume_embers = EmberEmitter.new()
 	plume_embers.name = "PlumeEmbers"
 	plume_embers.amount = 24
@@ -313,6 +318,7 @@ func _rebuild_plume_tongues(count: int) -> void:
 		tongue.breath_amount = 0.3  # more length breathing than a lone flame: ragged tips
 		tongue.visible = false
 		add_child(tongue)
+		plume_merge.add_tongue(tongue)
 		plume_tongues.append(tongue)
 		# Middle tongues longest, outer ones down to ~65%, with a random nudge.
 		var spread_position: float = _get_spread_position(index, count)

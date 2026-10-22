@@ -1,0 +1,353 @@
+class_name LeafFire
+extends Node
+## LeafFire (Stage F7, F7 play-test): the fire of ONE LeafPile. The leaves are what
+## burns, not the pile: every leaf has its own fire state, wherever it is (still in
+## the heap, blown across the room, falling).
+##
+##   UNLIT -> BURNING -> GONE
+##            a little ember: harmless to the player, lights unlit leaves within
+##            leaf_spread_radius after ~leaf_spread_delay, and every
+##            leaf_ignite_interval lights flammables within leaf_ignite_reach
+##            (grass, air diamonds, other piles). A lone one burns out after
+##            leaf_burn_time (± leaf_burn_jitter); then it's gone (a flake of ash).
+##
+## BONFIRES: wherever at least bonfire_min_leaves burning leaves LIE together
+## (resting, not falling: in touching cells of bonfire_cluster_cell px), a Bonfire
+## stands over them, as wide as the heap. Its leaves are HELD: they don't burn out
+## while it lasts (bonfire_duration, 0 = until R); when it runs out they all burn
+## away at once. Blow the heap apart (a close gust launches its leaves) and the
+## bonfire goes out, while the leaves fly on, still burning, as a spray of embers
+## that may light grass or form a new bonfire where enough land together. Gust a
+## cloud of leaves up and light it, and it rains embers.
+##
+## The pile makes this node (its child) the first time anything lights it, so piles
+## that never burn (Air rooms) never pay for it. The pile keeps moving the leaves
+## (flying, landing, stacking); this node only reads their positions and tells the
+## pile when one is gone (LeafPile.remove_leaf).
+##
+## Cost (see Fire_bending.md §13 "F7 play-test"): nothing while no leaf burns. While
+## some do, per physics frame: one pass over the live leaves to bucket them (spread
+## lookups and heap detection), a flood fill over the heap's cells, and the ignite
+## checks of the burning leaves (each leaf only every leaf_ignite_interval).
+
+enum LeafState { UNLIT, BURNING, GONE }
+
+## Buckets for "which leaves are near this point", px. Bigger than the spread radius,
+## so a lookup only needs the 3x3 buckets around a leaf.
+const SPREAD_BUCKET: float = 4.0
+## Every this many burnt-out leaves leaves a flake of ash in the room's PebbleField.
+const LEAVES_PER_ASH_FLAKE: int = 3
+## Two heaps closer than this (px, between centers) are the same bonfire from frame
+## to frame (so a bonfire that shifts a little doesn't restart its growth).
+const BONFIRE_MATCH_DISTANCE: float = 12.0
+
+var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
+var pile: LeafPile
+## Per leaf (same index as the pile's arrays).
+var leaf_states: PackedByteArray = PackedByteArray()
+## Seconds left for a burning leaf (paused while held by a bonfire).
+var burn_left: PackedFloat32Array = PackedFloat32Array()
+## Seconds until a burning leaf lights its neighbours (< 0: done) / its next ignite check.
+var spread_left: PackedFloat32Array = PackedFloat32Array()
+var ignite_left: PackedFloat32Array = PackedFloat32Array()
+## The bonfire holding each leaf this frame (index into `bonfires`), -1 = none.
+var held_by: PackedInt32Array = PackedInt32Array()
+## How many leaves burn right now.
+var burning_count: int = 0
+## Seconds of fire time (drives the embers' flicker in the pile's drawing).
+var clock: float = 0.0
+## Bonfires made so far (reused; the pile's children). Put-out ones wait for a heap.
+var bonfires: Array[Bonfire] = []
+var burnt_leaf_count: int = 0
+## Live leaves (not gone) by SPREAD_BUCKET bucket, rebuilt each frame while burning.
+var buckets: Dictionary = {}
+
+
+func setup(owner_pile: LeafPile) -> void:
+	pile = owner_pile
+	name = "LeafFire"
+	var count: int = pile.leaf_positions.size()
+	leaf_states.resize(count)
+	burn_left.resize(count)
+	spread_left.resize(count)
+	ignite_left.resize(count)
+	held_by.resize(count)
+	reset()
+
+
+# --- Questions -------------------------------------------------------------------
+
+func is_gone(leaf_index: int) -> bool:
+	return leaf_states[leaf_index] == LeafState.GONE
+
+
+func is_leaf_burning(leaf_index: int) -> bool:
+	return leaf_states[leaf_index] == LeafState.BURNING
+
+
+func is_held(leaf_index: int) -> bool:
+	return held_by[leaf_index] >= 0
+
+
+## 0..1: how far a lone burning leaf has burnt (1 = about to go). Held leaves: 0.
+func get_burn_share(leaf_index: int) -> float:
+	if held_by[leaf_index] >= 0 or leaf_states[leaf_index] != LeafState.BURNING:
+		return 0.0
+	return 1.0 - clampf(burn_left[leaf_index] / maxf(fire_tuning.leaf_burn_time, 0.01), 0.0, 1.0)
+
+
+## Any bonfire standing right now (glowing or flaming).
+func get_lit_bonfires() -> Array[Bonfire]:
+	var lit: Array[Bonfire] = []
+	for bonfire: Bonfire in bonfires:
+		if bonfire.is_lit():
+			lit.append(bonfire)
+	return lit
+
+
+# --- Lighting --------------------------------------------------------------------
+
+## Lights every unlit leaf within `radius` px (plus the leaf's own size) of `point`
+## (the pile's local px). Returns true if any caught.
+func light_near(point: Vector2, radius: float) -> bool:
+	var reach: float = radius + 2.0  # a leaf is 4 px long: touch its tip, it catches
+	var any_caught: bool = false
+	for leaf_index: int in leaf_states.size():
+		if leaf_states[leaf_index] == LeafState.UNLIT \
+				and pile.leaf_positions[leaf_index].distance_to(point) <= reach:
+			light_leaf(leaf_index)
+			any_caught = true
+	return any_caught
+
+
+func light_leaf(leaf_index: int) -> void:
+	if leaf_states[leaf_index] != LeafState.UNLIT:
+		return
+	leaf_states[leaf_index] = LeafState.BURNING
+	var jitter: float = fire_tuning.leaf_burn_jitter
+	burn_left[leaf_index] = fire_tuning.leaf_burn_time * randf_range(1.0 - jitter, 1.0 + jitter)
+	spread_left[leaf_index] = fire_tuning.leaf_spread_delay * randf_range(0.5, 1.5)
+	ignite_left[leaf_index] = randf() * fire_tuning.leaf_ignite_interval  # spread the checks over frames
+	burning_count += 1
+
+
+## Death / R: every leaf unlit, every bonfire out.
+func reset() -> void:
+	leaf_states.fill(LeafState.UNLIT)
+	held_by.fill(-1)
+	burning_count = 0
+	burnt_leaf_count = 0
+	buckets.clear()
+	for bonfire: Bonfire in bonfires:
+		bonfire.put_out(true)
+
+
+# --- Every frame (called by the pile's _physics_process) ----------------------------
+
+func update(delta: float) -> void:
+	if burning_count == 0:
+		return
+	clock += delta
+	_fill_buckets()
+	var flammables: Array[Node] = get_tree().get_nodes_in_group(Flammable.GROUP)
+	var burnt_out: Array[int] = []
+	for leaf_index: int in leaf_states.size():
+		if leaf_states[leaf_index] != LeafState.BURNING:
+			continue
+		# Spread: once, a moment after catching.
+		if spread_left[leaf_index] >= 0.0:
+			spread_left[leaf_index] -= delta
+			if spread_left[leaf_index] < 0.0:
+				_spread_from(leaf_index)
+		# Light what's around it (grass, air diamonds, other piles).
+		ignite_left[leaf_index] -= delta
+		if ignite_left[leaf_index] <= 0.0:
+			ignite_left[leaf_index] = fire_tuning.leaf_ignite_interval
+			_ignite_around(leaf_index, flammables)
+		# Burn down, unless a bonfire holds it.
+		if held_by[leaf_index] < 0:
+			burn_left[leaf_index] -= delta
+			if burn_left[leaf_index] <= 0.0:
+				burnt_out.append(leaf_index)
+	for leaf_index: int in burnt_out:
+		_burn_away(leaf_index)
+	_update_bonfires()
+
+
+## Buckets every live leaf (falling ones too: embers light a falling cloud).
+func _fill_buckets() -> void:
+	buckets.clear()
+	for leaf_index: int in leaf_states.size():
+		if leaf_states[leaf_index] == LeafState.GONE:
+			continue
+		var key: Vector2i = _bucket_of(pile.leaf_positions[leaf_index])
+		if buckets.has(key):
+			(buckets[key] as Array).append(leaf_index)
+		else:
+			buckets[key] = [leaf_index]
+
+
+func _bucket_of(point: Vector2) -> Vector2i:
+	return Vector2i(floori(point.x / SPREAD_BUCKET), floori(point.y / SPREAD_BUCKET))
+
+
+## Lights the unlit leaves within leaf_spread_radius of leaf `from_index`.
+func _spread_from(from_index: int) -> void:
+	var origin: Vector2 = pile.leaf_positions[from_index]
+	var center: Vector2i = _bucket_of(origin)
+	var radius: float = fire_tuning.leaf_spread_radius
+	for dx: int in range(-1, 2):
+		for dy: int in range(-1, 2):
+			var bucket: Vector2i = center + Vector2i(dx, dy)
+			if not buckets.has(bucket):
+				continue
+			for leaf_index: int in buckets[bucket]:
+				if leaf_states[leaf_index] == LeafState.UNLIT \
+						and pile.leaf_positions[leaf_index].distance_to(origin) <= radius:
+					light_leaf(leaf_index)
+
+
+## One burning leaf's ignite check: flammables within leaf_ignite_reach of it. Not our
+## own pile (its leaves spread above), and not through ignite_near (which would ask
+## our own pile too).
+func _ignite_around(leaf_index: int, flammables: Array[Node]) -> void:
+	var world_point: Vector2 = pile.to_global(pile.leaf_positions[leaf_index])
+	for target: Node in flammables:
+		if target != pile:
+			Flammable.ignite_if_near(target, world_point, fire_tuning.leaf_ignite_reach, pile)
+
+
+## A gust blew a lone burning leaf out (F7 play-test): it turns to ash at once (a
+## flake of ash every time, and a puff of smoke) and is gone from the pile.
+func snuff_leaf(leaf_index: int) -> void:
+	if leaf_states[leaf_index] != LeafState.BURNING:
+		return
+	var world_point: Vector2 = pile.to_global(pile.leaf_positions[leaf_index])
+	PebbleField.leave_ash(get_tree(), world_point, 1, Vector2(2, 2), FireGrid.ASH_FLAKE_COLORS)
+	SmokePuff.spawn(pile.get_parent(), world_point, 1)
+	_burn_away(leaf_index, false)
+
+
+## A leaf burnt away: gone from the pile (the leaves on it fall), and a flake of ash
+## now and then (`leave_ash`: false when the caller already left one).
+func _burn_away(leaf_index: int, leave_ash: bool = true) -> void:
+	leaf_states[leaf_index] = LeafState.GONE
+	held_by[leaf_index] = -1
+	burning_count -= 1
+	burnt_leaf_count += 1
+	var world_point: Vector2 = pile.to_global(pile.leaf_positions[leaf_index])
+	if leave_ash and burnt_leaf_count % LEAVES_PER_ASH_FLAKE == 0:
+		PebbleField.leave_ash(get_tree(), world_point, 1, Vector2(2, 2), FireGrid.ASH_FLAKE_COLORS)
+	pile.remove_leaf(leaf_index)
+
+
+# --- Bonfires ----------------------------------------------------------------------
+
+## Finds the heaps of burning leaves lying together and keeps one bonfire on each:
+## new heap -> a bonfire starts (amber); heap gone or too small -> its bonfire goes
+## out. Heap leaves are held (they don't burn down).
+func _update_bonfires() -> void:
+	var heaps: Array = _find_heaps()
+	held_by.fill(-1)
+	var kept: Array[Bonfire] = []
+	for heap: Array in heaps:
+		var bounds: Rect2 = _get_heap_bounds(heap)
+		# The base: the middle of the heap's bottom (leaves lie ~1 px above what they
+		# rest on, so +1 puts the coals on the floor).
+		var base: Vector2 = Vector2(bounds.get_center().x, bounds.end.y + 1.0)
+		var heap_width: float = bounds.size.x + 4.0  # + a leaf's half length each side
+		var bonfire: Bonfire = _find_bonfire_near(base, kept)
+		if bonfire == null:
+			bonfire = _get_free_bonfire(kept)
+			bonfire.start(base, heap_width)
+		else:
+			bonfire.set_footprint(base, heap_width)
+		kept.append(bonfire)
+		var bonfire_index: int = bonfires.find(bonfire)
+		for leaf_index: int in heap:
+			held_by[leaf_index] = bonfire_index
+	for bonfire: Bonfire in bonfires:
+		if bonfire.is_lit() and not kept.has(bonfire):
+			bonfire.put_out(false)
+
+
+## Groups of resting burning leaves in touching cells, at least bonfire_min_leaves
+## each. Returns Array of Array[int] (leaf indices).
+func _find_heaps() -> Array:
+	var cell_size: float = maxf(fire_tuning.bonfire_cluster_cell, 1.0)
+	var cells: Dictionary = {}  # Vector2i -> Array of leaf indices
+	for leaf_index: int in leaf_states.size():
+		if leaf_states[leaf_index] != LeafState.BURNING or pile.leaf_is_flying[leaf_index] == 1:
+			continue
+		var point: Vector2 = pile.leaf_positions[leaf_index]
+		var cell: Vector2i = Vector2i(floori(point.x / cell_size), floori(point.y / cell_size))
+		if cells.has(cell):
+			(cells[cell] as Array).append(leaf_index)
+		else:
+			cells[cell] = [leaf_index]
+	var heaps: Array = []
+	var visited: Dictionary = {}
+	for start_cell: Vector2i in cells:
+		if visited.has(start_cell):
+			continue
+		# Flood fill over the 8 neighbouring cells.
+		var heap: Array[int] = []
+		var to_visit: Array[Vector2i] = [start_cell]
+		visited[start_cell] = true
+		while not to_visit.is_empty():
+			var cell: Vector2i = to_visit.pop_back()
+			for leaf_index: int in cells[cell]:
+				heap.append(leaf_index)
+			for dx: int in range(-1, 2):
+				for dy: int in range(-1, 2):
+					var neighbour: Vector2i = cell + Vector2i(dx, dy)
+					if cells.has(neighbour) and not visited.has(neighbour):
+						visited[neighbour] = true
+						to_visit.append(neighbour)
+		if heap.size() >= fire_tuning.bonfire_min_leaves:
+			heaps.append(heap)
+	return heaps
+
+
+func _get_heap_bounds(heap: Array) -> Rect2:
+	var bounds: Rect2 = Rect2(pile.leaf_positions[heap[0]], Vector2.ZERO)
+	for leaf_index: int in heap:
+		bounds = bounds.expand(pile.leaf_positions[leaf_index])
+	return bounds
+
+
+## The lit bonfire standing nearest `base` (within BONFIRE_MATCH_DISTANCE), not
+## already given a heap this frame.
+func _find_bonfire_near(base: Vector2, taken: Array[Bonfire]) -> Bonfire:
+	var best: Bonfire = null
+	var best_distance: float = BONFIRE_MATCH_DISTANCE
+	for bonfire: Bonfire in bonfires:
+		if not bonfire.is_lit() or taken.has(bonfire):
+			continue
+		var distance: float = bonfire.position.distance_to(base)
+		if distance < best_distance:
+			best = bonfire
+			best_distance = distance
+	return best
+
+
+## A bonfire that isn't burning, or a new one.
+func _get_free_bonfire(taken: Array[Bonfire]) -> Bonfire:
+	for bonfire: Bonfire in bonfires:
+		if not bonfire.is_lit() and not taken.has(bonfire):
+			return bonfire
+	var bonfire: Bonfire = Bonfire.new()
+	bonfire.name = "Bonfire%d" % bonfires.size()
+	pile.add_child(bonfire)
+	bonfire.burnt_out.connect(_on_bonfire_burnt_out)
+	bonfires.append(bonfire)
+	return bonfire
+
+
+## A bonfire's time ran out (bonfire_duration): its leaves burn away and it goes out.
+func _on_bonfire_burnt_out(bonfire: Bonfire) -> void:
+	var bonfire_index: int = bonfires.find(bonfire)
+	for leaf_index: int in held_by.size():
+		if held_by[leaf_index] == bonfire_index and leaf_states[leaf_index] == LeafState.BURNING:
+			_burn_away(leaf_index)
+	bonfire.put_out(false)

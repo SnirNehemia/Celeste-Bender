@@ -277,6 +277,8 @@ func _blow_neutral() -> Array[Node]:
 	var origin: Vector2 = player.get_center()
 	var hit_nodes: Array[Node] = AirBlast.push_around(player, origin, tuning.gust_neutral_radius,
 		tuning.gust_push_strength)
+	# Wind against fire: burning grass and thicket in reach go out (Flammable.snuff_in).
+	Flammable.snuff_in_area(player.get_tree(), AirBlast.build_circle(origin, tuning.gust_neutral_radius), Vector2.ZERO)
 	var world: Node = player.get_parent()
 	# A spread of 180 degrees on each side of the direction = a full circle.
 	AirBlast.spawn_fan(world, origin, Vector2.UP, 180.0, tuning.gust_neutral_radius, 28)
@@ -291,6 +293,8 @@ func _blow_aimed(direction: Vector2) -> Array[Node]:
 	var origin: Vector2 = player.get_center()
 	var cone_points: PackedVector2Array = build_gust_shape(direction)
 	var hit_nodes: Array[Node] = AirBlast.push_in_cone(player, cone_points, direction, tuning.gust_push_strength)
+	# Wind against fire: burning grass and thicket in the cone go out (Flammable.snuff_in).
+	Flammable.snuff_in_area(player.get_tree(), cone_points, direction)
 	var world: Node = player.get_parent()
 	var far_half_width: float = tuning.gust_range * tan(deg_to_rad(tuning.gust_cone_half_angle_degrees))
 	AirBlast.spawn_fan(world, origin, direction, tuning.gust_cone_half_angle_degrees, tuning.gust_range, 20)

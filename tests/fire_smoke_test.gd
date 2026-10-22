@@ -7,6 +7,7 @@ extends Node
 ## Every Fire stage adds a section here (Fire_bending.md §13).
 
 const WORLD_SCENE: PackedScene = preload("res://tests/fire_test_world.tscn")
+const HEAT_RECEIVER_SCRIPT: Script = preload("res://tests/heat_test_receiver.gd")
 
 var failures: int = 0
 ## Names of the check sections that ran to their end. A script error inside a
@@ -25,8 +26,9 @@ func _ready() -> void:
 	await _check_f4_fireball(world, world.player)
 	await _check_f5_burning_grass(world, world.player)
 	await _check_f6_thicket(world, world.player)
+	await _check_f7_bonfire(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -46,8 +48,10 @@ func _check_f1_fire_bar(world: RoomManager, player: Player) -> void:
 	# Room flags.
 	_check(room.name == &"RoomFireA", "the world starts in RoomFireA, got %s" % room.name)
 	_check(player.is_element_allowed(Player.ELEMENT_FIRE), "Fire is on in Fire A")
-	_check(not player.is_element_allowed(Player.ELEMENT_AIR), "Air is off in Fire A")
-	_check(not player.is_element_allowed(Player.ELEMENT_EARTH), "Earth is off in Fire A")
+	# Every element is on in the Fire TEST rooms (F7 play-test); the chapter rooms
+	# (Stage F14) will be Fire-only.
+	_check(player.is_element_allowed(Player.ELEMENT_AIR), "Air is on in Fire A (test room)")
+	_check(player.is_element_allowed(Player.ELEMENT_EARTH), "Earth is on in Fire A (test room)")
 	var plain_room: Room = Room.new()
 	_check(not plain_room.fire_allowed, "fire is off by default, so Air and Earth rooms are unchanged")
 	_check(max_pips == 5, "max_pips starts at 5, got %d" % max_pips)
@@ -821,6 +825,348 @@ func _check_f6_thicket(world: RoomManager, player: Player) -> void:
 	await _physics_frames(5)
 	finished_sections.append("F6")
 
+
+
+## Stage F7: hot updrafts (WindZone.heat) lift only gliders and heat receivers; the
+## LEAVES burn (F7 play-test): a lone burning leaf is a harmless ember, a heap of them
+## becomes a bonfire that grows amber -> low -> tall, a close gust scatters it; leaves
+## stack; burning grass gives a weak updraft; flames turn a wind crystal into a +1 and
+## a gust diamond into a +2 fire diamond; R puts it all back.
+func _check_f7_bonfire(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_f: Room = world.get_node("RoomFireF") as Room
+	var elevator_pile: LeafPile = room_f.get_node("ElevatorPile") as LeafPile
+	var hiding_pile: LeafPile = room_f.get_node("HidingPile") as LeafPile
+	var rain_pile: LeafPile = room_f.get_node("RainPile") as LeafPile
+	var crystal: WindCrystal = room_f.get_node("HiddenCrystal") as WindCrystal
+	var gust_diamond: GustDiamond = room_f.get_node("GapGustDiamond") as GustDiamond
+	var grid: FireGrid = room_f.get_node_or_null("FireGrid") as FireGrid
+	_check(room_f.air_allowed and room_f.fire_allowed and room_f.earth_allowed and room_f.fire_start_pips == 5,
+		"Fire F allows every element and starts with 5 pips")
+	var all_elements: bool = true
+	for room_name: String in ["RoomFireA", "RoomFireB", "RoomFireC", "RoomFireD", "RoomFireE"]:
+		var test_room: Room = world.get_node(room_name) as Room
+		all_elements = all_elements and test_room.air_allowed and test_room.earth_allowed and test_room.fire_allowed
+	_check(all_elements, "every Fire test room allows Air, Earth and Fire")
+	_check(grid != null, "Fire F has a FireGrid (its grass patches)")
+	if grid == null:
+		return
+	_check(tuning.hot_updraft_lift > 60.0 * player.tuning.glide_updraft_lift_multiplier,
+		"a hot updraft lifts a glider harder than an Air updraft (%.0f px/s)" % tuning.hot_updraft_lift)
+	_check(elevator_pile.is_in_group(Flammable.GROUP) and crystal.is_in_group(Flammable.GROUP)
+		and gust_diamond.is_in_group(Flammable.GROUP),
+		"leaf piles, wind crystals and gust diamonds are flammable")
+	world.jump_to_room(room_f)
+	await _physics_frames(10)
+	_check(player.fire_bar.pips == 5, "Fire F gives 5 pips, got %d" % player.fire_bar.pips)
+
+	# A hand-made heat zone: no wind, lift only by asking, and heat receivers get it.
+	var zone: WindZone = WindZone.new()
+	zone.heat = true
+	zone.zone_size = Vector2(16, 48)
+	zone.wind_strength = 100.0
+	room_f.add_child(zone)
+	zone.position = Vector2(150, 100)
+	var receiver: Node2D = HEAT_RECEIVER_SCRIPT.new() as Node2D
+	room_f.add_child(receiver)
+	receiver.position = Vector2(158, 120)
+	await _physics_frames(5)
+	var inside: Vector2 = room_f.global_position + Vector2(158, 120)
+	_check(zone.get_wind_velocity() == Vector2.ZERO and zone.is_in_group(Heat.SOURCE_GROUP),
+		"a heat zone blows no wind and is a heat source")
+	_check(is_equal_approx(Heat.get_lift_at(get_tree(), inside), 100.0)
+		and Heat.get_lift_at(get_tree(), inside + Vector2(30, 0)) == 0.0,
+		"its lift is wind_strength inside and 0 outside")
+	_check(float(receiver.get("strongest")) == 100.0, "a heat receiver inside it gets apply_heat(100)")
+	# On foot (falling, not gliding) hot air does nothing.
+	player.respawn_at(room_f.global_position + Vector2(158, 130))
+	player.velocity = Vector2.ZERO
+	player.state_machine.transition_to(&"Fall")
+	await _physics_frames(10)
+	_check(player.velocity.y > 0.0, "a player who isn't gliding falls through hot air (vy %.0f)" % player.velocity.y)
+	zone.queue_free()
+	receiver.queue_free()
+
+	# Leaves stack: a leaf dropped over the pile comes to rest ON the pile, not on
+	# the floor under it.
+	var dropped_leaf: int = 0
+	elevator_pile.leaf_positions[dropped_leaf] = Vector2(0, -30)
+	elevator_pile._launch_leaf(dropped_leaf, Vector2.ZERO)
+	await _wait_until(func() -> bool: return elevator_pile.leaf_is_flying[dropped_leaf] == 0, 4.0)
+	var rest_y: float = elevator_pile.leaf_positions[dropped_leaf].y
+	_check(elevator_pile.leaf_is_flying[dropped_leaf] == 0 and rest_y < -3.0
+		and elevator_pile.leaf_support_leaves[dropped_leaf] != LeafPile.NO_LEAF,
+		"a falling leaf lands on top of the heap (rests at y %.1f on another leaf)" % rest_y)
+	# Density: no column of the untouched mound is left bare.
+	var bare_columns: int = 0
+	var half_width: int = int(rain_pile.pile_width / 2.0) - 2
+	for column: int in range(-half_width, half_width + 1):
+		var covered: bool = false
+		for home: Vector2 in rain_pile.home_positions:
+			if absf(home.x - column) <= 2.0:
+				covered = true
+				break
+		if not covered:
+			bare_columns += 1
+	_check(bare_columns == 0, "the untouched pile has no bare columns (%d)" % bare_columns)
+	# Running through the pile (a kick through its middle column): when the leaves
+	# have settled, none hangs in the air with nothing under it.
+	for leaf_index: int in rain_pile.leaf_positions.size():
+		if absf(rain_pile.leaf_positions[leaf_index].x) < 4.0:
+			rain_pile._launch_leaf(leaf_index, Vector2(randf_range(40.0, 80.0), -randf_range(40.0, 80.0)))
+	await get_tree().create_timer(5.0).timeout
+	var hanging: int = 0
+	for leaf_index: int in rain_pile.leaf_positions.size():
+		if rain_pile.leaf_is_flying[leaf_index] == 0 and rain_pile.leaf_supports[leaf_index] == null \
+				and not rain_pile._has_something_under(leaf_index):
+			hanging += 1
+	_check(hanging == 0, "after a kick through the pile, no leaf hangs in the air (%d)" % hanging)
+	rain_pile.reset()
+	elevator_pile.reset()
+
+	# 1. A fireball into the elevator pile: the leaves catch, the heap glows amber,
+	# then a low flame breaks out and grows into a full bonfire.
+	player.respawn_at(room_f.get_spawn_position())
+	await _physics_frames(5)
+	var through_ball: Fireball = Fireball.launch(world, room_f.global_position + Vector2(36, 153), Vector2.RIGHT, tuning, null)
+	var through_hit: Array[Node] = []
+	through_ball.finished.connect(func(hit: Node) -> void: through_hit.append(hit))
+	await _wait_until(func() -> bool: return elevator_pile.is_burning(), 1.0)
+	_check(elevator_pile.is_burning(), "a fireball lights the pile's leaves")
+	await _wait_until(func() -> bool: return not through_hit.is_empty(), 1.0)
+	_check(not through_hit.is_empty() and through_hit[0] != elevator_pile and through_hit[0].get_parent() != elevator_pile,
+		"and flies on through it (it bursts on %s, not on the leaves)" % [through_hit])
+	await _wait_until(func() -> bool: return elevator_pile.fire != null and not elevator_pile.fire.get_lit_bonfires().is_empty(), 1.0)
+	var bonfire: Bonfire = null
+	if elevator_pile.fire != null and not elevator_pile.fire.get_lit_bonfires().is_empty():
+		bonfire = elevator_pile.fire.get_lit_bonfires()[0]
+	_check(bonfire != null and bonfire.stage == Bonfire.Stage.AMBER and not bonfire.hazard.active,
+		"the burning heap becomes a bonfire that starts amber (harmless)")
+	if bonfire == null:
+		return
+	_check(bonfire.width >= tuning.bonfire_min_width and bonfire.width <= tuning.bonfire_max_width,
+		"the bonfire is as wide as the heap (%.0f px, pile 24 px)" % bonfire.width)
+	await _wait_until(func() -> bool: return bonfire.stage == Bonfire.Stage.LOW, 1.5)
+	var low_height: float = bonfire.get_flame_height()
+	_check(bonfire.stage == Bonfire.Stage.LOW and bonfire.hazard.active and low_height < tuning.bonfire_flame_height * 0.5,
+		"then a LOW flame breaks out (%.0f px) that kills" % low_height)
+	_check(Heat.get_lift_at(get_tree(), bonfire.global_position + Vector2(0, -low_height - 8)) > 0.0,
+		"and its hot air already lifts")
+	await _wait_until(func() -> bool: return bonfire.stage == Bonfire.Stage.FULL, 2.0)
+	var merged_tongues: int = 0
+	for flame: FlameTongue in bonfire.flames:
+		if flame.visible and flame.merge != null:
+			merged_tongues += 1
+	_check(merged_tongues >= 3, "the bonfire's tongues are drawn as one merged fire (%d tongues)" % merged_tongues)
+	_check(is_equal_approx(bonfire.get_flame_height(), tuning.bonfire_flame_height), "then it grows to full height")
+	var flame_top: Vector2 = bonfire.global_position + Vector2(0, -tuning.bonfire_flame_height)
+	_check(is_equal_approx(Heat.get_lift_at(get_tree(), flame_top + Vector2(0, -20)), tuning.hot_updraft_lift),
+		"a hot updraft of hot_updraft_lift stands above the flame")
+	_check(grid.burning_count > 0 or not grid.cell_states.is_empty(), "the burning leaves light the grass under the pile")
+	# The weak updraft over a burning cell (a fresh one at the end of the rain patch).
+	var burning_cell: Vector2i = Vector2i(36, 20)
+	grid.ignite_at(grid.to_global(grid.get_cell_rect(burning_cell).get_center()), 0.0, null)
+	var above_cell: Vector2 = grid.to_global(grid.get_cell_rect(burning_cell).get_center() + Vector2(0, -8))
+	_check(grid.get_heat_lift_at(above_cell) == tuning.grass_updraft_lift
+		and grid.get_heat_lift_at(above_cell + Vector2(0, -tuning.grass_updraft_height - 4)) == 0.0,
+		"burning grass gives a short, weak updraft")
+	# Gliding over the bonfire lifts you; the same glide in still air sinks.
+	var glide_speeds: Array[float] = []
+	var glide_states: Array[String] = []
+	for glide_start: Vector2 in [flame_top + Vector2(0, -24), room_f.global_position + Vector2(140, 100)]:
+		player.respawn_at(glide_start)
+		player.velocity = Vector2.ZERO
+		# A few frames of falling first: just after the teleport the player still
+		# counts as grounded (coyote time), and the press would jump instead.
+		await _physics_frames(4)
+		Input.action_press(&"jump")
+		player.state_machine.transition_to(&"Glide")
+		await _physics_frames(12)
+		glide_speeds.append(player.velocity.y)
+		glide_states.append(String(player.state_machine.current_state.name))
+		Input.action_release(&"jump")
+	_check(glide_states == ["Glide", "Glide"] and glide_speeds[0] < -60.0 and glide_speeds[1] > 0.0 and not player.is_dead(),
+		"gliding over the bonfire rises (vy %.0f), gliding in still air sinks (vy %.0f) %s" % [glide_speeds[0], glide_speeds[1], glide_states])
+	# The elevator's height: glide in the column for a while and note the highest
+	# the feet get. Fire F's wall top (row 13, y 104) must be below that.
+	player.respawn_at(flame_top + Vector2(0, -24))
+	player.velocity = Vector2.ZERO
+	await _physics_frames(4)
+	Input.action_press(&"jump")
+	player.state_machine.transition_to(&"Glide")
+	var highest_feet: float = INF
+	for frame: int in 90:
+		await get_tree().physics_frame
+		highest_feet = minf(highest_feet, player.global_position.y - room_f.global_position.y)
+	Input.action_release(&"jump")
+	print("  [F7] bonfire elevator: feet reach y %.0f (%.0f px above the floor), wall top y 104" % [highest_feet, 160.0 - highest_feet])
+	_check(highest_feet < 100.0, "the bonfire elevator lifts the feet above Fire F's wall top")
+	# The heap's leaves are held: still burning, none gone, after all this time.
+	_check(elevator_pile.fire.burning_count > tuning.bonfire_min_leaves and bonfire.is_lit(),
+		"a bonfire holds its leaves: they don't burn out (%d burning)" % elevator_pile.fire.burning_count)
+	# Touching the flame kills.
+	player.respawn_at(bonfire.global_position)
+	await _physics_frames(3)
+	_check(player.is_dead(), "touching the bonfire kills")
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
+	_check(not elevator_pile.is_burning() and not bonfire.is_lit() and grid.cell_states.is_empty(),
+		"dying puts the bonfire out and brings the pile and the grass back")
+
+	# 2. The ember rain: gust the small pile up and sweep a flame through the cloud
+	# (like a jet pass: a row of small ignitions). The fire spreads leaf to leaf where
+	# they're close, no bonfire forms in the air, the embers don't hurt, lone leaves
+	# burn away, and where they land the grass catches.
+	rain_pile.receive_gust_from(Vector2.UP, 260.0, rain_pile.global_position + Vector2(0, 6))
+	await _physics_frames(30)
+	var cloud_y: float = 0.0
+	var cloud_count: int = 0
+	for leaf_index: int in rain_pile.leaf_positions.size():
+		if rain_pile.leaf_is_flying[leaf_index] == 1:
+			cloud_y += rain_pile.leaf_positions[leaf_index].y
+			cloud_count += 1
+	_check(cloud_count > 20, "a gust from below throws the small pile's leaves up (%d in the air)" % cloud_count)
+	cloud_y /= maxf(cloud_count, 1.0)
+	var sweep_x: float = -60.0
+	while sweep_x <= 60.0:
+		rain_pile.ignite_at(rain_pile.to_global(Vector2(sweep_x, cloud_y)), 6.0, null)
+		sweep_x += 4.0
+	await _physics_frames(10)
+	var rain_fire: LeafFire = rain_pile.fire
+	var burning_in_air: int = 0
+	for leaf_index: int in rain_pile.leaf_positions.size():
+		if rain_fire.is_leaf_burning(leaf_index) and rain_pile.leaf_is_flying[leaf_index] == 1:
+			burning_in_air += 1
+	_check(burning_in_air > 5 and rain_fire.get_lit_bonfires().is_empty(),
+		"a flame swept through the cloud makes an ember rain (%d embers), no bonfire in the air" % burning_in_air)
+	var first_ember: Vector2 = rain_pile.global_position
+	# A player in the cloud of embers is fine.
+	var ember_spot: Vector2 = first_ember
+	for leaf_index: int in rain_pile.leaf_positions.size():
+		if rain_fire.is_leaf_burning(leaf_index):
+			ember_spot = rain_pile.to_global(rain_pile.leaf_positions[leaf_index])
+			break
+	player.respawn_at(ember_spot + Vector2(0, 5))
+	await _physics_frames(3)
+	_check(not player.is_dead(), "a lone burning leaf is a harmless ember")
+	player.respawn_at(room_f.get_spawn_position())
+	await _wait_until(func() -> bool: return rain_fire.burnt_leaf_count > 0, 3.0)
+	_check(rain_fire.burnt_leaf_count > 0, "lone burning leaves burn away (%d gone)" % rain_fire.burnt_leaf_count)
+	await _wait_until(func() -> bool:
+		for cell: Vector2i in grid.cell_states:
+			if cell.x >= 30 and cell.x <= 37:
+				return true
+		return false, 8.0)
+	var rain_lit_grass: bool = false
+	for cell: Vector2i in grid.cell_states:
+		if cell.x >= 30 and cell.x <= 37:
+			rain_lit_grass = true
+	_check(rain_lit_grass, "the falling embers light the grass where they land")
+	room_f.reset_objects()
+	await _physics_frames(2)
+
+	# 3. The hiding pile: its burning leaves convert the crystal under them; a close
+	# gust scatters the heap: the bonfire goes out and its leaves fly on as embers.
+	hiding_pile.ignite_at(hiding_pile.global_position + Vector2(-20, -2), 3.0, null)
+	await _wait_until(func() -> bool: return crystal.is_converted, 3.0)
+	var crystal_fire: FireDiamond = crystal.converted_diamond as FireDiamond
+	_check(crystal.is_converted and crystal_fire != null and crystal_fire.pip_amount == 1 and not crystal.diamond.visible,
+		"the burning leaves turn the hidden crystal into a +1 fire diamond")
+	await _wait_until(func() -> bool: return hiding_pile.fire.get_lit_bonfires().size() > 0 \
+		and hiding_pile.fire.get_lit_bonfires()[0].is_flaming(), 3.0)
+	var hiding_bonfires: Array[Bonfire] = hiding_pile.fire.get_lit_bonfires()
+	_check(hiding_bonfires.size() == 1 and hiding_bonfires[0].width > 30.0,
+		"one wide bonfire stands on the wide heap (%s)" % [hiding_bonfires.map(func(b: Bonfire) -> float: return b.width)])
+	hiding_pile.receive_gust_from(Vector2.RIGHT, 300.0, hiding_pile.global_position + Vector2(-30, -4))
+	await _physics_frames(3)
+	var flying_embers: int = 0
+	for leaf_index: int in hiding_pile.leaf_positions.size():
+		if hiding_pile.fire.is_leaf_burning(leaf_index) and hiding_pile.leaf_is_flying[leaf_index] == 1:
+			flying_embers += 1
+	_check(hiding_pile.fire.get_lit_bonfires().is_empty(), "a close gust scatters the heap and the bonfire goes out")
+	_check(flying_embers > 10, "its leaves fly on, still burning (%d embers)" % flying_embers)
+	# A gust on the embers themselves (they're lone now) blows them out into ash.
+	await _physics_frames(10)
+	var burning_before: int = hiding_pile.fire.burning_count
+	var gone_before: int = hiding_pile.fire.burnt_leaf_count
+	var ember_center: Vector2 = Vector2.ZERO
+	var ember_count: int = 0
+	for leaf_index: int in hiding_pile.leaf_positions.size():
+		if hiding_pile.fire.is_leaf_burning(leaf_index):
+			ember_center += hiding_pile.to_global(hiding_pile.leaf_positions[leaf_index])
+			ember_count += 1
+	ember_center /= maxf(ember_count, 1.0)
+	hiding_pile.receive_gust_from(Vector2.RIGHT, 300.0, ember_center + Vector2(-10, 0))
+	var blown_out: int = hiding_pile.fire.burnt_leaf_count - gone_before
+	_check(blown_out > 0 and hiding_pile.fire.burning_count == burning_before - blown_out,
+		"a gust on embers blows them out: %d turn to ash" % blown_out)
+	# Where the scattered embers land is random, and 6+ landing together make a new
+	# bonfire (as designed), which could kill the player in the steps below: put the
+	# leaves back (only this pile: the crystal stays converted).
+	hiding_pile.reset()
+	await _physics_frames(2)
+	# respawn_at() resets the pips to the room's 5 (the cap), so: respawn beside it,
+	# spend two for room, then step onto it.
+	player.respawn_at(crystal_fire.global_position + Vector2(24, 5))
+	await _physics_frames(3)
+	player.fire_bar.spend()
+	player.fire_bar.spend()
+	var pips_before: int = player.fire_bar.pips
+	player.global_position = crystal_fire.global_position + Vector2(5, 5)
+	player.velocity = Vector2.ZERO
+	await _physics_frames(4)
+	_check(player.fire_bar.pips == pips_before + 1 and not player.is_dead(),
+		"then the crystal's fire diamond can be taken (%d -> %d)" % [pips_before, player.fire_bar.pips])
+
+	# A gust across a grass fire puts out the burning cells it blows over (ash) and
+	# stops the front there. On Fire D's first jet-run patch (cols 38-41, bare grass:
+	# Fire F's patches have leaf piles on them, which would carry the fire on).
+	var room_d: Room = world.get_node("RoomFireD") as Room
+	var grid_d: FireGrid = room_d.get_node("FireGrid") as FireGrid
+	world.jump_to_room(room_d)
+	player.respawn_at(room_d.get_spawn_position())
+	await _physics_frames(5)
+	grid_d.ignite_at(grid_d.to_global(grid_d.get_cell_rect(Vector2i(38, 20)).get_center()), 0.0, null)
+	await _wait_until(func() -> bool: return grid_d.get_state(Vector2i(39, 20)) == FireGrid.State.BURNING, 2.0)
+	# A cone over columns 37-40, from the left (like a gust aimed right along the floor).
+	var cone: PackedVector2Array = AirBlast.build_cone(grid_d.to_global(Vector2(37 * 8, 156)), Vector2.RIGHT, 30.0, 25.0, 6.0)
+	var snuffed_cells: int = Flammable.snuff_in_area(get_tree(), cone, Vector2.RIGHT)
+	_check(snuffed_cells >= 2 and grid_d.get_state(Vector2i(38, 20)) == FireGrid.State.ASH
+		and grid_d.get_state(Vector2i(39, 20)) == FireGrid.State.ASH,
+		"a gust over burning grass turns it to ash at once (%d cells)" % snuffed_cells)
+	await get_tree().create_timer(tuning.spread_delay * 4.0 + 0.5).timeout
+	_check(grid_d.get_state(Vector2i(41, 20)) == FireGrid.State.GRASS and grid_d.burning_count == 0,
+		"and the fire stops there (the cell past the gust never caught)")
+	room_d.reset_objects()
+	world.jump_to_room(room_f)
+	player.respawn_at(room_f.get_spawn_position())
+	await _physics_frames(5)
+
+	# 4. A fireball across the gap turns the gust diamond into a +2.
+	player.respawn_at(room_f.global_position + Vector2(36 * 8, 160))
+	await _physics_frames(5)
+	Fireball.launch(world, room_f.global_position + Vector2(36 * 8 + 6, 150), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return gust_diamond.is_converted, 1.5)
+	var gust_fire: FireDiamond = gust_diamond.converted_diamond as FireDiamond
+	_check(gust_diamond.is_converted and gust_fire != null and gust_fire.pip_amount == 2,
+		"a fireball turns the gust diamond into a +2 fire diamond")
+	_check(gust_fire.fire_pip_value == 0 and not gust_fire.is_in_group(Flammable.GROUP),
+		"a fire diamond can't be converted again")
+
+	# R puts the piles and diamonds back.
+	room_f.reset_objects()
+	await _physics_frames(2)
+	var all_home: bool = true
+	for leaf_index: int in hiding_pile.leaf_positions.size():
+		all_home = all_home and hiding_pile.leaf_positions[leaf_index] == hiding_pile.home_positions[leaf_index] \
+			and hiding_pile.fire.leaf_states[leaf_index] == LeafFire.LeafState.UNLIT
+	_check(all_home and not hiding_pile.is_burning() and hiding_pile.fire.get_lit_bonfires().is_empty(),
+		"R puts every leaf back, unlit, and the bonfires out")
+	_check(not crystal.is_converted and crystal.is_available and crystal.diamond.visible
+		and not is_instance_valid(crystal_fire) and not gust_diamond.is_converted and not is_instance_valid(gust_fire),
+		"R turns the fire diamonds back into the crystal and the gust diamond")
+	player.respawn_at(room_f.get_spawn_position())
+	await _physics_frames(5)
+	finished_sections.append("F7")
 
 
 # --- Helpers ---------------------------------------------------------------------

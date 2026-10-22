@@ -228,3 +228,77 @@ extends Resource
 ## speed per px/s of gust strength.
 @export var leaf_gust_reach: float = 56.0
 @export var leaf_gust_kick_per_strength: float = 0.35
+
+@export_group("Hot updrafts")
+## Upward speed a hot updraft adds to a GLIDING player, px/s (Fire_bending.md §5.3).
+## The glide steers toward glide_max_fall_speed (30) minus this, so 160 rises at
+## 130 px/s: stronger than an Air updraft (60 x glide_updraft_lift_multiplier 2 = 120).
+## Only the glide and heat receivers feel it; nothing else is lifted.
+@export var hot_updraft_lift: float = 160.0
+## A burning grass or thicket cell's short, weak updraft: its lift, px/s, and how
+## high above the cell's top it reaches, px (§5.3: 16 px).
+@export var grass_updraft_lift: float = 60.0
+@export var grass_updraft_height: float = 16.0
+
+@export_group("Burning leaves")
+## The LEAVES burn, not the pile (F7 play-test): each leaf is its own little fire.
+## A lone burning leaf is a harmless ember that lasts this long (± leaf_burn_jitter,
+## a share), then it's gone. Leaves inside a bonfire don't burn out (see Bonfire).
+## Long enough for most leaves gusted up to fall back down still burning (the ember
+## rain lights the grass it lands on); some burn out on the way, which looks right.
+@export var leaf_burn_time: float = 3.5
+@export_range(0.0, 0.5) var leaf_burn_jitter: float = 0.25
+## A burning leaf lights unlit leaves within leaf_spread_radius px of it,
+## leaf_spread_delay seconds after it caught (± 50%): fire runs through a heap fast,
+## and through a cloud of falling leaves as a chain of embers.
+@export var leaf_spread_radius: float = 4.0
+@export var leaf_spread_delay: float = 0.06
+## Every leaf_ignite_interval seconds a burning leaf (resting or falling) lights the
+## flammables within leaf_ignite_reach px of it: grass, air diamonds, other piles.
+@export var leaf_ignite_reach: float = 2.0
+@export var leaf_ignite_interval: float = 0.2
+## A burning leaf curls up and drops faster: its flutter fall speed is multiplied by
+## this (3 = a cloud gusted ~90 px up comes down in ~3 s instead of ~7: a fluttering
+## leaf averages only ~0.7 x fall_speed).
+@export_range(1.0, 5.0) var leaf_ember_fall_scale: float = 3.0
+
+@export_group("Bonfire")
+## A bonfire forms where at least bonfire_min_leaves burning leaves LIE together
+## (resting, not falling). "Together" = in touching cells of bonfire_cluster_cell px.
+@export_range(2, 40) var bonfire_min_leaves: int = 6
+@export var bonfire_cluster_cell: float = 6.0
+## Its flame (and kill zone and updraft) is as wide as the burning heap, within these.
+@export var bonfire_min_width: float = 12.0
+@export var bonfire_max_width: float = 48.0
+## How it grows (F7 play-test): first AMBER (glowing leaves, harmless, no lift) for
+## bonfire_amber_time, then a LOW flame (bonfire_low_height_share of full height,
+## kills, lifts) for bonfire_low_time, then it rises to full height over
+## bonfire_grow_time. So you can light it from above and ride its hot air up.
+@export var bonfire_amber_time: float = 0.5
+@export var bonfire_low_time: float = 0.6
+@export_range(0.1, 1.0) var bonfire_low_height_share: float = 0.35
+@export var bonfire_grow_time: float = 0.8
+## Full flame height, px (Fire_bending.md §6.2: 20).
+@export var bonfire_flame_height: float = 20.0
+## The hot updraft column above the flame, px tall (§5.3: 48). A glider hovers near
+## its top, so this sets how high a bonfire elevator takes you.
+@export var bonfire_updraft_height: float = 48.0
+## A bonfire burns this long, seconds, holding its leaves; then they burn out.
+## 0 = until death or R (§6.2).
+@export var bonfire_duration: float = 0.0
+## The bonfire lights flammables within this many px of its base and flame, checked
+## every few frames while it burns.
+@export var bonfire_ignite_reach: float = 4.0
+## Sparks popping upward in bursts every bonfire_spark_interval seconds (random in the
+## range), bonfire_spark_count sparks each (§9.3).
+@export var bonfire_spark_interval: Vector2 = Vector2(0.5, 1.2)
+@export var bonfire_spark_count: int = 6
+@export var bonfire_smoke_per_second: float = 6.0
+## Its flame first breaking out of the amber: a short shake and a flash (§9.4).
+@export var bonfire_light_shake: float = 2.0
+
+@export_group("Air diamond conversion")
+## How long the orange wipe takes to cross a wind crystal or gust diamond, seconds,
+## before it flares into a fire diamond (Fire_bending.md §4.3, §9.3).
+@export var conversion_wipe_time: float = 0.25
+@export var conversion_spark_count: int = 10

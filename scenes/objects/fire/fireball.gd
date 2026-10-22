@@ -122,6 +122,8 @@ func _build_visual() -> void:
 	visual = Node2D.new()
 	visual.name = "Visual"
 	add_child(visual)
+	# The orbiting tongues are one flame (FlameMerge: no outlines between them).
+	var flame_merge: FlameMerge = FlameMerge.make(visual)
 	for tongue_index: int in TONGUE_COUNT:
 		var tongue: FlameTongue = FlameTongue.new()
 		tongue.length = TONGUE_LENGTH
@@ -136,6 +138,7 @@ func _build_visual() -> void:
 		tongue.smoke_rate = tuning.fireball_smoke_per_second / TONGUE_COUNT
 		tongue.smoke_lifetime = 0.5
 		visual.add_child(tongue)
+		flame_merge.add_tongue(tongue)
 		tongues.append(tongue)
 	trail = EmberEmitter.new()
 	trail.amount = maxi(1, roundi(tuning.fireball_trail_embers_per_second * trail.lifetime))
@@ -168,10 +171,21 @@ func _physics_process(delta: float) -> void:
 	velocity.y += fall_gravity * delta
 	var step: Vector2 = velocity * delta
 	global_position += step
+	_light_leaves_passed()
 	distance_flown += step.length()
 	flight_time += delta
 	if distance_flown >= tuning.fireball_max_range:
 		_start_gutter()
+
+
+## Flying through leaves lights the ones it passes WITHOUT stopping (F7 play-test):
+## a heap on the floor or a cloud a gust threw up, it burns its way through and keeps
+## going (leaf piles have no catch area, so nothing here bursts it). Cheap: a handful
+## of piles, each a quick bounding-box check before looking at its leaves.
+func _light_leaves_passed() -> void:
+	for target: Node in get_tree().get_nodes_in_group(Flammable.GROUP):
+		if target is LeafPile:
+			(target as LeafPile).ignite_at(global_position, HITBOX_SIZE.x / 2.0, source)
 
 
 func _process(_delta: float) -> void:

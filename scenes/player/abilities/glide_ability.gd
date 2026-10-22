@@ -116,7 +116,8 @@ func spend(amount: float) -> void:
 ## Spends `delta` seconds of stamina (less inside an updraft, see tuning).
 func drain(delta: float) -> void:
 	var drain_rate: float = 1.0
-	if player.get_wind_velocity().y < 0.0:
+	# A hot updraft (Stage F7) holds you up like an Air one: same gentle drain.
+	if player.get_wind_velocity().y < 0.0 or get_heat_lift() > 0.0:
 		drain_rate = player.tuning.glide_updraft_stamina_drain
 	stamina_remaining = maxf(stamina_remaining - delta * drain_rate, 0.0)
 	stamina_changed.emit(stamina_remaining)
@@ -125,11 +126,19 @@ func drain(delta: float) -> void:
 ## The vertical speed the glide steers toward, px/s (positive = down).
 ## Wind adds to it: an updraft (negative wind.y), scaled up by the lift multiplier,
 ## overpowers the slow glide fall, so the player rises.
+## Hot air (Stage F7, Fire_bending.md §5.3) adds its lift on top, as it is: its
+## strength is already the glide's lift (FireTuning.hot_updraft_lift).
 func get_target_vertical_speed() -> float:
 	var wind_y: float = player.get_wind_velocity().y
 	if wind_y < 0.0:
 		wind_y *= player.tuning.glide_updraft_lift_multiplier
-	return player.tuning.glide_max_fall_speed + wind_y
+	return player.tuning.glide_max_fall_speed + wind_y - get_heat_lift()
+
+
+## Hot-air lift at the middle of the body, px/s (0 outside hot updrafts). Only the
+## glide asks: on foot, jumping or jetting, hot air does nothing to the player.
+func get_heat_lift() -> float:
+	return Heat.get_lift_at(player.get_tree(), player.get_hitbox_rect().get_center())
 
 
 # --- Glide lifecycle (called by the Glide state) -----------------------------

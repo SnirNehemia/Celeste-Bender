@@ -29,6 +29,12 @@ extends Node2D
 ##     that floats UP (whichever way the flame points), grows and fades. Tips can also
 ##     give off a thin trail of smoke of their own (`smoke_rate`).
 ##
+## MERGED FIRES (F7 play-test): when `merge` is set (FlameMerge.add_tongue), this
+## tongue doesn't draw its own edge, body, inner and core layers: the FlameMerge
+## draws every tongue of its fire layer by layer (draw_layer), so overlapping tongues
+## share one outline instead of looking like separate fires. The tongue still draws
+## its own licks and smoke.
+##
 ## Godot concepts used:
 ##   - _draw(): custom drawing for a CanvasItem; queue_redraw() asks for it again.
 ##   - The `draw` signal of ANOTHER CanvasItem: connecting to a child's `draw` lets this
@@ -36,6 +42,10 @@ extends Node2D
 ##   - CanvasItemMaterial.BLEND_MODE_ADD: colors are added to what's behind (light).
 ##   - FastNoiseLite: smooth random noise; sampling it at (time, index) gives values
 ##     that wander smoothly, unlike randf() which jumps every frame.
+
+## The four layers of a flame, outside in. EDGE and BODY are drawn with normal
+## blending, INNER and CORE into an additive canvas item.
+enum Layer { EDGE, BODY, INNER, CORE }
 
 ## Fire palette (Fire_bending.md §9.1).
 const CORE_COLOR: Color = Color("#FFF6CC")
@@ -91,6 +101,8 @@ const SMOKE_END_SIZE: float = 3.5
 ## Wisps alive at most per tongue.
 const MAX_SMOKE: int = 24
 
+## The FlameMerge drawing this tongue's main layers, or null (it draws them itself).
+var merge: FlameMerge
 ## The additive layer's canvas item (child node), drawn through its `draw` signal.
 var core_layer: Node2D
 var noise: FastNoiseLite
@@ -120,6 +132,11 @@ func _ready() -> void:
 	core_layer.material = additive
 	add_child(core_layer)
 	core_layer.draw.connect(_draw_core)
+
+
+func _exit_tree() -> void:
+	if merge != null and is_instance_valid(merge):
+		merge.remove_tongue(self)
 
 
 func _process(delta: float) -> void:
@@ -261,40 +278,69 @@ func _draw_licks(on_item: CanvasItem, inner: bool) -> void:
 func _draw() -> void:
 	_draw_smoke()
 	_draw_licks(self, false)
-	if length < 0.5 or opacity <= 0.0:
-		return
+	if merge != null or not has_flame():
+		return  # a FlameMerge draws the main layers (see the header)
 	# Outer layers: normal blending, drawn into this node.
-	_fill(self, _make_polygon(1.0, 1.0, 0.0), Color(EDGE_COLOR, opacity))
-	_fill(self, _make_polygon(0.78, 0.85, 7.0), Color(BODY_COLOR, opacity))
+	draw_layer(self, Layer.EDGE)
+	draw_layer(self, Layer.BODY)
 
 
 ## The hot layers, drawn into the additive child.
 func _draw_core() -> void:
 	_draw_licks(core_layer, true)
-	if length < 0.5 or opacity <= 0.0:
+	if merge != null or not has_flame():
 		return
-	var inner_scale: float = lerpf(0.45, 0.6, heat)
-	_fill(core_layer, _make_polygon(inner_scale, inner_scale + 0.1, 13.0),
-		Color(INNER_COLOR, 0.8 * opacity))
-	var core_scale: float = lerpf(0.2, 0.42, heat)
-	var core_color: Color = INNER_COLOR.lerp(CORE_COLOR, heat)
-	_fill(core_layer, _make_polygon(core_scale, core_scale + 0.05, 19.0),
-		Color(core_color, opacity))
+	draw_layer(core_layer, Layer.INNER)
+	draw_layer(core_layer, Layer.CORE)
+
+
+## True if there's a flame to draw (long enough and not faded out).
+func has_flame() -> bool:
+	return length >= 0.5 and opacity > 0.0
+
+
+## Draws one layer of the flame onto `on_item`, in this tongue's local coordinates
+## (a FlameMerge sets the transform first). EDGE and BODY belong on a normal canvas
+## item, INNER and CORE on an additive one.
+## Inside a FlameMerge the base is wider and a little lower (merge.base_widen and
+## base_drop), so neighbouring tongues' feet run together.
+func draw_layer(on_item: CanvasItem, layer: int) -> void:
+	var base_widen: float = 1.0
+	var base_drop: float = 0.0
+	if merge != null:
+		base_widen = merge.base_widen
+		base_drop = merge.base_drop
+	match layer:
+		Layer.EDGE:
+			_fill(on_item, _make_polygon(1.0, 1.0, 0.0, base_widen, base_drop), Color(EDGE_COLOR, opacity))
+		Layer.BODY:
+			_fill(on_item, _make_polygon(0.78, 0.85, 7.0, base_widen, base_drop), Color(BODY_COLOR, opacity))
+		Layer.INNER:
+			var inner_scale: float = lerpf(0.45, 0.6, heat)
+			_fill(on_item, _make_polygon(inner_scale, inner_scale + 0.1, 13.0, base_widen, base_drop),
+				Color(INNER_COLOR, 0.8 * opacity))
+		Layer.CORE:
+			var core_scale: float = lerpf(0.2, 0.42, heat)
+			var core_color: Color = INNER_COLOR.lerp(CORE_COLOR, heat)
+			_fill(on_item, _make_polygon(core_scale, core_scale + 0.05, 19.0, base_widen, base_drop),
+				Color(core_color, opacity))
 
 
 ## The flame outline for one layer. `width_scale`/`length_scale` shrink the layer,
 ## `noise_offset` gives each layer its own wander (and inner layers move faster).
+## `base_widen` / `base_drop`: the base drawn wider and lower (inside a FlameMerge).
 ## Points go base-left, up the left side, tip, down the right side, base-right.
-func _make_polygon(width_scale: float, length_scale: float, noise_offset: float) -> PackedVector2Array:
+func _make_polygon(width_scale: float, length_scale: float, noise_offset: float,
+		base_widen: float = 1.0, base_drop: float = 0.0) -> PackedVector2Array:
 	# Inner layers flicker faster: their noise time runs ahead.
 	var t: float = noise_time * (1.0 + noise_offset * 0.05)
 	var breath: float = 1.0 + breath_amount * noise.get_noise_2d(t * 0.6, 50.0 + noise_offset)
 	var flame_length: float = length * length_scale * breath
-	var half_base: float = base_width * width_scale * 0.5
+	var half_base: float = base_width * width_scale * 0.5 * base_widen
 	var half_fan: float = fan_width * width_scale * 0.5
 	var wobble: float = fan_width * width_scale * wobble_amount
 	var points: PackedVector2Array = PackedVector2Array()
-	points.append(Vector2(-half_base, 0.0))
+	points.append(Vector2(-half_base, base_drop))
 	points.append(Vector2(-half_fan + wobble * _wander(t, 1.0 + noise_offset), -flame_length * 0.4))
 	points.append(Vector2(-half_fan * 0.55 + wobble * _wander(t, 2.0 + noise_offset), -flame_length * 0.72))
 	# The tip swings the most: that's the "licking". It forks on slow noise: `split`
@@ -313,7 +359,7 @@ func _make_polygon(width_scale: float, length_scale: float, noise_offset: float)
 		points.append(Vector2(tip_x + half_gap, -flame_length * (1.0 - 0.12 * split - height_sway)))
 	points.append(Vector2(half_fan * 0.55 + wobble * _wander(t, 4.0 + noise_offset), -flame_length * 0.72))
 	points.append(Vector2(half_fan + wobble * _wander(t, 5.0 + noise_offset), -flame_length * 0.4))
-	points.append(Vector2(half_base, 0.0))
+	points.append(Vector2(half_base, base_drop))
 	return points
 
 

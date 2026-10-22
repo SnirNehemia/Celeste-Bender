@@ -19,10 +19,22 @@ extends Area2D
 ## Other things that ride the wind (SailPlatform) find zones through the group
 ## GROUP instead and check the zone's rectangle themselves (see contains_point()).
 ## @tool: the script also runs in the editor, so you see the zone while placing it.
+##
+## HOT UPDRAFTS (Stage F7, Fire_bending.md §5.3): with `heat` on, the zone is hot air
+## rising, not wind. It pushes NOTHING through get_wind_velocity() (that returns zero,
+## so the player on foot, the jet, sails, grass, pebbles and crates ignore it without
+## knowing about heat). Instead it is a heat source (scenes/objects/fire/heat.gd):
+## the glide asks Heat.get_lift_at() and rises by wind_strength, and every node in the
+## "heat_receiver" group inside it gets apply_heat(wind_strength, delta) each physics
+## frame. It looks warm: a faint orange tint and rising embers instead of cyan specks.
+## A Bonfire makes one above its flame; one can also be placed by hand.
 
 ## Translucent cyan (GAME_DESIGN.md §2) and the brighter particle color.
 const FILL_COLOR: Color = Color(0.4, 0.9, 1.0, 0.15)
 const PARTICLE_COLOR: Color = Color(0.7, 0.95, 1.0, 0.6)
+## Hot air (heat on): a barely-there warm tint and ember-orange specks (§9.1 body).
+const HEAT_FILL_COLOR: Color = Color(1.0, 0.55, 0.15, 0.06)
+const HEAT_PARTICLE_COLOR: Color = Color(1.0, 0.6, 0.2, 0.7)
 ## Upper limit on drifting specks per zone, for performance.
 const MAX_SPECKS: int = 400
 ## Every wind zone joins this group, so non-player objects can find them.
@@ -45,6 +57,14 @@ const GROUP: StringName = &"wind_zones"
 		wind_strength = value
 		_rebuild()
 
+## Hot updraft (see the header): lifts only gliders and heat receivers, by
+## wind_strength px/s, and blows nothing.
+@export var heat: bool = false:
+	set(value):
+		heat = value
+		_update_heat_group()
+		_rebuild()
+
 var collision_shape: CollisionShape2D
 var fill_rect: ColorRect
 var drift_particles: CPUParticles2D
@@ -58,13 +78,38 @@ func _ready() -> void:
 	# In the editor (@tool) we skip it: no gameplay there.
 	if not Engine.is_editor_hint():
 		add_to_group(GROUP)
+		_update_heat_group()
 		body_entered.connect(_on_body_entered)
 		body_exited.connect(_on_body_exited)
 
 
-## The wind this zone applies, px/s.
+func _physics_process(delta: float) -> void:
+	if heat and not Engine.is_editor_hint():
+		Heat.heat_receivers(get_tree(), self, delta)
+
+
+## The wind this zone applies, px/s. Hot air is not wind: zero.
 func get_wind_velocity() -> Vector2:
+	if heat:
+		return Vector2.ZERO
 	return wind_direction.normalized() * wind_strength
+
+
+## The heat-source contract (heat.gd): the lift at `world_point`, px/s.
+func get_heat_lift_at(world_point: Vector2) -> float:
+	if heat and contains_point(world_point):
+		return wind_strength
+	return 0.0
+
+
+## Joins or leaves the heat sources as `heat` changes (game only).
+func _update_heat_group() -> void:
+	if not is_inside_tree() or Engine.is_editor_hint():
+		return
+	if heat:
+		add_to_group(Heat.SOURCE_GROUP)
+	elif is_in_group(Heat.SOURCE_GROUP):
+		remove_from_group(Heat.SOURCE_GROUP)
 
 
 ## True if `world_point` is inside this zone (for objects that aren't the player).
@@ -105,7 +150,7 @@ func _rebuild() -> void:
 	collision_shape.position = zone_size / 2.0  # shapes are positioned by their center
 
 	fill_rect.size = zone_size
-	fill_rect.color = FILL_COLOR
+	fill_rect.color = HEAT_FILL_COLOR if heat else FILL_COLOR
 
 	_setup_particles()
 
@@ -133,7 +178,7 @@ func _setup_particles() -> void:
 	# preprocess simulates this many seconds up front, so the zone is already full of
 	# specks when the room appears instead of starting empty.
 	drift_particles.preprocess = drift_particles.lifetime
-	drift_particles.color = PARTICLE_COLOR
+	drift_particles.color = HEAT_PARTICLE_COLOR if heat else PARTICLE_COLOR
 	var fade: Gradient = Gradient.new()
 	fade.set_color(0, Color(1, 1, 1, 0))
 	fade.set_color(1, Color(1, 1, 1, 0))

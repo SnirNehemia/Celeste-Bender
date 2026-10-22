@@ -77,6 +77,19 @@ extends Node2D
 ## Cells are told apart by get_fuel(). A cell's State is shared by all three
 ## materials: GRASS means "not burnt yet" whatever the material.
 ##
+## HOT AIR (Stage F7, Fire_bending.md §5.3): every burning cell with an open top gives
+## a short, weak updraft (grass_updraft_lift, grass_updraft_height px above the cell)
+## while it burns. The grid is a heat source (scenes/objects/fire/heat.gd), so a
+## glider passing over a fire gets a little bump and heat receivers are lifted; no
+## WindZone per cell (that would be up to max_burning_tiles areas made and freed).
+##
+## GUSTS (F7 play-test, ahead of Stage F10; Fire_bending.md §5.4): a gust blowing
+## over burning cells puts them out (snuff_in, the Flammable contract's gust hook):
+## burning grass turns to ash at once (a firebreak), burning thicket crumbles away
+## without lighting what's around it. Cells about to catch inside the gust don't, and
+## cells only a snuffed cell was about to light don't either. Smoldering cells and a
+## flashing cover are left alone. So a gust across a fire front stops it there.
+##
 ## Time: game time (physics delta), so slow motion slows the fire too. Only the room
 ## on screen burns (like the grass blades); a fire left behind waits.
 
@@ -200,6 +213,9 @@ var flames: Dictionary = {}
 var specks: Dictionary = {}
 ## The additive child the glows and specks are drawn into.
 var glow_layer: Node2D
+## Draws every burning cell's tongues as one fire, so a burning run is one sheet of
+## flame with many tips, not a row of little fires (F7 play-test, FlameMerge).
+var flame_merge: FlameMerge
 
 
 func _ready() -> void:
@@ -222,6 +238,7 @@ func _ready() -> void:
 	add_to_group(Room.RESETTABLE_GROUP)
 	add_to_group(Flammable.GROUP)
 	add_to_group(FireHazard.GROUP)
+	add_to_group(Heat.SOURCE_GROUP)
 	z_index = 1  # flames in front of the player's feet, like the grass blades
 	glow_layer = Node2D.new()
 	glow_layer.name = "Glow"
@@ -230,6 +247,7 @@ func _ready() -> void:
 	glow_layer.material = additive
 	add_child(glow_layer)
 	glow_layer.draw.connect(_draw_glow)
+	flame_merge = FlameMerge.make(self)
 
 
 ## The grid of the room containing `world_position`, or null.
@@ -432,9 +450,84 @@ func is_burning() -> bool:
 	return burning_count > 0
 
 
-## Gusts against burning grass come in Stage F10.
+## The whole grid can't be snuffed at once: gusts put out the cells they blow over
+## (snuff_in).
 func snuff() -> void:
 	pass
+
+
+## The gust hook (flammable.gd): puts out the burning grass and thicket cells a gust
+## blew over (`world_polygon`: its cone, or circle), and stops the cells inside it
+## that were about to catch. A cell counts if its middle, a corner, or its flame band
+## is inside. Returns how many cells went out.
+func snuff_in(world_polygon: PackedVector2Array, _direction: Vector2) -> int:
+	if burning_count == 0 and pending.is_empty():
+		return 0
+	var polygon: PackedVector2Array = PackedVector2Array()
+	for world_point: Vector2 in world_polygon:
+		polygon.append(to_local(world_point))
+	var grass_cells: Array[Vector2i] = []
+	var thicket_cells: Array[Vector2i] = []
+	for cell: Vector2i in time_left:
+		if get_state(cell) != State.BURNING or not _is_cell_in_polygon(cell, polygon):
+			continue
+		match get_fuel(cell):
+			Fuel.GRASS:
+				grass_cells.append(cell)
+			Fuel.THICKET:
+				thicket_cells.append(cell)
+	# Cells about to catch inside the gust: blown out before they do.
+	var cancelled: Array[Vector2i] = []
+	for cell: Vector2i in pending:
+		if _is_cell_in_polygon(cell, polygon):
+			cancelled.append(cell)
+	# And the ones only a snuffed cell was about to light (if another burning cell
+	# would light them too, they're queued again below).
+	for cell: Vector2i in grass_cells + thicket_cells:
+		for target: Array in get_spread_targets(cell):
+			if pending.has(target[0]) and not cancelled.has(target[0]):
+				cancelled.append(target[0])
+	for cell: Vector2i in cancelled:
+		pending.erase(cell)
+		pending_origin.erase(cell)
+	for cell: Vector2i in grass_cells:
+		burning_count -= 1
+		_remove_flames(cell)
+		SmokePuff.spawn(room, to_global(_get_top_point(cell)), 2)  # the gray puff before its ash
+		_become_ash(cell)
+	if not thicket_cells.is_empty():
+		_crumble_thicket(thicket_cells, false)
+	_requeue_from_burning_neighbours(cancelled)
+	return grass_cells.size() + thicket_cells.size()
+
+
+## True if `cell` (or its flame band) is inside `polygon` (our local px): its middle,
+## a corner of the cell grown by the flame band's depth, or the middle of the band
+## on top.
+func _is_cell_in_polygon(cell: Vector2i, polygon: PackedVector2Array) -> bool:
+	var rect: Rect2 = get_cell_rect(cell).grow(fire_tuning.grass_fire_hazard_height)
+	for point: Vector2 in [get_cell_rect(cell).get_center(), rect.position, rect.end,
+			Vector2(rect.position.x, rect.end.y), Vector2(rect.end.x, rect.position.y),
+			Vector2(rect.get_center().x, rect.position.y + 1.0)]:
+		if Geometry2D.is_point_in_polygon(point, polygon):
+			return true
+	return false
+
+
+## After a gust cancelled `cells`' ignitions: any that a still-burning neighbour would
+## light anyway are queued again (that neighbour's fire wasn't blown out).
+func _requeue_from_burning_neighbours(cells: Array[Vector2i]) -> void:
+	if cells.is_empty():
+		return
+	for burning_cell: Vector2i in time_left:
+		if get_state(burning_cell) != State.BURNING:
+			continue
+		for target: Array in get_spread_targets(burning_cell):
+			var neighbour: Vector2i = target[0]
+			if cells.has(neighbour) and can_catch(neighbour):
+				var neighbour_rect: Rect2 = get_cell_rect(neighbour)
+				var entry: Vector2 = get_cell_rect(burning_cell).get_center().clamp(neighbour_rect.position, neighbour_rect.end)
+				queue_ignition(neighbour, float(target[1]), entry)
 
 
 # --- Changing state ----------------------------------------------------------------
@@ -556,11 +649,16 @@ func _ignite_touching_flammables(cell: Vector2i) -> void:
 	for target: Node in get_tree().get_nodes_in_group(Flammable.GROUP):
 		if target == self or target is FireGrid:
 			continue
-		var target_rect: Rect2 = Flammable.get_fire_rect(target)
+		# Things that burn in parts (a leaf pile's leaves) catch only where a band
+		# is: lit at its middle, reaching its half diagonal.
+		var burns_in_parts: bool = target.has_method(Flammable.METHOD_IGNITE_AT)
+		var target_rect: Rect2 = Rect2() if burns_in_parts else Flammable.get_fire_rect(target)
 		for normal: Vector2i in get_open_sides(cell):
 			var band: Rect2 = get_flame_band(cell, normal).grow(IGNITE_REACH)
 			band.position = to_global(band.position)
-			if band.intersects(target_rect) or band.has_point(target_rect.position):
+			if burns_in_parts:
+				target.call(Flammable.METHOD_IGNITE_AT, band.get_center(), band.size.length() / 2.0, self)
+			elif band.intersects(target_rect) or band.has_point(target_rect.position):
 				target.call(Flammable.METHOD_IGNITE, self)
 				break
 
@@ -578,8 +676,9 @@ func _start_smoldering(cell: Vector2i) -> void:
 
 
 ## Burnt-out thicket cells crumble into falling ash and become open air (the
-## ThicketLayer erases them, in one batch).
-func _crumble_thicket(cells: Array[Vector2i]) -> void:
+## ThicketLayer erases them, in one batch). `spread`: the glowing ash lights what the
+## cells touched; false when a gust blew them out.
+func _crumble_thicket(cells: Array[Vector2i], spread: bool = true) -> void:
 	for cell: Vector2i in cells:
 		_end_burning(cell)
 		var rect: Rect2 = get_cell_rect(cell)
@@ -594,7 +693,7 @@ func _crumble_thicket(cells: Array[Vector2i]) -> void:
 		var rect: Rect2 = get_cell_rect(cell)
 		PebbleField.leave_ash(get_tree(), to_global(rect.get_center()), fire_tuning.ash_flakes_per_thicket_cell,
 			rect.size - Vector2(2.0, 2.0), ASH_FLAKE_COLORS)
-	_after_cells_gone(cells)
+	_after_cells_gone(cells, spread)
 
 
 ## The flash-over is done: the whole cover collapses at once in a burst of ash and
@@ -635,15 +734,16 @@ func _end_burning(cell: Vector2i) -> void:
 
 ## Cells just turned into open air: what they touched burns on. Grass under them
 ## catches (its top is open now: the glowing ash falls on it), thicket and covers
-## they touched catch if the fire hadn't got there yet, and burning neighbours grow
-## flames on the sides that just opened.
-func _after_cells_gone(cells: Array[Vector2i]) -> void:
+## they touched catch if the fire hadn't got there yet (not when `spread` is false:
+## a gust blew them out), and burning neighbours grow flames on the sides that just
+## opened.
+func _after_cells_gone(cells: Array[Vector2i], spread: bool = true) -> void:
 	for cell: Vector2i in cells:
 		for normal: Vector2i in EarthLayer.FACE_NORMALS:
 			var neighbour: Vector2i = cell + normal
 			if get_state(neighbour) == State.BURNING:
 				_add_missing_flames(neighbour)
-			elif can_catch(neighbour) and not pending.has(neighbour):
+			elif spread and can_catch(neighbour) and not pending.has(neighbour):
 				var neighbour_rect: Rect2 = get_cell_rect(neighbour)
 				var entry: Vector2 = get_cell_rect(cell).get_center().clamp(neighbour_rect.position, neighbour_rect.end)
 				queue_ignition(neighbour, _get_spread_delay_from(get_fuel(neighbour)), entry)
@@ -743,6 +843,28 @@ func _physics_process(delta: float) -> void:
 	_drop_thicket_clumps(delta)
 	_process_pending()
 	_check_player()
+	if burning_count > 0:
+		Heat.heat_receivers(get_tree(), self, delta)
+
+
+## The heat-source contract (heat.gd): the weak updraft over burning cells. A point
+## gets grass_updraft_lift if it is over a burning cell whose top is open, at most
+## grass_updraft_height px above that top (inside the cell's columns of x).
+func get_heat_lift_at(world_point: Vector2) -> float:
+	if burning_count == 0 or GameState.current_room != room:
+		return 0.0
+	var point: Vector2 = to_local(world_point)
+	var column_cell: Vector2i = geometry_layer.local_to_map(point - geometry_layer.position)
+	# The burning cell may be under the point, or as far down as the updraft reaches.
+	var reach_cells: int = ceili(fire_tuning.grass_updraft_height / tile_size) + 1
+	for step: int in range(0, reach_cells + 1):
+		var cell: Vector2i = column_cell + Vector2i(0, step)
+		if get_state(cell) != State.BURNING or is_solid(cell + Vector2i.UP):
+			continue
+		var top: float = get_cell_rect(cell).position.y
+		if point.y <= top and point.y >= top - fire_tuning.grass_updraft_height:
+			return fire_tuning.grass_updraft_lift
+	return 0.0
 
 
 ## True if `cell`'s flames kill right now: burning grass from the moment it catches,
@@ -850,6 +972,7 @@ func _add_side_flames(cell: Vector2i, normal: Vector2i) -> void:
 		tongue.smoke_rate = fire_tuning.grass_smoke_per_second / float(count)
 		tongue.visible = false
 		add_child(tongue)
+		flame_merge.add_tongue(tongue)
 		var flame: Dictionary = {"node": tongue, "normal": normal}
 		# A flame added late (a side opened up) starts now, not back at the catch.
 		_place_flame(cell, flame, maxf(get_time_burning_signed(cell), 0.0))

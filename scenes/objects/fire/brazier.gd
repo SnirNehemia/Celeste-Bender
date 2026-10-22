@@ -79,6 +79,8 @@ func _ready() -> void:
 	shape_node.position = _get_catch_center()
 	catch_area.add_child(shape_node)
 	add_child(catch_area)
+	# One merged flame: the tongues share an outline (FlameMerge).
+	var flame_merge: FlameMerge = FlameMerge.make(self)
 	for flame_index: int in FLAME_LENGTHS.size():
 		var flame: FlameTongue = FlameTongue.new()
 		flame.position = Vector2(FLAME_OFFSETS_X[flame_index], _get_bowl_top_y())
@@ -96,6 +98,7 @@ func _ready() -> void:
 		flame.z_index = 1  # in front of the bowl's back edge
 		flame.visible = false
 		add_child(flame)
+		flame_merge.add_tongue(flame)
 		flames.append(flame)
 
 
