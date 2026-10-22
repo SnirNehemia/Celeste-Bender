@@ -12,11 +12,17 @@ extends "res://tools/build_earth_rooms.gd"
 ##   - tests/rooms/room_fire_a.tscn   Stage F1 fire bar + fire diamonds (_build_room_fire_a)
 ##   - tests/rooms/room_fire_b.tscn   Stage F3 flame jet: gap, chain shaft, fuel route (_build_room_fire_b)
 ##   - tests/rooms/room_fire_c.tscn   Stage F4 fireball + braziers opening doors (_build_room_fire_c)
+##   - tests/rooms/room_fire_d.tscn   Stage F5 burning grass: fuse, shelter, jet run (_build_room_fire_d)
+##
+## Ground: grass BURNS since Stage F5, so rooms are built of earth (never burns, still
+## painted like grass's neighbour) and grass is only laid where a room wants fire to
+## run. Rooms A-C were grass-framed before F5 and are earth-framed now, so a jet
+## take-off doesn't set their floors alight.
 ##
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_fire_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- fire_b` (names: fire_a, fire_b, fire_c).
+## only those, e.g. `-- fire_b` (names: fire_a, fire_b, fire_c, fire_d).
 
 const FIRE_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/fire/fire_diamond.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
@@ -35,6 +41,8 @@ func _ready() -> void:
 		_build_room_fire_b()
 	if wanted.is_empty() or wanted.has("fire_c"):
 		_build_room_fire_c()
+	if wanted.is_empty() or wanted.has("fire_d"):
+		_build_room_fire_d()
 	print("[BuildFireRooms] Done.")
 	get_tree().quit()
 
@@ -46,6 +54,15 @@ func _fire_only(start_pips: int) -> void:
 	room.earth_allowed = false
 	room.fire_allowed = true
 	room.fire_start_pips = start_pips
+
+
+## The usual frame of a one-screen room in EARTH (grass burns since Stage F5):
+## ceiling, side walls, 3-row floor body.
+func _earth_frame() -> void:
+	_earth(0, 0, 40, 1)
+	_earth(0, 0, 1, 23)
+	_earth(39, 0, 1, 23)
+	_earth(0, 20, 40, 3)
 
 
 ## A fire diamond centered at `position_px`: `pip_amount` 1 = single, 2 = double.
@@ -67,14 +84,14 @@ func _build_room_fire_a() -> void:
 	_begin_room("RoomFireA", "Fire A - Fire Bar",
 		"Stage F1 test room. Fire-only, starts with 2 pips. Fire diamonds: single +1, double +2, single use until R. The cap is 5. W (flame jet) spends a pip. F1 shows the count. R or dying resets pips and diamonds.")
 	_fire_only(2)
-	_grass_frame()
+	_earth_frame()
 	# Floor diamonds at walking height (the player's middle is ~5 px above the feet).
 	_fire_diamond("FireDiamondSingle1", Vector2(88, 152), 1)
 	_fire_diamond("FireDiamondSingle2", Vector2(120, 152), 1)
 	_fire_diamond("FireDiamondDouble1", Vector2(152, 151), 2)
 	# Step (2 tiles up) and ledge (5 tiles up), each hop under a full jump.
-	_grass(20, 18, 2, 2)
-	_grass(24, 15, 7, 1)
+	_earth(20, 18, 2, 2)
+	_earth(24, 15, 7, 1)
 	_fire_diamond("FireDiamondDouble2", Vector2(220, 110), 2)
 	# Spike pit near the right wall.
 	_spike_pit("SpikePit", 33, 4)
@@ -109,10 +126,10 @@ func _build_room_fire_b() -> void:
 		Vector2(320, 360))
 	_fire_only(0)
 	# Frame: ceiling, walls, 3-row floor (rows 42-44).
-	_grass(0, 0, 40, 1)
-	_grass(0, 0, 1, 45)
-	_grass(39, 0, 1, 45)
-	_grass(0, 42, 40, 3)
+	_earth(0, 0, 40, 1)
+	_earth(0, 0, 1, 45)
+	_earth(39, 0, 1, 45)
+	_earth(0, 42, 40, 3)
 
 	# 1. The gap. Diamond at walking height (the player's middle is ~5 px above the feet).
 	_fire_diamond("GapDiamond", Vector2(84, 330), 1)
@@ -122,13 +139,13 @@ func _build_room_fire_b() -> void:
 	_fire_diamond("ShaftDiamondDouble", Vector2(212, 329), 2)
 	_fire_diamond("ShaftDiamondSingle", Vector2(228, 330), 1)
 	_gray(25, 17, 1, 17)
-	_grass(32, 14, 7, 2)
+	_earth(32, 14, 7, 2)
 
 	# 3. The fuel route, at the ledge's walking height (ledge top y 112).
 	_fire_diamond("RouteDiamond1", Vector2(292, 106), 1)
 	_fire_diamond("RouteDiamond2", Vector2(196, 106), 1)
 	_fire_diamond("RouteDiamond3", Vector2(116, 106), 1)
-	_grass(1, 14, 6, 2)
+	_earth(1, 14, 6, 2)
 
 	_finish_room(Vector2(24, 336), "res://tests/rooms/room_fire_b.tscn")
 
@@ -169,10 +186,10 @@ func _build_room_fire_c() -> void:
 		Vector2(400, 180))
 	_fire_only(2)
 	# Frame (50 columns).
-	_grass(0, 0, 50, 1)
-	_grass(0, 0, 1, 23)
-	_grass(49, 0, 1, 23)
-	_grass(0, 20, 50, 3)
+	_earth(0, 0, 50, 1)
+	_earth(0, 0, 1, 23)
+	_earth(49, 0, 1, 23)
+	_earth(0, 20, 50, 3)
 
 	# 1. Pit, brazier, door.
 	_spike_pit_at("PitSpikes", 8, 8, 20)
@@ -185,7 +202,7 @@ func _build_room_fire_c() -> void:
 	_door("DoorTimed", 35, 1, 19, timed_brazier)
 
 	# 3. The block with the corridor, chimney and tunnel.
-	_grass(37, 1, 12, 19)
+	_earth(37, 1, 12, 19)
 	_open(37, 16, 10, 4)   # corridor, 4 tiles tall, from the door into the chimney
 	_open(44, 4, 3, 12)    # chimney up
 	_open(38, 4, 6, 3)     # tunnel left at the top
@@ -193,3 +210,45 @@ func _build_room_fire_c() -> void:
 	_brazier("BrazierTunnel", 39, 7)
 
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_c.tscn")
+
+
+## Fire test room D (Stage F5, burning grass). Fire-only, 480×180 (scrolls), starts
+## with 2 pips. Earth frame, floor at row 20; grass only where fire should run.
+##   1. The fuse (cols 6-30): a grass strip along the floor that climbs a grassy step
+##      (cols 16-21, 2 tiles high: up its left side, over its top, down its right
+##      side) and ends under a brazier (col 30), which opens the door at col 33.
+##      Tap Q facing right: the fireball hits the step and the fire runs both ways,
+##      back toward you (it stops at the earth you stand on) and on to the brazier.
+##      A gray-rock shelter (cols 24-27, 3 tiles up) hangs over the fuse: wait on it
+##      while the front passes under you, then walk on over the ash.
+##   2. The jet run (behind the door): a double diamond, then three grass patches on
+##      the floor split by gray rock (cols 38-41, 43-46, 49-52). A fireball lights one
+##      patch; jetting low along the floor (Right + W, hold W to chain) lights all
+##      three behind you. Taking off from grass leaves a fire where you stood.
+func _build_room_fire_d() -> void:
+	_begin_room("RoomFireD", "Fire D - Burning Grass",
+		"Stage F5 test room. Fire-only, starts with 2 pips. 1: fireball the grassy step: the fire runs along the grass, up the step and on to the brazier, which opens the door. Wait on the gray ledge while it passes; ash is safe to walk on. 2: grab the double diamond and jet right along the floor: the plume lights each grass patch behind you. R puts all the grass back.",
+		Vector2(480, 180))
+	_fire_only(2)
+	# Frame (60 columns).
+	_earth(0, 0, 60, 1)
+	_earth(0, 0, 1, 23)
+	_earth(59, 0, 1, 23)
+	_earth(0, 20, 60, 3)
+
+	# 1. The fuse, the step on it, the shelter over it, the brazier at its end.
+	_grass(6, 20, 25, 1)
+	_grass(16, 18, 6, 2)
+	_gray(24, 17, 4, 1)
+	var fuse_brazier: Node2D = _brazier("BrazierFuse", 30, 20)
+	_door("DoorFuse", 33, 1, 19, fuse_brazier)
+
+	# 2. The jet run.
+	_fire_diamond("RunDiamond", Vector2(35 * TILE + 4, 151), 2)
+	_grass(38, 20, 4, 1)
+	_gray(42, 20, 1, 1)
+	_grass(43, 20, 4, 1)
+	_gray(47, 20, 2, 1)
+	_grass(49, 20, 4, 1)
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_d.tscn")

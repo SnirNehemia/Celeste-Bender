@@ -23,8 +23,9 @@ func _ready() -> void:
 	await _check_f2_tuning_panel(world.player)
 	await _check_f3_flame_jet(world, world.player)
 	await _check_f4_fireball(world, world.player)
+	await _check_f5_burning_grass(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -446,6 +447,158 @@ func _check_f4_fireball(world: RoomManager, player: Player) -> void:
 	_check(not pit_brazier.is_on() and not tunnel_brazier.is_on(), "a room reset puts every brazier out")
 	_check(bar.pips == 2, "and brings back the 2 starting pips")
 	finished_sections.append("F4")
+
+
+## Stage F5: burning grass (FireGrid). Fire D's fuse runs from cols 6-30 on the floor
+## (row 20), over the grassy step at cols 16-21 (rows 18-19), under the gray shelter
+## (cols 24-27, row 17) to the brazier at col 30. The jet run's patches are cols 38-41,
+## 43-46 and 49-52.
+func _check_f5_burning_grass(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var bar: FireBar = player.fire_bar
+	var room_d: Room = world.get_node("RoomFireD") as Room
+	var grid: FireGrid = room_d.get_node_or_null("FireGrid") as FireGrid
+	var painter: GroundPainter = room_d.get_node("GroundPainter") as GroundPainter
+	var brazier: Brazier = room_d.get_node("BrazierFuse") as Brazier
+	var door: Door = room_d.get_node("DoorFuse") as Door
+	_check(grid != null, "a room with fire and grass gets a FireGrid")
+	if grid == null:
+		return
+	_check(grid.is_in_group(Flammable.GROUP) and grid.is_in_group(FireHazard.GROUP) and grid.is_in_group(Room.RESETTABLE_GROUP),
+		"the grid is flammable, a fire hazard and resettable")
+	var room_a: Room = world.get_node("RoomFireA") as Room
+	_check((room_a.get_node("Grass") as TileMapLayer).get_used_cells().is_empty(),
+		"Fire A-C are built of earth now, so a jet take-off doesn't light their floors")
+	_check(tuning.spread_delay == 0.32 and tuning.burn_time == 1.6 and tuning.smolder_time == 2.5 and tuning.max_burning_tiles == 96,
+		"burning grass values start at the play-tested numbers (spread 0.32 s, burn 1.6 s, smolder 2.5 s)")
+	world.jump_to_room(room_d)
+	await _physics_frames(10)
+	_check(bar.pips == 2, "Fire D starts with 2 pips, got %d" % bar.pips)
+
+	# Surface neighbours: along the floor, up the step's wall (not into buried grass),
+	# and never onto earth.
+	var foot_neighbours: Array[Vector2i] = grid.get_spread_neighbours(Vector2i(15, 20))
+	_check(foot_neighbours.has(Vector2i(14, 20)) and foot_neighbours.has(Vector2i(16, 19)) and not foot_neighbours.has(Vector2i(16, 20)),
+		"fire spreads along the floor and up a grassy wall, got %s" % [foot_neighbours])
+	var corner_neighbours: Array[Vector2i] = grid.get_spread_neighbours(Vector2i(16, 18))
+	_check(corner_neighbours.has(Vector2i(16, 19)) and corner_neighbours.has(Vector2i(17, 18)),
+		"and round the step's outer corner onto its top, got %s" % [corner_neighbours])
+	_check(not grid.get_spread_neighbours(Vector2i(6, 20)).has(Vector2i(5, 20)), "it never steps onto earth")
+	_check(not grid.can_catch(Vector2i(16, 20)), "buried grass (no open side) can't catch")
+
+	# The fuse: stand on the gray shelter, fireball the step.
+	var ash_pixel: Vector2i = Vector2i(17 * 8 + 3, 18 * 8 + 1)  # the step's top crust
+	var grass_color: Color = painter.get_pixel_color(ash_pixel)
+	player.respawn_at(room_d.global_position + Vector2(26 * 8, 17 * 8))
+	await _physics_frames(5)
+	Fireball.launch(world, room_d.global_position + Vector2(100, 150), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return grid.burning_count > 0, 1.0)
+	_check(grid.get_state(Vector2i(16, 18)) == FireGrid.State.BURNING or grid.get_state(Vector2i(16, 19)) == FireGrid.State.BURNING,
+		"a fireball into the grassy step lights it at once")
+	# The look follows the fire, not the tiles: it creeps across a cell from where it
+	# came in, and cells get different numbers of flames at random spots.
+	var lit_cell: Vector2i = Vector2i(16, 18) if grid.get_state(Vector2i(16, 18)) == FireGrid.State.BURNING else Vector2i(16, 19)
+	var lit_rect: Rect2 = grid.get_cell_rect(lit_cell)
+	var entry: Vector2 = grid.ignite_origin[lit_cell]
+	var far_corner: Vector2 = Vector2(lit_rect.end.x if entry.x < lit_rect.get_center().x else lit_rect.position.x, lit_rect.end.y)
+	_check(grid.get_creep_delay(lit_cell, far_corner) > grid.get_creep_delay(lit_cell, entry) + 0.1,
+		"the fire creeps across a cell from where it came in")
+	await _wait_until(func() -> bool: return grid.get_state(Vector2i(17, 18)) != FireGrid.State.GRASS, 3.0)
+	var flame_counts: Dictionary = {}
+	for burning_cell: Vector2i in grid.flames:
+		flame_counts[(grid.flames[burning_cell] as Array).size()] = true
+	_check(flame_counts.size() > 1, "burning cells get different numbers of flames, got counts %s" % [flame_counts.keys()])
+	_check(grid.get_state(Vector2i(17, 18)) != FireGrid.State.GRASS, "the fire climbs the step and runs along its top")
+	await _wait_until(func() -> bool: return grid.get_state(Vector2i(25, 20)) == FireGrid.State.BURNING, 8.0)
+	_check(grid.get_state(Vector2i(25, 20)) == FireGrid.State.BURNING and not player.is_dead(),
+		"the front passes under the gray shelter and the player on it is safe")
+	await _wait_until(func() -> bool: return brazier.is_on(), 5.0)
+	_check(brazier.is_on(), "the fuse lights the brazier at its end")
+	await _physics_frames(30)
+	_check(door.open_amount > 0.9, "and the brazier opens its door (open %.2f)" % door.open_amount)
+	await _wait_until(func() -> bool: return grid.get_state(Vector2i(6, 20)) != FireGrid.State.GRASS, 4.0)
+	_check(grid.get_state(Vector2i(6, 20)) != FireGrid.State.GRASS and grid.get_state(Vector2i(5, 20)) == FireGrid.State.GRASS,
+		"the fire also runs back to the fuse's start and stops at the earth")
+	_check(grid.peak_burning_count <= tuning.max_burning_tiles, "never more than max_burning_tiles burning (peak %d)" % grid.peak_burning_count)
+
+	# Smolder, then ash: a firebreak painted gray.
+	await _wait_until(func() -> bool: return grid.get_state(Vector2i(17, 18)) == FireGrid.State.ASH, 7.0)
+	_check(grid.get_state(Vector2i(17, 18)) == FireGrid.State.ASH, "a burnt cell smolders, then turns to ash")
+	_check(not grid.can_catch(Vector2i(17, 18)) and not grid.ignite_at(room_d.global_position + Vector2(17 * 8 + 4, 18 * 8), 2.0, null),
+		"ash never burns again")
+	var ash_color: Color = painter.get_pixel_color(ash_pixel)
+	_check(absf(ash_color.r - ash_color.b) < 0.06 and ash_color.r < 0.6 and ash_color != grass_color,
+		"burnt ground is painted charred or gray, got %s (grass was %s)" % [ash_color, grass_color])
+
+	# R puts every cell back.
+	room_d.reset_objects()
+	await get_tree().physics_frame
+	_check(grid.cell_states.is_empty() and grid.pending.is_empty() and grid.burning_count == 0 and grid.flames.is_empty(),
+		"a room reset turns every cell back into grass")
+	_check(painter.get_pixel_color(ash_pixel) == grass_color, "and repaints it as grass")
+	_check(not brazier.is_on(), "and puts the fuse brazier out")
+
+	# The cap: with max_burning_tiles = 3 the rest waits in the queue.
+	var saved_cap: int = tuning.max_burning_tiles
+	tuning.max_burning_tiles = 3
+	grid.peak_burning_count = 0
+	player.respawn_at(room_d.global_position + Vector2(26 * 8, 17 * 8))
+	grid.ignite_at(room_d.global_position + Vector2(10 * 8 + 4, 160), 0.0, null)
+	var saw_waiting: bool = false
+	for frame: int in 90:
+		await get_tree().physics_frame
+		if grid.burning_count == 3 and not grid.pending.is_empty():
+			saw_waiting = true
+	tuning.max_burning_tiles = saved_cap
+	_check(grid.peak_burning_count <= 3 and saw_waiting, "at the cap, extra ignitions wait in the queue (peak %d)" % grid.peak_burning_count)
+	room_d.reset_objects()
+	await get_tree().physics_frame
+
+	# Burning grass kills.
+	player.respawn_at(room_d.global_position + Vector2(10 * 8 + 4, 160))
+	await _physics_frames(3)
+	grid.ignite_at(room_d.global_position + Vector2(10 * 8 + 4, 161), 0.0, null)
+	await _physics_frames(3)
+	_check(player.is_dead(), "standing on burning grass kills")
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
+	_check(grid.cell_states.is_empty() and not player.is_dead(), "dying resets the grass")
+
+	# Jet take-off from grass: the cell under you catches a moment later, not at once.
+	var take_off_cell: Vector2i = Vector2i(40, 20)
+	player.respawn_at(room_d.global_position + Vector2(40 * 8 + 4, 160))
+	await _physics_frames(5)
+	bar.gain(1)
+	await _tap(&"flame_jet")
+	await _physics_frames(2)
+	_check(grid.get_state(take_off_cell) == FireGrid.State.GRASS and grid.pending.has(take_off_cell),
+		"taking off from grass queues the cell under you")
+	await get_tree().create_timer(tuning.spread_delay + 0.1).timeout
+	_check(grid.get_state(take_off_cell) == FireGrid.State.BURNING and not player.is_dead(),
+		"it catches spread_delay later, when you're already up and away")
+	room_d.reset_objects()
+	await _physics_frames(60)
+
+	# Jetting right along the floor lights all three patches behind you.
+	player.respawn_at(room_d.global_position + Vector2(36 * 8 + 4, 160))
+	await _physics_frames(5)
+	bar.gain(2)
+	Input.action_press(&"move_right")
+	Input.action_press(&"flame_jet")
+	await _physics_frames(roundi(tuning.jet_burst_time * Engine.physics_ticks_per_second) * 2 + 5)
+	Input.action_release(&"flame_jet")
+	Input.action_release(&"move_right")
+	await get_tree().create_timer(tuning.spread_delay + 0.1).timeout
+	var lit_patches: int = 0
+	for patch_start: int in [38, 43, 49]:
+		for column: int in range(patch_start, patch_start + 4):
+			if grid.get_state(Vector2i(column, 20)) != FireGrid.State.GRASS:
+				lit_patches += 1
+				break
+	_check(lit_patches == 3, "jetting along the floor lights every patch behind you (%d of 3)" % lit_patches)
+	room_d.reset_objects()
+	player.respawn_at(room_d.get_spawn_position())
+	await _physics_frames(5)
+	finished_sections.append("F5")
 
 
 # --- Helpers ---------------------------------------------------------------------

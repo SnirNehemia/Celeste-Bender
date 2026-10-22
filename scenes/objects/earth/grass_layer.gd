@@ -27,6 +27,10 @@ extends TileMapLayer
 ##
 ## Only the current room's grass animates (GameState.current_room); the others stay
 ## still, which costs nothing.
+##
+## Fire (Stage F5): in rooms with a FireGrid, blades on a burning cell curl over,
+## shrink and blacken from the base up, each as the fire creeping across the cell
+## reaches it; on a smoldering cell only a black stub is left, and ash has none.
 
 ## Blade colors: two greens, alternating, so a field of blades doesn't look flat.
 const BLADE_COLOR: Color = Color(0.48, 0.76, 0.3)
@@ -36,6 +40,10 @@ const BLADE_DARK_COLOR: Color = Color(0.36, 0.62, 0.25)
 const BLADE_ROOT_DEPTH: float = 2.0
 ## The gust's sensor strip reaches this high above the tiles, px.
 const SENSOR_HEIGHT: float = 8.0
+## Burning blades: how far the tip curls over (px) and how short it gets (fraction of
+## its height) by the end of the burn.
+const BURN_CURL: float = 2.5
+const BURN_SHRINK: float = 0.65
 
 @export_group("Blades")
 ## How many blades per grass tile with open air above it.
@@ -78,6 +86,11 @@ var blade_phases: PackedFloat32Array = PackedFloat32Array()
 var blade_bends: PackedFloat32Array = PackedFloat32Array()
 var blade_bend_speeds: PackedFloat32Array = PackedFloat32Array()
 var blade_winds: PackedVector2Array = PackedVector2Array()
+## The grass cell each blade grows from (for the fire state).
+var blade_cells: Array[Vector2i] = []
+## The room's FireGrid, found on the first draw (it's made after us), or null.
+var fire_grid: FireGrid
+var fire_grid_looked_up: bool = false
 ## True once blade_winds was filled (wind zones are found on the first update, when
 ## every zone in the room has run its _ready).
 var winds_found: bool = false
@@ -125,6 +138,7 @@ func _generate_blades() -> void:
 			blade_bends.append(0.0)
 			blade_bend_speeds.append(0.0)
 			blade_winds.append(Vector2.ZERO)
+			blade_cells.append(cell)
 		# A strip ends where the next top cell isn't the right-hand neighbour.
 		var is_strip_start: bool = cell_index == 0 or top_cells[cell_index - 1] != cell + Vector2i.LEFT
 		if is_strip_start:
@@ -258,14 +272,35 @@ func receive_gust_from(direction: Vector2, strength: float, source_position: Vec
 ## Draws every blade on the Blades child (its `draw` signal calls this): a short root
 ## down into the ground, then two 1 px segments, the upper one leaning more, so a bent
 ## blade curves.
+## Burning blades (Stage F5) curl the way their phase picks, shrink, and blacken
+## from the base: the lower segment goes dark first.
 func _draw_blades() -> void:
+	if not fire_grid_looked_up:
+		fire_grid_looked_up = true
+		fire_grid = get_parent().get_node_or_null("FireGrid") as FireGrid
 	for blade_index: int in blade_bases.size():
 		var base: Vector2 = blade_bases[blade_index]
 		var height: float = blade_heights[blade_index]
 		var bend: float = blade_bends[blade_index]
+		var color: Color = BLADE_COLOR if blade_index % 2 == 0 else BLADE_DARK_COLOR
+		var lower_color: Color = color
+		var upper_color: Color = color
+		if fire_grid != null:
+			var fire_state: FireGrid.State = fire_grid.get_state(blade_cells[blade_index])
+			if fire_state == FireGrid.State.ASH:
+				continue
+			if fire_state == FireGrid.State.SMOLDERING:
+				blades_canvas.draw_line(base + Vector2(0.0, BLADE_ROOT_DEPTH), base + Vector2(0.0, -1.0), FireGrid.CHAR_COLOR, 1.0)
+				continue
+			if fire_state == FireGrid.State.BURNING:
+				# Each blade burns when the fire creeping across its cell reaches it.
+				var burn: float = fire_grid.get_burn_progress_at(blade_cells[blade_index], position + base)
+				height *= 1.0 - BURN_SHRINK * burn
+				bend += BURN_CURL * burn * (1.0 if blade_phases[blade_index] > PI else -1.0)
+				lower_color = color.lerp(FireGrid.CHAR_COLOR, clampf(burn * 2.5, 0.0, 1.0))
+				upper_color = color.lerp(FireGrid.CHAR_COLOR, clampf(burn * 1.5, 0.0, 1.0))
 		var middle: Vector2 = base + Vector2(bend * 0.35, -height * 0.55)
 		var tip: Vector2 = base + Vector2(bend, -height)
-		var color: Color = BLADE_COLOR if blade_index % 2 == 0 else BLADE_DARK_COLOR
-		blades_canvas.draw_line(base + Vector2(0.0, BLADE_ROOT_DEPTH), base, color, 1.0)
-		blades_canvas.draw_line(base, middle, color, 1.0)
-		blades_canvas.draw_line(middle, tip, color, 1.0)
+		blades_canvas.draw_line(base + Vector2(0.0, BLADE_ROOT_DEPTH), base, lower_color, 1.0)
+		blades_canvas.draw_line(base, middle, lower_color, 1.0)
+		blades_canvas.draw_line(middle, tip, upper_color, 1.0)

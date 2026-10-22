@@ -136,6 +136,7 @@ func begin_burst(direction: Vector2, is_chain: bool) -> void:
 			-direction, 180.0, 90.0)
 		FX.shake(1.5, 0.1)
 		FX.play_sfx(&"jet_start")
+		_scorch_take_off_ground()
 	_squash_along(direction)
 	burst_started.emit(is_chain)
 
@@ -153,20 +154,31 @@ func update_thrust(direction: Vector2, multiplier: float) -> void:
 
 ## The plume lights flammables it touches (Stage F4): a few points from the nozzle
 ## to the tip, each with the plume's half-width as its reach. Flammable.ignite()
-## is cheap to repeat, so doing this every physics frame is fine.
+## is cheap to repeat, so doing this every physics frame is fine. Grass (the
+## FireGrid, Stage F5) catches spread_delay later, so the fire starts behind you.
 func _ignite_along_plume() -> void:
 	var tuning: FireTuning = player.fire_tuning
 	var nozzle_position: Vector2 = get_nozzle_world_position()
 	var exhaust: Vector2 = -thrust_direction
 	var plume_length: float = tuning.jet_plume_length * lerpf(0.6, 1.0, _get_thrust_share())
 	var reach: float = tuning.jet_plume_fan_width * 0.5
-	var lit: Dictionary = {}
+	var flammables: Array[Node] = get_tree().get_nodes_in_group(Flammable.GROUP)
 	for step: int in PLUME_IGNITE_SAMPLES:
 		var point: Vector2 = nozzle_position + exhaust * plume_length * step / float(PLUME_IGNITE_SAMPLES - 1)
-		for target: Node in get_tree().get_nodes_in_group(Flammable.GROUP):
-			if not lit.has(target) and Flammable.get_fire_rect(target).grow(reach).has_point(point):
-				lit[target] = true
-				Flammable.try_ignite(target, self)
+		for target: Node in flammables:
+			Flammable.ignite_if_near(target, point, reach, self)
+
+
+## Taking off from grass scorches the cell under the feet (Fire_bending.md §5.2): it
+## catches spread_delay later (FireGrid.ignite_at delays the jet's fire), when you're
+## already up and away.
+func _scorch_take_off_ground() -> void:
+	if not player.is_on_floor():
+		return
+	var grid: FireGrid = FireGrid.find_grid_at(get_tree(), player.global_position)
+	if grid != null:
+		# This node's origin = the feet; 2 px down is inside the floor tile.
+		grid.ignite_at(player.global_position + Vector2(0.0, 2.0), 0.0, self)
 
 
 ## The flight is over. `snapped_off` (Jump cancel): the flame snaps off in a puff.

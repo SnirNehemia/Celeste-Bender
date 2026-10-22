@@ -19,6 +19,10 @@ extends RefCounted
 ##      coordinates. ignite_near() uses it; without it, only global_position counts.
 ##   4. for fireballs to HIT it (not only splash it): an Area2D (the object itself or a
 ##      child) on physics layer 6, "flammable" (LAYER_BIT below).
+##   5. optional (Stage F5): func ignite_at(world_point: Vector2, radius: float,
+##      source: Node) -> bool   for things made of many parts that burn separately
+##      (the FireGrid's grass cells): light the parts near the point, return true if
+##      any caught. When present, the helpers below use it instead of the fire rect.
 ##
 ## Fire sources only ever call the static helpers here, so new flammable things
 ## (leaf piles, vines, crates in later stages) need no change to the fireball or jet.
@@ -28,6 +32,7 @@ const METHOD_IGNITE: StringName = &"ignite"
 const METHOD_IS_BURNING: StringName = &"is_burning"
 const METHOD_SNUFF: StringName = &"snuff"
 const METHOD_FIRE_RECT: StringName = &"get_fire_rect"
+const METHOD_IGNITE_AT: StringName = &"ignite_at"
 ## Bit value of physics layer 6, "flammable" (layer n = bit 1 << (n - 1)).
 const LAYER_BIT: int = 32
 
@@ -56,10 +61,21 @@ static func try_ignite(touched: Node, source: Node) -> bool:
 static func ignite_near(tree: SceneTree, world_point: Vector2, radius: float, source: Node) -> int:
 	var lit_count: int = 0
 	for target: Node in tree.get_nodes_in_group(GROUP):
-		if target.has_method(METHOD_IGNITE) and get_fire_rect(target).grow(radius).has_point(world_point):
-			target.call(METHOD_IGNITE, source)
+		if ignite_if_near(target, world_point, radius, source):
 			lit_count += 1
 	return lit_count
+
+
+## Lights `target` if a flame at `world_point` reaching `radius` px touches it: its
+## ignite_at() if it has one (the FireGrid), else its fire rect grown by the radius.
+## Returns true if anything caught.
+static func ignite_if_near(target: Node, world_point: Vector2, radius: float, source: Node) -> bool:
+	if target.has_method(METHOD_IGNITE_AT):
+		return bool(target.call(METHOD_IGNITE_AT, world_point, radius, source))
+	if target.has_method(METHOD_IGNITE) and get_fire_rect(target).grow(radius).has_point(world_point):
+		target.call(METHOD_IGNITE, source)
+		return true
+	return false
 
 
 ## The catching area of a flammable node in world coordinates: its get_fire_rect()

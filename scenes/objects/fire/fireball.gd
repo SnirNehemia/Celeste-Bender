@@ -103,7 +103,10 @@ static func get_launch_velocity(throw_direction: Vector2, fire_tuning: FireTunin
 func _ready() -> void:
 	collision_layer = 0  # nothing needs to find the fireball itself
 	collision_mask = HIT_MASK
-	monitorable = false
+	# Must stay monitorable (the default), even though nothing looks for it: Godot's 2D
+	# physics files a NON-monitorable area as static, and two static things are never
+	# checked against each other, so the fireball flew straight through the tile
+	# walls (static bodies). Found in Stage F5.
 	var shape_node: CollisionShape2D = CollisionShape2D.new()
 	var box: RectangleShape2D = RectangleShape2D.new()
 	box.size = HITBOX_SIZE

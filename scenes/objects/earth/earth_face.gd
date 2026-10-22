@@ -47,6 +47,29 @@ func is_bend_start() -> bool:
 	return layer.is_column(cell) and not layer.is_solid(cell + normal)
 
 
+## One step along a surface (Earth_bending.md §11 "THE PATH"; shared since Stage F5 by
+## the bend shadow and the FireGrid's spreading grass fire). From the face (`cell`,
+## `normal`) moving along `tangent` (one of the two directions along the face), one of:
+##   - inner corner: the cell at cell + normal + tangent is solid -> climb onto ITS
+##     face pointing back at us (-tangent); the new tangent is our normal
+##   - flat: the cell at cell + tangent is solid -> its face on the same side
+##   - outer corner: nothing ahead -> wrap round our own cell onto its `tangent` side;
+##     the new tangent is -normal
+## Returns [next cell, next normal, next tangent]. `is_solid` is a Callable(cell) ->
+## bool, so each user decides what counts as ground. Callers decide what may be
+## stepped ONTO (the shadow stops at gray rock, fire at anything that isn't grass).
+## Static: EarthFace.step_along_surface(layer.is_solid, ...), no face object needed.
+static func step_along_surface(is_solid: Callable, cell: Vector2i, normal: Vector2i,
+		tangent: Vector2i) -> Array:
+	var inner_corner_cell: Vector2i = cell + normal + tangent
+	if is_solid.call(inner_corner_cell):
+		return [inner_corner_cell, -tangent, normal]
+	var straight_cell: Vector2i = cell + tangent
+	if is_solid.call(straight_cell):
+		return [straight_cell, normal, tangent]
+	return [cell, tangent, -normal]
+
+
 func is_same_as(other: EarthFace) -> bool:
 	return other != null and other.layer == layer and other.cell == cell and other.normal == normal
 

@@ -24,6 +24,8 @@ extends Node2D
 ## Rooms with an Earth layer also get a GroundPainter (made in _ready): it draws the
 ## ground as lumpy, depth-shaded earth, turf and stone instead of tiles (Stage E4b),
 ## and a PebbleField (Stage E4d) for the pebbles earth bending leaves lying around.
+## Rooms where fire is allowed that have a "Grass" layer also get a FireGrid (Stage
+## F5): the grass there burns, spreads and turns to ash.
 ##
 ## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
 ## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
@@ -72,6 +74,9 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 func _ready() -> void:
 	for rect: Rect2 in solid_rects:
 		_add_solid_block(rect)
+	# Before the painter, which finds the grid and paints burnt grass.
+	if fire_allowed and get_node_or_null("Grass") is GrassLayer:
+		_add_fire_grid()
 	if get_node_or_null("Earth") is EarthLayer:
 		_add_ground_painter()
 		_add_pebble_field()
@@ -97,6 +102,14 @@ func _add_pebble_field() -> void:
 	var field: PebbleField = PebbleField.new()
 	field.name = "PebbleField"
 	add_child(field)
+
+
+## Adds the room's FireGrid (Stage F5) at the room's origin: the grass's fire states,
+## spread and flames. Only rooms where fire is allowed can burn.
+func _add_fire_grid() -> void:
+	var grid: FireGrid = FireGrid.new()
+	grid.name = "FireGrid"
+	add_child(grid)
 
 
 ## The nearest Room above `node` in the tree (its own room), or null.

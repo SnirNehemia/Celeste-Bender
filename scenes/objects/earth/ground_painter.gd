@@ -43,6 +43,13 @@ extends Node2D
 ## redraw the ground with the chamber open, and draw the copied cover on a second
 ## child, the COVER, fading and sinking cell by cell (HiddenLayer.get_cover_alpha).
 ##
+## BURNT GRASS (Stage F5): in rooms with a FireGrid, grass cells that caught fire are
+## painted with other palettes (FIRE_PALETTES): scorched while burning, charred while
+## smoldering, ash (dark gray crust with pale flecks) for good. The border between
+## burnt and unburnt cells wanders in blobs (_get_fire_state_at), so it never shows
+## the tile grid. The shape doesn't change, so only the changed cells' pixels (plus
+## a small margin) are repainted (_on_fire_cells_changed).
+##
 ## Updates: when only some cells changed (a tear, an opened chamber, a reset filling
 ## holes) only the pixels near them are recomputed; the first build does everything.
 
@@ -86,6 +93,21 @@ const PALETTE: Dictionary = {
 	Kind.GRAY: [Color(0.36, 0.37, 0.43), Color(0.52, 0.52, 0.58), Color(0.18, 0.18, 0.23),
 		Color(0.1, 0.1, 0.15), Color(0.14, 0.14, 0.2)],
 }
+## Burnt grass, per FireGrid.State (Stage F5), in the same order as PALETTE, plus a
+## sixth color for ash: its pale flecks (Fire_bending.md §9.1).
+const FIRE_PALETTES: Dictionary = {
+	FireGrid.State.BURNING: [Color(0.36, 0.27, 0.12), Color(0.52, 0.24, 0.08), Color(0.16, 0.1, 0.05),
+		Color(0.05, 0.12, 0.07), Color(0.08, 0.16, 0.09)],
+	FireGrid.State.SMOLDERING: [Color(0.12, 0.1, 0.1), Color(0.2, 0.12, 0.09), Color(0.06, 0.05, 0.05),
+		Color(0.06, 0.07, 0.06), Color(0.08, 0.09, 0.08)],
+	FireGrid.State.ASH: [Color("#4A4545"), Color("#5E5858"), Color(0.2, 0.19, 0.19),
+		Color(0.1, 0.1, 0.1), Color(0.13, 0.12, 0.12), Color("#7A7470")],
+}
+## On ash, about one crust pixel in this many is a pale fleck.
+const ASH_FLECK_EVERY: int = 7
+## The border between burnt and unburnt grass wanders up to this many px either side
+## of the tile edge (smooth noise), so burnt ground is blobby, not square.
+const FIRE_EDGE_RAGGEDNESS: float = 3.0
 ## Crack lines on used earth (overlay).
 const CRACK_COLOR: Color = Color(0.15, 0.09, 0.05)
 
@@ -95,6 +117,10 @@ var earth_layer: EarthLayer
 var gray_layer: TileMapLayer
 var grass_layer: TileMapLayer
 var hidden_layer: HiddenLayer
+## The room's FireGrid (Stage F5), or null: burnt grass gets FIRE_PALETTES.
+var fire_grid: FireGrid
+## True while a repainted picture waits to be uploaded (see _on_fire_cells_changed).
+var is_upload_queued: bool = false
 var tile_size: int = 8
 ## The room's cells: (0, 0) to room_size / tile_size. Outside counts as solid ground.
 var cell_bounds: Rect2i
@@ -128,6 +154,7 @@ func _ready() -> void:
 	gray_layer = room.get_node_or_null("Tiles") as TileMapLayer
 	grass_layer = room.get_node_or_null("Grass") as TileMapLayer
 	hidden_layer = room.get_node_or_null("Hidden") as HiddenLayer
+	fire_grid = room.get_node_or_null("FireGrid") as FireGrid
 	if earth_layer != null:
 		tile_size = earth_layer.tile_set.tile_size.x
 	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
@@ -155,6 +182,8 @@ func _ready() -> void:
 		hidden_layer.chamber_revealed.connect(_on_chamber_revealed)
 		hidden_layer.shape_changed.connect(rebuild)
 		hidden_layer.crumble_changed.connect(cover.queue_redraw)
+	if fire_grid != null:
+		fire_grid.cells_changed.connect(_on_fire_cells_changed)
 	rebuild()
 
 
@@ -457,6 +486,12 @@ func _get_pixel_color(x: int, y: int) -> Color:
 	if kind == Kind.AIR:
 		return Color(0.0, 0.0, 0.0, 0.0)
 	var colors: Array = PALETTE[kind]
+	var is_ash: bool = false
+	if kind == Kind.GRASS and fire_grid != null:
+		var fire_state: FireGrid.State = _get_fire_state_at(x, y)
+		if fire_state != FireGrid.State.GRASS:
+			colors = FIRE_PALETTES[fire_state]
+			is_ash = fire_state == FireGrid.State.ASH
 	var depth: float = distances[index] - 1.0  # 0 on the outermost ground pixel
 	var crust_end: float = CRUST_WIDTH + _get_noise(x, y) * CRUST_WOBBLE
 	if depth < crust_end - 1.0:
@@ -465,6 +500,9 @@ func _get_pixel_color(x: int, y: int) -> Color:
 		for lift: int in range(1, rim_thickness + 1):
 			if y - lift >= 0 and pixel_kinds[index - width * lift] == Kind.AIR:
 				return colors[1]
+		# Ash: pale flecks scattered through its crust.
+		if is_ash and hash(Vector2i(x * 5, y * 11)) % ASH_FLECK_EVERY == 0:
+			return colors[5]
 		# A few darker specks in the crust.
 		if hash(Vector2i(x * 7, y * 13)) % 29 == 0:
 			return (colors[0] as Color).darkened(0.18)
@@ -477,6 +515,45 @@ func _get_pixel_color(x: int, y: int) -> Color:
 	# darkened(), not `inside * factor`: multiplying a Color scales its alpha too, which
 	# made the deep inside see-through.
 	return inside.darkened(1.0 - lerpf(INSIDE_EDGE_BRIGHTNESS, INSIDE_DEEPEST_BRIGHTNESS, fade))
+
+
+## Some grass cells caught fire, smoldered, turned to ash or were reset: repaint just
+## their pixels (the ground's shape is the same, so the mask and distances still
+## hold), then upload the picture once.
+## (Grown by the edge raggedness: a changed cell's look reaches into its neighbours.)
+## The upload to the GPU (texture.update, the whole picture) waits until the end of
+## the frame and happens once, however many cells changed: a fire front changes
+## several cells in the same frame.
+func _on_fire_cells_changed(cells: Array[Vector2i]) -> void:
+	if image == null:
+		return
+	var picture: Rect2i = Rect2i(0, 0, width, height)
+	var margin: int = ceili(FIRE_EDGE_RAGGEDNESS) + 1
+	for cell: Vector2i in cells:
+		_paint(Rect2i(cell * tile_size, Vector2i.ONE * tile_size).grow(margin).intersection(picture))
+	if not is_upload_queued:
+		is_upload_queued = true
+		# call_deferred = run it later this frame, after the current code is done.
+		_upload_picture.call_deferred()
+
+
+func _upload_picture() -> void:
+	is_upload_queued = false
+	texture.update(image)
+	queue_redraw()
+
+
+## The fire state that colors grass pixel (x, y): the state of the cell under a point
+## nudged by smooth noise (FIRE_EDGE_RAGGEDNESS), so the border between burnt and
+## unburnt cells wanders in blobs. A nudge that lands off the grass keeps the pixel's
+## own cell.
+func _get_fire_state_at(x: int, y: int) -> FireGrid.State:
+	var nudge_x: float = _get_noise((x + 53) % width, y) * FIRE_EDGE_RAGGEDNESS
+	var nudge_y: float = _get_noise(x, (y + 71) % height) * FIRE_EDGE_RAGGEDNESS
+	var cell: Vector2i = Vector2i(floori((x + nudge_x) / tile_size), floori((y + nudge_y) / tile_size))
+	if not fire_grid.is_grass_cell(cell):
+		cell = Vector2i(x / tile_size, y / tile_size)
+	return fire_grid.get_state(cell)
 
 
 ## Random numbers (-1..1) on a coarse grid, the same every run (seeded).

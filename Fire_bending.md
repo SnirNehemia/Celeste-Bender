@@ -413,6 +413,25 @@ These were agreed when planning the build. Where they differ from the sections a
   - **Aim preview:** an arc of embers along the fireball's real path (same gravity and lift), marching outward and cooling from yellow to red, ending in a flame star where it would hit a wall or flammable, or a gray puff where it would gutter out.
   - **Fireball mid-jet:** Q during a burst throws at once toward the steered direction: no slow-motion aim, and the burst keeps going. It costs a pip, so it competes with hold-to-chain for fuel.
 
+### Decided in Stage F5
+
+- **FireGrid** (scenes/objects/fire/fire_grid.gd) is made by `Room` in rooms with `fire_allowed` and a Grass layer. Fire spreads along the surface with the Earth shadow's step, now shared as `EarthFace.step_along_surface`. It never steps onto earth, gray rock or ash, and buried grass (no open side) can't catch.
+- **The jet's fire catches late:** grass lit by the plume, and the take-off scorch under your feet, catches `spread_delay` later. Without the delay, jetting up from grass set the cell under you alight and killed you on the spot. Fireballs light grass at once.
+- **Kill zone:** each burning cell has a band of flame `grass_fire_hazard_height` (5 px) deep on each open side, inset 1 px along it. One check for the whole grid; the grid joins the `fire_hazard` group. Smoldering cells are harmless.
+- **Fuses light braziers:** a cell that catches lights any flammable within 4 px of its flame band.
+- **Flammable contract:** an optional `ignite_at(point, radius, source)` for things that burn in parts (the grid). `Flammable.ignite_near` and the jet plume use it.
+- **Ash flakes:** a cell turning to ash leaves 2 gray flakes in the room's PebbleField, so they get kicked like pebbles (§6.1).
+- **Test rooms are earth now:** grass burns, so Fire A–C were rebuilt with earth frames, and grass is laid only where a room wants fire.
+- **F5 play-test changes:**
+  - **Slower, longer fire:** `spread_delay` 0.25 → 0.32 s (jitter ±0.08), `burn_time` 1.0 → 1.6 s, and the charred smolder before ash 0.6 → 2.5 s. Each cell rolls its own burn and smolder time (±`burn_time_jitter` = 15%), so neighbours don't go out in step.
+  - **Organic look:** the first version lined up with the tiles and repeated itself. Now:
+    - Each cell remembers where its fire came in and the flames *creep* across it from there at the spread speed. Blades curl as the creep reaches each one.
+    - Cells get a random number of FlameTongues at random spots (even a pixel past the edge), each with its own size, lean, flicker and lifetime. A tongue that dies comes back elsewhere on the cell while it still burns.
+    - The edge between burnt and unburnt ground wanders ±3 px on smooth noise.
+  - **No square flash:** a new flame flares longer and white-hot, with a soft round glow at its foot. Glows under flames and ember specks are soft circles too.
+- **Frame rate:** burning all of Fire D dropped to ~27 fps. The cause was soft glows drawn as 4 stacked `draw_circle` calls each, about 800 a frame with a field of smoldering specks. Every glow is now one rectangle with a shared radial gradient texture, speck layouts are made once per cell, and the ground picture is uploaded once per frame. Measured: 58–60 fps through a full burn. Keep this in mind for F13's HeatGlow: soft glows should be textured quads.
+- **Bug fixed (F4):** fireballs flew through tile walls. A non-monitorable Area2D counts as static in Godot's 2D physics and is never checked against the (static) tile layers. The fireball stays monitorable now.
+
 ### Play-test log
 
 *Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*

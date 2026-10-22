@@ -95,6 +95,42 @@ extends Resource
 ## How long the 1-2 embers that stick to the hit surface keep glowing, seconds.
 @export var fireball_stuck_ember_time: float = 0.5
 
+@export_group("Burning grass")
+## A burning grass cell lights its surface neighbours after this many seconds
+## (Fire_bending.md §6.1)...
+## (0.25 in the spec; slowed after the F5 play-test.)
+@export var spread_delay: float = 0.32
+## ...give or take up to this much, picked at random per cell, so the front looks
+## alive and not like a metronome.
+@export var spread_jitter: float = 0.08
+## How long a cell burns (a hazard, spreading), then how long it smolders (harmless,
+## charred and glowing specks) before it is ash for good. Seconds, each give or take
+## burn_time_jitter (a fraction, per cell), so neighbours don't go out in step.
+## (Spec: 1.0 and 0.6; both longer after the F5 play-test.)
+@export var burn_time: float = 1.6
+@export var smolder_time: float = 2.5
+@export_range(0.0, 0.5) var burn_time_jitter: float = 0.15
+## Most cells burning at once in one room. Ignitions past the cap wait in the queue
+## until a cell stops burning, so a big field can never run away.
+@export_range(1, 512) var max_burning_tiles: int = 96
+## How far the deadly flames reach out from a burning cell's open faces, px. The
+## player touching that band dies, like on spikes.
+@export var grass_fire_hazard_height: float = 5.0
+
+@export_group("Burning grass look")
+## Average flame tongues on a burning floor cell (each cell rolls 1 to this + 1, at
+## random spots, so the fire never lines up with the tiles).
+@export_range(1, 4) var grass_tongues_per_tile: int = 2
+## Average tongue length on a floor, px; each tongue is 55-135% of it (walls and
+## ceilings get shorter ones).
+@export var grass_flame_length: float = 7.0
+## A flame that just appeared flares (longer, white-hot, a soft bright glow at its
+## foot) for this many seconds, so the eye follows the front.
+@export var grass_flare_time: float = 0.1
+## Smoke from each burning cell's tongues, per second (smoldering cells puff now and
+## then on top of that).
+@export var grass_smoke_per_second: float = 2.0
+
 @export_group("Flame smoke")
 ## Smoke given off by the flame tips, per second: the whole jet plume, one brazier,
 ## one fireball. (Licks torn off any flame also turn into smoke as they die.)

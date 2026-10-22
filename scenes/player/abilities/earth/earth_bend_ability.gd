@@ -400,20 +400,13 @@ func _extend_path_to_shadow() -> void:
 ## the earth layer's map coordinates, which match, so EarthFace works.)
 func _find_next_face(face: EarthFace, tangent: Vector2i) -> Array:
 	var earth_layer: EarthLayer = face.layer
-	var inner_corner_cell: Vector2i = face.cell + face.normal + tangent
-	if earth_layer.is_solid(inner_corner_cell):
-		if earth_layer.is_shadow_blocking(inner_corner_cell):
-			return []
-		# Running into a wall (or a ceiling's wall...): climb onto its face toward us.
-		return [EarthFace.new(earth_layer, inner_corner_cell, -tangent), face.normal]
-	var straight_cell: Vector2i = face.cell + tangent
-	if earth_layer.is_solid(straight_cell):
-		if earth_layer.is_shadow_blocking(straight_cell):
-			return []
-		# The surface continues flat.
-		return [EarthFace.new(earth_layer, straight_cell, face.normal), tangent]
-	# Nothing ahead: wrap around our own tile's edge onto its side.
-	return [EarthFace.new(earth_layer, face.cell, tangent), -face.normal]
+	# The geometry (inner corner / flat / outer corner) is shared with the FireGrid.
+	var step: Array = EarthFace.step_along_surface(earth_layer.is_solid, face.cell, face.normal, tangent)
+	var next_cell: Vector2i = step[0]
+	# Climbing onto another tile (not wrapping round our own): gray rock stops us.
+	if next_cell != face.cell and earth_layer.is_shadow_blocking(next_cell):
+		return []
+	return [EarthFace.new(earth_layer, next_cell, step[1]), step[2]]
 
 
 ## A new face reached: its tile shivers and drops a few bits behind the shadow.
