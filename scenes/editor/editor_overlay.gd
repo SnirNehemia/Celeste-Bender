@@ -1,6 +1,9 @@
 class_name EditorOverlay
 extends Node2D
-## EditorOverlay: what the level editor draws ON TOP of the level (Level_editor.md §4):
+## EditorOverlay: what the level editor draws ON TOP of the level (Level_editor.md §4).
+## In the map view (M, Stage L7) only the map: room outlines, names, the start
+## room's star, green openings and the room being dragged (_draw_map). In the room
+## view, rooms other than the current one are dimmed, and then:
 ## room outlines and names, the 8 px grid (G), spawn points, stand-ins for objects
 ## that draw nothing while editing (a wind zone is only moving particles, frozen
 ## here) with an arrow for their direction, the selected object, the tile or
@@ -40,6 +43,18 @@ const ARROW_HEAD: float = 3.0
 const ARROW_COLOR: Color = Color(0.75, 0.92, 1.0, 0.9)
 ## Room names are drawn this many SCREEN pixels tall, whatever the zoom.
 const NAME_FONT_SIZE: int = 8
+## Room view: drawn over the rooms you're not editing.
+const NEIGHBOUR_DIM_COLOR: Color = Color(0.0, 0.0, 0.0, 0.45)
+## Map view (Stage L7): openings (exits) green like the spawn point (GAME_DESIGN.md
+## §2: exits are green), refused places red, the start room's star yellow.
+const OPENING_COLOR: Color = Color(0.3, 0.95, 0.4)
+const REFUSED_COLOR: Color = Color(1.0, 0.25, 0.2)
+const PREVIEW_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
+const STAR_COLOR: Color = Color(1.0, 0.85, 0.2)
+## Map lines and the star, in SCREEN pixels.
+const OPENING_SCREEN_WIDTH: float = 3.0
+const MAP_OUTLINE_SCREEN_WIDTH: float = 2.0
+const STAR_SCREEN_RADIUS: float = 6.0
 
 var editor: LevelEditor
 
@@ -51,7 +66,14 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if editor == null or editor.level_root == null:
 		return
+	if editor.map_view.is_open:
+		_draw_map(editor.map_view)
+		return
 	for room: Room in editor.get_rooms():
+		# Rooms other than the one being edited are dimmed: you see what's next
+		# door, but the room you're working on stands out (Level_editor.md §5).
+		if room != editor.current_room:
+			draw_rect(room.get_bounds(), NEIGHBOUR_DIM_COLOR)
 		var bounds: Rect2 = room.get_bounds()
 		if editor.grid_visible:
 			_draw_grid(bounds)
@@ -96,6 +118,62 @@ func _draw_links() -> void:
 		var target_center: Vector2 = PaletteCatalog.get_bounds(target).get_center()
 		draw_line(PaletteCatalog.get_bounds(source).get_center(), target_center, color, -1.0)
 		draw_circle(target_center, dot_radius, color)
+
+
+## The map view: every room's outline (yellow if selected, bright if under the
+## mouse), its name, a star on the start room, the green openings on shared
+## edges, and the room being made, moved, resized or imported (red if refused).
+func _draw_map(map: MapView) -> void:
+	var pixel: float = 1.0 / editor.camera.get_zoom_factor()  # one screen pixel, in level pixels
+	var start_room: Room = editor.get_start_room()
+	for room: Room in editor.get_rooms():
+		var bounds: Rect2 = MapView.room_rect(room)
+		var color: Color = ROOM_OUTLINE_COLOR
+		if room == map.selected_room:
+			color = SELECTED_COLOR
+		elif room == map.hovered_room:
+			color = HOVER_COLOR
+		draw_rect(bounds, color, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
+		# Inside the room: above it, the name would cover the room on top.
+		_draw_room_name(room, bounds, true)
+		if room == start_room:
+			var star_offset: float = (STAR_SCREEN_RADIUS + 3.0) * pixel
+			_draw_star(Vector2(bounds.end.x - star_offset, bounds.position.y + star_offset), STAR_SCREEN_RADIUS * pixel)
+	# The edge under the mouse, so you see what a drag would resize.
+	if map.hovered_edges != 0 and map.hovered_room != null and map.drag == MapView.Drag.NONE:
+		_draw_edges(MapView.room_rect(map.hovered_room), map.hovered_edges, MAP_OUTLINE_SCREEN_WIDTH * 2.0 * pixel)
+	for opening: Array in map.get_openings():
+		draw_line(opening[0], opening[1], OPENING_COLOR, OPENING_SCREEN_WIDTH * pixel)
+	var is_dragging: bool = map.drag != MapView.Drag.NONE and map.preview_rect.size.x > 0.0
+	if is_dragging or map.importing_room != null:
+		var preview_color: Color = PREVIEW_COLOR if map.preview_valid else REFUSED_COLOR
+		draw_rect(map.preview_rect, Color(preview_color, 0.15))
+		draw_rect(map.preview_rect, preview_color, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
+		if map.importing_room != null:
+			_draw_room_name(map.importing_room, map.preview_rect, true)
+
+
+## The `edges` (MapView.EDGE_* bits) of `rect`, drawn thick.
+func _draw_edges(rect: Rect2, edges: int, width: float) -> void:
+	if edges & MapView.EDGE_LEFT:
+		draw_line(rect.position, Vector2(rect.position.x, rect.end.y), HOVER_COLOR, width)
+	if edges & MapView.EDGE_RIGHT:
+		draw_line(Vector2(rect.end.x, rect.position.y), rect.end, HOVER_COLOR, width)
+	if edges & MapView.EDGE_TOP:
+		draw_line(rect.position, Vector2(rect.end.x, rect.position.y), HOVER_COLOR, width)
+	if edges & MapView.EDGE_BOTTOM:
+		draw_line(Vector2(rect.position.x, rect.end.y), rect.end, HOVER_COLOR, width)
+
+
+## A five-pointed star: 10 corners, alternating the outer and an inner radius.
+func _draw_star(center: Vector2, radius: float) -> void:
+	var points: PackedVector2Array = PackedVector2Array()
+	for corner: int in 10:
+		var corner_radius: float = radius if corner % 2 == 0 else radius * 0.45
+		# -PI/2: the first point straight up.
+		var angle: float = -PI / 2.0 + corner * PI / 5.0
+		points.append(center + Vector2.from_angle(angle) * corner_radius)
+	draw_colored_polygon(points, STAR_COLOR)
 
 
 ## Link mode: outlines everything the link source can be linked to.
@@ -158,12 +236,15 @@ func _draw_grid(bounds: Rect2) -> void:
 		y += LevelEditor.TILE
 
 
-## The room's title just above its top-left corner. draw_set_transform() scales the
-## text by 1/zoom, so it stays the same size on screen when you zoom.
-func _draw_room_name(room: Room, bounds: Rect2) -> void:
+## The room's title just above its top-left corner (`inside`: just inside it).
+## draw_set_transform() scales the text by 1/zoom, so it stays the same size on
+## screen when you zoom.
+func _draw_room_name(room: Room, bounds: Rect2, inside: bool = false) -> void:
 	var title: String = room.display_title if room.display_title != "" else String(room.name)
 	var zoom_factor: float = editor.camera.get_zoom_factor()
-	draw_set_transform(bounds.position + Vector2(0, -2.0 / zoom_factor), 0.0, Vector2.ONE / zoom_factor)
+	# The text's baseline, in screen pixels from the corner.
+	var baseline: Vector2 = Vector2(4.0, NAME_FONT_SIZE + 3.0) if inside else Vector2(0.0, -2.0)
+	draw_set_transform(bounds.position + baseline / zoom_factor, 0.0, Vector2.ONE / zoom_factor)
 	draw_string(ThemeDB.fallback_font, Vector2.ZERO, title, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, ROOM_NAME_COLOR)
 	draw_set_transform(Vector2.ZERO)
 

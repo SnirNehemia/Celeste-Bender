@@ -24,6 +24,7 @@ extends Node2D
 ## Rooms with an Earth layer also get a GroundPainter (made in _ready): it draws the
 ## ground as lumpy, depth-shaded earth, turf and stone instead of tiles (Stage E4b),
 ## and a PebbleField (Stage E4d) for the pebbles earth bending leaves lying around.
+## Rooms with `painted_ground` on (the level editor's) get the painter too.
 ## Rooms where fire is allowed that have a "Grass" layer also get a FireGrid (Stage
 ## F5): the grass there burns, spreads and turns to ash. So do rooms with a
 ## "Thicket" (ThicketLayer) or "Overgrown" (OvergrownLayer) layer (Stage F6): thicket
@@ -70,6 +71,13 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## previous room are dropped. Clamped to FireTuning.max_pips.
 @export_range(0, 10) var fire_start_pips: int = 0
 
+@export_group("Look")
+## Draw this room's ground with a GroundPainter (crust, hatching, lumpy edges) even
+## without an Earth layer: gray ground then looks like stone instead of flat tiles.
+## Rooms made in the level editor have it on; the chapters' rooms keep their
+## plain tiles. (A room with an Earth layer always gets the painter.)
+@export var painted_ground: bool = false
+
 @onready var spawn_point: Marker2D = $SpawnPoint
 
 
@@ -82,6 +90,8 @@ func _ready() -> void:
 	if get_node_or_null("Earth") is EarthLayer:
 		_add_ground_painter()
 		_add_pebble_field()
+	elif painted_ground:
+		_add_ground_painter()
 
 
 ## Adds the GroundPainter right after the tile layers, so it draws where the tiles

@@ -89,33 +89,55 @@ static func build_new_level(title: String) -> RoomManager:
 	return level
 
 
-## A one-screen room with ground on all four sides (2-tile floor, 1-tile walls and
-## ceiling), so a new level is playable at once instead of a pit you fall through.
-static func build_boxed_room(node_name: String, title: String) -> Room:
-	var room: Room = Room.new()
-	room.name = node_name
-	room.display_title = title
-	room.room_size = ROOM_SIZE
-
-	var columns: int = int(ROOM_SIZE.x / TILE)
-	var rows: int = ceili(ROOM_SIZE.y / TILE)  # 23: the half row at the bottom counts
+## A room with ground on all four sides (2-tile floor, 1-tile walls and ceiling),
+## so a new level is playable at once instead of a pit you fall through. `size`:
+## one screen by default.
+static func build_boxed_room(node_name: String, title: String, size: Vector2 = ROOM_SIZE) -> Room:
+	var room: Room = build_empty_room(node_name, title, size)
 	var tiles: TileMapLayer = TileMapLayer.new()
 	tiles.name = "Tiles"
 	tiles.tile_set = GROUND_TILESET
-	for column: int in columns:
-		for row: int in rows:
-			var is_wall: bool = column == 0 or column == columns - 1
-			var is_ceiling: bool = row == 0
-			var is_floor: bool = row >= FLOOR_ROW
-			if not (is_wall or is_ceiling or is_floor):
-				continue
-			# The top-edge tile only where you can stand: the floor's surface.
-			var is_surface: bool = row == FLOOR_ROW and not is_wall
-			tiles.set_cell(Vector2i(column, row), 0, TILE_TOP_EDGE if is_surface else TILE_PLAIN)
+	for cell: Vector2i in get_edge_cells(size):
+		# The top-edge tile only where you can stand: the floor's surface.
+		var is_surface: bool = cell.y == floor_row(size) and cell.x != 0 and cell.x != int(size.x / TILE) - 1
+		tiles.set_cell(cell, 0, TILE_TOP_EDGE if is_surface else TILE_PLAIN)
 	room.add_child(tiles)
+	room.move_child(tiles, 0)  # tiles first: drawn behind everything else
+	return room
+
+
+## A room with nothing in it but its spawn point (the map view's new rooms, Stage
+## L7): its sides are open until you paint them, or fill its edges in one go
+## (get_edge_cells, the "Fill edges" button). Its ground is drawn by a
+## GroundPainter (`painted_ground`), like the Earth chapter's, not as flat tiles.
+static func build_empty_room(node_name: String, title: String, size: Vector2 = ROOM_SIZE) -> Room:
+	var room: Room = Room.new()
+	room.name = node_name
+	room.display_title = title
+	room.room_size = size
+	room.painted_ground = true
 
 	var spawn_point: Marker2D = Marker2D.new()
 	spawn_point.name = "SpawnPoint"
-	spawn_point.position = SPAWN_POSITION
+	# Same spot as SPAWN_POSITION in a one-screen room: column 2, on the floor.
+	spawn_point.position = Vector2(SPAWN_POSITION.x, floor_row(size) * TILE)
 	room.add_child(spawn_point)
 	return room
+
+
+## The top row of a room's floor: the floor is its last two rows (rows 21 and 22
+## in a one-screen room, the last one half below the room).
+static func floor_row(size: Vector2) -> int:
+	return ceili(size.y / TILE) - 2
+
+
+## The cells along a room's edges: 1-tile walls and ceiling, a 2-row floor.
+static func get_edge_cells(size: Vector2) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var columns: int = int(size.x / TILE)
+	var rows: int = ceili(size.y / TILE)  # 23 for 180 px: the half row at the bottom counts
+	for column: int in columns:
+		for row: int in rows:
+			if column == 0 or column == columns - 1 or row == 0 or row >= floor_row(size):
+				cells.append(Vector2i(column, row))
+	return cells

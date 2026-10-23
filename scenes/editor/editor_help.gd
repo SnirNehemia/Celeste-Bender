@@ -37,6 +37,16 @@ const LEFT_SECTIONS: Array = [
 	["Eraser", [
 		["editor_eraser", "eraser on / off"],
 		["Click or drag", "remove objects, else tiles"],
+		["editor_rectangle", "+ drag: clear a block (tiles and objects)"],
+	]],
+	["Map of rooms", [
+		["editor_map", "map on / off"],
+		["Drag", "empty space: new room; room: move; edge: resize"],
+		["Fill edges", "room panel button: wall a room in"],
+		["Double-click", "edit that room"],
+		["editor_start_room", "make the selected room the start"],
+		["editor_delete", "delete the selected room"],
+		["editor_import", "import a room as a copy"],
 	]],
 ]
 const RIGHT_SECTIONS: Array = [

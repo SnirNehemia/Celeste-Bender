@@ -36,10 +36,14 @@ func _ready() -> void:
 	await _check_l5_properties()
 	await _check_l6_links()
 	await _check_l6b_zones_eraser_help()
+	await _check_l7_map()
+	await _check_l7_import()
+	await _check_l8_earth()
+	await _check_l8b_followups()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -465,7 +469,7 @@ func _check_l3_playtest() -> void:
 ## Stage L4: the Air objects in the catalog, palette tabs, snapped and free
 ## placement, copying with Ctrl+D, and a play-test with all of them.
 func _check_l4_air_objects() -> void:
-	_check(PaletteCatalog.get_families() == ["Terrain", "Basics", "Air"], "the palette has the tabs Terrain, Basics, Air, got %s" % [PaletteCatalog.get_families()])
+	_check(PaletteCatalog.get_families().slice(0, 3) == ["Terrain", "Basics", "Air"], "the palette's tabs start Terrain, Basics, Air, got %s" % [PaletteCatalog.get_families()])
 	var air_ids: Array[StringName] = []
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 		if entry.family == "Air":
@@ -800,7 +804,7 @@ func _check_l6b_zones_eraser_help() -> void:
 	editor.toggle_eraser()
 	_check(editor.current_entry.id == &"crate", "E again goes back to the crate tool")
 	editor.toggle_eraser()
-	_check(editor.ui.family_lists.size() == 3 and not editor.ui.family_lists.has(""), "the eraser has no tab of its own")
+	_check(editor.ui.family_lists.size() == PaletteCatalog.get_families().size() and not editor.ui.family_lists.has(""), "the eraser has no tab of its own")
 
 	editor.erase_at(crystal.global_position)
 	_check(crystal.get_parent() == null, "the eraser removes the crystal")
@@ -849,6 +853,390 @@ func _check_l6b_zones_eraser_help() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("L6b zones, eraser, help")
+
+
+## Stage L7: the map of rooms: snapping, making, moving and resizing rooms,
+## refused overlaps, openings, the start room, deleting rooms (and their links).
+func _check_l7_map() -> void:
+	var path: String = LevelStorage.create_level("Map Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var map: MapView = editor.map_view
+	var room1: Room = editor.get_rooms()[0]
+	var zoom_before: float = editor.camera.get_zoom_factor()
+	editor.toggle_map()
+	_check(map.is_open and editor.camera.get_zoom_factor() <= zoom_before, "M opens the map, zoomed out")
+	_check(InputMap.has_action("editor_map") and InputMap.has_action("editor_start_room") and InputMap.has_action("editor_import"),
+		"the map's keys are InputMap actions")
+
+	# Snapping: widths in tiles (at least 320), heights 180 + tiles.
+	_check(MapView.snap_width(300.0) == 320.0 and MapView.snap_width(333.0) == 336.0, "widths snap to whole tiles, at least one screen")
+	_check(MapView.snap_height(170.0) == 180.0 and MapView.snap_height(185.0) == 188.0 and MapView.snap_height(364.0) == 364.0,
+		"heights snap to 180 + whole tiles")
+	_check(map.snap_moved(Rect2(323, 4, 320, 180), null, 8.0).position == Vector2(320, 0), "a moved room snaps next to its neighbour")
+	_check(map.snap_moved(Rect2(-3, 183, 320, 180), null, 8.0).position == Vector2(0, 180), "and under it, at y = 180 (off the 8 px grid)")
+	_check(map.snap_new_room(Vector2(330, 2), Vector2(500, 40), 8.0) == Rect2(320, 0, 320, 180), "a dragged new room gets the smallest size and snaps")
+
+	# Making rooms: an L shape.
+	var room2: Room = map.create_room(Rect2(320, 0, 320, 180))
+	_check(room2 != null and editor.get_rooms().size() == 2, "dragging on empty space makes a room")
+	_check(room2.get_node_or_null("Tiles") == null and room2.get_node_or_null("SpawnPoint") != null and room2.owner == editor.level_root,
+		"a new room is empty but for its spawn point, and part of the level")
+	_check(room2.painted_ground and room2.get_node_or_null("GroundPainter") is GroundPainter, "its ground will be painted, not flat tiles")
+	_check(map.create_room(Rect2(400, 0, 320, 180)) == null and editor.get_rooms().size() == 2, "an overlapping room is refused")
+	var room3: Room = map.create_room(Rect2(320, 180, 320, 188))
+	_check(room3 != null and room3.room_size == Vector2(320, 188), "a room under it, 188 tall")
+	editor.current_room = room3
+	editor.choose_entry(PaletteCatalog.get_entry(&"ground"))
+	var fill_button: Button = null
+	for child: Node in editor.ui.property_panel.rows.get_children():
+		if child is Button and (child as Button).text.begins_with("Fill edges"):
+			fill_button = child
+	_check(fill_button != null and fill_button.text == "Fill edges: Ground", "the room panel has a Fill edges button for the chosen terrain")
+	fill_button.pressed.emit()
+	var room3_tiles: TileMapLayer = room3.get_node("Tiles") as TileMapLayer
+	_check(room3_tiles.get_cell_source_id(Vector2i(5, 22)) != -1 and room3_tiles.get_cell_source_id(Vector2i(5, 23)) != -1
+		and room3_tiles.get_cell_source_id(Vector2i(5, 21)) == -1 and room3_tiles.get_cell_source_id(Vector2i(0, 10)) != -1
+		and room3_tiles.get_cell_source_id(Vector2i(5, 0)) != -1, "it fills walls, ceiling and a 2-row floor (the last row hangs half out)")
+	editor.undo()
+	_check(room3_tiles.get_used_cells().is_empty(), "one undo empties it again")
+	editor.redo()
+	editor.undo()
+	editor.undo()
+	_check(editor.get_rooms().size() == 2 and not room3.is_inside_tree(), "undo takes a new room away")
+	editor.redo()
+	editor.redo()
+	_check(editor.get_rooms().size() == 3 and room3.is_inside_tree() and not room3_tiles.get_used_cells().is_empty(), "redo brings the same room back")
+	editor.fill_room_edges(room2, PaletteCatalog.get_entry(&"ground"))
+
+	# Openings: walled rooms have none; erasing both walls makes one.
+	_check(map.get_openings().is_empty(), "walled rooms have no openings between them")
+	var wall_rows: Array[Vector2i] = []
+	var other_wall_rows: Array[Vector2i] = []
+	for row: int in range(15, 21):
+		wall_rows.append(Vector2i(39, row))
+		other_wall_rows.append(Vector2i(0, row))
+	editor.paint_cells(room1, wall_rows, false)
+	editor.paint_cells(room2, other_wall_rows, false)
+	var openings: Array[Array] = map.get_openings()
+	_check(openings.size() == 1 and openings[0][0] == Vector2(320, 120) and openings[0][1] == Vector2(320, 168),
+		"erasing both walls makes one opening, x 320 from y 120 to 168, got %s" % [openings])
+
+	# Moving: refused onto another room, allowed elsewhere.
+	_check(not map.set_room_rect(room3, Rect2(330, 100, 320, 188), false) and room3.position == Vector2(320, 180), "a move onto another room is refused")
+	_check(map.set_room_rect(room3, Rect2(320, 400, 320, 188), false) and room3.position == Vector2(320, 400), "a move to free space works")
+	editor.undo()
+	_check(room3.position == Vector2(320, 180), "undo moves it back")
+
+	# Resizing from the left keeps the contents where they are in the level.
+	var goal: Goal = editor.place_object(PaletteCatalog.get_entry(&"goal"), room3, Vector2i(20, 20)) as Goal
+	var goal_level_position: Vector2 = goal.global_position
+	var tile_count: int = room3_tiles.get_used_cells().size()
+	var wider: Rect2 = map.snap_resized(MapView.room_rect(room3), MapView.EDGE_LEFT, Vector2(243, 250), room3, 0.0)
+	_check(wider == Rect2(240, 180, 400, 188), "dragging the left edge left: whole tiles, got %s" % wider)
+	_check(map.set_room_rect(room3, wider), "the room grows to the left")
+	_check(goal.global_position == goal_level_position, "its goal stays where it was in the level")
+	_check(room3_tiles.get_used_cells().size() == tile_count and room3_tiles.get_cell_source_id(Vector2i(10, 0)) != -1
+		and room3_tiles.get_cell_source_id(Vector2i(0, 0)) == -1, "its tiles too (the old left wall is 10 cells in now)")
+	var narrower: Rect2 = map.snap_resized(MapView.room_rect(room3), MapView.EDGE_RIGHT, Vector2(560, 250), room3, 0.0)
+	_check(map.set_room_rect(room3, narrower) and room3.room_size.x == 320.0, "the right edge shrinks it to 320")
+	var max_x: int = 0
+	for cell: Vector2i in room3_tiles.get_used_cells():
+		max_x = maxi(max_x, cell.x)
+	_check(max_x < 40, "tiles left outside are cut off, rightmost cell %d" % max_x)
+	editor.undo()
+	_check(room3.room_size.x == 400.0 and room3_tiles.get_cell_source_id(Vector2i(49, 0)) != -1, "undo brings size and tiles back")
+
+	# The start room.
+	_check(editor.get_start_room() == room1, "the first room starts")
+	map.set_start_room(room2)
+	_check(editor.level_info.start_room == room2, "S makes the selected room the start")
+	editor.undo()
+	_check(editor.level_info.start_room == room1, "undo gives the start back")
+	map.set_start_room(room2)
+
+	# Deleting rooms; links from other rooms into a deleted one go too.
+	var door: Door = editor.place_object(PaletteCatalog.get_entry(&"door"), room1, Vector2i(20, 10)) as Door
+	var plate: PressurePlate = editor.place_object(PaletteCatalog.get_entry(&"pressure_plate"), room3, Vector2i(30, 20)) as PressurePlate
+	editor.toggle_link(door, plate)
+	_check(not map.delete_room(room2) and room2.is_inside_tree(), "the start room can't be deleted")
+	_check(map.delete_room(room3) and editor.get_rooms().size() == 2 and door.switches.is_empty(),
+		"deleting a room drops links into it")
+	editor.undo()
+	_check(editor.get_rooms().size() == 3 and room3.is_inside_tree() and door.switches == [plate], "undo brings room and link back")
+
+	# Double-click: the map closes on that room.
+	map.close(room3)
+	_check(not map.is_open and editor.current_room == room3, "double-click opens a room for editing")
+
+	# Saved and played: the camera slides from room to room.
+	_check(editor.save() == OK, "the level saves")
+	_check(editor.start_playtest(), "play from the start room")
+	var play_root: RoomManager = editor.play_root
+	_check(play_root.rooms.size() == 3 and play_root.current_room.name == room2.name, "three rooms, starting in Room2")
+	play_root.player.global_position = room1.global_position + Vector2(160, 160)
+	for frame: int in 3:
+		await get_tree().physics_frame
+	_check(play_root.current_room.name == room1.name and play_root.is_transitioning, "walking into Room1 slides the camera there")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L7 map")
+
+
+## Stage L7: importing rooms as copies, from a chapter and from another level.
+func _check_l7_import() -> void:
+	var sources: Array = RoomImport.list_sources()
+	var source_paths: Array = sources.map(func(source: Array) -> String: return source[1])
+	_check(source_paths.has("res://scenes/world.tscn") and source_paths.has("res://scenes/earth_world.tscn")
+		and source_paths.has("res://tests/fire_test_world.tscn") and source_paths.has("res://tests/test_world.tscn"),
+		"the import list has the chapters and test worlds")
+	var map_level_path: String = TEST_LEVELS_DIR + "map_level.tscn"
+	var paths_without_map_level: Array = RoomImport.list_sources(map_level_path).map(func(source: Array) -> String: return source[1])
+	_check(source_paths.has(map_level_path) and not paths_without_map_level.has(map_level_path),
+		"and other levels, never the one being edited")
+	var earth_rooms: Array = RoomImport.list_rooms("res://scenes/earth_world.tscn")
+	_check(earth_rooms.size() == 10 and earth_rooms[2][0] == "Earth03", "Earth world: 10 rooms, the third is Earth03")
+
+	var path: String = LevelStorage.create_level("Import Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var map: MapView = editor.map_view
+	editor.toggle_map()
+	# The import list (a Tree) opens a world's folder on demand.
+	editor.ui.import_picker.open(path)
+	var tree_root: TreeItem = editor.ui.import_picker.tree.get_root()
+	_check(editor.ui.import_picker.visible and tree_root.get_child_count() == RoomImport.list_sources(path).size(),
+		"I shows the import list (this level left out)")
+	editor.ui.import_picker.close()
+
+	var original: Room = (load("res://scenes/rooms/earth/earth_03.tscn") as PackedScene).instantiate() as Room
+	var original_earth_cells: int = (original.get_node("Earth") as TileMapLayer).get_used_cells().size()
+	_check(map.begin_import("res://scenes/earth_world.tscn", "Earth03") and map.importing_room != null, "picking Earth room 3 copies it")
+	_check(map.place_import(Vector2(100, 0)) == null and map.importing_room != null, "it can't go onto the existing room")
+	var copy: Room = map.place_import(Vector2(320, 0))
+	_check(copy != null and copy.is_inside_tree() and copy.position == Vector2(320, 0), "it goes down next to it")
+	_check(copy.scene_file_path == "" and copy.owner == editor.level_root and copy.get_node("Earth").owner == editor.level_root,
+		"the copy is the level's own, not an instance of earth_03.tscn")
+	_check(copy.display_title == original.display_title and copy.room_size == original.room_size
+		and copy.earth_allowed == original.earth_allowed and copy.air_allowed == original.air_allowed, "with the original's settings")
+	_check(copy.get_node("Earth") is EarthLayer and (copy.get_node("Earth") as TileMapLayer).get_used_cells().size() == original_earth_cells,
+		"and all its earth")
+	_check(copy.get_node_or_null("GroundPainter") is GroundPainter, "it's drawn as in the Earth chapter")
+	_check(editor.save() == OK, "the level saves")
+	var saved_text: String = FileAccess.get_file_as_string(path)
+	_check(not saved_text.contains("earth_03.tscn") and not saved_text.contains("earth_world.tscn"), "the file doesn't refer to the original")
+	var reloaded: Node = (LevelStorage.load_level(path) as PackedScene).instantiate()
+	var reloaded_copy: Room = reloaded.get_node(NodePath(copy.name)) as Room
+	_check(reloaded_copy.room_size == original.room_size and reloaded_copy.display_title == original.display_title
+		and (reloaded_copy.get_node("Earth") as TileMapLayer).get_used_cells().size() == original_earth_cells, "everything survives a reload")
+	reloaded.free()
+	original.free()
+
+	# From another level: a door linked to a plate in another room loses that link.
+	var source_room: Room = editor.get_rooms()[0]
+	var door: Door = editor.place_object(PaletteCatalog.get_entry(&"door"), source_room, Vector2i(20, 10)) as Door
+	var plate: PressurePlate = editor.place_object(PaletteCatalog.get_entry(&"pressure_plate"), copy, Vector2i(10, 20)) as PressurePlate
+	editor.toggle_link(door, plate)
+	editor.save()
+	_check(map.begin_import(path, String(source_room.name)), "a room of an editor level can be imported")
+	var level_copy: Room = map.place_import(Vector2(0, 180))
+	var copied_door: Door = null
+	for child: Node in level_copy.get_children():
+		if child is Door:
+			copied_door = child
+	_check(copied_door != null and copied_door.switches.is_empty(), "its door's link to a plate in another room is dropped")
+	map.begin_import("res://scenes/world.tscn", "Room01")
+	map.close()
+	_check(map.importing_room == null, "closing the map drops a room still waiting to be placed")
+
+	# Play through the imported Earth room.
+	_check(editor.start_playtest(), "play")
+	var play_root: RoomManager = editor.play_root
+	var played_copy: Room = play_root.get_node(NodePath(copy.name)) as Room
+	play_root.player.global_position = played_copy.get_spawn_position() - Vector2(0, 4)
+	for frame: int in 3:
+		await get_tree().physics_frame
+	_check(play_root.current_room == played_copy and play_root.player.is_element_allowed(&"earth") == copy.earth_allowed,
+		"walking into the imported room works, Earth as in the original")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L7 import")
+
+
+## Stage L8: the Earth brush (EarthLayer + GroundPainter), walls in tiles, rock spots.
+func _check_l8_earth() -> void:
+	var path: String = LevelStorage.create_level("Earth Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	_check(PaletteCatalog.get_families().has("Earth"), "the palette has an Earth tab")
+	var earth_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"earth")
+	_check(earth_entry != null and earth_entry.kind == PaletteCatalog.Kind.TERRAIN and earth_entry.family == "Terrain", "Earth is a Terrain brush")
+	for id: StringName in [&"cracked_wall", &"stone_wall", &"boulder", &"loose_rock"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Earth", "%s is in the Earth tab" % id)
+
+	# Painting earth: an EarthLayer, Earth turned on, drawn by a GroundPainter.
+	room.earth_allowed = false
+	editor.choose_entry(earth_entry)
+	var cells: Array[Vector2i] = []
+	for x: int in range(10, 21):
+		cells.append(Vector2i(x, 15))
+	editor.paint_cells(room, cells, true)
+	var earth: EarthLayer = room.get_node_or_null("Earth") as EarthLayer
+	_check(earth != null and earth.get_used_cells().size() == 11 and earth.owner == editor.level_root, "the brush paints an EarthLayer that's saved")
+	_check(room.earth_allowed, "painting Earth turns Earth on in the room")
+	var painter: GroundPainter = room.get_node_or_null("GroundPainter") as GroundPainter
+	_check(painter != null and painter.get_pixel_color(Vector2i(15 * 8 + 4, 15 * 8 + 4)).a > 0.0, "a GroundPainter draws it, as in play")
+	_check(earth.self_modulate.a == 0.0 and (room.get_node("Tiles") as TileMapLayer).self_modulate.a == 0.0,
+		"the tiles themselves are hidden behind the picture")
+	editor.undo()
+	painter = room.get_node_or_null("GroundPainter") as GroundPainter
+	_check(earth.get_used_cells().is_empty() and not room.earth_allowed, "undo takes the earth away and Earth back off")
+	_check(painter != null and painter.get_pixel_color(Vector2i(15 * 8 + 4, 15 * 8 + 4)).a == 0.0, "and the picture follows")
+	editor.redo()
+	_check(earth.get_used_cells().size() == 11 and room.earth_allowed, "redo puts it back")
+	editor.choose_entry(PaletteCatalog.get_entry(&"ground"))
+	editor.paint_cells(room, [Vector2i(30, 10)], true)
+	painter = room.get_node_or_null("GroundPainter") as GroundPainter
+	_check(painter.get_pixel_color(Vector2i(30 * 8 + 4, 10 * 8 + 4)).a > 0.0, "ground painted in an earth room shows in the picture")
+
+	# Walls: placed by the top-left corner, sized in tiles.
+	var wall: CrackedWall = editor.place_object(PaletteCatalog.get_entry(&"cracked_wall"), room, Vector2i(5, 10)) as CrackedWall
+	_check(wall.position == Vector2(40, 80) and PaletteCatalog.get_bounds(wall).size == Vector2(wall.wall_size_tiles) * 8.0,
+		"a cracked wall sits on the tile, outline from its size in tiles")
+	var handle: Dictionary = EditorHandles.get_handles(wall)[0]
+	var dragged_size: Variant = EditorHandles.value_for_drag(wall, handle, wall.global_position + Vector2(21, 30), false)
+	_check(dragged_size is Vector2i and dragged_size == Vector2i(3, 4), "its size handle works in whole tiles, got %s" % [dragged_size])
+	editor.set_property(wall, &"wall_size_tiles", dragged_size)
+	_check(PaletteCatalog.get_bounds(wall).size == Vector2(24, 32), "the outline follows")
+	var stone: StoneWall = editor.place_object(PaletteCatalog.get_entry(&"stone_wall"), room, Vector2i(30, 15)) as StoneWall
+	_check(stone != null and PaletteCatalog.get_bounds(stone).size == Vector2(stone.wall_size_tiles) * 8.0, "a stone wall too")
+
+	# Rock spots: nothing runs in the editor; in play a loose rock lies there.
+	var boulder_spot: RockSpot = editor.place_object(PaletteCatalog.get_entry(&"boulder"), room, Vector2i(20, 20)) as RockSpot
+	var rock_spot: RockSpot = editor.place_object(PaletteCatalog.get_entry(&"loose_rock"), room, Vector2i(25, 20)) as RockSpot
+	_check(boulder_spot.is_big and boulder_spot.position == Vector2(168, 160) and not rock_spot.is_big and rock_spot.position == Vector2(204, 164),
+		"a boulder and a loose rock stand on the clicked tiles, got %s, %s" % [boulder_spot.position, rock_spot.position])
+	_check(_boulders_in(room).is_empty(), "the editor makes no real rocks")
+
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	await get_tree().create_timer(0.3).timeout
+	var rocks: Array[Boulder] = _boulders_in(play_room)
+	_check(rocks.size() == 2 and rocks.all(func(rock: Boulder) -> bool: return rock.is_loose()), "in play, two loose rocks lie there")
+	_check(rocks.filter(func(rock: Boulder) -> bool: return rock.is_big()).size() == 1, "one of them big")
+	_check(play_room.get_node("Earth") is EarthLayer and (play_room.get_node("Earth") as TileMapLayer).get_used_cells().size() == 11,
+		"the painted earth is there in play")
+	rocks[0].shatter()
+	play_room.reset_objects()
+	await get_tree().create_timer(0.1).timeout
+	_check(_boulders_in(play_room).size() == 2, "after a reset both rocks are back")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	_check(editor.save() == OK, "the level saves")
+	var reloaded: Node = (LevelStorage.load_level(path) as PackedScene).instantiate()
+	var reloaded_earth: TileMapLayer = reloaded.get_node("Room1/Earth") as TileMapLayer
+	_check(reloaded_earth is EarthLayer and reloaded_earth.get_used_cells().size() == 11, "the Earth layer and its script survive a reload")
+	reloaded.free()
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L8 Earth")
+
+
+## After the L7/L8 play-test: the import list opening a world, the eraser's block,
+## painted ground, hints, and Earth bending in a play-test (the editor's own copy
+## of the level leaves the tree, so group lookups find the play copy's earth).
+func _check_l8b_followups() -> void:
+	var path: String = LevelStorage.create_level("Followup Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+
+	# The import list: opening a world's folder fills it a moment later.
+	var picker: RoomImportPicker = editor.ui.import_picker
+	picker.open(path)
+	var earth_world_item: TreeItem = picker.tree.get_root().get_child(1)
+	earth_world_item.collapsed = false
+	await get_tree().process_frame
+	_check(earth_world_item.get_child_count() == 10, "opening the Earth folder lists its 10 rooms, got %d" % earth_world_item.get_child_count())
+	picker.close()
+
+	# Hints: every palette entry has one, shown as its button's tooltip.
+	var without_hint: Array[StringName] = []
+	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+		if entry.hint == "" or (editor.ui.palette_buttons[entry.id] as Button).tooltip_text == "":
+			without_hint.append(entry.id)
+	_check(without_hint.is_empty(), "every palette entry has a hint and a tooltip, missing: %s" % [without_hint])
+	_check(not EditorUI.wrap_text(PaletteCatalog.get_entry(&"crate").hint, 48).split("\n").has(""), "tooltips are wrapped into lines")
+	var crate: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(12, 20)) as Crate
+	_check(editor.ui.property_panel.description_label.text == PaletteCatalog.get_entry(&"crate").hint, "the property panel shows the selected object's hint")
+
+	# The eraser's Shift+drag block: tiles on every layer, objects fully inside.
+	editor.choose_entry(PaletteCatalog.get_entry(&"earth"))
+	editor.paint_cells(room, [Vector2i(14, 18), Vector2i(15, 18)], true)
+	editor.choose_entry(PaletteCatalog.get_entry(&"ground"))
+	editor.paint_cells(room, [Vector2i(10, 18), Vector2i(11, 18)], true)
+	var goal: Goal = editor.place_object(PaletteCatalog.get_entry(&"goal"), room, Vector2i(18, 20)) as Goal
+	var tiles: TileMapLayer = room.get_node("Tiles") as TileMapLayer
+	var earth: TileMapLayer = room.get_node("Earth") as TileMapLayer
+	editor.erase_block(room, Vector2i(9, 17), Vector2i(17, 20))
+	_check(tiles.get_cell_source_id(Vector2i(10, 18)) == -1 and earth.get_cell_source_id(Vector2i(15, 18)) == -1,
+		"the block clears ground and earth")
+	_check(not crate.is_inside_tree() and goal.is_inside_tree(), "and the crate inside it, not the goal sticking out")
+	_check(tiles.get_cell_source_id(Vector2i(10, 21)) != -1, "the floor below it is untouched")
+	editor.undo()
+	_check(tiles.get_cell_source_id(Vector2i(10, 18)) != -1 and earth.get_cell_source_id(Vector2i(15, 18)) != -1 and crate.is_inside_tree(),
+		"one undo brings all of it back")
+
+	# Painted ground: on for editor rooms, can be switched off (and back).
+	_check(room.painted_ground and room.get_node_or_null("GroundPainter") is GroundPainter, "a new level's room has painted ground")
+	editor.set_property(room, &"painted_ground", false)
+	await get_tree().process_frame
+	editor.set_property(room, &"painted_ground", true)
+	editor.undo()
+	await get_tree().process_frame
+	_check(room.get_node_or_null("GroundPainter") is GroundPainter, "with Earth painted the room keeps its painter either way")
+
+	# Earth bending in a play-test: lookups find the play copy's earth.
+	_check(editor.start_playtest(), "play")
+	await get_tree().process_frame  # it leaves at the end of the frame (deferred)
+	_check(not editor.level_root.is_inside_tree(), "the editor's own copy leaves the tree while playing")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var earth_point: Vector2 = play_room.global_position + Vector2(15 * 8 + 4, 18 * 8 + 4)
+	_check(EarthLayer.find_layer_at(get_tree(), earth_point) == play_room.get_node("Earth"), "the earth found at a point is the play copy's")
+	editor.stop_playtest()
+	_check(editor.level_root.is_inside_tree() and editor.level_root.get_index() == editor.backdrop.get_index() + 1,
+		"and comes back, behind the overlay")
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L8b follow-ups")
+
+
+## The live (not shattered, not freed) boulders directly in `room`.
+func _boulders_in(room: Room) -> Array[Boulder]:
+	var rocks: Array[Boulder] = []
+	for child: Node in room.get_children():
+		var rock: Boulder = child as Boulder
+		if rock != null and not rock.is_queued_for_deletion() and rock.phase != Boulder.Phase.SHATTERED:
+			rocks.append(rock)
+	return rocks
 
 
 func _button_texts(page: Node) -> Array[String]:

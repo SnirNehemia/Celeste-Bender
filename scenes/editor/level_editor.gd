@@ -37,7 +37,14 @@ extends Node2D
 ##     its points. Its settings are in the property panel on the right; with
 ##     nothing selected, the panel shows the current room's settings (the room
 ##     last clicked in). Every change there is one undo step.
+##   - Map view (M, Stage L7): MapView takes the mouse over: make, move, resize,
+##     delete and import rooms, pick the start room, double-click to edit a room.
+##     In the room view, rooms other than the current one are drawn dimmed.
 ## Every change is one UndoRedo action, so Ctrl+Z undoes it.
+##
+## Earth rooms (Stage L8): a room with an "Earth" layer is drawn by its
+## GroundPainter, not by its tiles. After every tile change the editor has
+## RoomLook rebuild that picture, so the room looks as it will in play.
 ##
 ## Showing without running: the level file is a whole world (RoomManager, Player,
 ## camera, pause menu...). Added to the tree as is, it would start PLAYING: the
@@ -93,7 +100,7 @@ const STRIP_PREVIEW_COLOR: Color = Color(0.9, 0.2, 0.2, 0.4)
 ## The Room settings the property panel shows when nothing is selected
 ## (Level_editor.md §5). The room's size is changed on the map (Stage L7).
 const ROOM_SETTINGS: Array[StringName] = [&"display_title", &"air_allowed", &"earth_allowed",
-	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake"]
+	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake", &"painted_ground"]
 ## How close to a zone's edge a click must be to pick the zone, screen pixels.
 const EDGE_PICK_SCREEN_PIXELS: float = 3.0
 ## Seconds the play-test keeps running after the goal, so you see you made it.
@@ -118,6 +125,8 @@ var undo_redo: UndoRedo = UndoRedo.new()
 var saved_version: int = 0
 ## The palette entry the mouse works with.
 var current_entry: PaletteCatalog.Entry = null
+## The terrain brush chosen last: the room panel's "Fill edges" button uses it.
+var last_terrain_entry: PaletteCatalog.Entry = null
 ## One TileBrush per terrain entry id, made on first use.
 var brushes: Dictionary = {}
 
@@ -126,6 +135,8 @@ var overlay: EditorOverlay
 var ui: EditorUI
 var backdrop: Node2D
 var grid_visible: bool = true
+## The map of rooms (M). While it's open, it gets the mouse and the map keys.
+var map_view: MapView = null
 
 ## The selected object (outlined; Delete and R act on it), or null. A setter:
 ## code that runs whenever it's assigned, here to show it in the property panel.
@@ -161,6 +172,9 @@ var stroke_room: Room = null
 ## one per terrain layer the room has.
 var stroke_brushes: Array[TileBrush] = []
 var stroke_painting: bool = true
+## Room settings the stroke's first paint of a new layer changes:
+## {setting: [before, after]} (PaletteCatalog.Entry.room_settings_on_create).
+var stroke_room_settings: Dictionary = {}
 ## The tool to go back to when E switches the eraser off again.
 var tool_before_eraser: PaletteCatalog.Entry = null
 ## True while the eraser is held down and dragged.
@@ -171,6 +185,9 @@ var rectangle_active: bool = false
 var rectangle_room: Room = null
 var rectangle_start_cell: Vector2i = Vector2i.ZERO
 var rectangle_painting: bool = true
+## The rectangle is the eraser's (Shift+drag): it clears every layer and the
+## objects inside, not one terrain.
+var rectangle_erases_block: bool = false
 ## A spike strip being dragged out: its room and first cell.
 var strip_active: bool = false
 var strip_room: Room = null
@@ -215,6 +232,8 @@ func _ready() -> void:
 	add_child(ui)
 	ui.entry_chosen.connect(choose_entry)
 	ui.property_panel.property_changed.connect(set_property)
+	map_view = MapView.new(self)
+	ui.import_picker.room_chosen.connect(_on_import_room_chosen)
 	# version_changed: UndoRedo's signal for any commit, undo or redo. Values the
 	# panel shows may have changed, so it re-reads them.
 	undo_redo.version_changed.connect(ui.property_panel.refresh)
@@ -231,6 +250,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if is_playtesting:
 		stop_playtest()
+	map_view.close()  # also frees a room copy still waiting to be placed
 	_use_editor_window(false)
 	for node: Node in set_aside_nodes:
 		node.free()  # loose nodes: nothing else would ever free them
@@ -279,16 +299,21 @@ func open_level(path: String) -> Error:
 	saved_version = undo_redo.get_version()
 	selected_object = null
 	ui.set_title(_level_title())
-	var start_room: Room = _start_room()
+	var start_room: Room = get_start_room()
 	current_room = start_room
 	if start_room != null:
-		# As big as fits, centered in the free space between the palette and the
-		# property panel, below the top bar and above the status line.
-		var free_size: Vector2 = Vector2(EDITOR_VIEW_SIZE) - Vector2(EditorUI.PALETTE_WIDTH + EditorUI.PROPERTY_PANEL_WIDTH, 2.0 * EditorUI.BAR_HEIGHT)
-		camera.zoom_to_fit(start_room.get_bounds(), free_size, Vector2((EditorUI.PALETTE_WIDTH - EditorUI.PROPERTY_PANEL_WIDTH) / 2.0, 0.0))
-		ui.set_zoom(camera.get_zoom_factor())
+		fit_view(start_room.get_bounds())
 	ui.show_message("Opened %s" % path.get_file())
 	return OK
+
+
+## Zooms the camera to the largest step at which `rect` fits, centered in the free
+## space between the palette and the property panel, below the top bar and above
+## the status line.
+func fit_view(rect: Rect2) -> void:
+	var free_size: Vector2 = Vector2(EDITOR_VIEW_SIZE) - Vector2(EditorUI.PALETTE_WIDTH + EditorUI.PROPERTY_PANEL_WIDTH, 2.0 * EditorUI.BAR_HEIGHT)
+	camera.zoom_to_fit(rect, free_size, Vector2((EditorUI.PALETTE_WIDTH - EditorUI.PROPERTY_PANEL_WIDTH) / 2.0, 0.0))
+	ui.set_zoom(camera.get_zoom_factor())
 
 
 ## Writes the level to its file. Returns OK or an error code.
@@ -394,6 +419,12 @@ func choose_entry(entry: PaletteCatalog.Entry) -> void:
 		tool_before_eraser = current_entry
 	current_entry = entry
 	ui.show_chosen_entry(entry)
+	if entry.hint != "":
+		ui.show_message("%s: %s" % [entry.display_name, entry.hint])
+	if entry.kind == PaletteCatalog.Kind.TERRAIN and entry != last_terrain_entry:
+		last_terrain_entry = entry
+		if selected_object == null:
+			_show_selection_in_panel()  # the Fill edges button names the terrain
 
 
 ## E: the eraser on, or back off to the tool chosen before it.
@@ -431,8 +462,9 @@ func erase_at(world_point: Vector2, is_drag: bool = false) -> void:
 # --- Terrain (also what the smoke test calls) ---
 
 ## Paints (or erases) `cells` in `room` with the Ground brush as ONE undo step.
-func paint_cells(room: Room, cells: Array[Vector2i], painting: bool) -> void:
-	begin_stroke(room, painting)
+## `terrain`: the brush to use (the current terrain tool if null).
+func paint_cells(room: Room, cells: Array[Vector2i], painting: bool, terrain: PaletteCatalog.Entry = null) -> void:
+	begin_stroke(room, painting, false, terrain)
 	for cell: Vector2i in cells:
 		_stroke_cell(cell)
 	end_stroke()
@@ -452,10 +484,11 @@ func fill_rectangle(room: Room, corner_a: Vector2i, corner_b: Vector2i, painting
 ## Starts a stroke with the current terrain entry's brush (Ground if the current
 ## tool isn't terrain, e.g. when the smoke test paints). `every_layer` (the
 ## eraser): erase on every terrain layer the room has, making none.
-func begin_stroke(room: Room, painting: bool, every_layer: bool = false) -> void:
+func begin_stroke(room: Room, painting: bool, every_layer: bool = false, terrain_entry: PaletteCatalog.Entry = null) -> void:
 	stroke_room = room
 	stroke_painting = painting
 	stroke_brushes = []
+	stroke_room_settings = {}
 	if every_layer:
 		for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 			if entry.kind != PaletteCatalog.Kind.TERRAIN:
@@ -466,11 +499,19 @@ func begin_stroke(room: Room, painting: bool, every_layer: bool = false) -> void
 				brush.begin_stroke(layer)
 				stroke_brushes.append(brush)
 		return
-	var terrain: PaletteCatalog.Entry = current_entry
+	var terrain: PaletteCatalog.Entry = terrain_entry if terrain_entry != null else current_entry
 	if terrain == null or terrain.kind != PaletteCatalog.Kind.TERRAIN:
 		terrain = PaletteCatalog.get_entry(&"ground")
 	var terrain_brush: TileBrush = _brush_for(terrain)
-	terrain_brush.begin_stroke(terrain_brush.get_layer(room, level_root, true))
+	var had_layer: bool = terrain_brush.get_layer(room, level_root, false) != null
+	var terrain_layer: TileMapLayer = terrain_brush.get_layer(room, level_root, true)
+	# The room's first stroke of this terrain: the room settings it implies
+	# (painting Earth turns Earth on, Stage L8), kept for end_stroke's undo step.
+	if not had_layer:
+		for setting: StringName in terrain.room_settings_on_create:
+			stroke_room_settings[setting] = [room.get(setting), terrain.room_settings_on_create[setting]]
+	terrain_brush.begin_stroke(terrain_layer)
+	RoomLook.show_tiles_while_painting(room, terrain_layer)
 	stroke_brushes.append(terrain_brush)
 
 
@@ -478,8 +519,23 @@ func begin_stroke(room: Room, painting: bool, every_layer: bool = false) -> void
 func end_stroke() -> void:
 	if stroke_room == null:
 		return
+	var room: Room = stroke_room
+	var changes: Array[Array] = _finish_stroke()
+	if changes.is_empty():
+		stroke_room_settings = {}
+		RoomLook.refresh(room)  # hides the layer shown while painting again
+		return
+	undo_redo.create_action("Paint tiles" if stroke_painting else "Erase tiles")
+	_add_stroke_steps(room, changes)
+	# true: run the "do" now. The cells are already painted (setting them again
+	# changes nothing), but the room settings and the room's look need it.
+	undo_redo.commit_action(true)
+
+
+## Ends the stroke's brushes. Returns [brush, layer, {"before", "after"}] for each
+## layer it changed (TileBrush.end_stroke).
+func _finish_stroke() -> Array[Array]:
 	stroke_room = null
-	# One undo step for the whole stroke, on however many layers it touched.
 	var changes: Array[Array] = []
 	for brush: TileBrush in stroke_brushes:
 		var layer: TileMapLayer = brush.stroke_layer
@@ -487,15 +543,57 @@ func end_stroke() -> void:
 		if not change.is_empty():
 			changes.append([brush, layer, change])
 	stroke_brushes = []
-	if changes.is_empty():
-		return
-	undo_redo.create_action("Paint tiles" if stroke_painting else "Erase tiles")
+	return changes
+
+
+## Inside the undo action being made: the stroke's tile changes (both ways) and
+## the room settings its first paint of a new layer implies.
+func _add_stroke_steps(room: Room, changes: Array[Array]) -> void:
 	for brush_change: Array in changes:
 		var brush: TileBrush = brush_change[0]
-		undo_redo.add_do_method(brush.set_cells.bind(brush_change[1], brush_change[2]["after"]))
-		undo_redo.add_undo_method(brush.set_cells.bind(brush_change[1], brush_change[2]["before"]))
-	# false: don't run the "do" now, the stroke already painted the cells.
-	undo_redo.commit_action(false)
+		undo_redo.add_do_method(_set_layer_cells.bind(brush, brush_change[1], brush_change[2]["after"]))
+		undo_redo.add_undo_method(_set_layer_cells.bind(brush, brush_change[1], brush_change[2]["before"]))
+	for setting: StringName in stroke_room_settings:
+		var values: Array = stroke_room_settings[setting]  # [before, after]
+		if values[0] != values[1]:
+			undo_redo.add_do_property(room, setting, values[1])
+			undo_redo.add_undo_property(room, setting, values[0])
+	stroke_room_settings = {}
+
+
+## The eraser's Shift+drag: clears the block of cells between two room-local cells
+## on every terrain layer, and deletes the objects whose outline lies inside it
+## (not the spawn point). One undo step.
+func erase_block(room: Room, corner_a: Vector2i, corner_b: Vector2i) -> void:
+	var cells: Rect2i = _rect_between(corner_a, corner_b)
+	begin_stroke(room, false, true)
+	for y: int in range(cells.position.y, cells.end.y):
+		for x: int in range(cells.position.x, cells.end.x):
+			_stroke_cell(Vector2i(x, y))
+	var changes: Array[Array] = _finish_stroke()
+	var block: Rect2 = Rect2(room.global_position + Vector2(cells.position * TILE), Vector2(cells.size * TILE))
+	var doomed: Array[Node2D] = []
+	for child: Node in room.get_children():
+		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(child)
+		var is_inside: bool = entry != null and block.encloses(PaletteCatalog.get_bounds(child as Node2D))
+		if is_inside and entry.kind != PaletteCatalog.Kind.SPAWN_POINT:
+			doomed.append(child)
+	if changes.is_empty() and doomed.is_empty():
+		return
+	# Last child first: removing it doesn't shift the indices of the ones before
+	# it, and undo (which runs backwards) puts them back first-child first.
+	doomed.reverse()
+	undo_redo.create_action("Erase block")
+	_add_stroke_steps(room, changes)
+	for node: Node2D in doomed:
+		_add_delete_steps(node)
+	undo_redo.commit_action(true)
+
+
+## Sets cells on a layer (undo and redo of a stroke) and redraws the room's ground.
+func _set_layer_cells(brush: TileBrush, layer: TileMapLayer, values: Dictionary) -> void:
+	brush.set_cells(layer, values)
+	RoomLook.refresh(Room.find_room_of(layer))
 
 
 ## Paints or erases one cell of the current stroke, if it's inside the room.
@@ -511,7 +609,8 @@ func _stroke_cell(cell: Vector2i) -> void:
 
 func _brush_for(entry: PaletteCatalog.Entry) -> TileBrush:
 	if not brushes.has(entry.id):
-		brushes[entry.id] = TileBrush.new(entry.layer_name, entry.tile_set)
+		brushes[entry.id] = TileBrush.new(entry.layer_name, entry.tile_set, entry.layer_script,
+			entry.tile_plain, entry.tile_top_edge)
 	return brushes[entry.id]
 
 
@@ -577,6 +676,11 @@ func _apply_property(target: Object, property: StringName, value: Variant) -> vo
 		PaletteCatalog.sync_start_positions(target)
 	if target is CanvasItem:
 		(target as CanvasItem).queue_redraw()
+	if target is Room and property == &"painted_ground":
+		RoomLook.refresh(target)  # the painter comes or goes
+	# Pips alone do nothing: fire works only where it's allowed (off by default).
+	if target is Room and property == &"fire_start_pips" and int(value) > 0 and not (target as Room).fire_allowed:
+		ui.show_message("Fire Allowed is off in this room: tick it, or the pips can't be used.", true)
 
 
 ## Shows the selected object's settings in the panel, or the current room's.
@@ -590,10 +694,14 @@ func _show_selection_in_panel() -> void:
 		if entry.arrow_property != &"":
 			direction_properties.append(entry.arrow_property)
 		ui.property_panel.show_target(selected, "%s\n%s" % [entry.display_name, selected.name],
-			entry.editable_properties, direction_properties)
+			entry.editable_properties, direction_properties, entry.hint)
 		_update_link_footer()
 	elif current_room != null and is_instance_valid(current_room):
-		ui.property_panel.show_target(current_room, "Room\n%s" % _room_title(current_room), ROOM_SETTINGS)
+		ui.property_panel.show_target(current_room, "Room\n%s" % room_title(current_room), ROOM_SETTINGS)
+		# Walls in the room's edges with the terrain chosen last (Ground at first).
+		var terrain: PaletteCatalog.Entry = last_terrain_entry if last_terrain_entry != null else PaletteCatalog.get_entry(&"ground")
+		var room: Room = current_room
+		ui.property_panel.add_button("Fill edges: %s" % terrain.display_name, func() -> void: fill_room_edges(room, terrain))
 	else:
 		ui.property_panel.show_target(null, "", [])
 
@@ -765,29 +873,49 @@ func delete_object(node: Node2D) -> bool:
 	if entry.kind == PaletteCatalog.Kind.SPAWN_POINT:
 		ui.show_message("Every room needs its spawn point: drag it, or click elsewhere to move it.", true)
 		return false
-	var parent: Node = node.get_parent()
-	var index: int = node.get_index()
 	undo_redo.create_action("Delete %s" % node.name)
+	_add_delete_steps(node)
+	undo_redo.commit_action()
+	return true
+
+
+## Inside the undo action being made: removes `node` from its room, and undo
+## puts the very same node back where it was.
+func _add_delete_steps(node: Node) -> void:
 	# Anything linked to it loses that link, in the same step (undo restores both).
-	for linker: Node2D in get_objects():
-		var linker_entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(linker)
-		# Only lists it could be in: a typed Array[Switch] refuses (with an
-		# error) even to be asked whether it holds a non-Switch.
-		if linker_entry.link_property == &"" or not PaletteCatalog.is_link_target(linker_entry, node):
-			continue
-		var old_links: Array = linker.get(linker_entry.link_property)
-		if old_links.has(node):
-			var new_links: Array = old_links.duplicate()
-			new_links.erase(node)
-			undo_redo.add_do_method(_apply_property.bind(linker, linker_entry.link_property, new_links))
-			undo_redo.add_undo_method(_apply_property.bind(linker, linker_entry.link_property, old_links.duplicate()))
-	undo_redo.add_do_method(_detach_object.bind(node))
-	undo_redo.add_undo_method(_attach_object.bind(parent, node, index))
+	add_unlink_steps(node)
+	undo_redo.add_do_method(detach_node.bind(node))
+	undo_redo.add_undo_method(attach_node.bind(node.get_parent(), node, node.get_index()))
 	# The undo side holds the removed node: kept alive while undo may need it,
 	# freed by UndoRedo once that can no longer happen.
 	undo_redo.add_undo_reference(node)
-	undo_redo.commit_action()
-	return true
+
+
+## The room panel's "Fill edges" button: paints `terrain` along all of the room's
+## edges (1-tile walls and ceiling, a 2-row floor; LevelTemplate.get_edge_cells).
+## One undo step. Erase the exits you want afterwards.
+func fill_room_edges(room: Room, terrain: PaletteCatalog.Entry) -> void:
+	paint_cells(room, LevelTemplate.get_edge_cells(room.room_size), true, terrain)
+	ui.show_message("Filled the edges of %s with %s." % [room_title(room), terrain.display_name])
+
+
+## Inside the undo action being made: drops `removed` (an object, or a room and
+## everything in it) from every link list that holds it, and undo puts it back.
+func add_unlink_steps(removed: Node) -> void:
+	for linker: Node2D in get_objects():
+		var linker_entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(linker)
+		if linker_entry.link_property == &"" or removed.is_ancestor_of(linker):
+			continue
+		var old_links: Array = linker.get(linker_entry.link_property)
+		# Walking the list (not has()): a typed Array[Switch] refuses, with an
+		# error, even to be asked whether it holds a non-Switch.
+		var new_links: Array = old_links.duplicate()
+		for target: Variant in old_links:
+			if target == removed or (target is Node and removed.is_ancestor_of(target)):
+				new_links.erase(target)
+		if new_links.size() != old_links.size():
+			undo_redo.add_do_method(_apply_property.bind(linker, linker_entry.link_property, new_links))
+			undo_redo.add_undo_method(_apply_property.bind(linker, linker_entry.link_property, old_links.duplicate()))
 
 
 ## Turns the selected spikes a quarter turn (R). Returns false if it can't turn.
@@ -821,8 +949,8 @@ func toggle_grid() -> void:
 
 func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void:
 	undo_redo.create_action(action_name)
-	undo_redo.add_do_method(_attach_object.bind(room, node, -1))
-	undo_redo.add_undo_method(_detach_object.bind(node))
+	undo_redo.add_do_method(attach_node.bind(room, node, -1))
+	undo_redo.add_undo_method(detach_node.bind(node))
 	# The do side holds the new node: if the placing is undone and then dropped
 	# from the history, UndoRedo frees the node.
 	undo_redo.add_do_reference(node)
@@ -831,7 +959,7 @@ func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void
 
 
 ## Puts `node` into `parent` (at `index`, or last if -1) as part of the saved level.
-func _attach_object(parent: Node, node: Node, index: int) -> void:
+func attach_node(parent: Node, node: Node, index: int) -> void:
 	# true: if the name is taken, Godot picks a readable one ("Goal2").
 	parent.add_child(node, true)
 	if index >= 0:
@@ -839,7 +967,7 @@ func _attach_object(parent: Node, node: Node, index: int) -> void:
 	LevelStorage.adopt(node, level_root)
 
 
-func _detach_object(node: Node) -> void:
+func detach_node(node: Node) -> void:
 	if selected_object == node:
 		selected_object = null  # the setter shows the room's settings instead
 	node.get_parent().remove_child(node)
@@ -867,6 +995,31 @@ func _auto_facing(room: Room, cell: Vector2i, is_horizontal: bool) -> Spikes.Fac
 	if not is_solid.call(cell + Vector2i.LEFT) and is_solid.call(cell + Vector2i.RIGHT):
 		return Spikes.Facing.LEFT
 	return Spikes.Facing.RIGHT
+
+
+# --- Map of rooms (Stage L7) ---
+
+## M: the map view on or off. Anything half-done in the room view ends first.
+func toggle_map() -> void:
+	if map_view.is_open:
+		map_view.close()
+		ui.show_chosen_entry(current_entry)  # the tool label and key hints come back
+		return
+	end_link_mode()
+	end_stroke()
+	dragged_object = null
+	dragged_handle = {}
+	select(null)
+	map_view.open()
+	ui.set_tool("Map")
+	ui.set_key_hints(EditorUI.MAP_HINTS)
+
+
+## The import list picked a room: it follows the mouse on the map until a click.
+func _on_import_room_chosen(world_path: String, room_name: String) -> void:
+	if not map_view.is_open:
+		toggle_map()
+	map_view.begin_import(world_path, room_name)
 
 
 # --- Play-test ---
@@ -900,7 +1053,16 @@ func start_playtest(start_point: Variant = null) -> bool:
 
 	GameState.reset_run()
 	_use_editor_window(false)
-	visible = false  # hides the backdrop, level and overlay (all Node2D children)
+	# The editor's own copy leaves the tree while the play copy runs. Hidden is not
+	# enough: lookups by GROUP (EarthLayer.find_layer_at, room resets, enemies...)
+	# go through every node in the tree, and would find the editor's earth tiles,
+	# lying at the same place as the play copy's, first. Nodes out of the tree
+	# aren't listed in their groups.
+	# Deferred: calls the editor's rooms already queued with call_deferred (a
+	# PebbleField looking for wind zones, a room just imported) run first, while
+	# they're still in the tree. Deferred calls run in the order they were made.
+	_take_level_out_while_playing.call_deferred()
+	visible = false  # hides the backdrop and overlay (all Node2D children)
 	ui.visible = false  # a CanvasLayer has its own visibility
 	# Next to the editor, not inside it: the editor's level is disabled, and the
 	# copy must run normally.
@@ -909,6 +1071,12 @@ func start_playtest(start_point: Variant = null) -> bool:
 	GameState.run_finished.connect(_on_playtest_goal_reached)
 	is_playtesting = true
 	return true
+
+
+## See start_playtest. Skipped if the play-test already ended meanwhile.
+func _take_level_out_while_playing() -> void:
+	if is_playtesting and level_root.get_parent() == self:
+		remove_child(level_root)
 
 
 ## Ends the play-test and shows the editor again, as it was.
@@ -923,6 +1091,9 @@ func stop_playtest() -> void:
 	FX.clear_slow_motion()
 	play_root.queue_free()
 	play_root = null
+	if level_root.get_parent() == null:
+		add_child(level_root)  # back, behind the overlay (see start_playtest)
+		move_child(level_root, backdrop.get_index() + 1)
 	_use_editor_window(true)
 	visible = true
 	ui.visible = true
@@ -934,11 +1105,11 @@ func stop_playtest() -> void:
 ## Why the level can't be played from there, or "" if it can. A room you start or
 ## respawn in must have a spawn point.
 func get_play_blocker(start_point: Variant = null) -> String:
-	var room: Room = _start_room() if start_point == null else room_at(start_point)
+	var room: Room = get_start_room() if start_point == null else room_at(start_point)
 	if room == null:
 		return "The level has no rooms." if start_point == null else "Play here: point the mouse inside a room."
 	if room.get_node_or_null(NodePath(PaletteCatalog.SPAWN_POINT_NAME)) == null:
-		return "%s has no spawn point: place one first." % _room_title(room)
+		return "%s has no spawn point: place one first." % room_title(room)
 	return ""
 
 
@@ -948,7 +1119,7 @@ func get_play_warnings() -> Array[String]:
 	var has_goal: bool = false
 	for room: Room in get_rooms():
 		if room.get_node_or_null(NodePath(PaletteCatalog.SPAWN_POINT_NAME)) == null:
-			warnings.append("%s has no spawn point." % _room_title(room))
+			warnings.append("%s has no spawn point." % room_title(room))
 		for child: Node in room.get_children():
 			if child is Goal:
 				has_goal = true
@@ -986,7 +1157,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			stop_playtest()
 			viewport.set_input_as_handled()
 		return
-	if level_root == null or ui.prompt.visible or ui.help.visible:
+	if level_root == null or ui.prompt.visible or ui.help.visible or ui.import_picker.visible:
 		return  # those handle their own keys (H and Esc close the help)
 	var mouse_world: Vector2 = get_global_mouse_position()
 
@@ -994,6 +1165,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
 		if is_panning:
 			camera.pan_by(motion.relative)
+		elif map_view.is_open:
+			map_view.mouse_moved(mouse_world)
 		elif is_erasing:
 			erase_at(mouse_world, true)
 		elif stroke_room != null:
@@ -1021,6 +1194,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		is_panning = true
 	elif is_panning and (event.is_action_released("editor_pan") or event.is_action_released("editor_paint")):
 		is_panning = false
+	elif event.is_action_pressed("editor_map"):
+		toggle_map()
+	# The map takes its own clicks and keys (its handle_input says if it used this one).
+	elif map_view.is_open and map_view.handle_input(event, mouse_world):
+		pass
 	elif event.is_action_pressed("editor_paint"):
 		_on_left_pressed(mouse_world)
 	elif event.is_action_pressed("editor_erase"):
@@ -1039,6 +1217,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_eraser()
 	elif event.is_action_pressed("editor_help"):
 		ui.help.open()
+	elif event.is_action_pressed("editor_import"):
+		# Imports happen on the map, where you see where the copy fits.
+		toggle_map()
+		ui.import_picker.open(level_path)
 	elif event.is_action_pressed("editor_link"):
 		if link_source != null:
 			end_link_mode()
@@ -1084,8 +1266,7 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 	if room != null:
 		current_room = room
 	if current_entry.kind == PaletteCatalog.Kind.ERASER:
-		is_erasing = true
-		erase_at(mouse_world)
+		_start_erasing(room, mouse_world)
 		return
 	# The selected object's handles come first: they can sit on top of anything.
 	if selected_object != null and is_instance_valid(selected_object) and selected_object.is_inside_tree():
@@ -1125,8 +1306,7 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 func _on_right_pressed(mouse_world: Vector2) -> void:
 	get_viewport().gui_release_focus()
 	if current_entry.kind == PaletteCatalog.Kind.ERASER:
-		is_erasing = true
-		erase_at(mouse_world)
+		_start_erasing(room_at(mouse_world), mouse_world)
 		return
 	if current_entry.kind == PaletteCatalog.Kind.TERRAIN:
 		var room: Room = room_at(mouse_world)
@@ -1149,7 +1329,10 @@ func _on_mouse_released(mouse_world: Vector2) -> void:
 		set_property(selected_object, property, selected_object.get(property), dragged_handle_start_value)
 	elif rectangle_active:
 		rectangle_active = false
-		fill_rectangle(rectangle_room, rectangle_start_cell, cell_at(rectangle_room, mouse_world), rectangle_painting)
+		if rectangle_erases_block:
+			erase_block(rectangle_room, rectangle_start_cell, cell_at(rectangle_room, mouse_world))
+		else:
+			fill_rectangle(rectangle_room, rectangle_start_cell, cell_at(rectangle_room, mouse_world), rectangle_painting)
 	elif stroke_room != null:
 		end_stroke()
 	elif strip_active:
@@ -1178,17 +1361,33 @@ func _duplicate_selected(mouse_world: Vector2) -> void:
 	duplicate_object(selected_object, room, room_point, Input.is_action_pressed("editor_free_place"))
 
 
+## An eraser press: with Shift held, a block (erase_block on release), else
+## erasing what's under the mouse as it drags.
+func _start_erasing(room: Room, mouse_world: Vector2) -> void:
+	if Input.is_action_pressed("editor_rectangle") and room != null:
+		_start_rectangle(room, mouse_world, false, true)
+		return
+	is_erasing = true
+	erase_at(mouse_world)
+
+
 ## A terrain press: a rectangle with Shift held, else a free-hand stroke.
 func _start_terrain(room: Room, mouse_world: Vector2, painting: bool) -> void:
 	if Input.is_action_pressed("editor_rectangle"):
-		rectangle_active = true
-		rectangle_room = room
-		rectangle_start_cell = cell_at(room, mouse_world)
-		rectangle_painting = painting
+		_start_rectangle(room, mouse_world, painting, false)
 	else:
 		begin_stroke(room, painting)
 		last_stroke_cell = cell_at(room, mouse_world)
 		_stroke_cell(last_stroke_cell)
+
+
+## Starts a Shift-drag rectangle in `room` from the mouse's cell.
+func _start_rectangle(room: Room, mouse_world: Vector2, painting: bool, erases_block: bool) -> void:
+	rectangle_active = true
+	rectangle_room = room
+	rectangle_start_cell = cell_at(room, mouse_world)
+	rectangle_painting = painting
+	rectangle_erases_block = erases_block
 
 
 ## Paints every cell on the line from the last cell to `cell`: a fast mouse
@@ -1219,6 +1418,11 @@ func _update_hover() -> void:
 		ui.set_cursor_info("")
 		return
 	var mouse_world: Vector2 = get_global_mouse_position()
+	if map_view.is_open:
+		# The map shows rooms, not tiles: the room under the mouse and its size.
+		var room: Room = room_at(mouse_world)
+		ui.set_cursor_info("" if room == null else "%s  %dx%d" % [room_title(room), room.room_size.x, room.room_size.y])
+		return
 	if link_source != null or (current_entry != null and current_entry.kind != PaletteCatalog.Kind.TERRAIN):
 		hover_object = object_at(mouse_world, current_entry.kind == PaletteCatalog.Kind.ERASER)
 	hover_room = room_at(mouse_world)
@@ -1226,7 +1430,7 @@ func _update_hover() -> void:
 		ui.set_cursor_info("")
 		return
 	hover_cell = cell_at(hover_room, mouse_world)
-	var info: String = "%s  tile %d, %d" % [_room_title(hover_room), hover_cell.x, hover_cell.y]
+	var info: String = "%s  tile %d, %d" % [room_title(hover_room), hover_cell.x, hover_cell.y]
 	if hover_object != null:
 		info += "  " + String(hover_object.name)
 	ui.set_cursor_info(info)
@@ -1265,12 +1469,12 @@ func _level_title() -> String:
 	return level_path.get_file().get_basename()
 
 
-func _room_title(room: Room) -> String:
+func room_title(room: Room) -> String:
 	return room.display_title if room.display_title != "" else String(room.name)
 
 
 ## The room the level starts in: LevelInfo's start room, else the first room.
-func _start_room() -> Room:
+func get_start_room() -> Room:
 	if level_info != null and level_info.start_room != null:
 		return level_info.start_room
 	var rooms: Array[Room] = get_rooms()
@@ -1280,7 +1484,7 @@ func _start_room() -> Room:
 ## The level starts with the Player on the start room's SpawnPoint.
 func _place_player_at_start() -> void:
 	var player: Node2D = level_script_values.get("player") as Node2D
-	var start_room: Room = _start_room()
+	var start_room: Room = get_start_room()
 	if player == null or start_room == null:
 		return
 	var spawn_point: Marker2D = start_room.get_node_or_null(NodePath(PaletteCatalog.SPAWN_POINT_NAME)) as Marker2D

@@ -13,7 +13,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
 - Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [x] E5 · [x] E6 · [x] E7
 - Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · ~~F9~~ (dropped) · [x] F10 (covered by F7) · [x] F11 · [ ] F11a · [x] F11b · [ ] F12 · [ ] F13 · [ ] F14 · [ ] F15
-- Level editor (parallel track): [x] L0 (plan) · [x] L1 · [x] L2 · [x] L3 · [x] L4 · [x] L5 · [x] L6 · [ ] L7 · [ ] L8 · [ ] L9 · [ ] L10 · [ ] L11
+- Level editor (parallel track): [x] L0 (plan) · [x] L1 · [x] L2 · [x] L3 · [x] L4 · [x] L5 · [x] L6 · [x] L7 · [x] L8 · [ ] L9 · [ ] L10 · [ ] L11
 
 ---
 
@@ -314,10 +314,16 @@ Written into `Level_editor.md` (spec v1) and the stages below.
 
 **You should see:** three rooms in an L shape, with green exits between them. Play from the start: the camera slides room to room. Import Earth room 3 next to them and play through it.
 
+*Decided while building (L7):* widths are whole tiles (at least 320) and heights are 180 + whole tiles, so the last tile row always hangs half below the room, as in every existing room. Positions are on the 8 px grid or on a neighbour's edge. A new room is empty but for its spawn point (changed after the play-test, see below). Dragging a left or top edge keeps the room's contents where they are in the level (in whole tiles of the room's grid); tiles left outside a smaller room are cut off, and undo brings them back. In the map: S = start room, Delete = delete room (never the start room or the last one), I = import (also from the room view). An imported room that is its own scene file is rebuilt from that file as a root, so no hidden tie to it is saved. Links to things outside the copied room are dropped.
+
 ## Stage L8 — Earth palette
 > Read Level_editor.md §6 (Earth) and Earth_bending.md for the objects' settings. Add the Earth brush (EarthLayer; GroundPainter draws it in the editor as in play), cracked wall, stone wall, boulder and loose rocks to the catalog. Rooms with Earth painted default to Earth allowed.
 
 **You should see:** an Earth room painted by mouse that looks like the Earth chapter and bends like it.
+
+*Decided while building (L8):* the Earth brush is in the Terrain tab, the walls and rocks in a new Earth tab. Placed rocks are a new small object, `RockSpot` (`boulder_spot.tscn` big, `loose_rock_spot.tscn` small): it lays a loose Boulder there when the room starts and again after every reset, so boulder.gd is untouched. The cap of 3 loose rocks per room still applies. After every tile change in a room with Earth, `RoomLook` rebuilds the room's GroundPainter, so painting shows as in play (while a stroke is held, the raw tiles show). Walls are sized in tiles: catalog `size_unit`.
+
+*After L7/L8 (play-test):* Earth bending didn't work in play-tests: the editor's hidden copy of the level was still in the scene tree, so group lookups (`EarthLayer.find_layer_at`) found its earth first. The editor's copy now leaves the tree while a play-test runs. Opening a world in the import list no longer errors (its rooms are read a moment later). Added: the eraser's Shift+drag clears a block (tiles on every layer, objects fully inside it); new map rooms start empty, and the room panel has a "Fill edges: <terrain>" button (walls, ceiling, 2-row floor) using the terrain brush chosen last; `Room.painted_ground` (new, on for every room the editor makes) draws plain ground with the GroundPainter too, so it looks like stone from the start; every palette entry has a `hint` (what triggers it, what it triggers, what breaks or burns it), shown as the button's tooltip, in the status line when chosen and in the property panel.
 
 ## Stage L9 — Fire palette
 > Read Level_editor.md §6 (Fire) and Fire_bending.md §13. Add the Grass, Thicket and Overgrown brushes, fire diamond, brazier, vine (end-point handle), hanging platform (linked to its vines with L) and leaf pile. A room's FireGrid only runs in play, not while editing.

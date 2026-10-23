@@ -7,10 +7,12 @@ extends Camera2D
 ## scaled up 2x to 1280x720 (see LevelEditor), so one level pixel covers
 ## 2 x zoom screen pixels. Every step below makes that a whole number (1, 2, 3, 4,
 ## 6, 8), so pixel art stays crisp, with no uneven, smeared pixels.
+## The two smallest steps (1/8 and 1/4) are for the map of rooms (Stage L7), where
+## seeing the whole level matters more than crisp pixels.
 ## (Godot 4's Camera2D: zoom 2 = things look twice as big.)
 
-const ZOOM_LEVELS: Array[float] = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
-const START_ZOOM_INDEX: int = 2
+const ZOOM_LEVELS: Array[float] = [0.125, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
+const START_ZOOM_INDEX: int = 4
 
 var zoom_index: int = START_ZOOM_INDEX
 

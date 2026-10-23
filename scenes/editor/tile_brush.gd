@@ -3,14 +3,18 @@ extends RefCounted
 ## TileBrush: paints and erases one terrain layer of a room, and records each
 ## stroke so it can be undone (Level_editor.md §4 and §6).
 ##
-## Stage L2 has one brush, Ground: the room's "Tiles" TileMapLayer with the
-## placeholder tileset (solid, with collision; the same layer every room has).
-## Later stages make more brushes (Earth, Grass, Thicket...) from the palette catalog.
+## One brush per terrain entry of the palette catalog: Ground (the room's "Tiles"
+## TileMapLayer with the placeholder tileset, the layer every room has) since
+## Stage L2, Earth (an "Earth" layer with the EarthLayer script) since Stage L8.
+## A layer the room doesn't have yet is made by the first stroke, with the
+## entry's tileset and script.
 ##
-## Edges: the placeholder tileset has two tiles, plain and "top edge" (a light
-## line on top = a surface you can stand on). The brush picks one itself: a cell
-## gets the top edge when the cell above it is empty. Painting or erasing a cell
-## can change the cell below too, so the brush updates both.
+## Edges: a tileset may have two tiles, plain and "top edge" (the placeholder's
+## light line on top = a surface you can stand on). The brush picks one itself: a
+## cell gets the top edge when the cell above it is empty. Painting or erasing a
+## cell can change the cell below too, so the brush updates both. A tileset with
+## one tile (earth: the GroundPainter draws the surfaces) gives the same atlas
+## cell for both, and there's nothing to pick.
 ##
 ## A stroke (one press-drag-release, or one rectangle) works like this:
 ##   begin_stroke(layer)  ->  paint_cell() / erase_cell() many times  ->  end_stroke()
@@ -21,15 +25,20 @@ extends RefCounted
 ## A cell value is a Vector3i(source id, atlas x, atlas y); source -1 = empty.
 
 const EMPTY: Vector3i = Vector3i(-1, -1, -1)
-## Placeholder tileset atlas cells (same as tools/build_rooms.gd).
-const TILE_PLAIN: Vector2i = Vector2i(0, 0)
-const TILE_TOP_EDGE: Vector2i = Vector2i(1, 0)
 ## The atlas source the brush paints from.
 const SOURCE_ID: int = 0
+## The Ground brush's tiles, the defaults: placeholder tileset atlas cells (same as
+## tools/build_rooms.gd), plain and with a top edge.
+const TILE_PLAIN: Vector2i = Vector2i(0, 0)
+const TILE_TOP_EDGE: Vector2i = Vector2i(1, 0)
 
-## Name of the layer node inside a room, and the tileset a new layer gets.
+## Name of the layer node inside a room, and the tileset and script a new layer gets.
 var layer_name: StringName
 var tile_set: TileSet
+var layer_script: Script
+## The atlas cells it paints: a plain tile and one with a top edge (may be the same).
+var tile_plain: Vector2i
+var tile_top_edge: Vector2i
 
 ## The layer the current stroke paints on (null between strokes).
 var stroke_layer: TileMapLayer = null
@@ -37,9 +46,14 @@ var stroke_layer: TileMapLayer = null
 var stroke_before: Dictionary = {}
 
 
-func _init(new_layer_name: StringName, new_tile_set: TileSet) -> void:
+## The defaults are the Ground brush's: no layer script, the placeholder tiles.
+func _init(new_layer_name: StringName, new_tile_set: TileSet, new_layer_script: Script = null,
+		new_tile_plain: Vector2i = TILE_PLAIN, new_tile_top_edge: Vector2i = TILE_TOP_EDGE) -> void:
 	layer_name = new_layer_name
 	tile_set = new_tile_set
+	layer_script = new_layer_script
+	tile_plain = new_tile_plain
+	tile_top_edge = new_tile_top_edge
 
 
 ## The room's layer for this brush. With `create`, makes it if missing (owned by
@@ -49,6 +63,8 @@ func get_layer(room: Room, level_root: Node, create: bool) -> TileMapLayer:
 	if layer == null and create:
 		layer = TileMapLayer.new()
 		layer.name = layer_name
+		if layer_script != null:
+			layer.set_script(layer_script)  # before it enters the tree: its _ready runs
 		layer.tile_set = tile_set
 		room.add_child(layer)
 		room.move_child(layer, 0)
@@ -64,7 +80,7 @@ func begin_stroke(layer: TileMapLayer) -> void:
 func paint_cell(cell: Vector2i) -> void:
 	if _read(stroke_layer, cell) != EMPTY:
 		return  # already ground: nothing to do (its edge is already right)
-	_write(cell, Vector3i(SOURCE_ID, TILE_PLAIN.x, TILE_PLAIN.y))
+	_write(cell, Vector3i(SOURCE_ID, tile_plain.x, tile_plain.y))
 	_refresh_edge(cell)
 	_refresh_edge(cell + Vector2i.DOWN)  # it just got covered
 
@@ -109,10 +125,10 @@ static func read_cell(layer: TileMapLayer, cell: Vector2i) -> Vector3i:
 func _refresh_edge(cell: Vector2i) -> void:
 	var value: Vector3i = _read(stroke_layer, cell)
 	var atlas: Vector2i = Vector2i(value.y, value.z)
-	if value.x != SOURCE_ID or not (atlas == TILE_PLAIN or atlas == TILE_TOP_EDGE):
+	if tile_plain == tile_top_edge or value.x != SOURCE_ID or not (atlas == tile_plain or atlas == tile_top_edge):
 		return
 	var is_surface: bool = _read(stroke_layer, cell + Vector2i.UP) == EMPTY
-	var wanted: Vector2i = TILE_TOP_EDGE if is_surface else TILE_PLAIN
+	var wanted: Vector2i = tile_top_edge if is_surface else tile_plain
 	if wanted != atlas:
 		_write(cell, Vector3i(SOURCE_ID, wanted.x, wanted.y))
 

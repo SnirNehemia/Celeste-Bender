@@ -5,8 +5,8 @@ extends RefCounted
 ## editor asks it how to make, find, outline, place and copy each kind of object,
 ## so the editor itself holds no per-object code.
 ##
-## Families: Terrain (Ground), Basics (spawn point, goal, spikes; Stage L3),
-## Air (Stage L4). Later stages add Earth, Fire and enemies.
+## Families: Terrain (Ground; Earth since L8), Basics (spawn point, goal, spikes;
+## Stage L3), Air (Stage L4), Earth (Stage L8). Later stages add Fire and enemies.
 ## CROSS-TRACK RULE (CLAUDE.md): a stage that adds a placeable object adds its
 ## entry here. A new entry needs: its scene, how its outline is found (`bounds`
 ## + the size property or a fixed rectangle), how it lands on the grid
@@ -56,6 +56,10 @@ class Entry:
 	extends RefCounted
 	var id: StringName
 	var display_name: String
+	## One or two sentences about what it does: what triggers it (a switch), what it
+	## triggers (a door), what breaks or burns it. Shown as the palette button's
+	## floating tooltip, in the status line when chosen, and in the property panel.
+	var hint: String = ""
 	## Palette tab the button goes in.
 	var family: String
 	var kind: Kind
@@ -64,6 +68,9 @@ class Entry:
 	## Outline: how it's found, from these properties / this rectangle.
 	var bounds: Bounds = Bounds.FIXED
 	var size_property: StringName = &""
+	## Pixels per unit of `size_property`: 1 for sizes in pixels (a door's
+	## door_size), TILE for sizes in tiles (a wall's wall_size_tiles, a Vector2i).
+	var size_unit: int = 1
 	var width_property: StringName = &""
 	var local_rect: Rect2 = Rect2(-4, -4, 8, 8)
 	var placement: Placement = Placement.TOP_LEFT
@@ -91,9 +98,18 @@ class Entry:
 	## must update them, or its path stays drawn where it was. Each entry is
 	## {runtime property: export offset added to `position`}, &"" = no offset.
 	var start_positions: Dictionary = {}
-	## Terrain kind: the room's layer name and the tileset a new layer gets.
+	## Terrain kind: the room's layer name, and the tileset and script a new
+	## layer gets (null = a plain TileMapLayer).
 	var layer_name: StringName = &""
 	var tile_set: TileSet = null
+	var layer_script: Script = null
+	## Terrain kind: the atlas cells the brush paints, plain and with a top edge
+	## (the same cell when the tileset has one tile). See TileBrush.
+	var tile_plain: Vector2i = TileBrush.TILE_PLAIN
+	var tile_top_edge: Vector2i = TileBrush.TILE_TOP_EDGE
+	## Terrain kind: room settings set the first time this terrain is painted in a
+	## room ({setting: value}): a room with Earth painted allows Earth (Stage L8).
+	var room_settings_on_create: Dictionary = {}
 
 	func _init(new_id: StringName, new_name: String, new_family: String, new_kind: Kind) -> void:
 		id = new_id
@@ -138,30 +154,36 @@ static func get_families() -> Array[String]:
 
 static func _build() -> void:
 	# --- Tools (no family: shown above the tabs) ---
-	_add(&"eraser", "Eraser", "", Kind.ERASER)
+	var eraser: Entry = _add(&"eraser", "Eraser", "", Kind.ERASER)
+	eraser.hint = "Removes the object under the mouse (zones from inside too), else the tiles of every layer. Shift+drag: a whole block, objects inside it too."
 
 	# --- Terrain ---
 	var ground: Entry = _add(&"ground", "Ground", "Terrain", Kind.TERRAIN)
+	ground.hint = "Plain solid stone. Nothing breaks or burns it, and the earth bend shadow can't cross it."
 	ground.layer_name = &"Tiles"
 	ground.tile_set = preload("res://resources/tiles/placeholder_tileset.tres")
 
 	# --- Basics (Stage L3) ---
 	var spawn: Entry = _add(&"spawn_point", "Spawn point", "Basics", Kind.SPAWN_POINT)
+	spawn.hint = "Where the player starts (in the start room) and comes back after dying in this room. One per room: move it, it can't be deleted."
 	spawn.bounds = Bounds.SPAWN_MARKER
 
 	var goal: Entry = _add_object(&"goal", "Goal", "Basics", preload("res://scenes/objects/goal.tscn"))
+	goal.hint = "Touching it finishes the level."
 	goal.bounds = Bounds.SIZE_TOP_LEFT
 	goal.size_property = &"goal_size"
 	goal.placement = Placement.ON_FLOOR
 	goal.editable_properties = [&"goal_size"]
 
 	var spikes: Entry = _add(&"spikes", "Spikes", "Basics", Kind.STRIP)
+	spikes.hint = "Kill on touch. Knocking an enemy into them defeats it. Drag along a row or column; they point away from the ground next to them (R turns them)."
 	spikes.scene = preload("res://scenes/objects/spikes.tscn")
 	spikes.bounds = Bounds.SPIKE_STRIP
 	spikes.editable_properties = [&"facing", &"tile_count"]
 
 	# --- Air (Stage L4; GAME_DESIGN.md §6) ---
 	var wind_zone: Entry = _add_object(&"wind_zone", "Wind zone", "Air", preload("res://scenes/objects/wind_zone.tscn"))
+	wind_zone.hint = "Pushes the player while inside, in its direction (currents and updrafts). With Heat on it's a hot updraft (fire)."
 	wind_zone.bounds = Bounds.SIZE_TOP_LEFT
 	wind_zone.size_property = &"zone_size"
 	wind_zone.is_area = true
@@ -171,16 +193,19 @@ static func _build() -> void:
 
 	# Crystals bob 1.5 px, so the outline is a little bigger than the diamond.
 	var wind_crystal: Entry = _add_object(&"wind_crystal", "Wind crystal", "Air", preload("res://scenes/objects/wind_crystal.tscn"))
+	wind_crystal.hint = "Touch: refills the dash and the gust charge. Comes back after a few seconds, or when the room resets."
 	wind_crystal.local_rect = Rect2(-6, -7, 12, 14)
 	wind_crystal.placement = Placement.CENTERED
 	wind_crystal.editable_properties = [&"respawn_time"]
 
 	var gust_diamond: Entry = _add_object(&"gust_diamond", "Gust diamond", "Air", preload("res://scenes/objects/gust_diamond.tscn"))
+	gust_diamond.hint = "Touch: two gust charges for this airtime. Comes back after a few seconds, or when the room resets."
 	gust_diamond.local_rect = Rect2(-7, -9, 14, 18)
 	gust_diamond.placement = Placement.CENTERED
 	gust_diamond.editable_properties = [&"respawn_time"]
 
 	var crate: Entry = _add_object(&"crate", "Crate", "Air", preload("res://scenes/objects/crate.tscn"))
+	crate.hint = "Pushed only by wind (gusts slide it). Heavy: it holds a pressure plate down. You can stand on it. Fire burns it. Links (L): the vines it hangs from."
 	crate.bounds = Bounds.SIZE_BOTTOM_CENTER
 	crate.size_property = &"crate_size"
 	crate.placement = Placement.ON_FLOOR
@@ -192,12 +217,14 @@ static func _build() -> void:
 
 	# The hub is the origin; the blades reach Windmill.HIT_RADIUS (11 px) round it.
 	var windmill: Entry = _add_object(&"windmill", "Windmill", "Air", preload("res://scenes/objects/windmill.tscn"))
+	windmill.hint = "A switch: a gust spins it and powers the doors linked to it for a few seconds, refreshed by every gust."
 	windmill.local_rect = Rect2(-11, -11, 22, 22)
 	windmill.placement = Placement.CENTERED
 	windmill.editable_properties = [&"spin_time", &"post_length"]
 
 	# The origin is the middle of the leaf's top; the pinwheel hangs 8-12 px below.
 	var leaf_platform: Entry = _add_object(&"leaf_platform", "Leaf platform", "Air", preload("res://scenes/objects/leaf_platform.tscn"))
+	leaf_platform.hint = "One-way platform on a rail: any gust sends it to the far end, then it drifts home. Fire burns it away."
 	leaf_platform.bounds = Bounds.WIDTH_CENTERED
 	leaf_platform.width_property = &"leaf_width"
 	leaf_platform.local_rect = Rect2(0, 0, 0, 12)
@@ -208,6 +235,7 @@ static func _build() -> void:
 
 	# The origin is the middle of the deck's top; the mast rises 16 px above it.
 	var sail_platform: Entry = _add_object(&"sail_platform", "Sail platform", "Air", preload("res://scenes/objects/sail_platform.tscn"))
+	sail_platform.hint = "One-way deck on a rail that moves with the wind: gusts and wind zones push it. A burning sail stops catching wind."
 	sail_platform.bounds = Bounds.WIDTH_CENTERED
 	sail_platform.width_property = &"deck_width"
 	sail_platform.local_rect = Rect2(0, -16, 0, 20)
@@ -217,6 +245,7 @@ static func _build() -> void:
 	sail_platform.start_positions = {&"rail_start_position": &"rail_start", &"rail_end_position": &"rail_end"}
 
 	var door: Entry = _add_object(&"door", "Door", "Air", preload("res://scenes/objects/door.tscn"))
+	door.hint = "Opens or closes by its linked switches (L): pressure plates, windmills. Any or all of them, or inverted. Won't close on you or a crate."
 	door.bounds = Bounds.SIZE_TOP_LEFT
 	door.size_property = &"door_size"
 	door.editable_properties = [&"door_size", &"link_mode", &"open_when_off", &"retract_toward"]
@@ -225,6 +254,7 @@ static func _build() -> void:
 
 	# The origin is the middle of the plate's bottom, on the floor; it's 3 px tall.
 	var pressure_plate: Entry = _add_object(&"pressure_plate", "Pressure plate", "Air", preload("res://scenes/objects/pressure_plate.tscn"))
+	pressure_plate.hint = "A switch: on while something heavy (a crate) sits on it. The player is too light. Link it to a door from the door (L)."
 	pressure_plate.bounds = Bounds.WIDTH_CENTERED
 	pressure_plate.width_property = &"plate_width"
 	pressure_plate.local_rect = Rect2(0, -4, 0, 4)
@@ -232,10 +262,52 @@ static func _build() -> void:
 	pressure_plate.editable_properties = [&"plate_width"]
 
 	var no_glide_zone: Entry = _add_object(&"no_glide_zone", "No-glide zone", "Air", preload("res://scenes/objects/no_glide_zone.tscn"))
+	no_glide_zone.hint = "Dead air: gliding can't start inside it and a glide drifting in ends. Jump, dash and gust still work."
 	no_glide_zone.bounds = Bounds.SIZE_TOP_LEFT
 	no_glide_zone.size_property = &"zone_size"
 	no_glide_zone.is_area = true
 	no_glide_zone.editable_properties = [&"zone_size"]
+
+	# --- Earth (Stage L8; Earth_bending.md) ---
+	# Bendable earth: the EarthLayer script on an "Earth" layer. A room that has one
+	# is drawn by its GroundPainter (RoomLook keeps it up to date while editing).
+	var earth: Entry = _add(&"earth", "Earth", "Terrain", Kind.TERRAIN)
+	earth.hint = "Bendable earth: each tile bends once (columns, rocks, snake) until the room resets. Painting it turns Earth on in the room."
+	earth.layer_name = &"Earth"
+	earth.tile_set = preload("res://resources/tiles/earth_tileset.tres")
+	earth.layer_script = preload("res://scenes/objects/earth/earth_layer.gd")
+	# One tile (tools/build_earth_rooms.gd TILE_EARTH): the painter draws surfaces.
+	earth.tile_plain = Vector2i(0, 0)
+	earth.tile_top_edge = Vector2i(0, 0)
+	earth.room_settings_on_create = {&"earth_allowed": true}
+
+	# Walls are placed by their top-left corner and sized in whole tiles.
+	var cracked_wall: Entry = _add_object(&"cracked_wall", "Cracked wall", "Earth", preload("res://scenes/objects/earth/cracked_wall.tscn"))
+	cracked_wall.hint = "Solid until a thrown BIG rock hits it: then it breaks open. Small rocks, columns and the snake just bump into it. Fire doesn't burn it. Back on reset."
+	cracked_wall.bounds = Bounds.SIZE_TOP_LEFT
+	cracked_wall.size_property = &"wall_size_tiles"
+	cracked_wall.size_unit = TILE
+	cracked_wall.editable_properties = [&"wall_size_tiles"]
+
+	# Only a charging thicket elephant breaks it (Fire F11b); listed with Earth's walls.
+	var stone_wall: Entry = _add_object(&"stone_wall", "Stone wall", "Earth", preload("res://scenes/objects/stone_wall.tscn"))
+	stone_wall.hint = "Much stronger than a cracked wall: rocks shatter on it and fire does nothing. Only a charging thicket elephant breaks it. Back on reset."
+	stone_wall.bounds = Bounds.SIZE_TOP_LEFT
+	stone_wall.size_property = &"wall_size_tiles"
+	stone_wall.size_unit = TILE
+	stone_wall.editable_properties = [&"wall_size_tiles"]
+
+	# Rock spots (RockSpot): a loose rock lies there from the start and after every
+	# reset. The origin is the rock's center; it stands on the clicked tile.
+	var boulder: Entry = _add_object(&"boulder", "Boulder", "Earth", preload("res://scenes/objects/earth/boulder_spot.tscn"))
+	boulder.hint = "A big loose rock lies here from the start and after every reset: stand on it, lift and throw it with S. A thrown big rock breaks cracked walls. At most 3 loose rocks per room."
+	boulder.local_rect = Rect2(-8, -8, 16, 16)
+	boulder.placement = Placement.ON_FLOOR
+
+	var loose_rock: Entry = _add_object(&"loose_rock", "Loose rock", "Earth", preload("res://scenes/objects/earth/loose_rock_spot.tscn"))
+	loose_rock.hint = "A small loose rock lies here from the start and after every reset: lift and throw it with S. Too light to break a cracked wall. At most 3 loose rocks per room."
+	loose_rock.local_rect = Rect2(-4, -4, 8, 8)
+	loose_rock.placement = Placement.ON_FLOOR
 
 
 static func _add(id: StringName, display_name: String, family: String, kind: Kind) -> Entry:
@@ -276,7 +348,8 @@ static func get_local_bounds(node: Node2D) -> Rect2:
 			var is_horizontal: bool = spikes.facing == Spikes.Facing.UP or spikes.facing == Spikes.Facing.DOWN
 			return Rect2(Vector2.ZERO, Vector2(length, TILE) if is_horizontal else Vector2(TILE, length))
 		Bounds.SIZE_TOP_LEFT:
-			return Rect2(Vector2.ZERO, node.get(entry.size_property))
+			# Vector2(...) also turns a size in tiles (a Vector2i) into a Vector2.
+			return Rect2(Vector2.ZERO, Vector2(node.get(entry.size_property)) * entry.size_unit)
 		Bounds.SIZE_BOTTOM_CENTER:
 			var size: Vector2 = node.get(entry.size_property)
 			return Rect2(Vector2(-size.x / 2.0, -size.y), size)

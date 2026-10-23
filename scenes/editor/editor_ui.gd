@@ -11,7 +11,8 @@ extends CanvasLayer
 ##   - property panel: right column, the selected object's (or room's) settings
 ##                  (PropertyPanel, Stage L5)
 ##   - status line: room + tile under the mouse, the last message, key hints
-## It also holds the PromptPanel the editor asks questions with.
+## It also holds the PromptPanel the editor asks questions with, and the import
+## list (RoomImportPicker, Stage L7).
 ##
 ## A CanvasLayer draws its Controls fixed on screen, ignoring the editor camera.
 ## Sizes are in the editor's 640x360 space (LevelEditor switches the window to it).
@@ -33,14 +34,17 @@ const PROPERTY_PANEL_WIDTH: float = 124.0
 ## Family tabs per row at the top of the palette.
 const TAB_COLUMNS: int = 2
 const DIRTY_DOT_SIZE: Vector2 = Vector2(5, 5)
+## Palette tooltips are broken into lines of at most this many characters.
+const TOOLTIP_LINE_LENGTH: int = 48
 ## How long a status message stays before the key hints come back.
 const MESSAGE_SECONDS: float = 4.0
 ## Key hints per kind of palette entry, then the ones that always apply.
 const TERRAIN_HINTS: String = "Left: paint  Right: erase  Shift+drag: rectangle"
 const OBJECT_HINTS: String = "Left: place / drag  Alt: free  Right: delete  Del  Ctrl+D: copy  L: link"
 const STRIP_HINTS: String = "Drag along a row or column: spikes  R: turn selected  Right: delete"
-const ERASER_HINTS: String = "Click or drag: remove objects (zones too), else tiles  E: eraser off"
-const COMMON_HINTS: String = "H: all keys  Tab: play  Space/Middle: pan  Wheel: zoom  G: grid  E: eraser  Ctrl+Z/Y  Ctrl+S"
+const ERASER_HINTS: String = "Click or drag: remove objects (zones too), else tiles  Shift+drag: a block  E: eraser off"
+const MAP_HINTS: String = "Drag empty: new room  Drag room / edge: move / resize  Double-click: edit  S: start  Del  I: import  M: back"
+const COMMON_HINTS: String = "H: all keys  M: map  Tab: play  Space/Middle: pan  Wheel: zoom  G: grid  E: eraser  Ctrl+Z/Y  Ctrl+S"
 
 var title_label: Label
 var dirty_dot: ColorRect
@@ -54,6 +58,8 @@ var property_panel: PropertyPanel
 var status_bar: PanelContainer
 var prompt: PromptPanel
 var help: EditorHelp
+## The "Import room as a copy" list (Stage L7).
+var import_picker: RoomImportPicker
 ## The hints for the current tool (set_tool_hints), shown when there's no message.
 var key_hints: String = TERRAIN_HINTS + "    " + COMMON_HINTS
 ## Palette button per entry id, to show which one is chosen.
@@ -137,6 +143,8 @@ func _ready() -> void:
 	root.add_child(prompt)
 	help = EditorHelp.new()
 	root.add_child(help)
+	import_picker = RoomImportPicker.new()
+	root.add_child(import_picker)
 	show_message("")
 	# The palette's height follows the screen: stretch it between the two bars.
 	get_viewport().size_changed.connect(_fit_palette)
@@ -178,6 +186,11 @@ func show_chosen_entry(entry: PaletteCatalog.Entry) -> void:
 		tool_hints = STRIP_HINTS
 	elif entry.kind != PaletteCatalog.Kind.TERRAIN:
 		tool_hints = OBJECT_HINTS
+	set_key_hints(tool_hints)
+
+
+## Shows `tool_hints` (then the hints that always apply) when there's no message.
+func set_key_hints(tool_hints: String) -> void:
 	key_hints = tool_hints + "    " + COMMON_HINTS
 	if message_time_left <= 0.0:
 		show_message("")
@@ -218,7 +231,7 @@ func is_over_panels(screen_point: Vector2) -> bool:
 	for panel: Control in [top_bar, palette, property_panel, status_bar]:
 		if panel.get_global_rect().has_point(screen_point):
 			return true
-	return prompt.visible or help.visible
+	return prompt.visible or help.visible or import_picker.visible
 
 
 ## LevelEditor changes the window back while leaving, which fires size_changed;
@@ -271,9 +284,29 @@ func _build_palette(column: VBoxContainer) -> void:
 
 func _make_entry_button(entry: PaletteCatalog.Entry, group: ButtonGroup) -> Button:
 	var button: Button = _make_toggle(entry.display_name, group)
+	# tooltip_text: Godot shows it in a small floating box when the mouse rests
+	# on the button (what the thing does, what triggers or breaks it).
+	# Godot doesn't wrap tooltips, so the lines are broken here.
+	button.tooltip_text = wrap_text(entry.hint, TOOLTIP_LINE_LENGTH)
 	button.pressed.connect(func() -> void: entry_chosen.emit(entry))
 	palette_buttons[entry.id] = button
 	return button
+
+
+## `text` with line breaks between words, so no line is longer than `line_length`
+## characters (unless one word is).
+static func wrap_text(text: String, line_length: int) -> String:
+	var lines: PackedStringArray = PackedStringArray()
+	var line: String = ""
+	for word: String in text.split(" ", false):
+		if line != "" and line.length() + 1 + word.length() > line_length:
+			lines.append(line)
+			line = word
+		else:
+			line = word if line == "" else line + " " + word
+	if line != "":
+		lines.append(line)
+	return "\n".join(lines)
 
 
 func _make_toggle(text: String, group: ButtonGroup) -> Button:

@@ -47,9 +47,10 @@ A **parallel track**, not an element chapter: it can be built in its own session
 | Ctrl+S | save |
 | Ctrl+D / Delete | duplicate / delete the selection |
 | L | link mode for the selected object (§7) |
-| E | the eraser on / off: click or drag removes objects (zones too), else tiles on every terrain layer |
+| E | the eraser on / off: click or drag removes objects (zones too), else tiles on every terrain layer; Shift+drag clears a block (tiles on every layer, objects fully inside) |
 | H, or the "?" button | the quick reference: every key, read from the InputMap |
 | M | toggle the map view (§5) |
+| S / I (map view) | make the selected room the start room / import a room as a copy |
 | Tab / Shift+Tab | play-test from the start / from the mouse (§8) |
 | G | toggle the grid |
 | Esc | leave link mode, or go back to the level library (asks first if there are unsaved changes) |
@@ -65,6 +66,7 @@ A **parallel track**, not an element chapter: it can be built in its own session
 - Double-click a room to edit it. In the room view the neighbouring rooms are drawn dimmed so you can see what's next door. A brush stroke only paints the room under the mouse, because tiles belong to rooms.
 - **Room settings** (shown in the property panel when nothing is selected): title, size, elements allowed (Air / Earth / Fire), fire start pips, and the one-key Earth experiment. These are the Room's own exported settings.
 - **Import room as a copy:** pick any Room from the existing worlds (Air 1–7, Earth 1–10, the Earth, Fire and mixed test rooms, other editor levels) and click where it goes. The copy becomes part of this level and isn't linked to the original afterwards.
+- As built (L7): `map_view.gd` (MapView) holds the map's tools and snapping. Widths are whole tiles (at least 320), heights 180 + whole tiles, so the last tile row always hangs half below the room. Positions snap to the 8 px grid or to a neighbour's edge (a room under a 180 px room starts at y = 180). A new room is empty but for its spawn point; the room panel's "Fill edges" button walls it in with the terrain chosen last. Dragging a left or top edge keeps the contents in place in the level (they move inside the room by whole tiles); tiles outside a shrunk room are cut off (undo restores them). Openings are found by sampling both sides of each shared edge every 4 px for solid tiles. Map keys: S start room, Delete delete room (not the start or the last room; links into it are dropped in the same undo step), I import, Esc closes. The camera has two extra zoom-out steps (1/4, 1/8) for the map. `room_import.gd` (RoomImport) lists the sources (MainMenu.CHAPTERS, the Air test rooms, other levels) and copies a room: one that is its own scene file is rebuilt from that file as a root, so the saved level holds no hidden tie to it; links to things outside the room are dropped. `room_import_picker.gd` is the list (a Tree, a world's rooms read when its folder opens).
 
 ## 6. The palette catalog
 - `scenes/editor/palette_catalog.gd` has one entry per placeable thing, grouped by family. Entry fields:
@@ -81,7 +83,7 @@ A **parallel track**, not an element chapter: it can be built in its own session
 - **Families in v1:**
   - Basics: spawn point (moved, never deleted: Room needs `$SpawnPoint`), goal (stands on the clicked tile), spikes (dragged along a row or column; facing from the ground beside them, R turns)
   - Air: wind zone, wind crystal, gust diamond, crate, windmill, leaf platform, sail platform, door, pressure plate, no-glide zone
-  - Earth: earth ground (brush), cracked wall, stone wall, boulder, loose rocks
+  - Earth: earth ground (brush), cracked wall, stone wall, boulder, loose rocks. As built (L8): the Earth brush is in the Terrain tab (`layer_script` EarthLayer, one tile: `tile_plain` = `tile_top_edge`; `room_settings_on_create` turns `earth_allowed` on). Walls are sized in tiles (`size_unit` = 8, a Vector2i, also in the property panel). Boulder and loose rock are `RockSpot`s (`scenes/objects/earth/rock_spot.gd`), which lay a loose Boulder in play and again after each reset. `room_look.gd` rebuilds an Earth room's GroundPainter after every tile change, so it looks as in play. After the L7/L8 play-test: rooms the editor makes have `Room.painted_ground` on (the painter draws plain ground as stone too), and every entry has a `hint`, shown as the palette button's tooltip, in the status line and in the property panel. During a play-test the editor's own copy of the level leaves the scene tree, so group lookups find only the play copy.
   - Fire: grass / thicket / overgrown (brushes), fire diamond, brazier, vine, hanging platform, leaf pile
   - Enemies: wisp, sentry, vine monkey, thicket elephant, shell (once F12 lands), enemy gate
 

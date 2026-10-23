@@ -30,6 +30,9 @@ const NUMBER_LIMIT: float = 10000.0
 const FLOAT_STEP: float = 0.5
 
 var title_label: Label
+## A short description under the title (what the object does, what triggers or
+## breaks it: PaletteCatalog.Entry.hint).
+var description_label: Label
 var rows: VBoxContainer
 ## A last line under the settings (the editor shows an object's links there).
 var footer_label: Label
@@ -55,6 +58,9 @@ func _ready() -> void:
 	title_label = Label.new()
 	title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(title_label)
+	description_label = _make_hint("")
+	description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(description_label)
 	rows = VBoxContainer.new()
 	rows.add_theme_constant_override("separation", 3)
 	column.add_child(rows)
@@ -63,12 +69,14 @@ func _ready() -> void:
 	column.add_child(footer_label)
 
 
-## Shows `properties` of `new_target` under `title`. `direction_properties` get
-## the 8-way picker instead of x/y fields.
+## Shows `properties` of `new_target` under `title` and `description`.
+## `direction_properties` get the 8-way picker instead of x/y fields.
 func show_target(new_target: Object, title: String, properties: Array[StringName],
-		direction_properties: Array[StringName] = []) -> void:
+		direction_properties: Array[StringName] = [], description: String = "") -> void:
 	target = new_target
 	title_label.text = title
+	description_label.text = description
+	description_label.visible = description != ""
 	footer_label.text = ""
 	widgets = {}
 	for old_row: Node in rows.get_children():
@@ -91,6 +99,17 @@ func set_footer(text: String) -> void:
 	footer_label.text = text
 
 
+## Adds a button under the settings shown now (gone with them on the next
+## show_target). The editor makes the change; this only calls `on_pressed`.
+func add_button(text: String, on_pressed: Callable) -> Button:
+	var button: Button = Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE  # Space must pan, not press it
+	button.pressed.connect(on_pressed)
+	rows.add_child(button)
+	return button
+
+
 ## Re-reads every shown value into its widget, without emitting anything.
 func refresh() -> void:
 	if target == null or not is_instance_valid(target):
@@ -111,8 +130,9 @@ func refresh() -> void:
 				if not line_edit.has_focus():  # don't overwrite what's being typed
 					line_edit.text = value
 			"vector":
-				(widget["x"] as SpinBox).set_value_no_signal((value as Vector2).x)
-				(widget["y"] as SpinBox).set_value_no_signal((value as Vector2).y)
+				# Vector2(...) reads a Vector2i too.
+				(widget["x"] as SpinBox).set_value_no_signal(Vector2(value).x)
+				(widget["y"] as SpinBox).set_value_no_signal(Vector2(value).y)
 			"direction":
 				(widget["control"] as DirectionPicker).set_direction(value)
 
@@ -171,13 +191,20 @@ func _make_widget(property: StringName, info: Dictionary, is_direction: bool) ->
 			picker.direction_picked.connect(emit)
 			widgets[property] = {"kind": "direction", "control": picker}
 			return picker
-		TYPE_VECTOR2:
+		TYPE_VECTOR2, TYPE_VECTOR2I:
+			# Vector2I: whole numbers, e.g. a wall's size in tiles (Stage L8).
+			var is_int_vector: bool = info["type"] == TYPE_VECTOR2I
 			var row: HBoxContainer = HBoxContainer.new()
-			var x_box: SpinBox = _make_spin_box(false, {})
-			var y_box: SpinBox = _make_spin_box(false, {})
+			var x_box: SpinBox = _make_spin_box(is_int_vector, {})
+			var y_box: SpinBox = _make_spin_box(is_int_vector, {})
 			x_box.step = 1.0
 			y_box.step = 1.0
-			var emit_vector: Callable = func(_value: float) -> void: emit.call(Vector2(x_box.value, y_box.value))
+			var emit_vector: Callable = func(_value: float) -> void:
+				var vector: Vector2 = Vector2(x_box.value, y_box.value)
+				if is_int_vector:
+					emit.call(Vector2i(vector))
+				else:
+					emit.call(vector)
 			x_box.value_changed.connect(emit_vector)
 			y_box.value_changed.connect(emit_vector)
 			row.add_child(x_box)

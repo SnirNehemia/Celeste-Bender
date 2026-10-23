@@ -69,6 +69,11 @@ static func value_for_drag(node: Node2D, handle: Dictionary, world_point: Vector
 	var origin: Vector2 = node.global_position
 	match handle["kind"]:
 		Kind.SIZE_FROM_TOP_LEFT:
+			var unit: int = PaletteCatalog.entry_for_node(node).size_unit
+			if unit != 1:
+				# A size in whole tiles (a wall's Vector2i), even with Alt.
+				var tiles: Vector2 = ((world_point - origin) / unit).round()
+				return Vector2i(maxi(int(tiles.x), 1), maxi(int(tiles.y), 1))
 			return _at_least((world_point - origin).snapped(Vector2.ONE * step), step)
 		Kind.SIZE_FROM_FEET:
 			# The crate grows around its feet: twice the distance sideways, all of it up.
