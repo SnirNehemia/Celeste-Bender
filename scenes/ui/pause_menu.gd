@@ -27,6 +27,11 @@ const DIM_COLOR: Color = Color(0.0, 0.0, 0.0, 0.55)
 const TITLE_COLOR: Color = Color(1.0, 1.0, 1.0)
 const HINT_COLOR: Color = Color(0.7, 0.7, 0.75)
 
+## Set by the level editor before a play-test starts (Level_editor.md §8): the
+## menu then shows "Back to editor" instead of "Main menu", which would throw the
+## editor's unsaved work away. Empty (not valid) in normal play.
+var back_to_editor: Callable = Callable()
+
 var resume_button: Button
 ## The whole menu (dim + buttons), shown/hidden as one.
 var menu_root: Control
@@ -50,10 +55,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif menu_root.visible and event.is_action_pressed("jump"):
 		# Jump (C) presses the highlighted button, like Enter. Players already have
 		# a finger on C; the end screen uses it the same way.
-		var focused: Control = get_viewport().gui_get_focus_owner()
+		# Fetch the viewport BEFORE pressing: "Main menu" changes the scene, which
+		# takes this node out of the tree at once, and get_viewport() would be null.
+		var viewport: Viewport = get_viewport()
+		var focused: Control = viewport.gui_get_focus_owner()
 		if focused is Button:
 			(focused as Button).pressed.emit()
-		get_viewport().set_input_as_handled()
+		viewport.set_input_as_handled()
 
 
 func _set_open(open: bool) -> void:
@@ -83,6 +91,13 @@ func _on_main_menu_pressed() -> void:
 	get_tree().change_scene_to_file(MAIN_MENU_SCENE)
 
 
+## Play-test only: hands control back to the level editor (it frees this level).
+func _on_back_to_editor_pressed() -> void:
+	_set_open(false)
+	FX.clear_slow_motion()
+	back_to_editor.call()
+
+
 func _on_quit_pressed() -> void:
 	get_tree().quit()
 
@@ -109,7 +124,10 @@ func _build_ui() -> void:
 	resume_button = _make_button("Resume", _on_resume_pressed)
 	column.add_child(resume_button)
 	column.add_child(_make_button("Restart room", _on_restart_pressed))
-	column.add_child(_make_button("Main menu", _on_main_menu_pressed))
+	if back_to_editor.is_valid():
+		column.add_child(_make_button("Back to editor", _on_back_to_editor_pressed))
+	else:
+		column.add_child(_make_button("Main menu", _on_main_menu_pressed))
 	# A web page can't be "quit", so the button would do nothing there.
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit game", _on_quit_pressed))

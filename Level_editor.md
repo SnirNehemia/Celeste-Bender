@@ -47,11 +47,14 @@ A **parallel track**, not an element chapter: it can be built in its own session
 | Ctrl+S | save |
 | Ctrl+D / Delete | duplicate / delete the selection |
 | L | link mode for the selected object (§7) |
+| E | the eraser on / off: click or drag removes objects (zones too), else tiles on every terrain layer |
+| H, or the "?" button | the quick reference: every key, read from the InputMap |
 | M | toggle the map view (§5) |
 | Tab / Shift+Tab | play-test from the start / from the mouse (§8) |
 | G | toggle the grid |
 | Esc | leave link mode, or go back to the level library (asks first if there are unsaved changes) |
 
+- **Zones** (wind, no-glide; catalog `is_area`) are picked only by their outline's edge, so clicks inside reach what's in them. With the zone's own tool, the eraser or a right-click, anywhere inside works.
 - **Level library** (the first screen of Level Editor): the list of levels in `res://levels/`, with New, Open, Duplicate, Rename and Delete (Delete asks to confirm).
 
 ## 5. Rooms and the map (M)
@@ -70,12 +73,13 @@ A **parallel track**, not an element chapter: it can be built in its own session
   - `editor_color` for the palette swatch and the stand-in drawing, if the object doesn't draw itself in the editor
   - `editable_properties`: the export names shown in the property panel (design settings only, never tuning numbers like gravity or friction)
   - `size_property` (drag handles, e.g. `door_size`, `zone_size`, `tile_count`) and `point_properties` (drag handles for points, e.g. the vine's `end_point`, the sail's `rail_start`/`rail_end`, the leaf's `travel`)
-  - `link_property` + accepted target type (e.g. Door `switches` ← Switch, HangingPlatform `vines` ← Switch, Crate `hung_from` ← Switch, EnemyGate `enemies` ← enemy)
+  - `link_property` + accepted target type (e.g. Door `switches` ← Switch, HangingPlatform `vines` ← Vine, Crate `hung_from` ← Vine, EnemyGate `enemies` ← enemy). A crate's `hung_from` takes **vines only**: linked to a plate or windmill, it would float, waiting for a vine to snap.
   - `placement` (grid / standing on the floor / free) and `one_per_room` (SpawnPoint)
+  - As built (L3-L4): `kind` (TERRAIN / SPAWN_POINT / OBJECT / STRIP). `bounds` is how the outline is found relative to the object's own origin (SIZE_TOP_LEFT, SIZE_BOTTOM_CENTER, WIDTH_CENTERED, FIXED `local_rect`, plus the spawn marker and spike strip), because objects put their origin in different places (door: top-left, crate: feet, crystal: center). `placement` (TOP_LEFT / ON_FLOOR / HANGING / CENTERED) says where a new object's outline lands on the clicked tile: an outline an even number of tiles wide is centered on the tile line nearest the mouse, so its edges stay on the grid. Alt places freely. `start_positions` lists positions an object works out once in `_ready` (a leaf's home, a sail's rail ends), which the editor updates after a move. `editor_color` + `arrow_property` give a stand-in to objects that draw nothing while editing (the wind zone: only particles).
 - Terrain brushes: Ground (`Tiles`), Earth, Grass, Thicket, Overgrown. Each paints its TileMapLayer, and the first stroke creates the layer in that room.
 - **Cross-track rule** (also in `CLAUDE.md`): from Stage L4 on, any stage that adds a placeable object or terrain layer adds its catalog entry and keeps the editor smoke test passing. The editor holds no per-object code. If an object needs special editor behaviour, that becomes a new catalog field, not an `if` in the editor.
 - **Families in v1:**
-  - Basics: spawn point, goal, spikes (facing, count)
+  - Basics: spawn point (moved, never deleted: Room needs `$SpawnPoint`), goal (stands on the clicked tile), spikes (dragged along a row or column; facing from the ground beside them, R turns)
   - Air: wind zone, wind crystal, gust diamond, crate, windmill, leaf platform, sail platform, door, pressure plate, no-glide zone
   - Earth: earth ground (brush), cracked wall, stone wall, boulder, loose rocks
   - Fire: grass / thicket / overgrown (brushes), fire diamond, brazier, vine, hanging platform, leaf pile
@@ -83,12 +87,15 @@ A **parallel track**, not an element chapter: it can be built in its own session
 
 ## 7. Properties and links
 - **Property panel:** a widget for each type. bool → checkbox; int/float → number field (arrows or drag); enum → dropdown; Vector2 → two fields; direction vectors such as `wind_direction` → an 8-way picker. Every change can be undone and shows at once, because the objects' setters already redraw (e.g. `door_size`).
-- **Links (L):** with a linkable object selected, L starts link mode. Click targets to add or remove them, and Esc or L ends it. Links are always drawn as dim lines, bright for the selected object. Links may cross rooms. Deleting a target removes it from every link list.
+- As built (L5): the panel reads each setting's type and hint from `get_property_list()`, the same info Godot's Inspector uses, so a new object needs no panel code, only its `editable_properties`. Quick changes to one setting (scrubbing a number) merge into one undo step (`UndoRedo.MERGE_ENDS`). Handles are in `editor_handles.gd`: size corner, width edge, strip end, and one per point property. With nothing selected, the panel shows the settings of the room last clicked in. On opening, the camera zooms to the largest step at which the start room fits between the panels.
+- **Links (L):** with a linkable object selected, L starts link mode. Click targets to add or remove them, and Esc or L ends it. Links are always drawn as dim lines, bright for the selected object. Links may cross rooms. Deleting a target removes it from every link list, in the same undo step as the delete.
+- As built (L6): what fits is checked by script class, walking the `extends` chain, so a PressurePlate counts as a Switch. Each link or unlink click is its own undo step, never merged. The panel's last line shows the link count. Esc leaves link mode before it leaves the editor, and Tab ends link mode before playing.
 
 ## 8. Play-test
 - **Tab** plays from the start room. **Shift+Tab** drops the player at the mouse in that room; the room's SpawnPoint is still the checkpoint.
 - Nothing has to be saved first: the editor packs the level in memory and runs that copy. **Tab** goes back to the editor with the view, selection and undo history as they were. The pause menu gets a "Back to editor" entry.
-- Checks before playing: the start room needs a SpawnPoint (this one blocks). Missing Goal, rooms without a SpawnPoint, unreachable rooms and broken links are only warnings in the status line.
+- Checks before playing: the start room (or, for Shift+Tab, the room under the mouse) needs a SpawnPoint, and this one blocks. A missing Goal, rooms without a SpawnPoint, unreachable rooms and broken links are only warnings, shown in the status line when you come back.
+- The play copy runs without its EndScreen, which would reload the current scene, and that's the editor.
 - Reaching the Goal in a play-test shows "Goal reached — time, deaths" and goes back to the editor.
 
 ## 9. Story Mode

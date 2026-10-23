@@ -45,19 +45,20 @@ res://
     rooms/         room_01.tscn … room_07.tscn, room_base.gd
       earth/       earth_01.tscn … earth_10.tscn (the Earth chapter, generated)
     earth_world.tscn  the Earth chapter: rooms 1–10 in a row, Goal at the end
-    ui/            hud, pause, end_screen, debug_overlay, room_picker, tuning_panel (F5, created by debug_overlay)
+    editor/        level editor (L stages): level_storage (the only code that knows res://levels/), level_template (a new level's nodes), level_info (title + start room, inside every level); level_editor.tscn (the editor screen: shows a level without running it, play-tests a copy) + editor_camera, editor_overlay, editor_ui, tile_brush, property_panel (+ direction_picker), editor_handles (drag handles), editor_help (quick reference), palette_catalog (everything placeable: Ground, the Basics, the ten Air objects so far)
+    ui/            main_menu (main / chapters / story pages), hud, pause, end_screen, debug_overlay, room_picker, tuning_panel (F5, created by debug_overlay), level_library (Level Editor's first screen), prompt_panel (shared question box)
   resources/       player_tuning.tres, earth_tuning.tres, fire_tuning.tres, tiles/ (placeholder, earth, grass and thicket tilesets)
   autoload/        game_state.gd (deaths, timer, current checkpoint), fx.gd (shake, freeze, slow motion, gravel)
-  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn (Earth mechanics), earth_chapter_smoke_test.tscn (the 10 Earth rooms); fire_test_world.tscn + fire_smoke_test.tscn (Fire mechanics), heat_test_receiver.gd
+  tests/           test scenes; earth_test_world.tscn + earth_smoke_test.tscn (Earth mechanics), earth_chapter_smoke_test.tscn (the 10 Earth rooms); fire_test_world.tscn + fire_smoke_test.tscn (Fire mechanics), heat_test_receiver.gd; editor_smoke_test.tscn (level editor, one section per L stage)
   tools/           build_rooms.gd (Air rooms), build_earth_rooms.gd (earth tileset, Earth test rooms), build_earth_chapter.gd (Earth rooms 1–10), build_fire_rooms.gd (Fire test rooms; extends build_earth_rooms.gd), screenshot_rooms.gd (PNG of every room)
 ```
 
 Fire, still to come (`PROMPTS.md` Stages F11, F11a, F11b, F12–F15; F9 was dropped, F10 is covered by F7; move each path into the tree above once it exists): `scenes/objects/fire/` (heat glow), `scenes/enemies/` (shell), `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_chapter_smoke_test.tscn`, `tools/build_fire_chapter.gd` (Fire rooms 1–10).
 
-Level editor, still to come (Stages L1–L11, `Level_editor.md`): `scenes/editor/` (level_storage, level_info, palette_catalog, the editor screen), `scenes/ui/` (Story screen, level library), `levels/` (saved levels + `story.tres`), `tests/editor_smoke_test.tscn`.
+Level editor, still to come (Stages L1–L11, `Level_editor.md`): `scenes/ui/` (Story screen), `levels/` (saved levels, made on the first save, + `story.tres`).
 
 ## Input
-Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `fireball`, `flame_jet`, `restart_room`, `pause`. (The old `earth_snake` action on D was removed in Stage F1: the snake moved to A, see `Earth_bending.md` §11 "One key". Q (`fireball`) and W (`flame_jet`) are the Fire keys since Stage F3, `Fire_bending.md` §3; D and F are free.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save all tuning (Player, Earth, Fire) to their `.tres`, F5 tuning panel (`debug_tuning_panel`; inside it Shift = `debug_tuning_big_step`, R = `debug_tuning_reset`). Bindings per `GAME_DESIGN.md` §3, `Earth_bending.md` §3 and `Fire_bending.md` §3 (arrows only for movement: A/S are the Earth keys, Q/W the Fire keys). Code reads only action names, never raw keys.
+Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `fireball`, `flame_jet`, `restart_room`, `pause`. (The old `earth_snake` action on D was removed in Stage F1: the snake moved to A, see `Earth_bending.md` §11 "One key". Q (`fireball`) and W (`flame_jet`) are the Fire keys since Stage F3, `Fire_bending.md` §3; D and F are free.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save all tuning (Player, Earth, Fire) to their `.tres`, F5 tuning panel (`debug_tuning_panel`; inside it Shift = `debug_tuning_big_step`, R = `debug_tuning_reset`). Bindings per `GAME_DESIGN.md` §3, `Earth_bending.md` §3 and `Fire_bending.md` §3 (arrows only for movement: A/S are the Earth keys, Q/W the Fire keys). Level editor keys (Stage L2+, `Level_editor.md` §4) are actions named `editor_*`: `editor_paint`/`editor_erase` (left/right mouse), `editor_pan` (middle mouse), `editor_pan_hold` (Space), `editor_zoom_in`/`_out` (wheel), `editor_rectangle` (Shift), `editor_undo` (Ctrl+Z), `editor_redo` (Ctrl+Y, Ctrl+Shift+Z), `editor_save` (Ctrl+S), `editor_toggle_grid` (G), `editor_back` (Esc), `editor_playtest` (Tab), `editor_playtest_here` (Shift+Tab), `editor_delete` (Delete), `editor_rotate` (R), `editor_duplicate` (Ctrl+D), `editor_free_place` (Alt), `editor_link` (L), `editor_eraser` (E), `editor_help` (H: the quick reference, which reads its key names from the InputMap). Code reads only action names, never raw keys.
 
 ## Working rules
 1. **Small steps.** One mechanic per task. Don't build ahead of the current stage in `PROMPTS.md`.
@@ -66,7 +67,7 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
 4. **Scenes (.tscn):** keep them simple. It's fine to write `.tscn` files directly, but prefer building small node trees in code (`_ready`) when that's clearer. Don't hand-edit resource UIDs; don't delete `.uid` / `.import` files — Godot manages them.
 5. **Placeholder art only** (`ColorRect`, `Polygon2D`, `Line2D`, `CPUParticles2D`) using the color key in `GAME_DESIGN.md` §2.
 6. **Git:** after each stage that works, suggest a commit message (don't commit unless I say so).
-7. **Level editor palette (once Stage L4 exists):** any stage that adds a placeable object or terrain layer adds its entry to `scenes/editor/palette_catalog.gd` (`Level_editor.md` §6) and keeps `tests/editor_smoke_test.tscn` passing. That file is the only place the element stages and the editor track meet.
+7. **Level editor palette (since Stage L3):** any stage that adds a placeable object or terrain layer adds its entry to `scenes/editor/palette_catalog.gd` (`Level_editor.md` §6) and keeps `tests/editor_smoke_test.tscn` passing. That file is the only place the element stages and the editor track meet.
 8. If something in the design doc seems wrong or won't feel good, say so and propose an alternative before building it.
 
 ## Running and checking
@@ -79,10 +80,12 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
   - `godot --headless --path . --import` — imports assets and surfaces parse errors in scripts
   - `godot --headless --check-only --script res://path/to/file.gd` — checks one script
     (scripts that use the autoloads `GameState`/`FX` falsely report "Identifier not found" in this mode; a real run is the true check)
+  - GDScript **warnings** (shadowed variables, integer division...) are only reported when a debugger is attached: add `-d` to a headless run (`godot --headless -d --path . res://tests/editor_smoke_test.tscn < /dev/null`) and grep the output for `WARNING`. They're what the editor's Debugger > Errors tab lists in yellow.
   - `godot --headless --path . res://tests/world_smoke_test.tscn` — visits rooms 1–7, checks the room 5 gate, squash/pause polish and the end screen, prints PASS/FAIL
   - `godot --headless --path . res://tools/build_rooms.tscn` — regenerates rooms 1–7 from `tools/build_rooms.gd` (**overwrites editor edits**; add `-- 6 7` to rebuild only those rooms)
   - `godot --headless --path . res://tests/earth_chapter_smoke_test.tscn` — Earth chapter: structure + each room's key move, prints PASS/FAIL
   - `godot --headless --path . res://tests/fire_smoke_test.tscn` — Fire mechanics, one section per Fire stage, prints PASS/FAIL
+  - `godot --headless --path . res://tests/editor_smoke_test.tscn` — level editor, one section per L stage (saves into a throwaway user:// folder), prints PASS/FAIL
   - `godot --headless --path . res://tools/build_fire_rooms.tscn` — regenerates the Fire test rooms (**overwrites editor edits**; `-- fire_e` for only that one)
   - `godot --headless --path . res://tools/build_earth_chapter.tscn` — regenerates Earth rooms 1–10 (**overwrites editor edits**; `-- 3 7` for only those)
   - `godot --path . res://tools/screenshot_rooms.tscn -- res://scenes/earth_world.tscn <folder>` — windowed: saves a PNG of every room

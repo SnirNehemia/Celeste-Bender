@@ -1,15 +1,24 @@
 class_name MainMenu
 extends Control
 ## Main menu: the first screen when the game starts (it's the main scene in
-## project.godot). Pick a chapter with the arrows + Enter (or C).
-##   - Air:   scenes/world.tscn             rooms 1-7 (Milestone 1)
-##   - Earth: scenes/earth_world.tscn       the Earth chapter, rooms 1-10 (Stage E7)
-##   - Earth tests: tests/earth_test_world.tscn   one test room per Earth stage
-##   - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
-##   - Fire tests: tests/fire_test_world.tscn     one test room per Fire stage (F1+)
+## project.godot). Arrows + Enter (or C) to pick, Esc to go back a page.
 ##
-## The whole menu is built in _ready() from code: a title Label and one Button per
-## chapter in a VBoxContainer (a container that stacks its children vertically).
+## It has three pages, one shown at a time (Level_editor.md §10):
+##   - Main:     Story Mode · Level Editor · Chapters & test rooms
+##   - Chapters: every chapter and test world (CHAPTERS below) + Back
+##       - Air:   scenes/world.tscn             rooms 1-7 (Milestone 1)
+##       - Earth: scenes/earth_world.tscn       the Earth chapter, rooms 1-10 (Stage E7)
+##       - Earth tests: tests/earth_test_world.tscn   one test room per Earth stage
+##       - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
+##       - Fire tests: tests/fire_test_world.tscn     one test room per Fire stage (F1+)
+##   - Story:    a placeholder until Story Mode is built (Stage L11)
+## Level Editor opens the level library (scenes/ui/level_library.tscn). It's a dev
+## tool: levels are saved into the project (res://levels/), which only works when
+## the game runs from the Godot project, so the button is greyed out elsewhere.
+##
+## The whole menu is built in _ready() from code: a title Label, then one
+## VBoxContainer (a container that stacks its children vertically) per page.
+## Showing a page = making its container visible and hiding the others.
 ## Buttons are keyboard-driven through FOCUS: the focused button reacts to
 ## ui_up / ui_down / ui_accept, Godot's built-in menu actions (arrows / Enter).
 ##
@@ -17,7 +26,8 @@ extends Control
 ## loads the chosen world in its place. GameState (an autoload) survives scene
 ## changes, so it's reset first: the run's timer and deaths start at zero.
 
-## [button text, scene path] per chapter, in menu order.
+## [button text, scene path] per chapter, in menu order. New chapters and test
+## worlds (Fire chapter, mixed Fire rooms...) are appended here.
 const CHAPTERS: Array = [
 	["Air  -  Windbound (rooms 1-7)", "res://scenes/world.tscn"],
 	["Earth  -  the Earth chapter (rooms 1-10)", "res://scenes/earth_world.tscn"],
@@ -25,10 +35,22 @@ const CHAPTERS: Array = [
 	["Air + Earth  -  mixed test rooms (F2 to switch)", "res://tests/mixed_test_world.tscn"],
 	["Fire  -  test rooms (F2 to switch)", "res://tests/fire_test_world.tscn"],
 ]
+const LEVEL_LIBRARY_SCENE: String = "res://scenes/ui/level_library.tscn"
 const BACKGROUND_COLOR: Color = Color(0.1, 0.1, 0.13)
 ## Small font: the game renders at 320x180, so default 16 px text would be huge.
 const FONT_SIZE: int = 8
 const TITLE_FONT_SIZE: int = 16
+const HINT_ALPHA: float = 0.6
+
+## The three pages. Only one is visible at a time.
+var main_page: VBoxContainer
+var chapters_page: VBoxContainer
+var story_page: VBoxContainer
+## The buttons that open the sub-pages: focus goes back to them on Esc / Back.
+var story_button: Button
+var chapters_button: Button
+## The button that opened the current sub-page (null on the main page).
+var opened_from: Button = null
 
 
 func _ready() -> void:
@@ -52,35 +74,116 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", TITLE_FONT_SIZE)
 	column.add_child(title)
 
-	var first_button: Button = null
+	main_page = _build_main_page()
+	column.add_child(main_page)
+	chapters_page = _build_chapters_page()
+	column.add_child(chapters_page)
+	story_page = _build_story_page()
+	column.add_child(story_page)
+	_show_page(main_page, null)
+
+
+func _build_main_page() -> VBoxContainer:
+	var page: VBoxContainer = _make_page()
+	story_button = _make_button("Story Mode", func() -> void: _show_page(story_page, story_button))
+	page.add_child(story_button)
+
+	var editor_button: Button = _make_button("Level Editor", _open_level_library)
+	# OS.has_feature("editor"): true when the game runs from the Godot project
+	# (the editor's own executable), false in exported and web builds, where
+	# res://levels/ can't be written.
+	if not OS.has_feature("editor"):
+		editor_button.text += "  (dev build only)"
+		editor_button.disabled = true
+	page.add_child(editor_button)
+
+	chapters_button = _make_button("Chapters & test rooms", func() -> void: _show_page(chapters_page, chapters_button))
+	page.add_child(chapters_button)
+	page.add_child(_make_hint("Arrows to choose, Enter or C to start"))
+	return page
+
+
+func _build_chapters_page() -> VBoxContainer:
+	var page: VBoxContainer = _make_page()
 	for chapter: Array in CHAPTERS:
-		var button: Button = Button.new()
-		button.text = chapter[0]
-		button.add_theme_font_size_override("font_size", FONT_SIZE)
 		# bind() fixes the argument now, so each button opens its own scene.
-		button.pressed.connect(_start_chapter.bind(String(chapter[1])))
-		column.add_child(button)
-		if first_button == null:
-			first_button = button
-
-	var hint: Label = Label.new()
-	hint.text = "Arrows to choose, Enter or C to start"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", FONT_SIZE)
-	hint.modulate = Color(1.0, 1.0, 1.0, 0.6)
-	column.add_child(hint)
-
-	first_button.grab_focus()
+		page.add_child(_make_button(chapter[0], _start_chapter.bind(String(chapter[1]))))
+	page.add_child(_make_button("Back", _go_back))
+	page.add_child(_make_hint("Enter or C to start, Esc to go back"))
+	return page
 
 
-## C (jump) also starts the focused chapter, so one hand never leaves the game keys.
+func _build_story_page() -> VBoxContainer:
+	var page: VBoxContainer = _make_page()
+	var label: Label = Label.new()
+	label.text = "Story Mode is coming soon:\nyour levels and the chapters, played in order."
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", FONT_SIZE)
+	page.add_child(label)
+	page.add_child(_make_button("Back", _go_back))
+	return page
+
+
+## Shows `page`, hides the others, and focuses its first button.
+## `from_button` is the button that opened it, to return focus there on Back.
+func _show_page(page: VBoxContainer, from_button: Button) -> void:
+	opened_from = from_button
+	for each_page: VBoxContainer in [main_page, chapters_page, story_page]:
+		each_page.visible = each_page == page
+	for child: Node in page.get_children():
+		var button: Button = child as Button
+		if button != null and not button.disabled:
+			button.grab_focus()
+			return
+
+
+## Back to the main page, with focus on the button that opened the sub-page.
+func _go_back() -> void:
+	var return_focus: Button = opened_from
+	_show_page(main_page, null)
+	if return_focus != null:
+		return_focus.grab_focus()
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	# C (jump) also presses the focused button, so one hand never leaves the game keys.
 	if event.is_action_pressed("jump"):
 		var focused: Button = get_viewport().gui_get_focus_owner() as Button
-		if focused != null:
+		if focused != null and not focused.disabled:
 			focused.pressed.emit()
+	# ui_cancel is Godot's built-in "back" action (Esc).
+	elif event.is_action_pressed("ui_cancel") and not main_page.visible:
+		_go_back()
+		get_viewport().set_input_as_handled()
 
 
 func _start_chapter(scene_path: String) -> void:
 	GameState.reset_run()
 	get_tree().change_scene_to_file(scene_path)
+
+
+func _open_level_library() -> void:
+	get_tree().change_scene_to_file(LEVEL_LIBRARY_SCENE)
+
+
+func _make_page() -> VBoxContainer:
+	var page: VBoxContainer = VBoxContainer.new()
+	page.add_theme_constant_override("separation", 6)
+	return page
+
+
+func _make_button(text: String, on_pressed: Callable) -> Button:
+	var button: Button = Button.new()
+	button.text = text
+	button.add_theme_font_size_override("font_size", FONT_SIZE)
+	button.pressed.connect(on_pressed)
+	return button
+
+
+func _make_hint(text: String) -> Label:
+	var hint: Label = Label.new()
+	hint.text = text
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", FONT_SIZE)
+	hint.modulate = Color(1.0, 1.0, 1.0, HINT_ALPHA)
+	return hint

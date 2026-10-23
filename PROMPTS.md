@@ -13,7 +13,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
 - Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [x] E5 · [x] E6 · [x] E7
 - Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · ~~F9~~ (dropped) · [x] F10 (covered by F7) · [x] F11 · [ ] F11a · [x] F11b · [ ] F12 · [ ] F13 · [ ] F14 · [ ] F15
-- Level editor (parallel track): [x] L0 (plan) · [ ] L1 · [ ] L2 · [ ] L3 · [ ] L4 · [ ] L5 · [ ] L6 · [ ] L7 · [ ] L8 · [ ] L9 · [ ] L10 · [ ] L11
+- Level editor (parallel track): [x] L0 (plan) · [x] L1 · [x] L2 · [x] L3 · [x] L4 · [x] L5 · [x] L6 · [ ] L7 · [ ] L8 · [ ] L9 · [ ] L10 · [ ] L11
 
 ---
 
@@ -284,20 +284,30 @@ Written into `Level_editor.md` (spec v1) and the stages below.
 
 **You should see:** build a small room with spikes and a goal, press Tab, play it, die on the spikes, reach the goal, land back in the editor where you were.
 
+*Decided while building (L3):* the palette catalog was started here (Ground + Basics) instead of in L4. Spawn points can be moved but not deleted, because Room looks up `$SpawnPoint` when it starts. Spikes are dragged along a row or column, facing comes from the neighbouring ground, and R turns them. The play-test copy runs without its EndScreen, which would reload the editor scene.
+
 ## Stage L4 — Objects and the palette catalog (basics + Air)
-> Read Level_editor.md §6. Add `scenes/editor/palette_catalog.gd` with the entry fields from §6 and move Basics into it. Add every Air object (wind zone, wind crystal, gust diamond, crate, windmill, leaf platform, sail platform, door, pressure plate, no-glide zone). Add selection, drag-to-move with snap (Alt = free), Ctrl+D duplicate, Delete, and palette tabs. Add the cross-track rule to CLAUDE.md ("Working rules": a stage that adds a placeable object adds its catalog entry). Objects draw themselves in the editor where they already can (`@tool` scripts); the others get a stand-in in `editor_color`.
+> Read Level_editor.md §6. `scenes/editor/palette_catalog.gd` exists since L3 (Ground + Basics, with only the fields they need): add the remaining entry fields from §6. Add every Air object (wind zone, wind crystal, gust diamond, crate, windmill, leaf platform, sail platform, door, pressure plate, no-glide zone). Selection, drag-to-move, Delete and R already work (L3); add Alt = free placement, Ctrl+D duplicate and palette tabs. (The cross-track rule is already in CLAUDE.md.) Objects draw themselves in the editor where they already can (`@tool` scripts); the others get a stand-in in `editor_color`.
 
 **You should see:** an Air room with crates, wind zones and crystals, laid out by mouse and played with Tab.
+
+*Decided while building (L4):* placement snaps the object's OUTLINE, not its origin (see Level_editor.md §6 "As built"). Ctrl+D copies the selected object to the mouse, with its settings and links, by making a fresh instance and copying its saved settings: `Node.duplicate()` would also copy the drawing nodes it built in `_ready`. The palette has a tab per family. The editor updates the positions leaves and sails remember from `_ready` after every move, so their path and rail move with them.
 
 ## Stage L5 — Property panel and room settings
 > Read Level_editor.md §5 (room settings) and §7 (properties). Add the property panel: a widget for each type (checkbox, number, dropdown, Vector2, 8-way direction picker), driven by the catalog's `editable_properties`. Add drag handles for `size_property` and `point_properties`. Every change can be undone. With nothing selected, the panel shows the room settings (title, elements allowed, fire start pips, one-key Earth).
 
 **You should see:** turn a wind zone to blow left and make it wider by dragging, resize a door, set a room to Earth-only, play: it behaves that way.
 
+*Decided while building (L5):* the room settings shown are those of the room last clicked in. The room's size isn't in the panel (L7's map resizes rooms). Quick changes to one setting are one undo step. The editor opens at the largest zoom where the start room fits between the panels.
+
 ## Stage L6 — Link tool
 > Read Level_editor.md §7 (links). L starts link mode for the selected object if its catalog entry has a `link_property`. Clicking a target of the accepted type adds or removes it; Esc or L ends link mode. Links are always drawn as dim lines, bright for the selected object, and may cross rooms. Deleting a target drops it from every link list. Saving and reloading keeps the links (they're node references in the packed scene).
 
 **You should see:** a crate, a pressure plate and a door. Link the door to the plate, play, push the crate onto the plate: the door opens.
+
+*After L6 (play-test):* zones are picked by their edge only, because a placed no-glide zone swallowed every click inside it. Added the Eraser (E: objects first, zones from inside too, else tiles on every terrain layer) and a quick reference (H or "?").
+
+*Decided while building (L6):* only doors link in the Air palette. A crate's `hung_from` takes vines only (Fire F8), so crates get their links in L9.
 
 ## Stage L7 — Map of rooms and import as copy
 > Read Level_editor.md §5. M toggles the map view: rooms as named rectangles with a tiny tile drawing. Drag on empty space to make a room, drag to move, drag edges to resize, with snapping to the grid and to neighbour edges. Overlaps are refused (red), and openings on shared edges are marked green. Add the start-room star; double-click opens a room; neighbours are drawn dimmed in the room view. Add "Import room as a copy" from every existing world (Air 1–7, Earth 1–10, test worlds, other levels), placed where you click and fully owned by this level. Match the existing rooms' handling of 180 px heights.
