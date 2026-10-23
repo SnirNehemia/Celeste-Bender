@@ -35,6 +35,15 @@ extends CharacterBody2D
 ## stops there (_keep_inside_room).
 ## Earth moves that only PUSH it (a rising column's tip, the snake's head) throw it
 ## and stun it like a gust: the same "what it hits decides" rule then applies.
+##   - FIRE (Stage F11) kills it: a fireball, the jet plume, burning grass and thicket,
+##     bonfires, a burning crate or monkey. It doesn't avoid fire, so a grass fuse can
+##     be timed to meet its patrol. It burns up in a puff of embers and smoke.
+##
+## Every hit goes through ONE path (Stage F11): receive_hit(EnemyHit) looks the hit up
+## in `immunity` (ElementImmunity, see _make_immunity for the table) and calls
+## _be_killed() or _be_pushed(). The gust (receive_gust), the column and snake
+## (through Pushable), rocks, spikes, flames, reflected orbs and the dash all arrive
+## there.
 ##
 ## It talks to other objects only through small, existing contracts:
 ##   - Pushable (group "pushable" + receive_gust): the gust and dash wake find it
@@ -42,7 +51,10 @@ extends CharacterBody2D
 ##   - Player.die() / Player.is_dashing(): touching the player
 ##   - Spikes.get_hitbox_global_rect(): the same fair hitbox the player gets
 ##   - SentryOrb.TARGET_GROUP: a reflected orb aims at it and defeats it on hit
-##   - receive_rock_hit(): Boulder's enemy-hit contract (Stage E6)
+##   - EnemyHit (group "enemies" + receive_hit): every hit (Stage F11)
+##   - Flammable (group "flammable" + ignite): flames that light what they touch
+##     (plume, splash, bonfires) reach it with no special code
+##   - FireHazard.touches_fire(): it walks into burning grass or a bonfire
 ##
 ## Physics layers: the body is on layer 4 ("pushable", so the gust's shape query
 ## sees it) and layer 5 ("enemies"), and collides only with layer 1 ("world"). The
@@ -62,6 +74,9 @@ const STUNNED_COLOR: Color = Color(0.82, 0.7, 0.92)
 const EYE_COLOR: Color = Color(0.12, 0.05, 0.18)
 ## Little stars circling a stunned wisp's head.
 const DIZZY_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
+
+## What each kind of hit does to it (Stage F11). Empty = the table in _make_immunity().
+@export var immunity: ElementImmunity
 
 ## Body size, px. Smaller than a tile in height so it reads as a critter.
 @export var body_size: Vector2 = Vector2(10, 8):
@@ -138,6 +153,10 @@ func _ready() -> void:
 		return
 	start_position = global_position
 	patrol_direction = float(start_direction)
+	if immunity == null:
+		immunity = _make_immunity()
+	add_to_group(EnemyHit.GROUP)
+	add_to_group(Flammable.GROUP)
 	add_to_group(Pushable.GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
 	add_to_group(SentryOrb.TARGET_GROUP)
@@ -226,8 +245,23 @@ func _has_floor_ahead() -> bool:
 	return not get_world_2d().direct_space_state.intersect_ray(query).is_empty()
 
 
-## Touching the player or spikes. Checked every frame (like spikes do), not only on
-## "entered", because what touching means changes with our state.
+## The wisp's row of the §7.2 table: fire, big and perfect rocks, spikes, crushing,
+## reflected orbs, a dash (while stunned) and the elephant's tail whip kill it; gusts, earth pushes and a
+## sloppy small rock push it.
+static func _make_immunity() -> ElementImmunity:
+	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
+	var push: ElementImmunity.Response = ElementImmunity.Response.PUSH
+	return ElementImmunity.from_table({
+		EnemyHit.Type.FIREBALL: kill, EnemyHit.Type.FLAME: kill,
+		EnemyHit.Type.BIG_ROCK: kill, EnemyHit.Type.PERFECT_ROCK: kill, EnemyHit.Type.SMALL_ROCK: push,
+		EnemyHit.Type.GUST: push, EnemyHit.Type.EARTH_PUSH: push, EnemyHit.Type.CRUSH: kill,
+		EnemyHit.Type.SPIKES: kill, EnemyHit.Type.REFLECTED_ORB: kill, EnemyHit.Type.DASH: kill,
+		EnemyHit.Type.WHIP: kill,
+	})
+
+
+## Touching the player, spikes or fire. Checked every frame (like spikes do), not only
+## on "entered", because what touching means changes with our state.
 func _check_contacts() -> void:
 	var my_rect: Rect2 = get_hitbox_global_rect()
 	# Spikes: the same fair hitbox the player gets. Area-to-area overlaps come from
@@ -235,7 +269,13 @@ func _check_contacts() -> void:
 	for area: Area2D in contact_area.get_overlapping_areas():
 		var spikes: Spikes = area as Spikes
 		if spikes != null and spikes.get_hitbox_global_rect().intersects(my_rect):
-			defeat()
+			receive_hit(EnemyHit.make(EnemyHit.Type.SPIKES))
+			if state == State.DEFEATED:
+				return
+	# Fire it walked into (burning grass, a bonfire, a burning crate or monkey).
+	if FireHazard.touches_fire(get_tree(), my_rect):
+		receive_hit(EnemyHit.make(EnemyHit.Type.FLAME))
+		if state == State.DEFEATED:
 			return
 
 	for body: Node2D in contact_area.get_overlapping_bodies():
@@ -248,18 +288,70 @@ func _check_contacts() -> void:
 			continue
 		if state == State.STUNNED:
 			if touched_player.is_dashing():
-				_defeat_by_dash(touched_player)
+				receive_hit(EnemyHit.make(EnemyHit.Type.DASH, Vector2.ZERO, touched_player))
 			# A stunned wisp that isn't dashed is harmless: nothing happens.
 		else:
 			touched_player.die()
 		return
 
 
-## The Pushable contract: called by the gust and the dash wake. Knocks it back the
-## way the air blows and stuns it. Same shape as Crate.receive_gust, plus a hop.
+## The Pushable contract: called by the gust and the dash wake. Becomes a GUST hit.
 func receive_gust(direction: Vector2, strength: float) -> void:
-	if state == State.DEFEATED:
-		return
+	receive_hit(EnemyHit.make(EnemyHit.Type.GUST, direction * strength))
+
+
+## The EnemyHit contract (Stage F11): every hit lands here. The table says what it
+## does; _be_killed / _be_pushed say how. Returns the table's answer (IGNORE once
+## defeated, or while a rock hit is already about to pop it).
+func receive_hit(hit: EnemyHit) -> ElementImmunity.Response:
+	if state == State.DEFEATED or rock_defeat_remaining >= 0.0:
+		return ElementImmunity.Response.IGNORE
+	var response: ElementImmunity.Response = immunity.get_response(hit.type)
+	match response:
+		ElementImmunity.Response.KILL:
+			_be_killed(hit)
+		ElementImmunity.Response.PUSH, ElementImmunity.Response.STAGGER:
+			_be_pushed(hit)
+	return response
+
+
+## How a killing hit kills it.
+func _be_killed(hit: EnemyHit) -> void:
+	match hit.type:
+		EnemyHit.Type.BIG_ROCK, EnemyHit.Type.PERFECT_ROCK, EnemyHit.Type.SMALL_ROCK:
+			# A thrown rock (Stage E6): knocked back along the throw (stunned, so
+			# harmless while it flies), popped kill_delay seconds later.
+			_knock_back(hit.push_velocity)
+			if hit.kill_delay <= 0.0:
+				defeat()
+				return
+			rock_defeat_remaining = hit.kill_delay
+			FX.shake(1.5, 0.1)
+		EnemyHit.Type.DASH:
+			_defeat_by_dash(hit.source as Player)
+		EnemyHit.Type.FIREBALL, EnemyHit.Type.FLAME:
+			_burn_up()
+		_:
+			defeat()
+
+
+## How a pushing hit moves it: always thrown and stunned (the "what it hits decides"
+## rule then applies); the details depend on what pushed.
+func _be_pushed(hit: EnemyHit) -> void:
+	match hit.type:
+		EnemyHit.Type.GUST:
+			_be_gusted(hit.push_velocity.normalized(), hit.push_velocity.length())
+		EnemyHit.Type.BIG_ROCK, EnemyHit.Type.PERFECT_ROCK, EnemyHit.Type.SMALL_ROCK:
+			_knock_back(hit.push_velocity)
+			FX.shake(1.0, 0.08)  # shoved: a bump, it lives
+		_:
+			# A column's tip or the snake's head: exactly that velocity.
+			_launch(hit.push_velocity)
+
+
+## Knocked back by the gust: the way the air blows, plus a hop. Same shape as
+## Crate.receive_gust.
+func _be_gusted(direction: Vector2, strength: float) -> void:
 	velocity.x = direction.x * strength
 	if direction.y > 0.1:
 		# Gusted from above: slam it down (only matters in the air).
@@ -273,43 +365,52 @@ func receive_gust(direction: Vector2, strength: float) -> void:
 	has_slammed_this_knockback = false
 
 
-## The Pushable contract's Earth extras (Stage E3). A rising Earth Column throws it
-## at the column's launch velocity and stuns it, like a big gust: thrown into spikes
-## or a pit, it's defeated by the usual rules.
-func receive_launch(launch_velocity: Vector2) -> void:
-	if state == State.DEFEATED:
-		return
+## Thrown at exactly `launch_velocity` and stunned (a rising Earth Column, Stage E3:
+## thrown into spikes or a pit, it's defeated by the usual rules).
+func _launch(launch_velocity: Vector2) -> void:
 	velocity = launch_velocity
 	state = State.STUNNED
 	stun_time_remaining = maxf(stun_time_remaining, stun_time)
 	has_slammed_this_knockback = false
 
 
-## Boulder's enemy-hit contract (Stage E6): a thrown rock hit us. Knocked back at
-## `knockback_velocity` (stunned, so harmless while it flies), defeated
-## `defeat_delay` seconds later. A second rock in the meantime changes nothing.
-## defeat_delay < 0 (Boulder.ROCK_SHOVE: a small rock, not thrown perfectly): only
-## the knockback, no defeat.
-func receive_rock_hit(knockback_velocity: Vector2, defeat_delay: float) -> void:
-	if state == State.DEFEATED or rock_defeat_remaining >= 0.0:
-		return
-	receive_launch(knockback_velocity)
-	# A small hop up as well (like a gust), so a sideways hit lifts it off the floor
-	# instead of skidding it: minf because "up" is negative y.
+## A rock's knockback: thrown along it, with a small hop up as well (like a gust),
+## so a sideways hit lifts it off the floor instead of skidding it.
+func _knock_back(knockback_velocity: Vector2) -> void:
+	_launch(knockback_velocity)
+	# minf because "up" is negative y.
 	velocity.y = minf(velocity.y, -knockback_hop_speed)
-	if defeat_delay < 0.0:
-		FX.shake(1.0, 0.08)  # shoved: a bump, it lives
-		return
-	if defeat_delay == 0.0:
-		defeat()
-		return
-	rock_defeat_remaining = defeat_delay
-	FX.shake(1.5, 0.1)
 
 
-## Squeezed between a rising column and a solid: crushed.
-func receive_crush() -> void:
+## Caught fire: it doesn't burn for a while, it flares and is gone (embers and smoke
+## along with the purple puff).
+func _burn_up() -> void:
+	var center: Vector2 = global_position + Vector2(0.0, -body_size.y / 2.0)
+	EmberEmitter.burst(get_parent(), center, 10, Vector2.UP, 180.0, 50.0)
+	SmokePuff.spawn(get_parent(), center, 3)
 	defeat()
+
+
+# --- The Flammable contract (Stage F11) ---------------------------------------------
+# Flames that light what they touch (the jet plume, a fireball's splash, bonfires,
+# burning crates and monkeys) find the wisp in the "flammable" group: being lit is a
+# FLAME hit.
+
+func ignite(source: Node) -> void:
+	receive_hit(EnemyHit.make(EnemyHit.Type.FLAME, Vector2.ZERO, source))
+
+
+## It never burns for a while: it's gone at once.
+func is_burning() -> bool:
+	return false
+
+
+func snuff() -> void:
+	pass
+
+
+func get_fire_rect() -> Rect2:
+	return get_hitbox_global_rect()
 
 
 ## Gone until the room resets: hidden, no collision (so gusts ignore it). The

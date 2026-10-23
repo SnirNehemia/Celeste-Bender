@@ -15,6 +15,8 @@ extends StaticBody2D
 ## Squeezed: if a pushed thing can't move (a ceiling is in the way), the player and
 ## enemies get crushed (Player.die / Pushable.try_crush); a crate can't be crushed,
 ## so the column stops short of it instead.
+## Breakers (Stage F11b): a column whose tip reaches an enemy in
+## EnemyHit.BREAKS_EARTH_GROUP (the thicket elephant) shatters on it at once.
 ##
 ## Created by EarthColumnAbility.erupt(): EarthColumn.new(), setup(face, tuning),
 ## then added as a child of the ROOM, so Room.reset_objects() finds it (we join
@@ -154,6 +156,13 @@ func _physics_process(delta: float) -> void:
 	rise_elapsed += delta
 	var rise_fraction: float = clampf(rise_elapsed / maxf(earth_tuning.column_rise_time, 0.001), 0.0, 1.0)
 	var target_length: float = full_length * rise_fraction
+	if _touches_earth_breaker(target_length):
+		# Rose into the thicket elephant: it shatters on its hide.
+		is_rising = false
+		set_physics_process(false)
+		_register_cells()
+		shatter()
+		return
 	# Push (and launch) whatever is in the way BEFORE growing the collision shape,
 	# so nothing ends up inside the column. May come back shorter if jammed.
 	var reached_length: float = _push_bodies_out_of(target_length)
@@ -237,6 +246,23 @@ func _find_swept_bodies(target_length: float) -> Array[CharacterBody2D]:
 		if player != null or Pushable.find_pushable(body) != null:
 			bodies.append(body)
 	return bodies
+
+
+## True if the column at `target_length` would reach an enemy that breaks Earth
+## creations (EnemyHit.BREAKS_EARTH_GROUP). Same sweep box as _find_swept_bodies.
+func _touches_earth_breaker(target_length: float) -> bool:
+	var sweep_rect: Rect2 = _get_local_rect(target_length + TOUCH_MARGIN)
+	sweep_shape.size = sweep_rect.size
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = sweep_shape
+	query.transform = Transform2D(0.0, global_position + sweep_rect.get_center())
+	query.collision_mask = 16  # bit value of layer 5, "enemies"
+	query.collide_with_areas = false
+	query.exclude = [get_rid()]
+	for result: Dictionary in get_world_2d().direct_space_state.intersect_shape(query, MAX_SWEEP_RESULTS):
+		if EnemyHit.breaks_earth(result.collider):
+			return true
+	return false
 
 
 ## Moves `body` `distance` px along the normal, as far as it can go without entering

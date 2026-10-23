@@ -34,6 +34,13 @@ extends RefCounted
 ##   objects without the method make the column stop short instead (try_crush()
 ##   returns false), so a crate or the player is never crushed.
 ##
+## ENEMIES (Stage F11): an enemy (EnemyHit contract, scenes/enemies/enemy_hit.gd) is
+## pushable too, but try_launch() and try_crush() hand it an EnemyHit (EARTH_PUSH,
+## CRUSH) instead of calling receive_launch/receive_crush, so its ElementImmunity
+## table decides. A crush only counts if the table says KILL; otherwise the column
+## stops short of it, like for a crate. The gust still calls receive_gust(), which an
+## enemy turns into a GUST hit itself.
+##
 ## This class is never instantiated: it only holds the group name and static helpers
 ## (a static func is called on the class itself, like Pushable.try_push(...)).
 
@@ -81,7 +88,9 @@ static func try_launch(touched: Node, launch_velocity: Vector2) -> bool:
 	var target: Node = find_pushable(touched)
 	if target == null:
 		return false
-	if target.has_method(METHOD_LAUNCH):
+	if EnemyHit.is_enemy(target):
+		EnemyHit.send(target, EnemyHit.Type.EARTH_PUSH, launch_velocity)
+	elif target.has_method(METHOD_LAUNCH):
 		target.call(METHOD_LAUNCH, launch_velocity)
 	else:
 		# No launch method: treat it as a very strong gust the same way.
@@ -89,10 +98,13 @@ static func try_launch(touched: Node, launch_velocity: Vector2) -> bool:
 	return true
 
 
-## Crushes `touched` if it can be crushed (has receive_crush). Returns true if it was;
-## false means "can't be crushed", and the column stops short of it instead.
+## Crushes `touched` if it can be crushed (an enemy whose table says crushing kills,
+## or anything with receive_crush). Returns true if it was; false means "can't be
+## crushed", and the column stops short of it instead.
 static func try_crush(touched: Node) -> bool:
 	var target: Node = find_pushable(touched)
+	if target != null and EnemyHit.is_enemy(target):
+		return EnemyHit.send(target, EnemyHit.Type.CRUSH) == ElementImmunity.Response.KILL
 	if target == null or not target.has_method(METHOD_CRUSH):
 		return false
 	target.call(METHOD_CRUSH)

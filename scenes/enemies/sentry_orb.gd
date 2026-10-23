@@ -11,10 +11,12 @@ extends Area2D
 ##                              reflect_assist_degrees of the gust's direction and in
 ##                              clear view, it flies straight at the closest-angle one;
 ##                              otherwise along the gust.
-##   - reflected, hits a sentry -> destroys it (Sentry.destroy())
-##   - reflected, hits a wisp   -> defeats it (Wisp.defeat())
-##   - hits anything solid   -> pops (walls, crates, doors). Unreflected orbs fly
-##                              past wisps.
+##   - reflected, hits an enemy -> a REFLECTED_ORB hit (EnemyHit, Stage F11): its
+##                              table decides (a sentry or wisp is destroyed); an
+##                              enemy that ignores orbs (the vine monkey) lets it by
+##   - hits anything solid   -> pops (walls, crates, doors, other sentries).
+##                              Unreflected orbs fly past walking enemies.
+##   - meets a fireball      -> both burst (Stage F11, the fireball pops it)
 ##   - after max_lifetime     -> pops
 ##   - leaves its room         -> pops (after Stage E7: orbs never fly into the next room)
 ##
@@ -27,8 +29,9 @@ extends Area2D
 ## RESETTABLE_GROUP + reset(): a room reset removes orbs in flight.
 ##
 ## Physics: an Area2D (detects, never blocks) on layer 4 ("pushable", so the gust
-## finds it), looking at layers 1 ("world", includes sentries), 2 ("player") and
-## 5 ("enemies", wisps).
+## finds it) and layer 5 ("enemies", Stage F11: so a fireball, which looks at
+## enemies, meets it), looking at layers 1 ("world", includes sentries), 2 ("player")
+## and 5 ("enemies", wisps and monkeys).
 ## It moves itself by script; no physics body needed for a straight line.
 
 ## Group of things a reflected orb can aim at (see the header).
@@ -59,7 +62,7 @@ var is_popped: bool = false
 
 
 func _ready() -> void:
-	collision_layer = 8      # bit value of layer 4, "pushable"
+	collision_layer = 8 | 16  # bit values of layer 4 "pushable" and layer 5 "enemies"
 	collision_mask = 1 | 2 | 16  # bit values of layers 1 "world", 2 "player", 5 "enemies"
 	var circle: CircleShape2D = CircleShape2D.new()
 	circle.radius = HITBOX_RADIUS
@@ -102,22 +105,21 @@ func _check_hits() -> void:
 				pop()
 				return
 			continue  # reflected orbs pass harmlessly through the player
-		var touched_wisp: Wisp = body as Wisp
-		if touched_wisp != null:
+		var enemy: Node = EnemyHit.find_enemy(body)
+		if enemy != null:
 			if is_reflected:
-				touched_wisp.defeat()
-				FX.freeze(0.04)
+				var response: ElementImmunity.Response = EnemyHit.send(enemy, EnemyHit.Type.REFLECTED_ORB,
+					velocity, self)
+				if response == ElementImmunity.Response.IGNORE:
+					continue  # an enemy that shrugs orbs off: fly on
+				if not enemy is Sentry:
+					FX.freeze(0.04)  # a sentry's own destroy() freezes already
 				pop()
 				return
-			continue  # the sentry's own shots fly past wisps
-		var touched_sentry: Sentry = body as Sentry
-		if touched_sentry != null:
-			if is_reflected:
-				touched_sentry.destroy()
-				pop()
-				return
-			if touched_sentry == shooter:
-				continue  # just fired: still inside its own sentry
+			# Unreflected: the sentry's shots fly past walking enemies and out of their
+			# own sentry; another sentry is solid (it falls through to pop below).
+			if enemy is CharacterBody2D or enemy == shooter:
+				continue
 		# Anything else on layer 1 is solid: walls, crates, doors, other sentries.
 		pop()
 		return

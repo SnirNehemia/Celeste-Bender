@@ -33,7 +33,7 @@ extends CharacterBody2D
 ##              - a risen Earth Column: bounces off it, keeps flying
 ##              - a CRACKED WALL (Stage E6): a BIG rock breaks it open; either size
 ##                shatters on it (a small rock is too light to break it)
-##              - an ENEMY (Stage E6): hits it (receive_rock_hit: a wisp is knocked
+##              - an ENEMY (Stage E6): hits it (an EnemyHit since F11: a wisp is knocked
 ##                back and defeated, a sentry destroyed), and shatters. Since E7 that
 ##                takes a BIG rock or a PERFECT throw; a sloppy small rock only shoves
 ##                a wisp (stunned) and clonks off a sentry
@@ -95,15 +95,11 @@ const ENEMY_MASK: int = 16
 ## (_pop_touching_orbs). Max overlaps one check reports.
 const ORB_MASK: int = 8
 const MAX_ORB_RESULTS: int = 8
-## The enemy-hit contract (Stage E6), duck typing like Pushable: an enemy that a thrown
-## rock can hurt has
-##     func receive_rock_hit(knockback_velocity: Vector2, defeat_delay: float) -> void
-## Wisp: flies off at knockback_velocity, defeated defeat_delay later. Sentry:
-## destroyed at once (it's bolted down).
-const ENEMY_HIT_METHOD: StringName = &"receive_rock_hit"
-## defeat_delay meaning "just a shove, no defeat": a SMALL rock that wasn't thrown
-## perfectly (after Stage E7). A big rock, or a perfect throw, kills.
-const ROCK_SHOVE: float = -1.0
+## Enemies are hit through the EnemyHit contract (Stage F11, scenes/enemies/enemy_hit.gd):
+## the rock sends a BIG_ROCK, PERFECT_ROCK or SMALL_ROCK hit with its knockback and
+## boulder_enemy_defeat_delay, and the enemy's ElementImmunity table decides (a wisp
+## dies to a big or perfect rock and is only shoved by a sloppy small one; a sentry is
+## destroyed; a vine monkey is only knocked back).
 
 ## The tear phase is over: the rock is out of its hole and about to hop. BoulderAbility
 ## listens: if S is still held, it grows the rock right then (grow()).
@@ -635,15 +631,18 @@ func _on_impact(collision: KinematicCollision2D) -> void:
 		if is_big():
 			(collider as CrackedWall).break_open(velocity.normalized(), earth_tuning)
 		shatter()
-	elif collider is Node and (collider as Node).has_method(ENEMY_HIT_METHOD):
-		# An enemy (a wisp, a sentry): knocked back along the throw, and defeated if
-		# the rock is big or was thrown perfectly; else only shoved (ROCK_SHOVE).
+	elif EnemyHit.is_enemy(collider):
+		# An enemy: its table decides what the rock does (see the constants above).
 		# move_and_collide() doesn't change `velocity`, so it's still the throw's.
-		var kills: bool = is_big() or thrown_perfectly
-		(collider as Node).call(ENEMY_HIT_METHOD,
-			velocity.normalized() * earth_tuning.boulder_enemy_knockback_speed,
-			earth_tuning.boulder_enemy_defeat_delay if kills else ROCK_SHOVE)
-		if kills:
+		var rock_type: EnemyHit.Type = EnemyHit.Type.SMALL_ROCK
+		if is_big():
+			rock_type = EnemyHit.Type.BIG_ROCK
+		elif thrown_perfectly:
+			rock_type = EnemyHit.Type.PERFECT_ROCK
+		var response: ElementImmunity.Response = EnemyHit.send(collider, rock_type,
+			velocity.normalized() * earth_tuning.boulder_enemy_knockback_speed, self,
+			earth_tuning.boulder_enemy_defeat_delay)
+		if response == ElementImmunity.Response.KILL:
 			FX.freeze(0.05)  # a crunchy hit, like dashing a stunned wisp
 		shatter()
 	elif collider is EarthLayer:

@@ -117,7 +117,7 @@ A gust is wind. It **blows small fires out** but **feeds big ones**.
 | **Fireball in flight** | Snuffed in a puff of smoke. The pip is lost |
 | **Burning vine** | The burn stops. The burnt part is gone, the rest stays intact and can be lit again |
 | **Burning crate** | Snuffed: the crate is **charred** (black, still solid and usable) and can be lit again |
-| **Burning leafling** (living torch) | Snuffed: it smolders, is stunned for 1 s, then carries on as a normal leafling. It can be lit again |
+| **Burning vine monkey** (living torch) | Snuffed: it smolders, is stunned for 1 s, then carries on its route. It can be lit again |
 | **Brazier** | **Not affected**: its flame is protected by the bowl |
 | **Bonfire** | **Flares up** for `bonfire_flare_time` (1.5 s) **(tune)**: flame ×1.6 taller and wider (the kill zone grows), **blue base**, and its updraft is ×1.5 stronger and taller **(tune)**. A flare pumps balloons and heat sails harder. Gusting again during a flare restarts its timer |
 
@@ -213,13 +213,29 @@ These are moved by **hot updrafts** (§5.3), never by the player directly. They 
 
 **Rule:** each element gets an enemy that **only its own element can kill**. In its home chapter it's an enemy; in other chapters it's an obstacle you dodge, push or route around. Mixed rooms then ask "which element does this one need?"
 
-**Leafling** (home: **Fire**)
-- **Look:** a small walking leaf-creature, green with a lighter vein pattern, about 8×8. It hops along its patrol with a papery flutter.
-- **Behavior:** patrols like a wisp and kills on touch. It's light, so **hot updrafts lift it**: leaflings drift upward over fires.
-- **Only fire kills it.** Spikes don't (it's too light: it lands on them harmlessly). Rocks knock it back but don't kill it (a big rock knocks it further). Gusts blow it far but don't kill it, and wind carries it. Earth columns launch it; the snake head shoves it.
-- **On ignition, it becomes a living torch:** it panics for `leafling_torch_time` (1.5 s) **(tune)**, running fast (120 px/s) in its current direction and turning at walls and ledges. It **ignites everything flammable it touches** (grass, thicket, leaf piles, vines, air diamonds) and still kills on touch. Then it crumbles to ash.
-- **Puzzle use:** a leafling is a **moving fuse**. Light one and it carries fire where you can't reach: across a gap it patrols, into a sealed thicket room, under a windmill.
-- **A gust** snuffs a burning leafling (§5.4).
+**Leaflings** (home: **Fire**): plant creatures made of the chapter's own burnable stuff (thicket, grass, vines). **Only fire kills them.** Two kinds (decided before Stage F11, replacing the single 8×8 leaf creature of the first draft):
+
+**Vine monkey** (the agile one)
+- **Look:** a small monkey, about 10×10, its body a ball of thicket (dark brambles under a bush of leaves, like `ThicketLeaves`), with vine arms and a curled vine tail.
+- **Behavior:** runs a **fixed, readable route** on a loop (no chasing): runs along floors, hops short gaps, and (Stage F11a) grabs vines on its route, swings and lets go to land on the next ledge. Kills on touch. It's light, so **hot updrafts lift it**.
+- **One fireball lights it** (any flame does). **On ignition it becomes a living torch:** it panics for `leafling_torch_time` (1.5 s) **(tune)**, running fast (120 px/s) in its current direction and turning at walls and ledges. It **ignites everything flammable it touches** (grass, thicket, leaf piles, vines, air diamonds) and still kills on touch. Then it crumbles to ash.
+- **Spikes don't hurt it** (it's too light: it lands on them harmlessly). Rocks knock it back but don't kill it (a big rock knocks it further). Gusts blow it far but don't kill it, and wind carries it. Earth columns launch it; the snake head shoves it.
+- **A gust** snuffs a burning monkey (§5.4): it smolders, stunned for 1 s, then carries on its route (it can be lit again).
+- **Puzzle use:** a **moving fuse**. Light it and it carries fire where you can't reach: across a gap on its route, into a sealed thicket room. *When* you light it decides where the fire goes. Burning the vine it's swinging on drops it.
+
+**Thicket elephant** (the heavy one)
+- **Look:** minimalist, like the wisp (option C, "stepped", the developer's pick of four): flat rectangles on the 8 px tile grid. A huge creature, 96x60 (12x7.5 tiles): a stepped gray stone silhouette (lighter top rows, a darker belly band), a block ear, two eyes (white with purple pupils), a pale tusk, four stepping legs, and three burnable parts in moss green: **moss tufts** on its back, a blocky **trunk** with a foot at the front, and a long **vine tail** (a simulated rope). Polish in F13.
+- **Behavior:** a slow patrol, turning at walls and ledges. It **kills on touch only at its front** (head, tusks, trunk). Its back is a **moving platform**, 60 px up, out of jumping reach: getting on is a small puzzle (a gust or dash up, a wall, the jet, a column next to it). Ride it across long spike stretches (it walks over them) or up to high fire diamonds. There's a gap under its belly, between its legs.
+- **It charges whenever it can hit you:** you're in front of it, on its level, within range and in clear view. It rears (the tell), then charges at normal speed. A wall stops it (stunned); it brakes at ledges.
+- **Tail whip:** every few seconds the tail **wiggles**, is **raised** high (the tell), then **strikes** down behind it like a whip, with a crack at the tip. The strike kills anything it touches (the player, wisps, monkeys). Between whips you can get behind it and reach the tail.
+- **Three burn spots, three ways in:** the trunk from the front (dangerous: you're in its path), the back from above (get up there, then a fireball down or the jet over it), the tail from behind (between whips). A burnt spot stays burnt until R. Burning all three kills it (it crumbles into a big heap of ash).
+- **What burning a spot does:**
+  - **Trunk:** it rears, then **charges** forward, twice as fast as a normal charge.
+  - **Tail:** spooked, it **bolts** away from where the fire came from, twice as fast.
+  - **Back:** the tail rises and **strikes forward over its back** (no buck): get off. With its back burnt, anyone standing on it gets the same strike. Burn the tail first and the back is safe to burn.
+- **A charge breaks things in its way:** cracked walls, thicket, and **stone walls** (a new, stronger wall only an elephant can break). Stopped by any other wall (stunned for a moment, a shake); it brakes at ledges. Lure it into a stone wall.
+- **Not a heat receiver** (too heavy). Other hits: spikes do nothing, a small rock bounces off, gusts barely nudge it. A **big rock pushes it back** (no stagger): throw one at a charging elephant to stop it. An Earth **column or the snake breaks** when it touches the elephant: it can't be lifted or shoved.
+- **Puzzle use:** a big, slow puzzle: how to get up on it, which spot to burn first, how to lure its charge into a stone wall, how to ride it over spikes.
 
 **Shell** (home: **Earth**; armored)
 - **Look:** a squat armored crawler, about 12×8. Slate-gray plates with ochre seams, so it's clearly "earth, but tougher".
@@ -238,13 +254,13 @@ These are moved by **hot updrafts** (§5.3), never by the player directly. They 
   - Time your crossing against its slow patrol.
 - **Home chapter note:** the Shell is an **Earth chapter** enemy. Add it to `Earth_bending.md` as an addendum, with a new Earth room ("Armor", using big rocks against Shells) once the Earth play-test is done. It's built in Fire stage F12 because Fire rooms need it as an obstacle, and its boulder kill uses the existing big-rock hit hook.
 
-| | Wisp | Sentry | Leafling | Shell |
-|---|---|---|---|---|
-| Fire | dies | dies (fireball) | **dies (torch run)** | immune |
-| Big rock | dies | dies | knocked back | **dies** |
-| Small rock | dies | dies | knocked back | staggered |
-| Gust | stunned | reflects orbs | blown away | nudged |
-| Spikes | dies | n/a | immune | immune |
+| | Wisp | Sentry | Vine monkey | Thicket elephant | Shell |
+|---|---|---|---|---|---|
+| Fire | dies | dies (fireball) | **dies (torch run)** | **one spot burns** (all 3 = dies) | immune |
+| Big rock | dies | dies | knocked back | pushed back (stops a charge) | **dies** |
+| Small rock | dies | dies | knocked back | bounces off | staggered |
+| Gust | stunned | reflects orbs | blown away | nudged | nudged |
+| Spikes | dies | n/a | immune | immune | immune |
 
 ## 8. Player
 
@@ -337,7 +353,9 @@ Planned in Stage F0 (replaces the first 9-stage draft): the jet comes right afte
 | **F8** | Vines; Air objects burn (crate, leaf platform, sail) | A vine burns and drops what it held; a crate burns off a plate |
 | **F9** (dropped) | Hot-air objects: balloon, heat sail, windmill heat spin | A bonfire lifts a balloon; burning grass spins an out-of-reach windmill and steps a heat sail |
 | **F10** (done in F7, rest dropped) | Gust vs fire (§5.4: snuff, bonfire flare) and gusts boosted in hot updrafts | A gust snuffs grass and flares a bonfire, and the balloon surges |
-| **F11** | `ElementImmunity`; wisp/sentry/orb fire hooks; Leafling (torch run, updraft lift, snuffed by gusts) | A lit leafling carries fire across a gap; fire kills wisps and sentries as written |
+| **F11** | `ElementImmunity`; wisp/sentry/orb fire hooks; vine monkey on the ground (route, torch run, updraft lift, snuffed by gusts) | A lit monkey carries fire across a gap; fire kills wisps and sentries as written |
+| **F11a** | Vine monkey swings on vines along its route | It grabs, swings and lands on a loop; burning its vine drops it |
+| **F11b** | Thicket elephant: look and walk, three burn spots, charge / bolt / buck, tail whip, ridable back | Each spot burns from its own side and gives its reaction; all three kill it |
 | **F12** | Shell (big rock only) | Every cell of the §7.2 table behaves as written, in a test room |
 | **F13** | Look & feel pass (§9) across every source, SFX hooks | It looks alive in a still screenshot *and* in motion |
 | **F14** | Fire rooms 1–10 (generated), `fire_world.tscn`, chapter smoke test, main menu entry | Chapter playable start to Goal |
@@ -503,6 +521,60 @@ These were agreed when planning the build. Where they differ from the sections a
 - **Stage F9 dropped** (developer's call after it was built: "didn't like it"). No balloon, heat sail or heated windmill; the work was reverted, not committed. Fire will get its continuous-push puzzles with Water, as steam. Hot updrafts keep only one job: lifting a glider (and, in F11, leaflings).
 - **Stage F10 counted as done** by the F7 play-test work: gusts snuff burning grass and thicket, and a close gust scatters a bonfire and blows out lone embers. The bonfire **flare** (§5.4, §9.3) is replaced by the scatter. Dropped: snuffing fireballs, vine burns and burning crates by gust, and the ×1.5 boosted gust from inside a hot updraft (§5.3 item 2). `snuff()` stays a no-op on vines, crates and sails.
 - Room 7 ("Hot Air") of §12 needs a new idea before Stage F14.
+
+### Decided before Stage F11 (22 Oct 2026)
+
+- **Two leaflings instead of one** (developer's idea, §7.2): the agile **vine monkey** (thicket body, fixed route, swings on vines, one fireball lights it and it becomes the moving fuse) and the heavy **thicket elephant** (three burn spots: thicket trunk, grass back, vine tail). The 8×8 leaf creature of the first draft is gone; the monkey takes its job.
+- **Split into three stages:** F11 = `ElementImmunity` + fire hooks + the monkey on the ground; F11a = the monkey's vine swinging; F11b = the elephant.
+- **The monkey's route is fixed and readable**, never chasing: in a precision platformer "agile" means a loop you can learn. Being hard to hit isn't the challenge (the fireball aim slows the world); *when* you light it is.
+- **Elephant reactions** (developer's choice from three options): one reaction per spot (trunk: rear and charge forward; tail: bolt away from the fire; back: buck, throwing riders into the air). A burnt spot stays burnt until R. Its charge **breaks cracked walls and thicket** in its way and stops at walls; it brakes at ledges.
+- **Elephant danger:** kills on touch only at its front, plus a **rhythmic tail whip** (a tell, then a swing that kills anything it touches). Its back is a ridable moving platform (over spikes, up to high diamonds). Not a heat receiver.
+- **Elephant vs Earth** (developer's call): a column or the snake breaks when it touches the elephant; a big rock pushes it back without staggering it, which stops a charge.
+- **Looks from the start:** both creatures get their placeholder look and a basic animation in their own stage, because the burnable parts are the gameplay. Polish waits for F13.
+
+### Decided in Stage F11
+
+- **One damage path:** every hit on an enemy is an `EnemyHit` (scenes/enemies/enemy_hit.gd: a type, a push, a kill delay, a source) handed to the enemy's `receive_hit()`, which looks the type up in its `ElementImmunity` table (KILL, STAGGER, PUSH, IGNORE) and reacts its own way. Types: FIREBALL, FLAME, BIG_ROCK, PERFECT_ROCK, SMALL_ROCK, GUST, SPIKES, EARTH_PUSH (column tip or snake head), CRUSH, REFLECTED_ORB, DASH. Boulders, the orb and the fireball send hits; the gust (`receive_gust`), column and snake (`Pushable.try_launch/try_crush`) are turned into hits, so they didn't change. A column only crushes an enemy whose table says crushing kills; otherwise it stops short, like for a crate. The wisp and sentry behave exactly as before on every earlier hit (Earth and Air smoke tests unchanged).
+- **Two fireball hits:** the fireball itself is FIREBALL (only the thing it hits); its splash and every other fire is FLAME. That's how the sentry dies to a fireball but shrugs off burning grass and the plume. Wisps and monkeys are Flammable, so the plume, splashes, bonfires and burning things reach them with no new code; walking into burning grass or a bonfire is found by `FireHazard.touches_fire()` (FireHazard nodes plus `FireGrid.is_rect_in_flame()`, the same flame bands that kill the player).
+- **Orbs** are on the "enemies" layer too, so a fireball meets them: both burst. A reflected orb flies through an enemy that ignores orbs (the monkey).
+- **Vine monkey on the ground:** 10x10, runs at `monkey_run_speed` (45 px/s), turns at walls (a step counts as a wall) and ledges, and hops a gap when the far rim is at most `monkey_hop_max_gap` (24 px) away and level or up to `monkey_hop_max_rise` (16 px) higher, never lower (a lower floor is the gap's own bottom). Drops to lower ledges wait for F11a's routes. `hops_gaps` off = it turns at every ledge.
+- **Torch run:** lit, it runs at `monkey_torch_speed` in its current direction, turning at walls and ledges (no hops), lighting what it touches every `monkey_ignite_interval` (0.1 s), deadly through a FireHazard (so wisps walking into it burn). Lit mid-hop it keeps flying and lands on the far rim: that's how fire crosses its gap.
+- **Snuffed on burning grass, it catches again:** a gust puts a burning monkey out, but if the grass under it is burning (it usually lit it), it relights at once. Gust it where nothing burns.
+- **Pushed and smoldering monkeys are harmless** while stunned, like a stunned wisp.
+- **Hot air:** in an updraft it eases toward rising at lift x `monkey_heat_lift_multiplier` (0.6: about 96 px/s over a bonfire) and its sideways speed dies down at the same rate, so a monkey gusted into the column floats there instead of sailing through. It hovers near the column's top.
+- **Look:** a dark bramble ball with a leaf rim, leaves, a muzzle, an enemy-purple eye, vine arms and legs swinging with the stride and a curled vine tail with a leaf; flames on its back and ember specks while it chars. Polish in F13.
+- **Fire J** test room (640x180): wisp on a grass fuse, a sentry, a monkey over spikes, a ledge monkey by a leaf pile (for the hot-air test), a monkey hopping a pit between grass and a leaf pile.
+
+- **F11 play-test (look):** the burning monkey vanished: its body charred to near-black against the dark sky, leaving a small flame. Now it's drawn from outlined shapes (a leaning bramble body with leaves along its back, a round head with a pale capuchin face patch, a leaf ear and tuft, one purple eye, knuckle-walking vine limbs, a spiral vine tail), and it burns in three steps: the flame CREEPS across it from the side it was lit on (its three flames grow as the front reaches them, in the first 35% of the torch run), the brambles under it glow ember-orange with bright cracks, and from 68% the fire dies down and it turns to gray ash, then crumbles. A monkey snuffed by a gust stays a little charred until R.
+
+### Decided in Stage F11b
+
+- **Built before F11a** (developer's call): the monkey's vine swinging is still to do.
+- **Big and blocky** (F11b play-test): 96x60, three times the first 32x20 in each direction, so its back (60 px up) is out of jumping reach (30 px) and climbing it is a puzzle. Collision is three symmetric boxes (torso, hind legs, fore legs, mirrored when it turns) with a gap under the belly. Look: a lumpy chamfered boulder torso with a lit face and seams, stocky stone legs with a uniform 2 px outline (the thin outlines looked out of place), big fan ears that flap, a blocky head, tusks, a purple eye under a brow, a thick bramble-bead thicket trunk with one leaf per joint, grass along the back, the vine tail.
+- **An AnimatableBody2D** (a moving solid; riders are carried). It moves by asking the physics server how far it can go (PhysicsServer2D.body_test_motion): move_and_collide() refuses to run on a body synced to physics. **Reset bug found and fixed:** with physics sync on, setting global_position only asks the server to move the body; reading it back in the same frame gives the old spot, so the elephant's own moves undid the reset (on death it stayed where it was). It now keeps its own body_position, moves that, writes it to the node once per frame, and reset() switches the sync off for the jump home.
+- **Enemies reset when you walk into their room** (Room.reset_enemies, called by the RoomManager), since creatures sleep outside the player's room (only the player's room is awake; one elephant's frame is about 0.06 ms headless).
+- **Spots burn where the fire touches** (ignite_at, like the FireGrid): TRUNK, BACK (a strip above its back), TAIL (around the rope). A fireball's own hit reaches its splash radius from where it landed; a flame on the earth body does nothing. A whole spot that walks into fire catches. A burning spot burns elephant_spot_burn_time (1.4 s) as a deadly flame lighting what it touches (the back's only after 0.3 s: time to jump off), then stays burnt until R.
+- **Charge on sight:** whenever the player is in front (from its head to elephant_sight_range, 200 px), on its level (feet between its back and 8 px below its feet), in clear view of its eye, and elephant_charge_cooldown (1.5 s) has passed since its last charge: rear (elephant_rear_time 0.6 s, the tell), then charge at elephant_charge_speed (90 px/s). Riding it doesn't count. A low wall between you hides you.
+- **Hit charges are 2x faster** (elephant_hit_charge_multiplier): a trunk burn (rear, then charge forward) and a tail burn (bolt away from the fire, no rear) run at 180 px/s.
+- **No buck** (F11b play-test): a burning back makes the raised tail strike forward over the back, and so does anyone standing on a burnt back for elephant_back_strike_delay (0.25 s). A burnt tail can't strike, so burning the tail first makes the back safe.
+- **Tail whip in three beats:** wiggle (elephant_whip_wiggle_time 0.6 s, a fast wave down the tail), raise (elephant_whip_raise_time 0.4 s, the tuft glints), strike (elephant_whip_strike_time 0.2 s: the root leads and the tip lashes after it, then a crack of sparks), every elephant_whip_interval (2.6 s) while it walks. The tail is an 11-point Verlet rope pulled toward each pose, harder at the root than the tip during the strike. The strike sends WHIP hits (wisps and monkeys die).
+- **Charge:** smashes cracked walls, **stone walls** (StoneWall, scenes/objects/stone_wall.gd: a heap of hardened earth-brown boulders; rocks shatter on it, only ThicketElephant._smash breaks it) and thicket (FireGrid.crush_thicket_in: the cells crumble without fire); any other wall stuns it (elephant_wall_stun_time, 1 s); at a ledge it brakes over its braking distance. A step or a low wall counts as a wall, not a ledge (the ledge ray would start inside it; same fix as the monkey).
+- **Earth against it:** a column rising into it or the snake's head ramming it SHATTERS (group EnemyHit.BREAKS_EARTH_GROUP, checked by EarthColumn and EarthSnake). A thrown big rock pushes it back (elephant_rock_push_speed, no stagger) and ends a charge or a rear; small rocks bounce off; a gust nudges it; spikes and crushing do nothing.
+- **Second F11b play-test:**
+  - **Frame rate:** Fire L ran at ~20 fps. Measured (windowed, vsync off): 48.9 ms a frame with the elephants drawn, 3.7 ms with them hidden but still thinking, so it was all DRAWING (11,678 triangles, 453 draw calls for three). Two causes: the trunk was ~90 `draw_circle` beads per elephant per frame, and every outline was recomputed with polygon clipping (Geometry2D.offset_polygon) every frame. Now every shape that doesn't change (each stone's outline, shade, face, highlight, the ear, the legs, the moss, the tusk) is built once and only replayed; moving parts are those shapes drawn through a transform; the trunk is three thick strokes. Room L: 7.8 ms a frame (~130 fps uncapped), 3,600 triangles.
+  - **Stuck at the ends of its patrol:** it turned and turned back on the very next frame, dozens of times. Its collision boxes weren't mirror images (front feet 34 px out, hind feet 42), so after turning at a wall its other end was already 8 px inside it. The boxes are symmetric now (torso 92 wide, leg boxes 18-42 px out on both sides); the smoke test checks it never turns straight back.
+  - **Look after the developer's reference picture:** a heap of rounded GRAY boulders (belly, hip, rump, back, shoulder) under a 2 px outline, each with a shaded rim, a lit face, a highlight and specks; a tall stone fan ear with a dark hollow and light streaks; a domed head with a white eye, black pupil and heavy brow; a short tusk; a thick MOSSY trunk hanging from the mouth and curling forward at the tip; spiky moss along its back (the back spot); vines hanging off its rump beside the vine tail; legs of two stacked stones with toenails. Size unchanged (96x60).
+- **Third F11b play-test:**
+  - **Slower patrol:** elephant_walk_speed 16 -> 9 px/s.
+  - **Pixel art, painted in code** (the polygon look "looked nothing like the reference"): ElephantArt (scenes/enemies/elephant_art.gd) paints the elephant pixel by pixel into Images once, the first time one is needed, shared by every elephant: shapes go into a piece map, each stone pixel is lit from the top-left of its own rock and mottled with value noise into 4 grays, moss into 3 speckled greens, then 1 px black seams between rocks and a 2 px black outline round everything. Parts: body (rocks, a big streaked ear, a domed head with a big white eye, black pupil and heavy brow), the back moss (spiky tufts, strands draping down the rump) and its burnt crust, the trunk (thick, curling forward) and its burnt stub, the tusk, one leg (two stacked rocks, toenails) drawn four times (the far two darker). Burning parts are tinted toward ember then char; only the tail is still drawn as lines. Still code-generated placeholder art: no art files. Cost: Fire L at 3.85 ms a frame (259 fps uncapped), 866 triangles.
+- **Fourth F11b play-test:** the painted pixel art still didn't look close enough to the reference, so it was dropped (scenes/enemies/elephant_art.gd deleted) for a minimalist look. Four designs were shown side by side (blocks, pebble, stepped, enemy purple); the developer picked **C, stepped**: flat rects on the tile grid, stone grays, purple eyes, moss-green burnables (tufts, trunk, tail), ember then char while burning, charred stubs once burnt. About thirty draw_rect calls; no outlines, no textures. The **vine tail is longer**: 15 rope points 5 px apart (70 px, was 50), rooted lower at the rump and hanging further back, trailing on the ground (rope points never go below its feet); the whip reaches further.
+- **Fifth F11b play-test:**
+  - **Stone wall** redrawn as hardened rock: rows of rounded boulders (cut, jittered corners, dark outline, lit top-left edge, specks) in darker earth browns, packed into the wall's box with dark crevices; masonry bricks didn't fit the game's look.
+  - **Eyes:** white with a purple pupil (the purple pixels alone were hard to see).
+  - **On the pixel grid:** the drawing is snapped to whole pixels (its position moves in fractions), nothing rotates any more (the rear is drawn as whole-pixel steps per 8 px column, the raised trunk is its own pose, the charge lean is gone), and the tail is 3x3 pixel squares along its rope instead of a 3 px line.
+  - **Collision = art:** the collision boxes are the silhouette's own rects, every row symmetric (back top -24..24 with the moss strip it stands on at -58; body + head row -48..48; belly -40..40, a rounded rump; four leg boxes). The art was refitted to them: body 24 px tall instead of 32, so the back is exactly 60 px up (tufts included).
+  - **Front kill = what's drawn:** the head's front face (1 px out so touching counts, not its top: standing on the head is safe), the tusk and the trunk in its current pose (hanging, raised, stub), each 1 px out, lifted with the rear. The old 30x56 box killed 14 px ahead of the face.
+- **Fire L** test room (720x180): the climb and ride over a 20-tile spike strip with a high diamond; a pen with two dodge ledges and a stone wall (a diamond behind it) to lure a charge into; a thicket wall to bolt through.
 
 ### Play-test log
 

@@ -9,14 +9,18 @@ extends Area2D
 ## fireball_max_range px along its path it gutters out (shrinks, puff of smoke) and
 ## lights nothing.
 ##
-## Hits: an 8×8 Area2D that watches physics layer 1 ("world": tiles, doors, crates)
-## and layer 6 ("flammable": the catch areas of braziers and, later, leaf piles,
-## vines...). On the first thing it touches:
+## Hits: an 8×8 Area2D that watches physics layer 1 ("world": tiles, doors, crates,
+## sentries), layer 5 ("enemies": wisps, vine monkeys and sentry orbs, Stage F11) and
+## layer 6 ("flammable": the catch areas of braziers, vines...). On the first thing it
+## touches:
+##   - an enemy: a FIREBALL hit (EnemyHit): its table decides (a wisp burns up, a
+##     sentry is destroyed, a vine monkey becomes a torch)
+##   - a sentry orb: both cancel out (the orb pops, the fireball bursts)
 ##   - a flammable: lit (Flammable.try_ignite)
 ##   - plus every flammable within fireball_splash px of the hit (Flammable.ignite_near)
 ##   - then it bursts: flash, a ring of sparks, smoke, 1-2 embers stuck to the wall
 ## The player (layer 2) isn't watched, so it never hits you. It isn't a FireHazard
-## either. Enemies are ignored until Stage F11.
+## either.
 ##
 ## Look: a bright 6 px core, 3 FlameTongues orbiting it and trailing behind, embers
 ## and smoke streaming off. It wobbles a little as it flies; that's only the drawing
@@ -42,8 +46,8 @@ const WOBBLE_AMOUNT: float = 1.0
 const WOBBLE_SPEED: float = 22.0
 ## Guttering out at the end of the range, seconds.
 const GUTTER_TIME: float = 0.15
-## Bit values: layer 1 "world" + layer 6 "flammable".
-const HIT_MASK: int = 1 | Flammable.LAYER_BIT
+## Bit values: layer 1 "world" + layer 5 "enemies" (Stage F11) + layer 6 "flammable".
+const HIT_MASK: int = 1 | 16 | Flammable.LAYER_BIT
 
 ## Emitted once when it bursts on something (`hit_node`: what it touched) or gutters
 ## out (hit_node null).
@@ -215,6 +219,15 @@ func _on_touched(touched: Node) -> void:
 	if has_finished or gutter_remaining > 0.0:
 		return
 	var hit_point: Vector2 = global_position
+	var heading: Vector2 = velocity.normalized() if velocity != Vector2.ZERO else direction
+	# Head-on into a sentry orb: both are gone (Stage F11).
+	var orb: SentryOrb = touched as SentryOrb
+	if orb != null:
+		orb.pop()
+	else:
+		# An enemy takes the fireball itself (its table decides); the splash below
+		# then counts as a flame for every flammable around, enemies included.
+		EnemyHit.send(touched, EnemyHit.Type.FIREBALL, heading * tuning.fireball_speed, source, 0.0, hit_point)
 	# Light what we hit, then everything within the splash radius.
 	Flammable.try_ignite(touched, source)
 	Flammable.ignite_near(get_tree(), hit_point, tuning.fireball_splash, source)

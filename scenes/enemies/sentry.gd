@@ -4,7 +4,11 @@ extends StaticBody2D
 ## Sentry (GAME_DESIGN.md §7): a stationary purple turret. While it can see the
 ## player it fires a slow orange orb (SentryOrb) at them every fire_interval seconds.
 ## The gust reflects orbs; a reflected orb that hits the sentry destroys it. So does
-## a thrown rock (Stage E6, receive_rock_hit).
+## a thrown big or perfect rock (Stage E6) and a fireball (Stage F11). It's metal: the
+## jet plume and burning grass do nothing to it.
+##
+## Every hit arrives through receive_hit (the EnemyHit contract, Stage F11), looked
+## up in `immunity` (the table is in _make_immunity).
 ##
 ## Place the node ON the floor (or a ledge), at the bottom-center of the turret.
 ## With mounted_on_ceiling, place it on the CEILING instead (top-center): it hangs
@@ -24,7 +28,7 @@ extends StaticBody2D
 ## move it; only its own reflected orb can hurt it.
 ##
 ## Contracts: Room.RESETTABLE_GROUP + reset() (a destroyed sentry comes back when
-## the room resets). SentryOrb.TARGET_GROUP + get_orb_target_position(): reflected
+## the room resets). EnemyHit (group "enemies" + receive_hit). SentryOrb.TARGET_GROUP + get_orb_target_position(): reflected
 ## orbs aim at it. It finds the player through the "player" group
 ## (Player.GROUP), so it needs no NodePath to set up.
 
@@ -67,6 +71,8 @@ signal defeated
 @export var sight_range: float = 220.0
 ## Speed of its orbs, px/s. Slow: they're meant to be reflected.
 @export var orb_speed: float = 60.0
+## What each kind of hit does to it (Stage F11). Empty = the table in _make_immunity().
+@export var immunity: ElementImmunity
 
 ## Seconds left until the next shot (counts only while it sees the player).
 var time_until_shot: float = 0.0
@@ -89,6 +95,9 @@ func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
 	time_until_shot = first_shot_delay
+	if immunity == null:
+		immunity = _make_immunity()
+	add_to_group(EnemyHit.GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
 	add_to_group(SentryOrb.TARGET_GROUP)
 
@@ -171,14 +180,28 @@ func destroy() -> void:
 	defeated.emit()
 
 
-## Boulder's enemy-hit contract (Stage E6): a thrown rock destroys it at once. It's
-## bolted down, so the knockback and delay a wisp gets don't apply. A shove
-## (defeat_delay < 0: a small rock, not thrown perfectly) can't move it: nothing.
-func receive_rock_hit(_knockback_velocity: Vector2, defeat_delay: float) -> void:
-	if defeat_delay < 0.0:
+## The sentry's row of the §7.2 table: a fireball, a big or perfect rock and a
+## reflected orb destroy it. It's bolted down and metal: everything else (a sloppy
+## small rock, flames, gusts, earth pushes) does nothing.
+static func _make_immunity() -> ElementImmunity:
+	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
+	return ElementImmunity.from_table({
+		EnemyHit.Type.FIREBALL: kill, EnemyHit.Type.BIG_ROCK: kill,
+		EnemyHit.Type.PERFECT_ROCK: kill, EnemyHit.Type.REFLECTED_ORB: kill,
+	})
+
+
+## The EnemyHit contract (Stage F11): every hit lands here. A kill destroys it at
+## once (it's bolted down, so the knockback and delay a wisp gets don't apply).
+func receive_hit(hit: EnemyHit) -> ElementImmunity.Response:
+	if is_destroyed:
+		return ElementImmunity.Response.IGNORE
+	var response: ElementImmunity.Response = immunity.get_response(hit.type)
+	if response == ElementImmunity.Response.KILL:
+		destroy()
+	elif hit.type == EnemyHit.Type.SMALL_ROCK:
 		FX.shake(0.5, 0.06)  # a clonk off the armour
-		return
-	destroy()
+	return response
 
 
 ## Called by Room.reset_objects() when the player dies or restarts the room.

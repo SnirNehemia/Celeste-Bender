@@ -28,8 +28,10 @@ func _ready() -> void:
 	await _check_f6_thicket(world, world.player)
 	await _check_f7_bonfire(world, world.player)
 	await _check_f8_burning_objects(world, world.player)
+	await _check_f11_enemies(world, world.player)
+	await _check_f11b_elephant(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -773,7 +775,9 @@ func _check_f6_thicket(world: RoomManager, player: Player) -> void:
 	grid.ignite_at(room_e.global_position + Vector2(12 * 8, 18 * 8 + 4), 0.5, null)
 	await _physics_frames(2)
 	_check(not player.is_dead(), "touching thicket that only glows is safe")
-	await get_tree().create_timer(tuning.thicket_burn_time * 0.5).timeout
+	# Game time (physics frames), not a wall-clock timer: a busy frame must not let the
+	# check run before the fire has had its time.
+	await _wait_until(func() -> bool: return player.is_dead(), tuning.thicket_burn_time * 0.5)
 	_check(player.is_dead(), "touching burning thicket kills")
 	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
 	_check(grid.cell_states.is_empty() and thicket.has_thicket(Vector2i(12, 18)) and not player.is_dead(),
@@ -1341,6 +1345,413 @@ func _check_f8_burning_objects(world: RoomManager, player: Player) -> void:
 	player.respawn_at(room_g.get_spawn_position())
 	await _physics_frames(5)
 	finished_sections.append("F8")
+
+
+## Stage F11: ElementImmunity (one damage path), fire against the wisp, sentry and
+## orbs, and the vine monkey (spikes, pushes, hot air, torch run, snuff, hops).
+func _check_f11_enemies(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_j: Room = world.get_node("RoomFireJ") as Room
+	var wisp: Wisp = room_j.get_node("FuseWisp") as Wisp
+	var sentry: Sentry = room_j.get_node("FireSentry") as Sentry
+	var spike_monkey: VineMonkey = room_j.get_node("SpikeMonkey") as VineMonkey
+	var ledge_monkey: VineMonkey = room_j.get_node("LedgeMonkey") as VineMonkey
+	var fuse_monkey: VineMonkey = room_j.get_node("FuseMonkey") as VineMonkey
+	var updraft_pile: LeafPile = room_j.get_node("UpdraftPile") as LeafPile
+	var far_pile: LeafPile = room_j.get_node("FarPile") as LeafPile
+	var grid: FireGrid = room_j.get_node_or_null("FireGrid") as FireGrid
+	var origin: Vector2 = room_j.global_position
+	world.jump_to_room(room_j)
+	await _physics_frames(10)
+	_check(grid != null, "Fire J has a FireGrid (it has grass)")
+
+	# The tables (§7.2). Every enemy is in the "enemies" group with receive_hit.
+	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
+	var push: ElementImmunity.Response = ElementImmunity.Response.PUSH
+	var ignore: ElementImmunity.Response = ElementImmunity.Response.IGNORE
+	for enemy: Node in [wisp, sentry, fuse_monkey]:
+		_check(EnemyHit.is_enemy(enemy), "%s takes hits through EnemyHit" % enemy.name)
+	var wisp_table: ElementImmunity = wisp.immunity
+	_check(wisp_table.get_response(EnemyHit.Type.FIREBALL) == kill and wisp_table.get_response(EnemyHit.Type.FLAME) == kill
+		and wisp_table.get_response(EnemyHit.Type.SPIKES) == kill and wisp_table.get_response(EnemyHit.Type.SMALL_ROCK) == push
+		and wisp_table.get_response(EnemyHit.Type.GUST) == push, "wisp table: fire and spikes kill, a sloppy rock and a gust push")
+	var sentry_table: ElementImmunity = sentry.immunity
+	_check(sentry_table.get_response(EnemyHit.Type.FIREBALL) == kill and sentry_table.get_response(EnemyHit.Type.FLAME) == ignore
+		and sentry_table.get_response(EnemyHit.Type.SMALL_ROCK) == ignore,
+		"sentry table: a fireball kills it, flames and a sloppy rock don't (metal)")
+	var monkey_table: ElementImmunity = fuse_monkey.immunity
+	var only_fire_kills: bool = true
+	for hit_type: int in EnemyHit.Type.values():
+		# Fire, and the elephant's whip (Stage F11b: it kills anything).
+		var kills: bool = hit_type in [EnemyHit.Type.FIREBALL, EnemyHit.Type.FLAME, EnemyHit.Type.WHIP]
+		if (monkey_table.get_response(hit_type) == kill) != kills:
+			only_fire_kills = false
+	_check(only_fire_kills, "monkey table: only fire (and the elephant's whip) kills it")
+	_check(monkey_table.get_response(EnemyHit.Type.SPIKES) == ignore and monkey_table.get_response(EnemyHit.Type.BIG_ROCK) == push,
+		"monkey table: spikes do nothing, a big rock pushes")
+	_check(tuning.leafling_torch_time == 1.5 and tuning.monkey_torch_speed == 120.0,
+		"torch run starts at the spec numbers (1.5 s, 120 px/s)")
+
+	# Wisp: rocks still behave as before (now through the table).
+	EnemyHit.send(wisp, EnemyHit.Type.SMALL_ROCK, Vector2(60, 0), null, 0.1)
+	_check(wisp.state == Wisp.State.STUNNED, "a sloppy small rock only shoves a wisp")
+	EnemyHit.send(wisp, EnemyHit.Type.BIG_ROCK, Vector2(60, 0), null, 0.1)
+	await _wait_until(func() -> bool: return wisp.state == Wisp.State.DEFEATED, 1.0)
+	_check(wisp.state == Wisp.State.DEFEATED, "a big rock still kills a wisp (after its delay)")
+	room_j.reset_objects()
+	await _physics_frames(3)
+
+	# Wisp: a fireball kills it.
+	Fireball.launch(world, wisp.global_position + Vector2(-30, -4), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return wisp.state == Wisp.State.DEFEATED, 1.0)
+	_check(wisp.state == Wisp.State.DEFEATED, "a fireball kills a wisp")
+	room_j.reset_objects()
+	await _physics_frames(3)
+
+	# Wisp: it walks into burning grass and burns up.
+	_check(wisp.state == Wisp.State.PATROL, "R brings the wisp back")
+	grid.ignite_at(origin + Vector2(8 * 8 + 4, 160), 2.0, null)
+	await _wait_until(func() -> bool: return wisp.state == Wisp.State.DEFEATED, 8.0)
+	_check(wisp.state == Wisp.State.DEFEATED, "a wisp dies in burning grass")
+	room_j.reset_objects()
+	await _physics_frames(3)
+
+	# Sentry: a fireball destroys it; the plume doesn't light orbs.
+	Fireball.launch(world, origin + Vector2(230, 138), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return sentry.is_destroyed, 1.0)
+	_check(sentry.is_destroyed, "a fireball destroys a sentry")
+	room_j.reset_objects()
+	await _physics_frames(2)
+	_check(not sentry.is_destroyed, "R brings the sentry back")
+
+	# Fireball against an orb head-on: both burst.
+	var orb: SentryOrb = Sentry.ORB_SCENE.instantiate() as SentryOrb
+	room_j.add_child(orb)
+	orb.launch(origin + Vector2(220, 80), Vector2(-60, 0), sentry)
+	_check(not orb.is_in_group(Flammable.GROUP), "orbs aren't flammable: they pass through the plume")
+	var orb_fireball: Fireball = Fireball.launch(world, origin + Vector2(160, 80), Vector2.RIGHT, tuning, null)
+	orb_fireball.fall_gravity = 0.0
+	orb_fireball.velocity = Vector2(tuning.fireball_speed, 0.0)
+	await _wait_until(func() -> bool: return not is_instance_valid(orb) or orb.is_popped, 1.0)
+	await _physics_frames(2)  # queue_free() lands at the end of the frame
+	_check((not is_instance_valid(orb) or orb.is_popped) and not is_instance_valid(orb_fireball),
+		"a fireball and an orb cancel out")
+
+	# A reflected orb flies past a monkey (it ignores orbs).
+	var reflected: SentryOrb = Sentry.ORB_SCENE.instantiate() as SentryOrb
+	room_j.add_child(reflected)
+	reflected.launch(spike_monkey.global_position + Vector2(-20, -5), Vector2(60, 0), null)
+	reflected.is_reflected = true
+	await _physics_frames(30)
+	_check(is_instance_valid(reflected) and not reflected.is_popped and spike_monkey.state != VineMonkey.State.DEFEATED,
+		"a reflected orb flies through a monkey")
+	room_j.reset_objects()
+	await _physics_frames(2)
+
+	# Spike monkey: runs back and forth over the spikes for 3 s, unharmed.
+	var turned: Array[bool] = [false]
+	var first_direction: float = spike_monkey.run_direction
+	for frame: int in 180:
+		await get_tree().physics_frame
+		if spike_monkey.run_direction != first_direction:
+			turned[0] = true
+	_check(spike_monkey.state == VineMonkey.State.RUN and turned[0], "a monkey runs back and forth over spikes unharmed")
+
+	# Pushes: a big rock, a gust and the column only move it; it can't be crushed.
+	EnemyHit.send(spike_monkey, EnemyHit.Type.BIG_ROCK, Vector2(100, 0))
+	_check(spike_monkey.state == VineMonkey.State.PUSHED and spike_monkey.velocity.x > 100.0,
+		"a big rock knocks a monkey back further (%.0f px/s), it lives" % spike_monkey.velocity.x)
+	_check(not Pushable.try_crush(spike_monkey) and spike_monkey.state != VineMonkey.State.DEFEATED,
+		"a column can't crush a monkey (it stops short)")
+	await _wait_until(func() -> bool: return spike_monkey.state == VineMonkey.State.RUN, 2.0)
+	_check(spike_monkey.state == VineMonkey.State.RUN, "a pushed monkey wakes up and runs on")
+	# Touching a running monkey kills the player.
+	player.respawn_at(spike_monkey.global_position)
+	await _physics_frames(2)
+	_check(player.is_dead(), "touching a monkey kills you")
+	await _wait_until(func() -> bool: return not player.is_dead(), 2.0)
+	room_j.reset_objects()
+	player.respawn_at(room_j.get_spawn_position())
+	await _physics_frames(2)
+
+	# Hot air: over a tall bonfire, a monkey rises instead of falling.
+	updraft_pile.ignite_at(updraft_pile.global_position + Vector2(0, -2), 12.0, null)
+	var column_point: Vector2 = updraft_pile.global_position + Vector2(0, -50)
+	await _wait_until(func() -> bool: return Heat.get_lift_at(get_tree(), column_point) > 0.0, 8.0)
+	_check(Heat.get_lift_at(get_tree(), column_point) > 0.0, "the leaf pile's bonfire makes a hot updraft")
+	ledge_monkey.global_position = column_point + Vector2(0, 5)
+	ledge_monkey.velocity = Vector2.ZERO
+	var start_y: float = ledge_monkey.global_position.y
+	await _physics_frames(30)
+	_check(ledge_monkey.state != VineMonkey.State.DEFEATED and ledge_monkey.global_position.y < start_y + 4.0
+		and ledge_monkey.state != VineMonkey.State.TORCH,
+		"a monkey drifts in the hot air over a bonfire instead of falling (%.0f px from where it was put)"
+			% (ledge_monkey.global_position.y - start_y))
+	room_j.reset_objects()
+	await _physics_frames(2)
+
+	# The fuse monkey hops its pit to the far side on its own.
+	var far_x: float = origin.x + 71 * 8
+	var is_across: Callable = func() -> bool: return fuse_monkey.global_position.x > far_x + 6.0 and fuse_monkey.state == VineMonkey.State.RUN
+	await _wait_until(is_across, 8.0)
+	_check(fuse_monkey.global_position.x > far_x + 6.0 and fuse_monkey.state == VineMonkey.State.RUN,
+		"the monkey hops the pit to the far side")
+
+	# Lit there, it runs as a torch: it lights the far grass and the leaf pile, then crumbles.
+	var defeated_count: Array[int] = [0]
+	var on_defeated: Callable = func() -> void: defeated_count[0] += 1
+	fuse_monkey.defeated.connect(on_defeated)
+	Fireball.launch(world, fuse_monkey.global_position + Vector2(-24, -5), Vector2.RIGHT, tuning, null)
+	await _wait_until(func() -> bool: return fuse_monkey.is_burning(), 1.0)
+	_check(fuse_monkey.is_burning() and fuse_monkey.fire_hazard.active, "a fireball lights the monkey: a deadly torch")
+	var lit_ms: int = Time.get_ticks_msec()
+	await _wait_until(func() -> bool: return far_pile.is_burning(), tuning.leafling_torch_time)
+	_check(far_pile.is_burning(), "the torch run lights the leaf pile on the far side")
+	_check(grid.burning_count > 0, "the torch run lights the grass")
+	await _wait_until(func() -> bool: return fuse_monkey.state == VineMonkey.State.DEFEATED, 2.0)
+	var torch_seconds: float = (Time.get_ticks_msec() - lit_ms) / 1000.0
+	_check(fuse_monkey.state == VineMonkey.State.DEFEATED and defeated_count[0] == 1,
+		"it crumbles to ash after its torch time and is defeated (%.1f s)" % torch_seconds)
+	fuse_monkey.defeated.disconnect(on_defeated)
+	player.respawn_at(room_j.get_spawn_position())
+	room_j.reset_objects()
+	await _physics_frames(3)
+	_check(fuse_monkey.state == VineMonkey.State.RUN and fuse_monkey.visible and not far_pile.is_burning()
+		and grid.burning_count == 0, "R brings the monkey back and puts the fire out")
+
+	# A gust puts a burning monkey out: it smolders, stunned, then carries on. (The
+	# spike monkey: no grass under it, which it would light and catch again from.)
+	spike_monkey.ignite(null)
+	await _physics_frames(2)
+	spike_monkey.receive_gust(Vector2.LEFT, 160.0)
+	_check(spike_monkey.state == VineMonkey.State.SMOLDER and not spike_monkey.is_burning()
+		and not spike_monkey.fire_hazard.active and not spike_monkey.is_deadly(),
+		"a gust snuffs a burning monkey: it smolders, harmless")
+	await _wait_until(func() -> bool: return spike_monkey.state == VineMonkey.State.RUN, 2.0)
+	_check(spike_monkey.state == VineMonkey.State.RUN, "after its stun it carries on its route")
+	spike_monkey.ignite(null)
+	_check(spike_monkey.is_burning(), "it can be lit again")
+	room_j.reset_objects()
+	player.respawn_at(room_j.get_spawn_position())
+	await _physics_frames(3)
+	finished_sections.append("F11")
+
+
+## Stage F11b: the thicket elephant (size, ride, front kill, charge on sight, burn
+## spots and their reactions, stone wall, thicket, big rock, tail whip and back
+## strike, column, crumble, reset to its start).
+func _check_f11b_elephant(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_l: Room = world.get_node("RoomFireL") as Room
+	var rider: ThicketElephant = room_l.get_node("RideElephant") as ThicketElephant
+	var charger: ThicketElephant = room_l.get_node("ChargeElephant") as ThicketElephant
+	var smasher: ThicketElephant = room_l.get_node("ThicketElephant") as ThicketElephant
+	var stone_wall: StoneWall = room_l.get_node("StoneWall") as StoneWall
+	var grid: FireGrid = room_l.get_node_or_null("FireGrid") as FireGrid
+	var origin: Vector2 = room_l.global_position
+	world.jump_to_room(room_l)
+	await _physics_frames(10)
+
+	# The table, the size and the Earth breaking.
+	var table: ElementImmunity = rider.immunity
+	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
+	var push: ElementImmunity.Response = ElementImmunity.Response.PUSH
+	var ignore: ElementImmunity.Response = ElementImmunity.Response.IGNORE
+	_check(table.get_response(EnemyHit.Type.FIREBALL) == kill and table.get_response(EnemyHit.Type.BIG_ROCK) == push
+		and table.get_response(EnemyHit.Type.SMALL_ROCK) == ignore and table.get_response(EnemyHit.Type.SPIKES) == ignore
+		and table.get_response(EnemyHit.Type.EARTH_PUSH) == ignore and table.get_response(EnemyHit.Type.CRUSH) == ignore,
+		"elephant table: fire burns it, a big rock pushes, small rocks, spikes and earth do nothing")
+	_check(EnemyHit.breaks_earth(rider) and not Pushable.try_crush(rider), "columns and snakes break on it; it can't be crushed")
+	_check(ThicketElephant.BODY_SIZE == Vector2(96, 60), "it's 96x60, its back out of jumping reach")
+
+	# The ride: standing on its back, you're carried over the spikes.
+	player.respawn_at(rider.global_position + Vector2(0, -ThicketElephant.BODY_SIZE.y - 1))
+	await _physics_frames(5)
+	var ride_start_x: float = player.global_position.x
+	var elephant_start_x: float = rider.global_position.x
+	await get_tree().create_timer(2.0).timeout
+	var carried: float = player.global_position.x - ride_start_x
+	var walked: float = rider.global_position.x - elephant_start_x
+	_check(not player.is_dead() and player.get_floor_body() == rider and absf(carried - walked) < 2.0 and absf(walked) > 8.0,
+		"you ride its back over the spikes (it walked %.0f px, you moved %.0f px)" % [walked, carried])
+	_check(rider.state != ThicketElephant.State.DEFEATED, "it walks over spikes unharmed")
+
+	# Its back catching fire: the tail rises and strikes forward over its back.
+	rider.ignite_at(rider._get_spot_rect(ThicketElephant.Spot.BACK).get_center(), 2.0, null)
+	_check(rider.whip_over_back and rider.whip_phase == ThicketElephant.Whip.RAISE,
+		"a burning back makes the tail rise to strike over it (no buck)")
+	room_l.reset_objects()
+	await _physics_frames(3)
+
+	# A rider on a BURNT back: the tail strikes over the back and kills them.
+	rider.spot_states[ThicketElephant.Spot.BACK] = ThicketElephant.SpotState.BURNT
+	player.respawn_at(rider.global_position + Vector2(0, -ThicketElephant.BODY_SIZE.y - 1))
+	await _wait_until(func() -> bool: return player.is_dead(),
+		tuning.elephant_back_strike_delay + tuning.elephant_whip_raise_time + tuning.elephant_whip_strike_time + 0.5)
+	_check(player.is_dead() and rider.whip_over_back, "on its burnt back, the tail strikes you")
+	await _wait_until(func() -> bool: return not player.is_dead(), 2.0)
+	await _physics_frames(2)  # the node shows its new spot after one physics step
+
+	# Reset puts it back where it was placed (a synced body ignores a plain move).
+	_check(rider.global_position.distance_to(rider.start_position) < 0.5 and not rider.is_spot_burnt(ThicketElephant.Spot.BACK),
+		"dying puts the elephant back at its start, whole (it was %.0f px away)" % rider.global_position.distance_to(rider.start_position))
+	await _physics_frames(30)
+	var walked_away: float = rider.global_position.distance_to(rider.start_position)
+	room_l.reset_enemies()
+	await _physics_frames(2)
+	_check(walked_away > 2.0 and rider.global_position.distance_to(rider.start_position) < 1.0,
+		"walking into the room puts its enemies back at their start")
+
+	# It never gets stuck turning at the ends of its patrol: its collision boxes are
+	# mirror images, so after a turn nothing of it is inside the wall it turned at.
+	# (Uneven boxes made it turn back the very next frame, over and over.)
+	room_l.reset_objects()
+	player.respawn_at(origin + Vector2(37 * 8 + 4, 80))  # up on a ledge, out of sight
+	await _physics_frames(3)
+	var turn_frames: Array[int] = []
+	var last_facing: float = rider.facing
+	for frame: int in 1200:
+		await get_tree().physics_frame
+		if rider.facing != last_facing:
+			turn_frames.append(frame)
+			last_facing = rider.facing
+	var turned_straight_back: bool = false
+	for turn_index: int in range(1, turn_frames.size()):
+		if turn_frames[turn_index] - turn_frames[turn_index - 1] < 10:
+			turned_straight_back = true
+	_check(turn_frames.size() >= 2 and not turned_straight_back,
+		"it patrols between the walls without getting stuck (%d turns in 20 s)" % turn_frames.size())
+	room_l.reset_objects()
+	await _physics_frames(3)
+
+	# Its front kills.
+	player.respawn_at(charger.global_position + Vector2(charger.facing * 50.0, 0))
+	await _physics_frames(2)
+	_check(player.is_dead(), "touching its front (head, tusks, trunk) kills you")
+	await _wait_until(func() -> bool: return not player.is_dead(), 2.0)
+	room_l.reset_objects()
+	await _physics_frames(3)
+	# The deadly front is only what's drawn: 2 px clear of the face (above the tusk) is
+	# safe, touching the trunk's foot is not.
+	var hitbox_size: Vector2 = player.get_hitbox_rect().size
+	var touches_front: Callable = func(drawing_rect: Rect2) -> bool:
+		var world_rect: Rect2 = charger._get_world_rect(drawing_rect)
+		for kill_rect: Rect2 in charger._get_front_kill_rects():
+			if charger._get_world_rect(kill_rect).intersects(world_rect):
+				return true
+		return false
+	_check(not touches_front.call(Rect2(Vector2(50, -46), hitbox_size)), "2 px clear of its face is safe")
+	_check(touches_front.call(Rect2(Vector2(60, -hitbox_size.y), hitbox_size)), "touching its trunk's foot kills")
+
+	# It charges whenever it sees you in front, on its level: rear, then run at you.
+	# 90 px ahead: right of the low wall (behind it, the wall hides you from its eye).
+	player.respawn_at(charger.global_position + Vector2(charger.facing * 90.0, 0))
+	await _wait_until(func() -> bool: return charger.state == ThicketElephant.State.REAR, 0.5)
+	_check(charger.state == ThicketElephant.State.REAR, "it sees you ahead on its level and rears (the tell)")
+	player.respawn_at(origin + Vector2(37 * 8 + 4, 80))  # up on the dodge ledge
+	await _wait_until(func() -> bool: return charger.state == ThicketElephant.State.CHARGE, tuning.elephant_rear_time + 0.2)
+	_check(charger.state == ThicketElephant.State.CHARGE and is_equal_approx(charger.charge_speed_now, tuning.elephant_charge_speed),
+		"then charges at its normal speed")
+	await _wait_until(func() -> bool: return charger.state == ThicketElephant.State.STUNNED, 3.0)
+	_check(charger.state == ThicketElephant.State.STUNNED, "a charge into a wall stuns it")
+	_check(not player.is_dead(), "up on the ledge, it can't reach you")
+	room_l.reset_objects()
+	player.respawn_at(room_l.get_spawn_position())
+	await _physics_frames(3)
+
+	# Trunk: it rears, then charges forward twice as fast.
+	charger.ignite_at(charger._get_spot_rect(ThicketElephant.Spot.TRUNK).get_center(), 1.0, null)
+	_check(charger.state == ThicketElephant.State.REAR, "a burning trunk makes it rear")
+	await _wait_until(func() -> bool: return charger.state == ThicketElephant.State.CHARGE, tuning.elephant_rear_time + 0.2)
+	_check(charger.state == ThicketElephant.State.CHARGE and is_equal_approx(charger.charge_speed_now,
+		tuning.elephant_charge_speed * tuning.elephant_hit_charge_multiplier), "then charges forward twice as fast")
+	room_l.reset_objects()
+	await _physics_frames(3)
+
+	# Tail, lit from behind (the left) while it faces right: it bolts right, twice as
+	# fast, and smashes the stone wall (only an elephant can).
+	charger._turn_to(1.0)
+	charger._reset_tail()
+	await _physics_frames(5)
+	charger.ignite_at(charger._get_spot_rect(ThicketElephant.Spot.TAIL).get_center(), 1.0, null)
+	_check(charger.state == ThicketElephant.State.CHARGE and charger.facing > 0.0
+		and charger.charge_speed_now > tuning.elephant_charge_speed, "a burning tail makes it bolt away from the fire, fast")
+	await _wait_until(func() -> bool: return stone_wall.is_broken, 3.0)
+	_check(stone_wall.is_broken, "its charge smashes the stone wall")
+	room_l.reset_objects()
+	await _physics_frames(3)
+	_check(not stone_wall.is_broken and charger.state == ThicketElephant.State.WALK, "R mends the wall and calms it")
+
+	# A big rock stops a charge (pushes it back, no stagger); small rocks bounce off.
+	charger.ignite_at(charger._get_spot_rect(ThicketElephant.Spot.TRUNK).get_center(), 1.0, null)
+	await _wait_until(func() -> bool: return charger.state == ThicketElephant.State.CHARGE, 1.0)
+	await _physics_frames(5)
+	EnemyHit.send(charger, EnemyHit.Type.BIG_ROCK, Vector2(-charger.facing * 150.0, 0.0))
+	_check(charger.state == ThicketElephant.State.WALK and signf(charger.push_speed) == -charger.facing,
+		"a big rock pushes it back and stops its charge")
+	EnemyHit.send(charger, EnemyHit.Type.SMALL_ROCK, Vector2(-150.0, 0.0))
+	_check(charger.state == ThicketElephant.State.WALK, "a small rock bounces off")
+	room_l.reset_objects()
+	await _physics_frames(3)
+
+	# Thicket: lit from the left, the third elephant bolts right through the thicket wall.
+	var thicket_cell: Vector2i = Vector2i(82, 18)
+	smasher.ignite_at(smasher._get_spot_rect(ThicketElephant.Spot.TAIL).get_center(), 1.0, null)
+	await _wait_until(func() -> bool: return grid != null and grid.get_state(thicket_cell) == FireGrid.State.GONE, 3.0)
+	_check(grid != null and grid.get_state(thicket_cell) == FireGrid.State.GONE, "its charge smashes through thicket")
+
+	# The tail whip: it wiggles, rises (the tell), then strikes down behind it.
+	room_l.reset_objects()
+	player.respawn_at(room_l.get_spawn_position())
+	await _physics_frames(3)
+	await _wait_until(func() -> bool: return smasher.whip_phase == ThicketElephant.Whip.WIGGLE, tuning.elephant_whip_interval + 1.0)
+	_check(smasher.whip_phase == ThicketElephant.Whip.WIGGLE, "the tail wiggles first")
+	await _wait_until(func() -> bool: return smasher.whip_phase == ThicketElephant.Whip.RAISE, tuning.elephant_whip_wiggle_time + 0.1)
+	_check(smasher.whip_phase == ThicketElephant.Whip.RAISE, "then rises (the tell)")
+	var root: Vector2 = smasher._get_world_point(ThicketElephant.TAIL_ROOT)
+	player.respawn_at(Vector2(root.x - smasher.facing * 18.0, smasher.global_position.y))
+	player.set_frozen(true)
+	await _wait_until(func() -> bool: return player.is_dead(), tuning.elephant_whip_raise_time + tuning.elephant_whip_strike_time + 0.3)
+	_check(player.is_dead(), "then strikes down behind it: the whip kills you")
+	player.set_frozen(false)
+	await _wait_until(func() -> bool: return not player.is_dead(), 2.0)
+
+	# An Earth Column rising under its belly shatters instead of lifting it.
+	room_l.reset_objects()
+	await _physics_frames(3)
+	var earth: EarthLayer = room_l.get_node("Earth") as EarthLayer
+	var under_cell: Vector2i = earth.local_to_map(earth.to_local(smasher.global_position + Vector2(0, 4)))
+	var elephant_y: float = smasher.global_position.y
+	player.earth_column.erupt(EarthFace.new(earth, under_cell, Vector2i.UP))
+	await _physics_frames(12)
+	var columns_left: int = 0
+	for child: Node in room_l.get_children():
+		if child is EarthColumn and not child.is_queued_for_deletion():
+			columns_left += 1
+	_check(columns_left == 0 and absf(smasher.global_position.y - elephant_y) < 1.0,
+		"a column rising under it shatters (it isn't lifted)")
+
+	# All three spots burnt: it crumbles to ash and counts as defeated.
+	room_l.reset_objects()
+	player.respawn_at(room_l.get_spawn_position())
+	await _physics_frames(3)
+	var defeated_count: Array[int] = [0]
+	var on_defeated: Callable = func() -> void: defeated_count[0] += 1
+	smasher.defeated.connect(on_defeated)
+	for spot: int in 3:
+		smasher.ignite_at(smasher._get_spot_rect(spot).get_center(), 1.0, null)
+	_check(smasher.is_burning(), "all three spots burn")
+	await _wait_until(func() -> bool: return smasher.state == ThicketElephant.State.DEFEATED, tuning.elephant_spot_burn_time + 0.5)
+	_check(smasher.state == ThicketElephant.State.DEFEATED and defeated_count[0] == 1 and smasher.collision_layer == 0,
+		"with all three burnt it crumbles to ash")
+	smasher.defeated.disconnect(on_defeated)
+	room_l.reset_objects()
+	await _physics_frames(3)
+	_check(smasher.state == ThicketElephant.State.WALK and smasher.visible and not smasher.is_spot_burnt(ThicketElephant.Spot.TAIL),
+		"R brings it back whole")
+	player.respawn_at(room_l.get_spawn_position())
+	await _physics_frames(3)
+	finished_sections.append("F11b")
 
 
 # --- Helpers ---------------------------------------------------------------------

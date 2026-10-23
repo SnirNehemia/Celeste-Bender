@@ -508,6 +508,18 @@ func launch_from_column(direction: Vector2) -> void:
 	state_machine.transition_to(&"Launched")
 
 
+## Thrown by something (Stage F11b: a bucking elephant throws its rider up): takes
+## `launch_velocity` as it is, like a column launch.
+func launch_by(launch_velocity: Vector2) -> void:
+	if is_dead():
+		return
+	velocity = launch_velocity
+	consume_jump_press()
+	air_dash.refill()
+	movement_effects.play_squash(tuning.jump_squash)
+	state_machine.transition_to(&"Launched")
+
+
 # --- Wind --------------------------------------------------------------------
 
 func enter_wind_zone(zone: WindZone) -> void:

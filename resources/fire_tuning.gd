@@ -327,3 +327,75 @@ extends Resource
 ## A sail's cloth burns away in this many seconds; then it no longer catches wind and
 ## the platform coasts to the end of its rail (§6.2).
 @export var sail_burn_time: float = 0.6
+
+@export_group("Vine monkey")
+## Walking (running) speed on its route, px/s (Fire_bending.md §7.2, Stage F11).
+@export var monkey_run_speed: float = 45.0
+## Its route hops gaps up to this wide, px (between the two rims); wider ones turn it
+## back. The far rim may be up to monkey_hop_max_rise px higher, never lower (a lower
+## floor would be the gap's own bottom; dropping down ledges waits for routes, F11a).
+@export var monkey_hop_max_gap: float = 24.0
+@export var monkey_hop_max_rise: float = 16.0
+## Upward speed of a hop, px/s. The sideways speed is worked out to land on the far rim.
+@export var monkey_hop_speed: float = 170.0
+## Lit, it panics this long, seconds (§7.2: 1.5 s, tune), running at
+## monkey_torch_speed px/s and turning at walls and ledges, then crumbles to ash.
+@export var leafling_torch_time: float = 1.5
+@export var monkey_torch_speed: float = 120.0
+## While it burns it lights flammables within monkey_ignite_reach px of its body,
+## every monkey_ignite_interval seconds.
+@export var monkey_ignite_reach: float = 3.0
+@export var monkey_ignite_interval: float = 0.1
+## A gust snuffs a burning monkey: it smolders, stunned (harmless) for this long.
+@export var monkey_snuff_stun_time: float = 1.0
+## Pushed (gust, rock, column, snake): stunned and harmless this long, seconds.
+@export var monkey_push_stun_time: float = 1.0
+## It's light: a gust throws it this many times harder than a wisp, a big rock this
+## many times harder than a small one.
+@export var monkey_gust_multiplier: float = 1.6
+@export var monkey_big_rock_multiplier: float = 1.6
+## Hot air lifts it (a heat receiver, §5.3): it rises toward the updraft's lift x
+## monkey_heat_lift_multiplier px/s, changing speed at most monkey_heat_accel px/s²
+## (its sideways speed dies down at the same rate: the hot air carries it straight
+## up, so it doesn't sail through the column).
+@export var monkey_heat_lift_multiplier: float = 0.6
+@export var monkey_heat_accel: float = 900.0
+## How much of a wind zone's wind carries it (1 = all of it).
+@export_range(0.0, 2.0) var monkey_wind_carry: float = 1.0
+
+@export_group("Thicket elephant")
+## Walking speed on its patrol, px/s (Fire_bending.md §7.2, Stage F11b: slow).
+@export var elephant_walk_speed: float = 9.0
+## It charges whenever it can hit you: you're in front of it, on its level (your feet
+## within its height of its feet), within this many px, in clear view, and its last
+## charge ended at least elephant_charge_cooldown seconds ago.
+@export var elephant_sight_range: float = 200.0
+@export var elephant_charge_cooldown: float = 1.5
+## Before a charge it REARS for this long, seconds (the tell; also after a trunk burn).
+@export var elephant_rear_time: float = 0.6
+## Charge top speed, px/s, and how fast it gets there, px/s². A charge set off by a
+## hit (trunk or tail burnt) is elephant_hit_charge_multiplier times faster.
+@export var elephant_charge_speed: float = 90.0
+@export var elephant_charge_accel: float = 300.0
+@export var elephant_hit_charge_multiplier: float = 2.0
+## Braking at a ledge, px/s²: it looks this far ahead (v²/2a) and stops at the edge.
+@export var elephant_brake_decel: float = 500.0
+## A charge into a wall: stunned this long, seconds, with a shake.
+@export var elephant_wall_stun_time: float = 1.0
+## A spot burns this long, seconds (deadly flames, lighting what it touches), then
+## stays burnt until R.
+@export var elephant_spot_burn_time: float = 1.4
+## The tail whip, every elephant_whip_interval seconds while it walks: it WIGGLES,
+## then is RAISED high (the tell), then STRIKES down behind it like a whip (deadly).
+@export var elephant_whip_interval: float = 2.6
+@export var elephant_whip_wiggle_time: float = 0.6
+@export var elephant_whip_raise_time: float = 0.4
+@export var elephant_whip_strike_time: float = 0.2
+## Its back burning, or anyone standing on its BURNT back this long (seconds), makes
+## the tail rise and strike forward over its back instead.
+@export var elephant_back_strike_delay: float = 0.25
+## A thrown big rock pushes it back at this speed, px/s (stopping a charge); a gust
+## nudges it at this one. Both slide out at elephant_push_decel px/s².
+@export var elephant_rock_push_speed: float = 120.0
+@export var elephant_gust_nudge_speed: float = 18.0
+@export var elephant_push_decel: float = 260.0

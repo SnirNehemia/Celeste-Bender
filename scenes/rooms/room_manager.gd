@@ -82,6 +82,9 @@ func restart_room() -> void:
 
 func _transition_to_room(next_room: Room) -> void:
 	var previous_room: Room = current_room
+	# Enemies start where they were placed every time you walk in (they sleep while
+	# you're elsewhere, see Room.reset_enemies).
+	next_room.reset_enemies()
 	current_room = next_room
 	GameState.current_room = next_room
 	is_transitioning = true

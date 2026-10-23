@@ -15,8 +15,16 @@ extends Area2D
 ##
 ## Use: FireHazard.new(), set hazard_size (the deadly rectangle, centered on this
 ## node), add it as a child of the burning thing, flip `active`.
+##
+## ENEMIES (Stage F11) don't get killed by this node's own check (it only looks at the
+## player). They ask FireHazard.touches_fire() for their own rectangle each frame,
+## which looks at every member of the "fire_hazard" group: active FireHazard nodes and
+## anything with is_rect_in_flame() (the FireGrid's burning cells).
 
 const GROUP: StringName = &"fire_hazard"
+## The optional method of group members that aren't FireHazard nodes (the FireGrid):
+##     func is_rect_in_flame(world_rect: Rect2) -> bool
+const METHOD_RECT_IN_FLAME: StringName = &"is_rect_in_flame"
 
 ## The deadly rectangle, px, centered on this node.
 @export var hazard_size: Vector2 = Vector2(8, 8):
@@ -59,3 +67,17 @@ func _physics_process(_delta: float) -> void:
 		# with the rectangles at their current positions.
 		if touched_player != null and get_hazard_rect().intersects(touched_player.get_hitbox_rect()):
 			touched_player.die()
+
+
+## True if `world_rect` touches any fire that kills: an active FireHazard (not one
+## belonging to `skip` or its children: a burning monkey's own flame) or a burning
+## cell of a FireGrid. What enemies use to walk into fire (Stage F11).
+static func touches_fire(tree: SceneTree, world_rect: Rect2, skip: Node = null) -> bool:
+	for member: Node in tree.get_nodes_in_group(GROUP):
+		var hazard: FireHazard = member as FireHazard
+		if hazard != null:
+			if hazard.active and hazard.is_inside_tree() and hazard.get_hazard_rect().intersects(world_rect) 					and (skip == null or not skip.is_ancestor_of(hazard)):
+				return true
+		elif member.has_method(METHOD_RECT_IN_FLAME) and bool(member.call(METHOD_RECT_IN_FLAME, world_rect)):
+			return true
+	return false

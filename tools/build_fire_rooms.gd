@@ -16,6 +16,8 @@ extends "res://tools/build_earth_rooms.gd"
 ##   - tests/rooms/room_fire_e.tscn   Stage F6 thicket and an overgrown cover (_build_room_fire_e)
 ##   - tests/rooms/room_fire_f.tscn   Stage F7 bonfires, hot updrafts, air diamond conversion (_build_room_fire_f)
 ##   - tests/rooms/room_fire_g.tscn   Stage F8 vines (drawbridge, swinging plank), burning crate, leaf platform and sail (_build_room_fire_g)
+##   - tests/rooms/room_fire_j.tscn   Stage F11 enemies vs fire and the vine monkey (_build_room_fire_j)
+##   - tests/rooms/room_fire_l.tscn   Stage F11b the thicket elephant: climb and ride, charge, stone wall, bolt (_build_room_fire_l)
 ##   - resources/tiles/thicket_tileset.tres  (Stage F6) the thicket tile and the
 ##                                    grass-looking cover tile, solid on layer 1.
 ##                                    Only written when missing.
@@ -33,7 +35,7 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_fire_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- fire_b` (names: fire_a … fire_g).
+## only those, e.g. `-- fire_b` (names: fire_a … fire_g, fire_j, fire_l).
 
 const FIRE_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/fire/fire_diamond.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
@@ -45,6 +47,9 @@ const HANGING_PLATFORM_SCENE: PackedScene = preload("res://scenes/objects/fire/h
 const PLATE_SCENE: PackedScene = preload("res://scenes/objects/pressure_plate.tscn")
 const LEAF_SCENE: PackedScene = preload("res://scenes/objects/leaf_platform.tscn")
 const SAIL_SCENE: PackedScene = preload("res://scenes/objects/sail_platform.tscn")
+const MONKEY_SCENE: PackedScene = preload("res://scenes/enemies/vine_monkey.tscn")
+const ELEPHANT_SCENE: PackedScene = preload("res://scenes/enemies/thicket_elephant.tscn")
+const STONE_WALL_SCENE: PackedScene = preload("res://scenes/objects/stone_wall.tscn")
 const THICKET_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/thicket_layer.gd")
 const OVERGROWN_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/overgrown_layer.gd")
 ## Thicket tile picture colors: dark bramble green, lighter branches, brown thorns.
@@ -79,6 +84,10 @@ func _ready() -> void:
 		_build_room_fire_f()
 	if wanted.is_empty() or wanted.has("fire_g"):
 		_build_room_fire_g()
+	if wanted.is_empty() or wanted.has("fire_j"):
+		_build_room_fire_j()
+	if wanted.is_empty() or wanted.has("fire_l"):
+		_build_room_fire_l()
 	print("[BuildFireRooms] Done.")
 	get_tree().quit()
 
@@ -559,3 +568,124 @@ func _build_room_fire_g() -> void:
 	_add(SAIL_SCENE, "BurnSail", Vector2(392, 152), {"rail_start": Vector2(0, 0), "rail_end": Vector2(128, 0)})
 
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_g.tscn")
+
+
+## Fire test room J (Stage F11, enemies against fire and the vine monkey). All
+## elements, 640×180 (scrolls), starts with 5 pips. Earth frame, floor at row 20
+## (y 160). Left to right:
+##   1. A wisp patrolling a grass strip between two 1-tile bumps (cols 8-17). Light
+##      the grass (a fireball from the left bump, aimed down-right) and time it: the
+##      wisp walks into the fire and burns up. Or just fireball the wisp.
+##   2. A sentry on a block (x 268). Fireball it: destroyed. Throw a fireball at an
+##      orb: both burst. A wall (col 36) hangs from the ceiling past it, so the
+##      sentry can't see the rooms to the right.
+##   3. A vine monkey running back and forth across a spike strip (cols 39-47)
+##      between two 3-tile walls: spikes don't hurt it. A platform above (row 12)
+##      lets you cross.
+##   4. A monkey on a ledge (cols 51-56, row 15) next to a leaf pile on the floor
+##      (x 456-480). Light the pile; when the bonfire is tall, jump and gust the
+##      monkey right off the ledge: it drifts up in the hot air instead of falling.
+##   5. A monkey running a grass floor (cols 62-68), hopping a 2-tile spike pit
+##      (cols 69-70) to more grass and a leaf pile (cols 71-78), and back. Fireball
+##      it: it runs as a torch, lighting the grass. Light it while it's on the far
+##      side (or mid-hop) and it sets the far grass and the pile on fire. A gust puts
+##      a burning monkey out: it smolders, stunned, then carries on.
+func _build_room_fire_j() -> void:
+	_begin_room("RoomFireJ", "Fire J - Enemies & Vine Monkey",
+		"Stage F11 test room. All elements, starts with 5 pips. 1: burn the grass (or fireball the wisp): it walks into the fire and burns up. 2: fireball the sentry; fireball an orb and both burst. 3: a vine monkey runs over spikes unharmed (cross on the platform above). 4: light the leaf pile, then gust the ledge monkey into the hot air: it floats up. 5: fireball the monkey that hops the pit: it runs as a torch and lights the grass; light it on the far side for the leaf pile. Gust a burning monkey to put it out. R brings everything back.",
+		Vector2(640, 180))
+	_fire_room(5)
+	# Frame (80 columns).
+	_earth(0, 0, 80, 1)
+	_earth(0, 0, 1, 23)
+	_earth(79, 0, 1, 23)
+	_earth(0, 20, 80, 3)
+
+	# 1. The wisp on its grass strip.
+	_earth(7, 19, 1, 1)
+	_earth(18, 19, 1, 1)
+	_grass(8, 20, 10, 1)
+	_add(WISP_SCENE, "FuseWisp", Vector2(104, 160))
+
+	# 2. The sentry on its block, and the wall hanging past it.
+	_earth(32, 18, 3, 2)
+	_add(SENTRY_SCENE, "FireSentry", Vector2(268, 144))
+	_earth(36, 1, 1, 15)
+
+	# 3. The spike-strip monkey, its walls, and the platform to cross on.
+	_earth(38, 17, 1, 3)
+	_earth(48, 17, 1, 3)
+	_spikes("StripSpikes", 39, 19, 9)
+	_add(MONKEY_SCENE, "SpikeMonkey", Vector2(348, 160), {"hops_gaps": false})
+	_earth(40, 12, 7, 1)
+
+	# 4. The ledge monkey and the leaf pile beside its ledge.
+	_earth(51, 15, 6, 1)
+	_add(MONKEY_SCENE, "LedgeMonkey", Vector2(432, 120), {"hops_gaps": false})
+	_add(LEAF_PILE_SCENE, "UpdraftPile", Vector2(468, 160),
+		{"pile_width": 24.0, "leaf_count": 60, "random_seed": 7})
+
+	# 5. The fuse monkey: grass, the pit it hops, more grass and a leaf pile.
+	_earth(61, 19, 1, 1)
+	_grass(62, 20, 7, 1)
+	_spike_pit_at("FusePitSpikes", 69, 2, 20)
+	_grass(71, 20, 8, 1)
+	_add(LEAF_PILE_SCENE, "FarPile", Vector2(604, 160),
+		{"pile_width": 20.0, "leaf_count": 40, "random_seed": 9})
+	_add(MONKEY_SCENE, "FuseMonkey", Vector2(520, 160))
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_j.tscn")
+
+
+## Fire test room L (Stage F11b, the thicket elephant: 96x60, a walking boulder). All
+## elements, 720×180 (scrolls), starts with 5 pips. Earth frame, floor at row 20
+## (y 160): an elephant's back is at y 100, 60 px up, out of jumping reach (30 px).
+## It charges whenever it sees you on its level in front of it. Left to right:
+##   1. The climb and the ride: an elephant walks a 20-tile spike strip (cols 8-27)
+##      between two 3-tile walls. Get onto its back (from the left wall: a dash or
+##      gust up, the jet, a column next to it...) and ride it; a fire diamond hangs
+##      high over the spikes (y 64). Standing on the wall in front of it, it charges
+##      and is stunned by the wall: a moment to climb.
+##   2. The stone wall: an elephant in a pen between a low wall (col 31) and a STONE
+##      wall (cols 54-55, rows 11-19) only an elephant can break, a fire diamond in the
+##      chamber behind. Stand between it and the stone wall: it charges you; jump onto
+##      the ledge by the wall (cols 47-51, row 10) and it smashes the wall. Another
+##      ledge (cols 34-41, row 10) to dodge on. Burn its trunk and it charges twice as
+##      fast; a thrown big rock stops a charge.
+##   3. The thicket: an elephant in front of a thicket wall (cols 82-83). Burn its tail
+##      from the left: it bolts (twice as fast) through the thicket. Burn all three
+##      spots and it crumbles to ash. Burning its back makes the tail strike over it.
+func _build_room_fire_l() -> void:
+	_begin_room("RoomFireL", "Fire L - Thicket Elephant",
+		"Stage F11b test room. All elements, starts with 5 pips. A huge earth elephant: its front kills, its back is a ride (60 px up: dash, gust, jet or a column), its tail wiggles, rises and whips. It charges whenever it sees you on its level. 1: climb on and ride over the spikes to the high diamond. 2: lure its charge into the STONE wall (only elephants break it): jump onto the ledge as it comes. 3: burn its tail from the left: it bolts through the thicket. Burn all three spots and it crumbles. R resets.",
+		Vector2(720, 180))
+	_fire_room(5)
+	# Frame (90 columns).
+	_earth(0, 0, 90, 1)
+	_earth(0, 0, 1, 23)
+	_earth(89, 0, 1, 23)
+	_earth(0, 20, 90, 3)
+
+	# 1. The climb and the ride over the spikes, the high diamond.
+	_earth(7, 17, 1, 3)
+	_spikes("RideSpikes", 8, 19, 20)
+	_earth(28, 17, 1, 3)
+	_add(ELEPHANT_SCENE, "RideElephant", Vector2(144, 160))
+	_fire_diamond("RideDiamond", Vector2(152, 64), 1)
+
+	# 2. The pen with the stone wall, two ledges, the chamber behind.
+	_earth(31, 18, 1, 2)
+	_earth(34, 10, 8, 1)
+	_earth(47, 10, 5, 1)
+	_add(ELEPHANT_SCENE, "ChargeElephant", Vector2(352, 160), {"start_direction": -1})
+	_add(STONE_WALL_SCENE, "StoneWall", Vector2(54 * TILE, 11 * TILE), {"wall_size_tiles": Vector2i(2, 9)})
+	_earth(54, 1, 2, 10)
+	_fire_diamond("ChamberDiamond", Vector2(460, 150), 2)
+	_earth(60, 17, 1, 3)
+
+	# 3. The thicket wall.
+	_thicket(82, 10, 2, 10)
+	_earth(82, 1, 2, 9)
+	_add(ELEPHANT_SCENE, "ThicketElephant", Vector2(560, 160))
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_l.tscn")

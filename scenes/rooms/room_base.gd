@@ -150,6 +150,16 @@ func reset_objects() -> void:
 			member.call(&"reset")
 
 
+## Puts only this room's ENEMIES back to their starting state (Stage F11b). The room
+## manager calls it when the player walks into the room: creatures sleep outside the
+## player's room, so without this they'd be found frozen wherever they were left.
+## (Doors, crates, fire and the rest keep their state until a death or R.)
+func reset_enemies() -> void:
+	for member: Node in get_tree().get_nodes_in_group(EnemyHit.GROUP):
+		if is_ancestor_of(member) and member.is_in_group(RESETTABLE_GROUP):
+			member.call(&"reset")
+
+
 ## Creates a StaticBody2D (an immovable solid on physics layer 1, "world") with a
 ## matching collision shape and gray rectangle.
 func _add_solid_block(rect: Rect2) -> void:

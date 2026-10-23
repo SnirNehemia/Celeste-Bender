@@ -18,6 +18,9 @@ extends StaticBody2D
 ##                 An ENEMY it shoves is also KNOCKED BACK that way (Stage E6): stunned
 ##                 and sliding (Pushable.try_launch), so the head can ram a wisp off a
 ##                 ledge into spikes. A sentry is bolted down: it blocks the head.
+##               - rams an enemy that breaks Earth (EnemyHit.BREAKS_EARTH_GROUP, the
+##                 thicket elephant, Stage F11b): the whole snake shatters on it
+##                 (hardens, then shatter() from the head)
 ##               - becomes solid at once (a collision box per tile)
 ##             It HARDENS (harden()) when A or Jump is pressed (SnakeSteer), the budget
 ##             runs out, the next tile is solid or already snake, something it pushes
@@ -226,6 +229,15 @@ func _try_enter(cell: Vector2i, direction: Vector2i) -> bool:
 	if earth_layer.is_solid(cell) or segment_cells.has(cell):
 		harden_reason = "solid"
 		return false
+	for result: Dictionary in _query_cell(earth_layer, cell, ENEMY_MASK, [get_rid()]):
+		if EnemyHit.breaks_earth(result.collider):
+			# The head rammed the thicket elephant (Stage F11b): the snake shatters on
+			# it, starting at the head.
+			harden_reason = "breaker"
+			harden(harden_reason)
+			if not segment_cells.is_empty():
+				shatter(segment_cells[segment_cells.size() - 1])
+			return false
 	var player_in_way: Player = _find_player_in(cell)
 	if player_in_way != null:
 		if not _shove_player_out_of(player_in_way, cell, direction):

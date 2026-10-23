@@ -696,6 +696,37 @@ func _crumble_thicket(cells: Array[Vector2i], spread: bool = true) -> void:
 	_after_cells_gone(cells, spread)
 
 
+## Smashes the thicket cells overlapping `world_rect` without fire (Stage F11b: a
+## charging thicket elephant breaks through brambles). They crumble into flakes and
+## open air like burnt thicket, but light nothing. Returns true if any broke.
+func crush_thicket_in(world_rect: Rect2) -> bool:
+	if thicket_layer == null:
+		return false
+	var local_rect: Rect2 = Rect2(to_local(world_rect.position), world_rect.size)
+	var first: Vector2i = geometry_layer.local_to_map(local_rect.position - geometry_layer.position)
+	var last: Vector2i = geometry_layer.local_to_map(local_rect.end - geometry_layer.position)
+	var cells: Array[Vector2i] = []
+	for x: int in range(first.x, last.x + 1):
+		for y: int in range(first.y, last.y + 1):
+			var cell: Vector2i = Vector2i(x, y)
+			if thicket_layer.has_thicket(cell) and get_cell_rect(cell).intersects(local_rect):
+				cells.append(cell)
+	if cells.is_empty():
+		return false
+	for cell: Vector2i in cells:
+		if get_state(cell) == State.BURNING:
+			_end_burning(cell)  # keeps burning_count right
+		else:
+			cell_states[cell] = State.GONE
+		pending.erase(cell)
+		pending_origin.erase(cell)
+		var rect: Rect2 = get_cell_rect(cell)
+		AshFall.spawn(room, to_global(rect.get_center()), fire_tuning.thicket_ash_flakes / 2, rect.size, 0.4)
+	thicket_layer.remove_cells(cells)
+	_after_cells_gone(cells, false)
+	return true
+
+
 ## The flash-over is done: the whole cover collapses at once in a burst of ash and
 ## embers (freeze frames + shake, like a cracked wall breaking) and becomes open air.
 ## Hidden chambers it touched open.
@@ -901,8 +932,16 @@ func _check_player() -> void:
 	var player: Player = get_tree().get_first_node_in_group(Player.GROUP) as Player
 	if player == null or player.is_dead():
 		return
-	var hitbox: Rect2 = player.get_hitbox_rect()
-	hitbox.position = to_local(hitbox.position)
+	if is_rect_in_flame(player.get_hitbox_rect()):
+		player.die()
+
+
+## True if `world_rect` touches a burning cell's band of flame. The kill test for the
+## player, and (Stage F11, through FireHazard.touches_fire) for enemies walking in.
+func is_rect_in_flame(world_rect: Rect2) -> bool:
+	if burning_count == 0:
+		return false
+	var hitbox: Rect2 = Rect2(to_local(world_rect.position), world_rect.size)
 	var reach: float = fire_tuning.grass_fire_hazard_height
 	var first: Vector2i = geometry_layer.local_to_map(hitbox.position - Vector2.ONE * reach - geometry_layer.position)
 	var last: Vector2i = geometry_layer.local_to_map(hitbox.end + Vector2.ONE * reach - geometry_layer.position)
@@ -915,8 +954,8 @@ func _check_player() -> void:
 				# intersects() ignores rectangles that only share an edge: standing on
 				# the cell NEXT to a burning one is safe.
 				if get_flame_band(cell, normal).intersects(hitbox):
-					player.die()
-					return
+					return true
+	return false
 
 
 func _process(_delta: float) -> void:
