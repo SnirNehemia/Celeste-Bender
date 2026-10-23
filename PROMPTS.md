@@ -13,6 +13,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
 - Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [x] E5 · [x] E6 · [x] E7
 - Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · ~~F9~~ (dropped) · [x] F10 (covered by F7) · [x] F11 · [ ] F11a · [x] F11b · [ ] F12 · [ ] F13 · [ ] F14 · [ ] F15
+- Level editor (parallel track): [x] L0 (plan) · [ ] L1 · [ ] L2 · [ ] L3 · [ ] L4 · [ ] L5 · [ ] L6 · [ ] L7 · [ ] L8 · [ ] L9 · [ ] L10 · [ ] L11
 
 ---
 
@@ -253,6 +254,75 @@ Every Fire stage adds its test room to `tests/fire_test_world.tscn` (rooms gener
 > Read Fire_bending.md §12 (mixed test rooms) and §13. Build the Air + Fire and Earth + Fire test rooms from §12 into their own test worlds (like tests/mixed_test_world.tscn) and add "Air + Fire test rooms" and "Earth + Fire test rooms" to the main menu.
 
 **You should see:** Air + Fire: bonfire glide elevators, a snuffed safe path, a burning sail (the balloon and boosted gusts were dropped with F9/F10). Earth + Fire: a Shell with leaflings, a leafling launched by a column into a leaf pile, a rock foothold next to a thicket wall you burn open.
+
+---
+
+## Level editor track (parallel)
+
+Not an element chapter. It runs in its own sessions alongside the element stages (`/stage L3` and so on). Spec: `Level_editor.md`, with the decisions in §2. Rules for every L stage:
+- Editor code lives in `scenes/editor/`, the Story screens in `scenes/ui/`, levels in `res://levels/`. Gameplay scripts are not touched, except the Goal/EndScreen hook in L11 and "Back to editor" in the pause menu in L3.
+- Each stage adds a section to `tests/editor_smoke_test.tscn`. It drives the editor through its functions (paint, place, link, save, load, play), not the mouse, and prints PASS/FAIL.
+- Editor keys are InputMap actions named `editor_*` (`Level_editor.md` §4).
+
+## Stage L0 — Plan the level editor (DONE)
+> Clarify the level editor and Story Mode with me, then write the spec and the stages.
+
+Written into `Level_editor.md` (spec v1) and the stages below.
+
+## Stage L1 — Main menu and level storage
+> Read Level_editor.md §2, §3 and §10. Restructure the main menu: Story Mode (a placeholder screen for now), Level Editor (greyed out with "dev build only" when `OS.has_feature("editor")` is false), and a "Chapters & test rooms" submenu holding today's five entries. Esc goes back, and C or Enter picks as now. Keep the chapter list a const array, so F14/F15 only append to it. Add `scenes/editor/level_storage.gd` (the only code that knows `res://levels/`): list, save a world scene with `PackedScene.pack()`, load, rename, duplicate, delete. Add the `LevelInfo` node (title, start room, notes). Add the level library screen (list + New / Open / Duplicate / Rename / Delete with confirm). New makes a level with one empty 320×180 room, a SpawnPoint, Player, RoomCamera and DebugOverlay. Open plays it for now (there's no editor yet). Start tests/editor_smoke_test.tscn: make a level from code, save it, reload it, check its structure and that RoomManager runs it.
+
+**You should see:** the new menu, with the old entries under "Chapters & test rooms". Level Editor → New → a level appears in the list. Open drops you into an empty room you can walk in.
+
+## Stage L2 — Editor canvas, ground painting, save
+> Read Level_editor.md §4. Open from the library now goes to the editor screen: canvas, palette (only the Ground brush for now), top bar and status line. Switch the window to `canvas_items` stretch while the editor is open and back on leaving; check that the switch is clean. Add pan (middle drag, Space + drag), whole-step zoom, the 8 px grid (G), painting and erasing Ground tiles (left/right mouse, Shift-drag rectangles), undo/redo through `UndoRedo`, Ctrl+S save, an unsaved dot, and an Esc prompt if there are unsaved changes. Add the `editor_*` InputMap actions.
+
+**You should see:** paint a floor and walls, undo and redo, save, leave, reopen: everything is still there and sharp at any zoom.
+
+## Stage L3 — Spawn, goal and play-test
+> Read Level_editor.md §6 (Basics) and §8. Make spawn point (one per room), goal and spikes (facing + tile count) placeable, movable and deletable. Tab plays from the start room, Shift+Tab from the mouse; Tab comes back with view, selection and undo history kept. Add "Back to editor" in the pause menu during play-tests. Pre-play checks: a missing start SpawnPoint blocks, the rest are status-line warnings. Reaching the Goal shows "Goal reached — time, deaths" and returns to the editor. Play-testing uses the level packed in memory, with no save needed.
+
+**You should see:** build a small room with spikes and a goal, press Tab, play it, die on the spikes, reach the goal, land back in the editor where you were.
+
+## Stage L4 — Objects and the palette catalog (basics + Air)
+> Read Level_editor.md §6. Add `scenes/editor/palette_catalog.gd` with the entry fields from §6 and move Basics into it. Add every Air object (wind zone, wind crystal, gust diamond, crate, windmill, leaf platform, sail platform, door, pressure plate, no-glide zone). Add selection, drag-to-move with snap (Alt = free), Ctrl+D duplicate, Delete, and palette tabs. Add the cross-track rule to CLAUDE.md ("Working rules": a stage that adds a placeable object adds its catalog entry). Objects draw themselves in the editor where they already can (`@tool` scripts); the others get a stand-in in `editor_color`.
+
+**You should see:** an Air room with crates, wind zones and crystals, laid out by mouse and played with Tab.
+
+## Stage L5 — Property panel and room settings
+> Read Level_editor.md §5 (room settings) and §7 (properties). Add the property panel: a widget for each type (checkbox, number, dropdown, Vector2, 8-way direction picker), driven by the catalog's `editable_properties`. Add drag handles for `size_property` and `point_properties`. Every change can be undone. With nothing selected, the panel shows the room settings (title, elements allowed, fire start pips, one-key Earth).
+
+**You should see:** turn a wind zone to blow left and make it wider by dragging, resize a door, set a room to Earth-only, play: it behaves that way.
+
+## Stage L6 — Link tool
+> Read Level_editor.md §7 (links). L starts link mode for the selected object if its catalog entry has a `link_property`. Clicking a target of the accepted type adds or removes it; Esc or L ends link mode. Links are always drawn as dim lines, bright for the selected object, and may cross rooms. Deleting a target drops it from every link list. Saving and reloading keeps the links (they're node references in the packed scene).
+
+**You should see:** a crate, a pressure plate and a door. Link the door to the plate, play, push the crate onto the plate: the door opens.
+
+## Stage L7 — Map of rooms and import as copy
+> Read Level_editor.md §5. M toggles the map view: rooms as named rectangles with a tiny tile drawing. Drag on empty space to make a room, drag to move, drag edges to resize, with snapping to the grid and to neighbour edges. Overlaps are refused (red), and openings on shared edges are marked green. Add the start-room star; double-click opens a room; neighbours are drawn dimmed in the room view. Add "Import room as a copy" from every existing world (Air 1–7, Earth 1–10, test worlds, other levels), placed where you click and fully owned by this level. Match the existing rooms' handling of 180 px heights.
+
+**You should see:** three rooms in an L shape, with green exits between them. Play from the start: the camera slides room to room. Import Earth room 3 next to them and play through it.
+
+## Stage L8 — Earth palette
+> Read Level_editor.md §6 (Earth) and Earth_bending.md for the objects' settings. Add the Earth brush (EarthLayer; GroundPainter draws it in the editor as in play), cracked wall, stone wall, boulder and loose rocks to the catalog. Rooms with Earth painted default to Earth allowed.
+
+**You should see:** an Earth room painted by mouse that looks like the Earth chapter and bends like it.
+
+## Stage L9 — Fire palette
+> Read Level_editor.md §6 (Fire) and Fire_bending.md §13. Add the Grass, Thicket and Overgrown brushes, fire diamond, brazier, vine (end-point handle), hanging platform (linked to its vines with L) and leaf pile. A room's FireGrid only runs in play, not while editing.
+
+**You should see:** a grass field with a brazier and a hanging platform on two vines. Play, burn a vine: the plank swings, then falls.
+
+## Stage L10 — Enemies palette
+> Read Level_editor.md §6 (Enemies). Add the wisp, sentry, vine monkey, thicket elephant and shell (once F12 has landed; otherwise leave a note), each with its design settings (patrol range, facing…), and the enemy gate linked to its enemies with L.
+
+**You should see:** an enemy gate that opens when the two wisps linked to it are beaten.
+
+## Stage L11 — Story Mode
+> Read Level_editor.md §9. Add the `StoryList` resource (`res://levels/story.tres`) and the Story screen: Continue, Level select (✓ with best time and deaths, next open, rest locked) and New run with a confirm. Add Edit order in dev builds: Shift+Up/Down moves an entry, plus Add (editor levels and the existing chapter worlds), Remove and Rename. Play the levels back to back with a level-complete card between them and the end screen after the last. Save progress in `user://story_progress.cfg`, keyed by scene path. Add the small Goal/EndScreen hook so the end screen only appears at the end of a story run. Check that Story Mode works in a web export (`tools/publish_web.ps1 -NoPush`).
+
+**You should see:** Story Mode with Air 1–7, then one of your levels, then Earth 1–10. Finish the first, quit, come back: Continue starts the second, and the third is still locked.
 
 ---
 

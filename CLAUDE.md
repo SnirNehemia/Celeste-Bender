@@ -10,6 +10,7 @@ A Celeste-style precision platformer where the hero is an air-bender. Current go
 - `Earth_bending.md` — Earth chapter (separate keys A/S/D; later puzzles may mix Earth and Air). Read it for any stage starting with **E**.
 - `Fire_bending.md` — Fire chapter (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass). Read it for any stage starting with **F**, especially §13 "Decided in Stage F0", which overrides older text. Stages F1–F15 are written out in `PROMPTS.md` and summarized in `Fire_bending.md` §11. Being built.
 - `Water_bending.md` — Water chapter (Chapter 4, **draft v0**: pull-and-carry model, pools, freezing). To be refined after Fire is built; don't build from it until it is promoted to a spec.
+- `Level_editor.md` — the in-game level editor and Story Mode (spec v1, decided in Stage L0). A **parallel track** (Stages L1–L11 in `PROMPTS.md`), built alongside the element stages. Read it for any stage starting with **L**.
 - `GAME_SUMMARY.md` — snapshot of the whole game so far, handy for bringing a fresh conversation up to speed.
 - Each design doc may end with an "Ideas parking lot". Never build items from it unless I ask.
 
@@ -53,6 +54,8 @@ res://
 
 Fire, still to come (`PROMPTS.md` Stages F11, F11a, F11b, F12–F15; F9 was dropped, F10 is covered by F7; move each path into the tree above once it exists): `scenes/objects/fire/` (heat glow), `scenes/enemies/` (shell), `scenes/rooms/fire/` + `scenes/fire_world.tscn`, `tests/fire_chapter_smoke_test.tscn`, `tools/build_fire_chapter.gd` (Fire rooms 1–10).
 
+Level editor, still to come (Stages L1–L11, `Level_editor.md`): `scenes/editor/` (level_storage, level_info, palette_catalog, the editor screen), `scenes/ui/` (Story screen, level library), `levels/` (saved levels + `story.tres`), `tests/editor_smoke_test.tscn`.
+
 ## Input
 Define all actions in **Project Settings → InputMap** (edit `project.godot`): `move_left`, `move_right`, `move_up`, `move_down`, `jump`, `dash`, `gust`, `earth_column`, `earth_boulder`, `fireball`, `flame_jet`, `restart_room`, `pause`. (The old `earth_snake` action on D was removed in Stage F1: the snake moved to A, see `Earth_bending.md` §11 "One key". Q (`fireball`) and W (`flame_jet`) are the Fire keys since Stage F3, `Fire_bending.md` §3; D and F are free.) Debug keys: F1 debug overlay, F2 room picker, F3 gust/shadow debug draw, F4 save all tuning (Player, Earth, Fire) to their `.tres`, F5 tuning panel (`debug_tuning_panel`; inside it Shift = `debug_tuning_big_step`, R = `debug_tuning_reset`). Bindings per `GAME_DESIGN.md` §3, `Earth_bending.md` §3 and `Fire_bending.md` §3 (arrows only for movement: A/S are the Earth keys, Q/W the Fire keys). Code reads only action names, never raw keys.
 
@@ -63,7 +66,8 @@ Define all actions in **Project Settings → InputMap** (edit `project.godot`): 
 4. **Scenes (.tscn):** keep them simple. It's fine to write `.tscn` files directly, but prefer building small node trees in code (`_ready`) when that's clearer. Don't hand-edit resource UIDs; don't delete `.uid` / `.import` files — Godot manages them.
 5. **Placeholder art only** (`ColorRect`, `Polygon2D`, `Line2D`, `CPUParticles2D`) using the color key in `GAME_DESIGN.md` §2.
 6. **Git:** after each stage that works, suggest a commit message (don't commit unless I say so).
-7. If something in the design doc seems wrong or won't feel good, say so and propose an alternative before building it.
+7. **Level editor palette (once Stage L4 exists):** any stage that adds a placeable object or terrain layer adds its entry to `scenes/editor/palette_catalog.gd` (`Level_editor.md` §6) and keeps `tests/editor_smoke_test.tscn` passing. That file is the only place the element stages and the editor track meet.
+8. If something in the design doc seems wrong or won't feel good, say so and propose an alternative before building it.
 
 ## Running and checking
 - If the Godot MCP server is available, use it to run the project and read the debug output after changes.
