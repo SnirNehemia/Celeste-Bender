@@ -86,6 +86,14 @@ extends Resource
 ## world's speed while aiming, and the real seconds before it throws by itself.
 @export_range(0.05, 1.0) var fireball_aim_time_scale: float = 0.3
 @export var fireball_aim_max_real_time: float = 0.8
+## Ricochets (Stage F12): a fireball BOUNCES off anything that doesn't burn (bare
+## earth, stone, crates that won't catch, the Shell) and flies on until its range is
+## used up. It keeps this share of its speed per bounce. A bounce that would leave it
+## slower than fireball_min_bounce_speed px/s off the surface (skimming, rolling)
+## bursts it there instead. fireball_max_bounces caps the count (-1 = no cap).
+@export_range(0.0, 1.0) var fireball_bounce_keep: float = 0.85
+@export var fireball_min_bounce_speed: float = 40.0
+@export var fireball_max_bounces: int = -1
 
 @export_group("Fireball look")
 ## Embers left behind in flight, per second.
@@ -399,3 +407,16 @@ extends Resource
 @export var elephant_rock_push_speed: float = 120.0
 @export var elephant_gust_nudge_speed: float = 18.0
 @export var elephant_push_decel: float = 260.0
+
+@export_group("Shell")
+## The Shell's slow patrol, px/s (Fire_bending.md §7.2, Stage F12).
+@export var shell_walk_speed: float = 25.0
+## A small rock staggers it: it stops this long, seconds, knocked back this far, px.
+@export var shell_stagger_time: float = 0.5
+@export var shell_stagger_knockback: float = 4.0
+## The snake's head shoves it this far, px (one tile), at this speed, px/s.
+@export var shell_shove_distance: float = 8.0
+@export var shell_shove_speed: float = 80.0
+## A gust nudges it at this speed, px/s (it's heavy), sliding out at shell_push_decel.
+@export var shell_gust_nudge_speed: float = 14.0
+@export var shell_push_decel: float = 200.0

@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="StoryList" format=3]
+
+[ext_resource type="Script" path="res://scenes/ui/story_entry.gd" id="1_idaap"]
+[ext_resource type="Script" path="res://scenes/ui/story_list.gd" id="2_yvvvt"]
+
+[sub_resource type="Resource" id="Resource_m1wbg"]
+script = ExtResource("1_idaap")
+title = "Air - Windbound"
+scene_path = "res://scenes/world.tscn"
+
+[sub_resource type="Resource" id="Resource_6hbw8"]
+script = ExtResource("1_idaap")
+title = "Test"
+scene_path = "res://levels/test.tscn"
+
+[sub_resource type="Resource" id="Resource_k0fh0"]
+script = ExtResource("1_idaap")
+title = "Earth - the Earth chapter"
+scene_path = "res://scenes/earth_world.tscn"
+
+[resource]
+script = ExtResource("2_yvvvt")
+entries = Array[ExtResource("1_idaap")]([SubResource("Resource_m1wbg"), SubResource("Resource_6hbw8"), SubResource("Resource_k0fh0")])

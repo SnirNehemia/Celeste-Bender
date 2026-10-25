@@ -21,7 +21,9 @@ extends RefCounted
 ##   - heights are 180 + whole tiles (180, 188, 196...): like every existing room,
 ##     the last tile row always hangs half below the room's bottom edge
 ##   - positions are on the 8 px grid, or on a neighbour's edge when close to it
-##     (a room under a 180 px room starts at y = 180, half a tile off the grid)
+##     (a room under a 180 px room starts at y = 180, half a tile off the grid);
+##     a room beside another then lines its tile rows up with that neighbour's
+##     (_align_to_side_neighbours), so walls and exits meet across the edge
 ##   - dragging the LEFT or TOP edge keeps the room's contents where they are in
 ##     the level; it moves in whole tiles of the room's own grid, so its tiles stay
 ##     on cells. Tiles left outside a smaller room are cut off (undo brings them back).
@@ -311,7 +313,36 @@ func snap_moved(rect: Rect2, ignore: Room, snap_distance: float) -> Rect2:
 			if absf(y - rect.position.y) <= best_y:
 				best_y = absf(y - rect.position.y)
 				snapped_position.y = y
-	return Rect2(snapped_position, rect.size)
+	return Rect2(_align_to_side_neighbours(Rect2(snapped_position, rect.size), ignore), rect.size)
+
+
+## Tile rows line up across a shared side wall (play-test round 4). Heights are
+## 180 + whole tiles, so a room under another starts half a tile off the 8 px world
+## grid (180 = 22.5 tiles), and a room put beside it on the plain grid had its rows
+## 4 px off its neighbour's: walls and exits couldn't meet. So a room touching
+## another's left or right edge takes that neighbour's row offset (its y modulo a
+## tile); one touching a top or bottom edge takes its column offset. Returns the
+## corrected position.
+func _align_to_side_neighbours(rect: Rect2, ignore: Room) -> Vector2:
+	var aligned: Vector2 = rect.position
+	for room: Room in editor.get_rooms():
+		if room == ignore:
+			continue
+		var other: Rect2 = room_rect(room)
+		var beside: bool = (is_equal_approx(rect.position.x, other.end.x) or is_equal_approx(rect.end.x, other.position.x)) \
+			and rect.position.y < other.end.y and rect.end.y > other.position.y
+		var above_or_below: bool = (is_equal_approx(rect.position.y, other.end.y) or is_equal_approx(rect.end.y, other.position.y)) \
+			and rect.position.x < other.end.x and rect.end.x > other.position.x
+		if beside:
+			aligned.y = _snap_to_phase(aligned.y, other.position.y)
+		elif above_or_below:
+			aligned.x = _snap_to_phase(aligned.x, other.position.x)
+	return aligned
+
+
+## `value` moved to the nearest spot a whole number of tiles from `grid_origin`.
+static func _snap_to_phase(value: float, grid_origin: float) -> float:
+	return grid_origin + roundf((value - grid_origin) / TILE) * TILE
 
 
 ## `start_rect` with the `edges` dragged to `mouse`: snapped sizes, and a
@@ -506,7 +537,7 @@ func _apply_room_rect(room: Room, rect: Rect2, object_shift: Vector2, layer_cell
 			# Only the level's own nodes: things rooms build for themselves (the
 			# GroundPainter, FireGrid...) sit at the room's origin and stay there.
 			if child is Node2D and not child is TileMapLayer and child.owner == editor.level_root:
-				(child as Node2D).position += object_shift
+				LevelEditor.set_on_node(child, &"position", (child as Node2D).position + object_shift)
 				PaletteCatalog.sync_start_positions(child as Node2D)
 		var shifted_solids: Array[Rect2] = []
 		for solid: Rect2 in room.solid_rects:

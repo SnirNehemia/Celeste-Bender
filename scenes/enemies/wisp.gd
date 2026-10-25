@@ -11,9 +11,9 @@ extends CharacterBody2D
 ##   PATROL   walks at patrol_speed, turns around at walls and at ledges. Deadly to touch.
 ##            On top of an Earth Column it does NOT turn at the edge: a pillar is no
 ##            patrol route, so it walks off and drops back to the ground.
-##   STUNNED  knocked back by a gust (or the dash wake) and dizzy for stun_time.
-##            HARMLESS to touch while stunned (it turns pale and wobbles), so going
-##            for the dash finish never kills you by a frame. Doesn't turn at ledges,
+##   STUNNED  knocked back by a gust and dizzy for stun_time.
+##            HARMLESS to touch while stunned (it turns pale and wobbles), so finishing
+##            it off never kills you by a frame. Doesn't turn at ledges,
 ##            so a gust can knock it off its platform.
 ##   DEFEATED gone (hidden, no collision) until the room resets.
 ##
@@ -21,9 +21,6 @@ extends CharacterBody2D
 ## decides the outcome:
 ##   - slammed into a wall while flying fast  -> stunned longer (wall_slam_stun_time)
 ##   - knocked into spikes (or into a pit)    -> defeated
-##   - a STUNNED wisp hit by a dashing player -> defeated (freeze frame + shake, and
-##                                              with tuning.dash_defeat_refills the
-##                                              player gets their dash back)
 ##   - hit by a thrown rock (Stage E6)        -> knocked back along the throw and
 ##                                              defeated a moment later (it flies,
 ##                                              harmless, then pops). Since E7 only a
@@ -42,13 +39,13 @@ extends CharacterBody2D
 ## Every hit goes through ONE path (Stage F11): receive_hit(EnemyHit) looks the hit up
 ## in `immunity` (ElementImmunity, see _make_immunity for the table) and calls
 ## _be_killed() or _be_pushed(). The gust (receive_gust), the column and snake
-## (through Pushable), rocks, spikes, flames, reflected orbs and the dash all arrive
+## (through Pushable), rocks, spikes, flames and reflected orbs all arrive
 ## there.
 ##
 ## It talks to other objects only through small, existing contracts:
-##   - Pushable (group "pushable" + receive_gust): the gust and dash wake find it
+##   - Pushable (group "pushable" + receive_gust): the gust finds it
 ##   - Room.RESETTABLE_GROUP + reset(): dying or R brings it back
-##   - Player.die() / Player.is_dashing(): touching the player
+##   - Player.die(): touching the player
 ##   - Spikes.get_hitbox_global_rect(): the same fair hitbox the player gets
 ##   - SentryOrb.TARGET_GROUP: a reflected orb aims at it and defeats it on hit
 ##   - EnemyHit (group "enemies" + receive_hit): every hit (Stage F11)
@@ -64,8 +61,8 @@ extends CharacterBody2D
 
 enum State { PATROL, STUNNED, DEFEATED }
 
-## Emitted once when the wisp is defeated (by spikes, a pit, a dash or a reflected
-## orb). EnemyGate listens to it to open "beat every enemy" doors.
+## Emitted once when the wisp is defeated (by spikes, a pit, fire, a rock or a
+## reflected orb). EnemyGate listens to it to open "beat every enemy" doors.
 signal defeated
 
 ## Purple, per the color key (GAME_DESIGN.md §2). Pale purple while stunned.
@@ -246,7 +243,7 @@ func _has_floor_ahead() -> bool:
 
 
 ## The wisp's row of the §7.2 table: fire, big and perfect rocks, spikes, crushing,
-## reflected orbs, a dash (while stunned) and the elephant's tail whip kill it; gusts, earth pushes and a
+## reflected orbs and the elephant's tail whip kill it; gusts, earth pushes and a
 ## sloppy small rock push it.
 static func _make_immunity() -> ElementImmunity:
 	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
@@ -255,7 +252,7 @@ static func _make_immunity() -> ElementImmunity:
 		EnemyHit.Type.FIREBALL: kill, EnemyHit.Type.FLAME: kill,
 		EnemyHit.Type.BIG_ROCK: kill, EnemyHit.Type.PERFECT_ROCK: kill, EnemyHit.Type.SMALL_ROCK: push,
 		EnemyHit.Type.GUST: push, EnemyHit.Type.EARTH_PUSH: push, EnemyHit.Type.CRUSH: kill,
-		EnemyHit.Type.SPIKES: kill, EnemyHit.Type.REFLECTED_ORB: kill, EnemyHit.Type.DASH: kill,
+		EnemyHit.Type.SPIKES: kill, EnemyHit.Type.REFLECTED_ORB: kill,
 		EnemyHit.Type.WHIP: kill,
 	})
 
@@ -286,16 +283,13 @@ func _check_contacts() -> void:
 		# rectangles at their current positions (same reason as in spikes.gd).
 		if not my_rect.intersects(touched_player.get_hitbox_rect()):
 			continue
-		if state == State.STUNNED:
-			if touched_player.is_dashing():
-				receive_hit(EnemyHit.make(EnemyHit.Type.DASH, Vector2.ZERO, touched_player))
-			# A stunned wisp that isn't dashed is harmless: nothing happens.
-		else:
+		# A stunned wisp is harmless: nothing happens.
+		if state != State.STUNNED:
 			touched_player.die()
 		return
 
 
-## The Pushable contract: called by the gust and the dash wake. Becomes a GUST hit.
+## The Pushable contract: called by the gust. Becomes a GUST hit.
 func receive_gust(direction: Vector2, strength: float) -> void:
 	receive_hit(EnemyHit.make(EnemyHit.Type.GUST, direction * strength))
 
@@ -327,8 +321,6 @@ func _be_killed(hit: EnemyHit) -> void:
 				return
 			rock_defeat_remaining = hit.kill_delay
 			FX.shake(1.5, 0.1)
-		EnemyHit.Type.DASH:
-			_defeat_by_dash(hit.source as Player)
 		EnemyHit.Type.FIREBALL, EnemyHit.Type.FLAME:
 			_burn_up()
 		_:
@@ -457,15 +449,6 @@ func get_orb_target_position() -> Vector2:
 ## SentryOrb aim assist: can a reflected orb still hit us?
 func is_valid_orb_target() -> bool:
 	return state != State.DEFEATED
-
-
-## Dashed into while stunned: a crunchy hit (freeze frame, §9) and, optionally, the
-## dash comes back so you can keep moving (Celeste-style).
-func _defeat_by_dash(dashing_player: Player) -> void:
-	defeat()
-	FX.freeze(0.06)
-	if dashing_player.tuning.dash_defeat_refills:
-		dashing_player.refill_from_crystal()
 
 
 ## Called by Room.reset_objects() when the player dies or restarts the room.

@@ -1,7 +1,7 @@
 class_name FlameJetAbility
 extends Node2D
 ## FlameJetAbility: the flame jet (Fire_bending.md §5.2, W). A component under the
-## player, like AirDashAbility: it owns the pip spending, the thrust curve, and every
+## player, like GustAbility: it owns the pip spending, the thrust curve, and every
 ## jet visual (plume, nozzle, embers, ignition ring, pump flare, sputter). The
 ## MOVEMENT lives in the Jetting state (states/jetting.gd), which calls in here.
 ##

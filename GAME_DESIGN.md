@@ -20,7 +20,7 @@ This doc covers **Milestone 1: the Air vertical slice** — one element, 5 rooms
 - Internal resolution **320×180**, scaled up with integer scaling (pixel-perfect), window 1280×720 by default.
 - Tile size **8×8 px**.
 - Placeholder art only: `ColorRect` / `Polygon2D` shapes. Color key:
-  - Player: white rectangle (8×11), turns pale blue when the dash is used up
+  - Player: white rectangle (8×11)
   - Solid ground: dark gray, floors capped with green grass whose blades sway with wind, gusts and the player (added after Stage E3) · Spikes: red triangles · Wind zones: translucent cyan with drifting particles
   - Crates: brown · Windmills/fans: yellow · Enemies: purple · Projectiles: orange · Checkpoint/room exit: green
   - Puzzle objects (added in Stage 7): doors blue-gray · pressure plates tan, green when pressed · leaf platforms olive green with a pale pinwheel · sail platforms slate deck with a cream sail · rails thin gray-blue lines with end dots · leaf piles muted greens and golds (kept clear of yellow, orange and brown)
@@ -34,14 +34,14 @@ Mouse is not needed. Celeste-style 8-direction aiming with the arrow keys is mor
 
 | Action | Key | Notes |
 |---|---|---|
-| Move / aim | Arrow keys | Aim direction for dash and gust = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S are the Earth keys (`Earth_bending.md` §3), Q/W the Fire keys (`Fire_bending.md` §3) |
+| Move / aim | Arrow keys | Aim direction for the gust (and the fireball) = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S are the Earth keys (`Earth_bending.md` §3), Q/W the Fire keys (`Fire_bending.md` §3) |
 | Jump | **C** (Space as alternate) | Hold for higher jump; hold while falling = glide |
-| Air Dash | **X** | |
+| *(X)* | — | Was the Air Dash; removed (§5.1). Free for now |
 | Gust | **Z** | |
 | Restart room | **R** | |
 | Pause | **Esc** | |
 
-All bindings live in Godot's **InputMap** under named actions (`move_left`, `jump`, `dash`, `gust`, …) so they're easy to remap and to add a gamepad later.
+All bindings live in Godot's **InputMap** under named actions (`move_left`, `jump`, `gust`, …) so they're easy to remap and to add a gamepad later.
 
 ---
 
@@ -68,7 +68,7 @@ Starting values in the spirit of Celeste. All of these go in one tuning resource
 | Wall jump reach | 2 px | a wall this close counts as touching; no need to press into it |
 | Corner correction | up to 4 px | nudge around ceiling corners instead of bonking |
 
-The player is a **state machine**: `Idle`, `Run`, `Jump`, `Fall`, `WallSlide`, `Dash`, `Glide`, `GustAim`, `GustRecoil`, `Dead`.
+The player is a **state machine**: `Idle`, `Run`, `Jump`, `Fall`, `WallSlide`, `Glide`, `GustAim`, `GustRecoil`, `Dead`.
 
 ---
 
@@ -76,14 +76,11 @@ The player is a **state machine**: `Idle`, `Run`, `Jump`, `Fall`, `WallSlide`, `
 
 Each ability lists its movement, puzzle and combat use.
 
-### 5.1 Air Dash (X)
-- Burst of 240 px/s in the aimed direction (8 directions; default = facing) for 0.15 s, ignores gravity during the dash.
-- **1 charge**, refilled on touching ground or touching a **wind crystal** (floating very light blue diamond with wind blowing inside; respawns after 2.5 s).
-- Brief freeze frame (~3 frames) on dash start + small screen shake + afterimage trail.
-- **Wake:** the dash blows a small gust *backward* from its start point (cone 24 px, push 120 px/s vs the gust's 40 px / 160). It looks like the gust and pushes Pushable things behind you. Toggle: `dash_wake_enabled`.
-- **Movement:** cross gaps, reach ledges, chain off crystals.
-- **Puzzle:** dashing *through* a wind zone briefly doubles the dash distance. The wake can nudge a crate or leaf you just dashed away from.
-- **Combat:** dashing into a stunned enemy defeats it.
+### 5.1 Air Dash — removed
+- The dash (X) was cut: the **gust** (§5.3: its recoil and the down-gust boost) and the Fire chapter's **flame jet** (`Fire_bending.md` §5.2) cover its job of crossing gaps and reaching ledges, and three bursts of movement on three keys was one too many.
+- What went with it: the `Dash` state, `AirDashAbility`, the `dash` action, every `dash_*` and `ride_current_*` tuning value, the shared-stamina dash cost, the pale-blue "out of dashes" tint, and the wisp's "dash into it while stunned" kill.
+- **Wind crystals** (floating very light blue diamond with wind blowing inside; respawns after 2.5 s) stay: they refill the breath (glide stamina) and the gust charge.
+- ⚠ Rooms 2, 4, 5 and 7 were built around the dash and need re-checking or redesign (§8).
 
 ### 5.2 Glide (press Jump again while falling, hold to keep gliding)
 - Started by a *fresh* Jump press in the air (not by holding the original jump), so normal jumps keep their feel.
@@ -95,22 +92,20 @@ Each ability lists its movement, puzzle and combat use.
 - **Combat:** float over ground enemies and their attacks.
 - Riding an updraft costs no stamina (`glide_updraft_stamina_drain = 0`).
 
-### 5.2b Shared air stamina ("breath") — experimental, on by default
-- Toggle: `PlayerTuning.dash_uses_stamina`. When on, the dash spends **0.9 s of glide stamina** (60% of the bar) instead of a charge. A full bar buys one dash plus a short glide, or a long glide; a second dash needs a wind crystal or the ground.
-- The bar shows a white notch at the dash cost. The player still turns pale blue when there isn't enough for a dash.
-- Wind crystals and the ground refill the whole bar.
+### 5.2b Air stamina ("breath")
+- The glide stamina bar is the player's "breath". Wind crystals and the ground refill the whole bar. (It used to be shared with the dash, removed in §5.1.)
 - *Off since the gust charges (§5.3):* **the gust can spend breath too** (`gust_uses_stamina`, now `false` by default; 0.3 s = 20% of the bar, a fainter notch on the bar). Ground gusts are effectively free, since the bar refills on the ground. Pressing gust without enough breath plays a small "fizzle" puff.
 - Future elements: plan is **one bar per element, showing only the active element's bar**, rather than one global bar.
 
 ### 5.3 Gust (Z)
 - Short-range blast (a cone ~40 px long; was 32) in the aimed direction. 0.6 s cooldown (mostly matters on the ground; in the air the charge is the limit).
-- **One gust per jump** (`gust_charges_per_airtime = 1`, 0 = unlimited): every gust in the air, aimed or neutral, spends the airtime's **charge**. **Landing** refills it (only landing: not wall slides or wall jumps, same rule as dash and breath). **Ground gusts are free.** A **wind crystal** gives the charge back (to 1). Pressing gust in the air with no charge plays the small "fizzle" puff. The charges show as small **white pips above the player** while airborne (faint = spent).
+- **One gust per jump** (`gust_charges_per_airtime = 1`, 0 = unlimited): every gust in the air, aimed or neutral, spends the airtime's **charge**. **Landing** refills it (only landing: not wall slides or wall jumps, same rule as breath). **Ground gusts are free.** A **wind crystal** gives the charge back (to 1). Pressing gust in the air with no charge plays the small "fizzle" puff. The charges show as small **white pips above the player** while airborne (faint = spent).
 - **Gust diamond** (the same light blue, bigger, with more wind inside): sets the charges to **2 for the current airtime only** (`gust_diamond_charges`); the next landing brings you back to 1, used or not. It does nothing on the ground or if you already have 2 (so it isn't wasted), and respawns like a wind crystal. Placed where a jump needs two gusts (room 7's climb).
 - **Recoil:** the player is pushed the *opposite* way (120 px/s). **On the ground** the sideways recoil is halved (`gust_ground_recoil_multiplier`) and braked by strong friction (`gust_ground_recoil_friction`), so you can knock an enemy off a platform without sliding off yourself. Gusting down mid-air acts as an extra jump (`gust_down_boost_speed`). It sets the upward speed, so it also works mid-fall. There is no separate down-boost count any more: the down-gust is simply the airtime's one gust.
-- **Neutral gust (no arrow held):** a burst in *all* directions (circle, 28 px radius) that pushes everything nearby straight away from the player. No recoil: instead it is an **air brake**: for 0.2 s gravity is off and the player's speed slows toward a stop (a hard stop on the ground). Mid-air it is followed by a **float** (0.4 s): quarter gravity, fall capped at 25 px/s, full steering, so the player drifts down gently and is in control when it ends. Glide, dash and jumps can cut the float short.
+- **Neutral gust (no arrow held):** a burst in *all* directions (circle, 28 px radius) that pushes everything nearby straight away from the player. No recoil: instead it is an **air brake**: for 0.2 s gravity is off and the player's speed slows toward a stop (a hard stop on the ground). Mid-air it is followed by a **float** (0.4 s): quarter gravity, fall capped at 25 px/s, full steering, so the player drifts down gently and is in control when it ends. Glide and jumps can cut the float short.
 - **Hold to aim (experimental, `gust_hold_to_aim`, on by default):** holding Z slows time (×0.25) and the arrows only aim (no steering), with a cone preview. Releasing Z fires; a tap fires almost at once; holding over 0.4 s real time fires by itself. This solves "running right, want to gust left". Off = the gust fires the instant Z is pressed.
 - **Diagonal grace:** after aiming a diagonal, releasing one of its two keys still counts as the diagonal for 0.12 s (`gust_diagonal_grace_time`), so diagonals don't turn sideways when one key comes up a moment before Z.
-- **Gust → glide:** pressing jump during the recoil starts a glide at once, and gliding keeps speed above run speed (it fades at 100 px/s², `glide_overspeed_deceleration`), so a side-gust or dash can launch a long, fast glide.
+- **Gust → glide:** pressing jump during the recoil starts a glide at once, and gliding keeps speed above run speed (it fades at 100 px/s², `glide_overspeed_deceleration`), so a side-gust can launch a long, fast glide.
 - **No damage.** The gust itself never hurts anything; damage comes from what it pushes things *into* (see §7).
 - *Later (not Milestone 1):* with a second element, holding the bend key could open a slow-motion element wheel. With only Air, a wheel would have one option.
 - Gust applies a push force to anything in the cone that is "pushable":
@@ -134,7 +129,7 @@ Each ability lists its movement, puzzle and combat use.
 | Solid tiles | TileMapLayer with collisions |
 | Spikes | Instant death on touch (with a fair, slightly smaller hitbox) |
 | Wind zone | Constant force in one direction while inside (horizontal currents or updrafts) |
-| Wind crystal | Refills dash (or breath) and the gust charge on touch; respawns after 2.5 s, or at once when the room resets |
+| Wind crystal | Refills the breath (glide stamina) and the gust charge on touch; respawns after 2.5 s, or at once when the room resets |
 | Gust diamond | Bigger light blue diamond (the wind crystal's color) with more wind inside: two gust charges for the current airtime (§5.3); respawns after 2.5 s, or at once when the room resets |
 | Crate | Pushable box with its own simple physics (not a RigidBody): a gust slides it a predictable ~40 px. Can rest on pressure plates; player can stand on it. The player can't push it by walking, only with air. |
 | Pressure plate | Active while something **heavy** (a crate) sits on it. The player doesn't count, so crate puzzles can't be skipped. |
@@ -143,7 +138,7 @@ Each ability lists its movement, puzzle and combat use.
 | Sail platform | One-way deck with mast and sail on a visible rail. Moves **in the wind's direction**: gusts shove it (only the part along the rail counts), wind zones carry it. Standing on the deck: sideways gusts have **no recoil** (the sail takes the shove, so you can blow your own boat) and wind zones don't push you along the deck. Decorative railings mark the deck ends. Jumping off keeps the sail's speed. |
 | Leaf pile | Cosmetic mound of loose leaves drawn in front of other objects, so it can **hide a plate or a secret path**. Gusts blow away the leaves near you; the player or a crate moving through kicks them up. Leaves flutter down slowly, swinging left-right like a pendulum, land on any solid, ride along on moving things, fall again if their support goes away, and pop out if something slides over them. |
 | Door | Opens/closes based on its linked switch(es): *any* or *all* of them, optionally inverted. Won't close on the player or a crate. |
-| No-glide zone ("dead air") | Mauve, hatched rectangle with sinking specks. Gliding can't start inside it, and a glide that drifts in ends at once. Jump, dash and gust still work, so it turns a float-over into a dash or down-gust pass (rooms 2, 4, 5, 7). |
+| No-glide zone ("dead air") | Mauve, hatched rectangle with sinking specks. Gliding can't start inside it, and a glide that drifts in ends at once. Jump, gust and the flame jet still work, so it turns a float-over into a gust or down-gust pass (rooms 2, 4, 5, 7). |
 | Enemy gate | A switch that turns on once every enemy linked to it is defeated (room 5's exit). A row of pips shows each linked enemy: purple alive, green beaten. Resets with the room. |
 | Goal | Green exit area in the last room. Touching it ends the run and shows the end screen (deaths, time). |
 | Checkpoint / room entry | Player respawns at the last entered room's spawn point |
@@ -156,15 +151,14 @@ Linking: switches emit signals; doors listen. Links are set in the editor with e
 
 ## 7. Enemies (slice only needs two)
 
-- **Wisp** — patrols back and forth on a platform; touching it kills the player. Gust stuns it for 1.5 s; dashing into a stunned wisp, or knocking it into spikes, defeats it.
-- **Sentry** — stationary; fires a slow orange orb toward the player every 2 s when in line of sight (eye glows 0.4 s before each shot). Can hang from the ceiling (`mounted_on_ceiling`); with `can_fire` off it's a passive practice target. Gust reflects orbs (gold, 1.5× speed, harmless to the player); a reflected orb destroys a sentry or defeats a wisp. **Aim assist:** a reflected orb flies straight at the enemy closest to the gust's direction, within 45°, in the same room and in clear view.
+- **Wisp** — patrols back and forth on a platform; touching it kills the player. Gust stuns it for 1.5 s (harmless while stunned); knocking it into spikes, fire, a big rock or a reflected orb defeats it.
+- **Sentry** — stationary; fires a slow orange orb toward the player every 2 s when in line of sight (eye glows 0.4 s before each shot). Can hang from the ceiling (`mounted_on_ceiling`); with `can_fire` off it's a passive practice target. Gust reflects orbs (gold, 1.5× speed, harmless to the player); a reflected orb destroys a sentry or defeats a wisp. Orbs **bounce** off walls, floors and crates (up to 3 times, then pop; added in Fire Stage F12); another sentry pops them. **Aim assist:** a reflected orb flies straight at the enemy closest to the gust's direction, within 45°, in the same room and in clear view.
 
 Full enemy reference with animated drawings: `ENEMIES.html`.
 
-**Impact rule (no HP):** the gust (and dash wake) deal no damage, only push. What a pushed enemy *hits* decides the outcome:
+**Impact rule (no HP):** the gust deals no damage, only push. What a pushed enemy *hits* decides the outcome:
 - slammed into a **wall** or solid → stunned longer (2.5 s instead of 1.5 s)
 - knocked into **spikes** → defeated
-- a **stunned** enemy hit by a dash → defeated
 
 No health bars: every outcome is readable at a glance with placeholder shapes (pillar 4). Stage 8 builds this.
 
@@ -175,13 +169,13 @@ No health bars: every outcome is readable at a glance with placeholder shapes (p
 Each room teaches one thing, then tests it.
 
 1. **"First Breath"** — run, jump, wall jump. Short gaps, one wall climb. No bending.
-2. **"The Dash"** — gap too wide to jump; first wind crystal; ends with a crystal-chain over spikes.
+2. **"The Dash"** ⚠ built for the removed dash, needs redesign — gap too wide to jump; first wind crystal; ends with a crystal-chain over spikes.
 3. **"Updraft"** — glide over a long pit; ride an updraft to a high exit; one horizontal wind current pushing against you.
-4. **"Gust Works"** — puzzle room: gust a crate onto a plate to open a door; spin a windmill to hold a gate open while you dash through; raise a leaf platform to reach the exit.
-5. **"Sentry Pass"** — combat room: two wisps over a spike floor and one sentry guarding the exit. Requires down-gust jumps, reflecting an orb, and a dash finish.
+4. **"Gust Works"** — puzzle room: gust a crate onto a plate to open a door; spin a windmill to hold a gate open while you get through (⚠ was a dash; re-check); raise a leaf platform to reach the exit.
+5. **"Sentry Pass"** — combat room: two wisps over a spike floor and one sentry guarding the exit. Requires down-gust jumps, reflecting an orb, and knocking the wisps into spikes.
 
 6. **"Sail Under Fire"** — ride a sail platform across a long spike pit, pushing it with your own gusts (no recoil on deck) while two ceiling sentries and a dock sentry shoot at you. Two **thorn crowns** (spiked pillars sticking up through the rail) block the deck: jump each one as the boat slides under it and land back on board.
-7. **"The Gauntlet"** — the hard finale: race a windmill gate through a crystal chain in a head-wind, climb with a gust diamond and down-gusts under sentry fire, slip past a wisp to the goal.
+7. **"The Gauntlet"** — the hard finale (⚠ its crystal chain was a dash chain; re-check): race a windmill gate through a crystal chain in a head-wind, climb with a gust diamond and down-gusts under sentry fire, slip past a wisp to the goal.
 
 A simple end screen shows deaths and time (the goal is at the end of room 7).
 
@@ -189,10 +183,10 @@ A simple end screen shows deaths and time (the goal is at the end of room 7).
 
 ## 9. Game feel checklist
 
-- Squash and stretch on the player rectangle (jump, land, dash)
-- Freeze frames on dash and on hitting an enemy
-- Small screen shake (dash, gust, death)
-- Dust particles on land and wall jump; dash afterimages; gust cone particles
+- Squash and stretch on the player rectangle (jump, land)
+- Freeze frames on hitting an enemy
+- Small screen shake (gust, death)
+- Dust particles on land and wall jump; gust cone particles
 - Death: quick burst of particles, 0.4 s, then respawn
 - Sound is out of scope for Milestone 1 (but leave a single `play_sfx(name)` hook)
 

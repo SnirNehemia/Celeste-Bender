@@ -13,7 +13,7 @@ extends Node
 ##                                         leaving a few pebbles on the ground
 ## without needing a reference to the camera or the scene tree.
 ##
-## Who calls it: AirDashAbility, GustAbility, the GustAim state (slow motion);
+## Who calls it: GustAbility, the GustAim state (slow motion);
 ## enemy hits and death later.
 ##
 ## Freeze PAUSES the scene tree (get_tree().paused); slow motion uses
@@ -175,7 +175,7 @@ func spawn_gravel(world_position: Vector2, amount: int, direction: Vector2,
 ## calls this with a short name. Sound is out of scope for Milestone 1, so it does
 ## nothing yet; adding audio later means filling in only this function (e.g. look
 ## up an AudioStream by name and play it on a pooled AudioStreamPlayer).
-## Names used so far: jump, wall_jump, land, dash, gust, death, respawn, crystal,
+## Names used so far: jump, wall_jump, land, gust, death, respawn, crystal,
 ## wisp_defeated, sentry_destroyed, orb_reflected, goal, pause, unpause.
 func play_sfx(sound_name: StringName) -> void:
 	if log_sfx_calls:

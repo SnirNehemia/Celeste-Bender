@@ -4,6 +4,8 @@ extends CanvasLayer
 ## "press Jump to play again".
 ##
 ## Hidden until GameState emits `run_finished` (the Goal in room 5 triggers it).
+## In a Story Mode run (GameState.is_story_run) it only freezes the player:
+## StoryPlayer shows the level-complete card instead (Level_editor.md §9).
 ## Then it freezes the player, dims the screen and shows the run's numbers.
 ## Pressing Jump clears the run (GameState.reset_run()) and reloads the world scene,
 ## which puts everything back to the start.
@@ -53,6 +55,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _on_run_finished() -> void:
 	if player != null:
 		player.set_frozen(true)
+	# Story Mode shows its own level-complete card and goes on to the next level.
+	if GameState.is_story_run:
+		return
 	stats_label.text = "Deaths: %d\nTime: %s" % [GameState.death_count, GameState.get_formatted_time()]
 	input_delay_remaining = INPUT_DELAY
 	visible = true

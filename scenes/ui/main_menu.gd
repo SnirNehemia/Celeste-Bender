@@ -3,7 +3,7 @@ extends Control
 ## Main menu: the first screen when the game starts (it's the main scene in
 ## project.godot). Arrows + Enter (or C) to pick, Esc to go back a page.
 ##
-## It has three pages, one shown at a time (Level_editor.md §10):
+## It has two pages, one shown at a time (Level_editor.md §10):
 ##   - Main:     Story Mode · Level Editor · Chapters & test rooms
 ##   - Chapters: every chapter and test world (CHAPTERS below) + Back
 ##       - Air:   scenes/world.tscn             rooms 1-7 (Milestone 1)
@@ -11,7 +11,7 @@ extends Control
 ##       - Earth tests: tests/earth_test_world.tscn   one test room per Earth stage
 ##       - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
 ##       - Fire tests: tests/fire_test_world.tscn     one test room per Fire stage (F1+)
-##   - Story:    a placeholder until Story Mode is built (Stage L11)
+## Story Mode opens the Story screen (scenes/ui/story_screen.tscn, Stage L11).
 ## Level Editor opens the level library (scenes/ui/level_library.tscn). It's a dev
 ## tool: levels are saved into the project (res://levels/), which only works when
 ## the game runs from the Godot project, so the button is greyed out elsewhere.
@@ -36,24 +36,25 @@ const CHAPTERS: Array = [
 	["Fire  -  test rooms (F2 to switch)", "res://tests/fire_test_world.tscn"],
 ]
 const LEVEL_LIBRARY_SCENE: String = "res://scenes/ui/level_library.tscn"
+const STORY_SCREEN_SCENE: String = "res://scenes/ui/story_screen.tscn"
 const BACKGROUND_COLOR: Color = Color(0.1, 0.1, 0.13)
 ## Small font: the game renders at 320x180, so default 16 px text would be huge.
 const FONT_SIZE: int = 8
 const TITLE_FONT_SIZE: int = 16
 const HINT_ALPHA: float = 0.6
 
-## The three pages. Only one is visible at a time.
+## The two pages. Only one is visible at a time.
 var main_page: VBoxContainer
 var chapters_page: VBoxContainer
-var story_page: VBoxContainer
-## The buttons that open the sub-pages: focus goes back to them on Esc / Back.
-var story_button: Button
+## The button that opens the sub-page: focus goes back to it on Esc / Back.
 var chapters_button: Button
 ## The button that opened the current sub-page (null on the main page).
 var opened_from: Button = null
 
 
 func _ready() -> void:
+	# Back from a world (pause menu -> Main menu): a story run, if any, is over.
+	StoryPlayer.stop()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var background: ColorRect = ColorRect.new()
 	background.color = BACKGROUND_COLOR
@@ -78,15 +79,12 @@ func _ready() -> void:
 	column.add_child(main_page)
 	chapters_page = _build_chapters_page()
 	column.add_child(chapters_page)
-	story_page = _build_story_page()
-	column.add_child(story_page)
 	_show_page(main_page, null)
 
 
 func _build_main_page() -> VBoxContainer:
 	var page: VBoxContainer = _make_page()
-	story_button = _make_button("Story Mode", func() -> void: _show_page(story_page, story_button))
-	page.add_child(story_button)
+	page.add_child(_make_button("Story Mode", func() -> void: get_tree().change_scene_to_file(STORY_SCREEN_SCENE)))
 
 	var editor_button: Button = _make_button("Level Editor", _open_level_library)
 	# OS.has_feature("editor"): true when the game runs from the Godot project
@@ -113,22 +111,11 @@ func _build_chapters_page() -> VBoxContainer:
 	return page
 
 
-func _build_story_page() -> VBoxContainer:
-	var page: VBoxContainer = _make_page()
-	var label: Label = Label.new()
-	label.text = "Story Mode is coming soon:\nyour levels and the chapters, played in order."
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", FONT_SIZE)
-	page.add_child(label)
-	page.add_child(_make_button("Back", _go_back))
-	return page
-
-
 ## Shows `page`, hides the others, and focuses its first button.
 ## `from_button` is the button that opened it, to return focus there on Back.
 func _show_page(page: VBoxContainer, from_button: Button) -> void:
 	opened_from = from_button
-	for each_page: VBoxContainer in [main_page, chapters_page, story_page]:
+	for each_page: VBoxContainer in [main_page, chapters_page]:
 		each_page.visible = each_page == page
 	for child: Node in page.get_children():
 		var button: Button = child as Button

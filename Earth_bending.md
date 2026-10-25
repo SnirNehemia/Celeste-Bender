@@ -70,7 +70,7 @@ Slow motion should slow enemies, projectiles and objects, but the shadow and the
 - The column rises **perpendicular to the surface** it comes from: upward from floors, sideways from walls, downward from ceilings.
 - Size: **1 tile wide × 3 tiles long** (8×24 px), rises in 0.1 s.
 - **It's a bouncer, not a platform.** Anything touching any face of it is launched away from that face at **220 px/s** (fixed, like a Celeste spring). This applies to the player, crates, boulders and enemies.
-- Bouncing off a column **refills the Air dash** (for later mixed puzzles).
+- Bouncing off a column **refills the breath** (glide stamina, for mixed puzzles; it refilled the dash before the dash was removed).
 - The column is drawn in used-earth color. The tile it rose from becomes used.
 - The column stays until the room resets.
 - **Quick tap:** releasing before the shadow starts moving (under 0.5 s) raises the column right under the player. This works as a self-launch, a "super jump."
@@ -177,7 +177,7 @@ The goal is to *show energy traveling through the earth* from the player to the 
 These rules were agreed when planning the build. Where they differ from the sections above, this list wins.
 
 - **Keys:** the WASD movement alternates are removed, so A/S/D are free for Earth. Movement is arrows only.
-- **Air in the Earth chapter:** rooms declare which elements are allowed. Earth rooms 1–5 are Earth-only (dash, glide and gust do nothing), so their puzzles can't be skipped with Air. Mixed rooms come later.
+- **Air in the Earth chapter:** rooms declare which elements are allowed. Earth rooms 1–5 are Earth-only (glide and gust do nothing), so their puzzles can't be skipped with Air. Mixed rooms come later.
 - **Shadow path:** the shadow travels along the exposed *faces* of earth tiles (a tile plus the side that touches open air). That's what lets it wrap inner and outer corners. A corner tile has two faces but one fresh/used state.
 - **Shadow crosses everything solid** (changed after E2 play-test): it follows any surface, gray rock and used earth included, wrapping corners. It can only *erupt* from fresh earth: over gray or used tiles it's drawn pale, and releasing there (or timing out there) fizzles with no earth used. Gaps no longer stop it either: it wraps down into them.
 - **Wall bends go down by default** (changed after E2 play-test): from a wall slide the shadow crawls down the wall, so you can raise something to land on. Hold Up to send it up.
@@ -234,7 +234,7 @@ These rules were agreed when planning the build. Where they differ from the sect
 
 Unconfirmed ideas go here so they're written down but not built.
 
-- **Earth + Air combos:** gust pushes a resting boulder; dash through a column's bounce for extra speed; a gust-propelled boulder throw.
+- **Earth + Air combos:** gust pushes a resting boulder; glide off a column's bounce for extra distance; a gust-propelled boulder throw.
 - Choosing the shadow's direction during the first 0.5 s with left/right instead of locking it to facing.
 - Thicker earth layers that allow more bends, or taller columns.
 - Boulders that land and rest (pushable, re-throwable) instead of shattering.

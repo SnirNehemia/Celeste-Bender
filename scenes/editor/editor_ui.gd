@@ -6,7 +6,8 @@ extends CanvasLayer
 ##   - help:        the quick reference (EditorHelp), from the top bar's "?" or H
 ##   - palette:     left column: tools without a family (the Eraser) at the very
 ##                  top, then a tab per family (Terrain, Basics, Air...),
-##                  below it one button per PaletteCatalog entry of the open tab;
+##                  below it one button per PaletteCatalog entry of the open tab
+##                  (a scrolling list when it is taller than the screen);
 ##                  emits `entry_chosen` when an entry is clicked
 ##   - property panel: right column, the selected object's (or room's) settings
 ##                  (PropertyPanel, Stage L5)
@@ -262,6 +263,18 @@ func _build_palette(column: VBoxContainer) -> void:
 	var tab_grid: GridContainer = GridContainer.new()
 	tab_grid.columns = TAB_COLUMNS
 	column.add_child(tab_grid)
+	column.add_child(HSeparator.new())  # under the tabs
+	# The open tab's buttons scroll (after the L10 play-test: the Air list ran under
+	# the status line). A ScrollContainer shows as much of its child as fits and
+	# scrolls the rest with the mouse wheel; EXPAND_FILL makes it take the height
+	# left between the tabs and the bottom bar, so the palette never grows past it.
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	var lists: VBoxContainer = VBoxContainer.new()
+	lists.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(lists)
 	var tab_group: ButtonGroup = ButtonGroup.new()
 	for family: String in PaletteCatalog.get_families():
 		var tab: Button = _make_toggle(family, tab_group)
@@ -270,11 +283,8 @@ func _build_palette(column: VBoxContainer) -> void:
 		tab_grid.add_child(tab)
 		family_tabs[family] = tab
 		var entry_list: VBoxContainer = VBoxContainer.new()
-		column.add_child(entry_list)
+		lists.add_child(entry_list)
 		family_lists[family] = entry_list
-	var separator: HSeparator = HSeparator.new()
-	column.add_child(separator)
-	column.move_child(separator, tab_grid.get_index() + 1)  # under the tabs
 
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 		if entry.family != "":

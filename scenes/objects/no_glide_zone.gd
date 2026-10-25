@@ -3,8 +3,8 @@ class_name NoGlideZone
 extends Node2D
 ## No-glide zone ("dead air"): a rectangle where the air won't hold you. You can't
 ## start a glide inside it, and a glide that drifts into it ends at once (you drop
-## like a normal fall). Jumps, dashes and gusts still work, so it turns a pass you
-## could float over into one you have to dash, down-gust or wall-jump through.
+## like a normal fall). Jumps, gusts and the flame jet still work, so it turns a pass you
+## could float over into one you have to gust, jet or wall-jump through.
 ##
 ## The node's position is the zone's TOP-LEFT corner and `zone_size` its size (same
 ## convention as WindZone).

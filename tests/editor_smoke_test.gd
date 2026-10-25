@@ -11,6 +11,7 @@ extends Node
 ## folder at the end.
 
 const TEST_LEVELS_DIR: String = "user://editor_smoke_test_levels/"
+const TEST_PROGRESS_PATH: String = "user://editor_smoke_test_story_progress.cfg"
 const MAIN_MENU_SCENE: PackedScene = preload("res://scenes/ui/main_menu.tscn")
 const LEVEL_LIBRARY_SCENE: PackedScene = preload("res://scenes/ui/level_library.tscn")
 const LEVEL_EDITOR_SCENE: PackedScene = preload("res://scenes/editor/level_editor.tscn")
@@ -40,10 +41,17 @@ func _ready() -> void:
 	await _check_l7_import()
 	await _check_l8_earth()
 	await _check_l8b_followups()
+	await _check_l9_fire()
+	await _check_l9b_followups()
+	await _check_l10_enemies()
+	await _check_l10b_followups()
+	await _check_l10c_followups()
+	await _check_l10d_plank_on_block()
+	await _check_l11_story()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -1227,6 +1235,649 @@ func _check_l8b_followups() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("L8b follow-ups")
+
+
+## Stage L9: the Fire brushes and objects; no FireGrid while editing; a vine
+## burnt in play lets its plank fall.
+func _check_l9_fire() -> void:
+	var path: String = LevelStorage.create_level("Fire Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	_check(PaletteCatalog.get_families().has("Fire"), "the palette has a Fire tab")
+	for id: StringName in [&"grass", &"thicket", &"overgrown_grass", &"overgrown_thicket"]:
+		var entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(id)
+		_check(entry != null and entry.kind == PaletteCatalog.Kind.TERRAIN and entry.family == "Terrain", "%s is a Terrain brush" % id)
+	for id: StringName in [&"fire_diamond", &"brazier", &"vine", &"hanging_platform", &"leaf_pile"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Fire", "%s is in the Fire tab" % id)
+
+	# Grass: a GrassLayer, saved; its blades grow at once but aren't saved.
+	_check(not room.fire_allowed, "a new room doesn't allow Fire")
+	editor.choose_entry(PaletteCatalog.get_entry(&"grass"))
+	var floor_cells: Array[Vector2i] = []
+	for x: int in range(2, 38):
+		floor_cells.append(Vector2i(x, 20))
+	editor.paint_cells(room, floor_cells, true)
+	var grass: GrassLayer = room.get_node_or_null("Grass") as GrassLayer
+	_check(grass != null and grass.owner == editor.level_root and grass.get_used_cells().size() == 36, "the Grass brush paints a saved GrassLayer")
+	_check(grass.get_cell_atlas_coords(Vector2i(5, 20)) == Vector2i(0, 0), "with the top tile where open air is above")
+	_check(not room.fire_allowed, "grass alone doesn't turn Fire on (it's Earth ground too)")
+	_check(grass.blade_bases.size() > 0, "its blades grow while editing")
+	var unsaved_children: bool = grass.get_children().all(func(child: Node) -> bool: return child.owner == null)
+	_check(unsaved_children and grass.get_child_count() > 0, "the blades and gust sensors aren't saved")
+
+	# Thicket and the two cover looks: Fire comes on, undo takes it back.
+	editor.choose_entry(PaletteCatalog.get_entry(&"thicket"))
+	editor.paint_cells(room, [Vector2i(30, 15), Vector2i(30, 16)], true)
+	var thicket: ThicketLayer = room.get_node_or_null("Thicket") as ThicketLayer
+	_check(thicket != null and thicket.get_used_cells().size() == 2 and room.fire_allowed, "the Thicket brush paints thicket and turns Fire on")
+	_check(room.get_node_or_null("FireGrid") == null, "no FireGrid while editing")
+	editor.undo()
+	_check(thicket.get_used_cells().is_empty() and not room.fire_allowed, "undo takes both back")
+	editor.redo()
+	editor.choose_entry(PaletteCatalog.get_entry(&"overgrown_grass"))
+	editor.paint_cells(room, [Vector2i(20, 15)], true)
+	editor.choose_entry(PaletteCatalog.get_entry(&"overgrown_thicket"))
+	editor.paint_cells(room, [Vector2i(21, 15)], true)
+	var overgrown: OvergrownLayer = room.get_node_or_null("Overgrown") as OvergrownLayer
+	_check(overgrown != null and overgrown.get_cell_atlas_coords(Vector2i(20, 15)) == ThicketLayer.GRASS_LOOK_TILE
+		and overgrown.get_cell_atlas_coords(Vector2i(21, 15)) == ThicketLayer.THICKET_TILE, "both cover looks paint one Overgrown layer")
+	editor.choose_entry(PaletteCatalog.get_entry(&"eraser"))
+	editor.erase_at(room.global_position + Vector2(21 * 8 + 4, 15 * 8 + 4))
+	editor.end_stroke()
+	_check(overgrown.get_cell_source_id(Vector2i(21, 15)) == -1, "the eraser clears a cover")
+	editor.choose_entry(PaletteCatalog.get_entry(&"ground"))
+
+	# Objects. A brazier stands on the floor and (in a room without Fire) turns it on.
+	editor.set_property(room, &"fire_allowed", false)
+	var brazier: Brazier = editor.place_object(PaletteCatalog.get_entry(&"brazier"), room, Vector2i(6, 19)) as Brazier
+	_check(brazier.position == Vector2(52, 160) and room.fire_allowed, "a brazier stands on the clicked tile and turns Fire on, got %s" % brazier.position)
+	editor.undo()
+	_check(not brazier.is_inside_tree() and not room.fire_allowed, "undo takes the brazier and the setting back")
+	editor.redo()
+	var diamond: FireDiamond = editor.place_object(PaletteCatalog.get_entry(&"fire_diamond"), room, Vector2i(10, 15)) as FireDiamond
+	_check(diamond.position == Vector2(84, 124), "a fire diamond sits centered on its tile")
+	var pile: LeafPile = editor.place_object(PaletteCatalog.get_entry(&"leaf_pile"), room, Vector2i(14, 19)) as LeafPile
+	_check(pile.position.y == 160.0, "a leaf pile lies on the floor")
+
+	# Two vines from the ceiling (row 1 is below the top wall) and a plank on them.
+	var vine_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"vine")
+	var left_vine: Vine = editor.place_object(vine_entry, room, Vector2i(18, 1)) as Vine
+	var right_vine: Vine = editor.place_object(vine_entry, room, Vector2i(23, 1)) as Vine
+	_check(left_vine.position == Vector2(148, 8), "a vine's anchor is the top of the clicked tile, got %s" % left_vine.position)
+	_check(PaletteCatalog.get_bounds(left_vine) == Rect2(room.global_position + Vector2(146, 8), Vector2(4, 32)), "its outline runs down to its end")
+	var end_handle: Dictionary = EditorHandles.get_handles(left_vine)[0]
+	_check(end_handle["property"] == &"end_point" and end_handle["position"] == left_vine.global_position + Vector2(0, 32), "its end has a handle")
+	editor.set_property(left_vine, &"end_point", Vector2(4, 64))
+	editor.set_property(right_vine, &"end_point", Vector2(-4, 64))
+	var plank: HangingPlatform = editor.place_object(PaletteCatalog.get_entry(&"hanging_platform"), room, Vector2i(20, 9)) as HangingPlatform
+	_check(plank.position.y == 76.0, "the plank is centered on its tile row, got %s" % plank.position)
+	_check(editor.start_link_mode(plank) and editor.toggle_link(plank, left_vine) and editor.toggle_link(plank, right_vine), "L links the plank to both vines")
+	_check(not editor.toggle_link(plank, brazier), "but not to a brazier")
+	editor.end_link_mode()
+	_check(plank.vines.size() == 2, "the plank holds two vines")
+	var turned: bool = editor.rotate_object(plank)
+	_check(turned and is_equal_approx(plank.rotation_degrees, 90.0), "R stands the plank on end")
+	_check(PaletteCatalog.get_bounds(plank).size.is_equal_approx(Vector2(4, 48)), "its outline turns with it")
+	editor.undo()
+	_check(is_zero_approx(plank.rotation_degrees), "undo lays it flat again")
+	var plank_start: Vector2 = plank.position
+	editor.move_object(plank, plank_start + Vector2(8, 0))
+	_check(plank.position == plank_start + Vector2(8, 0), "a plank (a body moved by script) can be moved in the editor")
+	editor.undo()
+	editor.set_property(room, &"fire_start_pips", 2)
+
+	# Play: the FireGrid is there, and a burnt vine drops its side of the plank.
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	_check(play_room.get_node_or_null("FireGrid") is FireGrid, "in play the room has its FireGrid")
+	await get_tree().physics_frame
+	var play_plank: HangingPlatform = play_room.get_node(NodePath(plank.name)) as HangingPlatform
+	var play_vine: Vine = play_room.get_node(NodePath(left_vine.name)) as Vine
+	_check(play_plank.held_vines.size() == 2, "the play copy's plank hangs on both vines")
+	play_vine.ignite(null)
+	await get_tree().create_timer(0.6).timeout
+	_check(play_vine.has_snapped and play_plank.has_fallen, "a burnt vine snaps and the plank swings")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	# Saved and reloaded: the layers and links are there, the helpers aren't.
+	_check(editor.save() == OK, "the level saves")
+	var state: SceneState = (LevelStorage.load_level(path) as PackedScene).get_state()
+	var saved_under_grass: int = 0
+	for node_index: int in state.get_node_count():
+		if String(state.get_node_path(node_index, true)).contains("Grass") and state.get_node_name(node_index) != &"Grass":
+			saved_under_grass += 1
+	_check(saved_under_grass == 0, "no blade or sensor node is saved, found %d" % saved_under_grass)
+	var reloaded: Node = (LevelStorage.load_level(path) as PackedScene).instantiate()
+	var reloaded_plank: HangingPlatform = reloaded.get_node("Room1/" + String(plank.name)) as HangingPlatform
+	_check(reloaded_plank.vines.size() == 2 and reloaded.get_node("Room1/Overgrown") is OvergrownLayer, "the plank's vines and the cover survive a reload")
+	reloaded.free()
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L9 Fire")
+
+
+## After the L9/L10 play-test: the panel's Link button; vines stay tied to what
+## they hold through links, moves and resizes; a plank on one vine and a crate on
+## one vine swing in play; a fire-orb sentry's orb burns a vine.
+func _check_l9b_followups() -> void:
+	var path: String = LevelStorage.create_level("Tie Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	editor.set_property(room, &"fire_start_pips", 2)
+
+	# The plank first, the vine after it (so the vine is drawn on top), then link.
+	var plank: HangingPlatform = editor.place_object(PaletteCatalog.get_entry(&"hanging_platform"), room, Vector2i(20, 9)) as HangingPlatform
+	var vine: Vine = editor.place_object(PaletteCatalog.get_entry(&"vine"), room, Vector2i(18, 1)) as Vine
+	editor.select(plank)
+	var link_button: Button = null
+	for row: Node in editor.ui.property_panel.rows.get_children():
+		if row is Button and (row as Button).text.begins_with("Link"):
+			link_button = row
+	_check(link_button != null, "a linkable object's panel has a Link button")
+	link_button.pressed.emit()
+	_check(editor.link_source == plank, "it starts link mode, like L")
+	_check(editor.toggle_link(plank, vine), "link the vine")
+	link_button.pressed.emit()
+	_check(editor.link_source == null, "pressed again, it ends link mode")
+	var vine_end: Callable = func() -> Vector2: return vine.global_position + vine.end_point
+	_check(vine_end.call().is_equal_approx(room.global_position + Vector2(148, 76)), "linking ties the vine's end onto the plank, got %s" % vine_end.call())
+	_check(editor.object_at(vine_end.call()) == plank, "a click on the knot picks the plank, not the vine")
+	editor.move_object(plank, plank.position + Vector2(16, 8))
+	_check(vine_end.call().is_equal_approx(room.global_position + Vector2(164, 84)), "moving the plank takes the vine's end along, got %s" % vine_end.call())
+	editor.set_property(plank, &"platform_width", 96.0)
+	_check(vine_end.call().is_equal_approx(room.global_position + Vector2(144, 84)), "widening it keeps the knot at the same place along it, got %s" % vine_end.call())
+	editor.undo()
+	editor.undo()
+	_check(vine_end.call().is_equal_approx(room.global_position + Vector2(148, 76)), "undo brings both back")
+	editor.move_object(vine, vine.position + Vector2(-8, 0))
+	_check(vine_end.call().is_equal_approx(room.global_position + Vector2(148, 76)), "moving the vine's anchor keeps its end on the plank")
+	editor.toggle_link(plank, vine)
+	_check(not vine.is_tied, "unlinking unties it")
+	editor.undo()
+	_check(vine.is_tied and plank.vines.size() == 1, "undo ties it again")
+
+	# A crate on one vine, off to the side of its anchor. Its knot sits 2 px into its top.
+	var crate: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(8, 12)) as Crate
+	var crate_vine: Vine = editor.place_object(PaletteCatalog.get_entry(&"vine"), room, Vector2i(5, 1)) as Vine
+	editor.toggle_link(crate, crate_vine)
+	_check((crate_vine.global_position + crate_vine.end_point).is_equal_approx(crate.global_position - Vector2(0, 14)), "a crate's vine is tied round its top")
+
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var play_plank: HangingPlatform = play_room.get_node(NodePath(plank.name)) as HangingPlatform
+	var play_crate: Crate = play_room.get_node(NodePath(crate.name)) as Crate
+	var play_vine: Vine = play_room.get_node(NodePath(crate_vine.name)) as Vine
+	await get_tree().physics_frame
+	_check(play_plank.is_awake, "a plank on one vine is awake from the start")
+	var crate_start: Vector2 = play_crate.global_position
+	# The crate's center stays on a circle round the anchor the whole time (a real
+	# pendulum), and it tilts with its rope.
+	await get_tree().physics_frame  # the swing starts in the crate's first physics frame
+	var radius: float = play_crate._get_swing_radius()
+	var worst_off_circle: float = 0.0
+	var most_tilt: float = 0.0
+	for frame: int in 30:
+		await get_tree().physics_frame
+		var center: Vector2 = play_crate.global_transform * Vector2(0, -8)
+		worst_off_circle = maxf(worst_off_circle, absf(center.distance_to(play_vine.global_position) - radius))
+		most_tilt = maxf(most_tilt, absf(play_crate.rotation))
+	_check(absf(play_plank.rotation) > 0.3, "tied off-center, the plank swings down, rotation %.2f" % play_plank.rotation)
+	# Its anchor is to the left: it swings left, toward hanging under it.
+	_check(play_crate.global_position.x < crate_start.x - 4.0, "a crate on one vine swings toward under its anchor, moved %.1f" % (play_crate.global_position.x - crate_start.x))
+	_check(worst_off_circle < 0.5, "on a circle round the anchor (off by at most %.2f px)" % worst_off_circle)
+	_check(most_tilt > 0.1, "tilting with its rope (up to %.2f rad)" % most_tilt)
+	_check(play_vine.is_tied and play_vine.tie_thickness > 0.0, "the vine coils round its top")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L9b follow-ups")
+
+
+## After the L10 play-test: a plank on two vines swings when gusted and bounces off
+## a wall instead of passing it; sentries stand on the ground (or hang from the
+## ceiling); a fire sentry throws the player's own fireball, which kills the player;
+## the palette's list scrolls.
+func _check_l10b_followups() -> void:
+	var path: String = LevelStorage.create_level("Swing Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+
+	var palette_scroll: ScrollContainer = null
+	for child: Node in editor.ui.palette.get_child(0).get_children():
+		if child is ScrollContainer:
+			palette_scroll = child
+	_check(palette_scroll != null and palette_scroll.size_flags_vertical & Control.SIZE_EXPAND, "the palette's buttons are in a scrolling list")
+	editor.ui.show_family("Air")
+	await get_tree().process_frame
+	_check(editor.ui.palette.size.y <= editor.ui.get_viewport().get_visible_rect().size.y - 2.0 * EditorUI.BAR_HEIGHT + 0.5,
+		"the palette ends above the status line, got %.0f" % editor.ui.palette.size.y)
+
+	# Sentries snap to the ground below, or to the ceiling when hanging.
+	var sentry: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(30, 8)) as Sentry
+	_check(PaletteCatalog.get_bounds(sentry).end.y == room.global_position.y + 168.0, "a sentry placed in mid-air drops onto the floor")
+	var on_floor_tile: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(10, 21)) as Sentry
+	_check(PaletteCatalog.get_bounds(on_floor_tile).end.y == room.global_position.y + 168.0, "one placed by clicking the floor tile stands on it")
+	editor.delete_object(on_floor_tile)
+	editor.set_property(sentry, &"mounted_on_ceiling", true)
+	_check(PaletteCatalog.get_bounds(sentry).position.y == room.global_position.y + 8.0, "mounted on the ceiling, it goes up to the ceiling")
+	editor.undo()
+	_check(PaletteCatalog.get_bounds(sentry).end.y == room.global_position.y + 168.0, "undo puts it back on the floor")
+	_check(PaletteCatalog.get_entry(&"sentry").editable_properties.has(&"fire_orbs"), "the sentry has a Fire Orbs setting")
+	editor.set_property(sentry, &"fire_orbs", true)
+	_check(sentry._get_body_color() == Sentry.FIRE_BODY_COLOR, "on: its body is ember orange")
+
+	# A plank on two vines, a wall to its right.
+	var plank: HangingPlatform = editor.place_object(PaletteCatalog.get_entry(&"hanging_platform"), room, Vector2i(17, 9)) as HangingPlatform
+	var vine_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"vine")
+	for column: int in [15, 19]:
+		var vine: Vine = editor.place_object(vine_entry, room, Vector2i(column, 1)) as Vine
+		editor.set_property(vine, &"end_point", Vector2(0, 68))
+		editor.toggle_link(plank, vine)
+	var wall_cells: Array[Vector2i] = []
+	for row: int in range(4, 13):
+		wall_cells.append(Vector2i(24, row))
+	editor.paint_cells(room, wall_cells, true, PaletteCatalog.get_entry(&"ground"))
+
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var play_plank: HangingPlatform = play_room.get_node(NodePath(plank.name)) as HangingPlatform
+	await get_tree().physics_frame
+	_check(not play_plank.is_awake and play_plank.is_in_group(Pushable.GROUP), "a plank on two vines sleeps, and gusts can find it")
+	var start_x: float = play_plank.global_position.x
+	var wall_x: float = play_room.global_position.x + 24 * 8
+	var furthest_right: float = -INF
+	var furthest_moved: float = 0.0
+	for frame: int in 60:
+		if frame % 10 == 0:
+			play_plank.receive_gust(Vector2.RIGHT, 320.0)  # gust after gust toward the wall
+		await get_tree().physics_frame
+		furthest_right = maxf(furthest_right, maxf(play_plank.plank_ends[0].x, play_plank.plank_ends[1].x))
+		furthest_moved = maxf(furthest_moved, play_plank.global_position.x - start_x)
+	_check(furthest_moved > 4.0, "gusts swing it, %.1f px" % furthest_moved)
+	_check(furthest_right <= wall_x + 0.5, "and it never passes into the wall (its end reached %.1f, the wall is at %.1f)" % [furthest_right, wall_x])
+
+	# The fire sentry throws a Fireball; a hostile one kills the player.
+	var play_sentry: Sentry = play_room.get_node(NodePath(sentry.name)) as Sentry
+	play_sentry.aim_direction = Vector2.LEFT
+	play_sentry._fire()
+	var thrown: Fireball = null
+	for child: Node in play_room.get_children():
+		if child is Fireball:
+			thrown = child
+	_check(thrown != null and thrown.hurts_player and thrown.source == play_sentry, "a fire sentry throws the player's own Fireball, made hostile")
+	var player: Player = editor.play_root.player
+	var deaths_before: int = GameState.death_count
+	var shot: Fireball = Fireball.launch(play_room, player.get_center() + Vector2(-24, 0), Vector2.RIGHT, Sentry.FIRE_TUNING, play_sentry, 0.0)
+	shot.make_hostile()
+	await get_tree().create_timer(0.4).timeout
+	_check(GameState.death_count > deaths_before, "a hostile fireball kills the player it touches")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L10b follow-ups")
+
+
+## Stage L10: the enemies, and an enemy gate linked to two wisps that opens a door.
+func _check_l10_enemies() -> void:
+	var path: String = LevelStorage.create_level("Enemy Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	_check(PaletteCatalog.get_families().has("Enemies"), "the palette has an Enemies tab")
+	for id: StringName in [&"wisp", &"sentry", &"vine_monkey", &"thicket_elephant", &"shell", &"enemy_gate"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Enemies", "%s is in the Enemies tab" % id)
+
+	var wisp_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"wisp")
+	var left_wisp: Wisp = editor.place_object(wisp_entry, room, Vector2i(8, 20)) as Wisp
+	var right_wisp: Wisp = editor.place_object(wisp_entry, room, Vector2i(30, 20)) as Wisp
+	_check(left_wisp.position.y == 168.0 and PaletteCatalog.get_bounds(left_wisp).end.y == room.global_position.y + 168.0,
+		"a wisp stands on the clicked tile, got %s" % left_wisp.position)
+	_check(EditorHandles.get_handles(left_wisp).is_empty(), "an enemy's body size has no handle")
+	editor.set_property(right_wisp, &"start_direction", -1)
+	_check(right_wisp.start_direction == -1, "its facing is a setting")
+
+	var sentry: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(20, 1)) as Sentry
+	editor.set_property(sentry, &"mounted_on_ceiling", true)
+	_check(PaletteCatalog.get_bounds(sentry).position.y == sentry.global_position.y, "a ceiling sentry's outline hangs below its origin")
+	for id: StringName in [&"vine_monkey", &"thicket_elephant", &"shell"]:
+		var placed: Node2D = editor.place_object(PaletteCatalog.get_entry(id), room, Vector2i(20, 20))
+		_check(placed != null and placed.is_inside_tree() and PaletteCatalog.get_bounds(placed).end.y == room.global_position.y + 168.0, "a %s stands on the floor" % id)
+		editor.delete_object(placed)
+	editor.delete_object(sentry)
+
+	# The gate takes enemies; the door takes the gate (a Switch).
+	var gate: EnemyGate = editor.place_object(PaletteCatalog.get_entry(&"enemy_gate"), room, Vector2i(36, 10)) as EnemyGate
+	var door: Door = editor.place_object(PaletteCatalog.get_entry(&"door"), room, Vector2i(38, 17)) as Door
+	editor.select(gate)
+	_check(editor.start_link_mode(gate) and editor.toggle_link(gate, left_wisp) and editor.toggle_link(gate, right_wisp), "L links the gate to both wisps")
+	_check(not editor.toggle_link(gate, door), "but not to a door")
+	_check(editor.ui.property_panel.footer_label.text.begins_with("Links: 2 enemy"), "the panel counts its enemies, got '%s'" % editor.ui.property_panel.footer_label.text)
+	editor.end_link_mode()
+	_check(editor.start_link_mode(door) and editor.toggle_link(door, gate), "the door links to the gate")
+	editor.end_link_mode()
+	editor.delete_object(right_wisp)
+	_check(gate.enemies.size() == 1, "deleting a wisp drops it from the gate")
+	editor.undo()
+	_check(gate.enemies.size() == 2, "undo links it again")
+
+	# Play: beat both wisps, the gate turns on and the door opens.
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	await get_tree().physics_frame
+	var play_gate: EnemyGate = play_room.get_node(NodePath(gate.name)) as EnemyGate
+	var play_door: Door = play_room.get_node(NodePath(door.name)) as Door
+	(play_room.get_node(NodePath(left_wisp.name)) as Wisp).defeat()
+	await get_tree().physics_frame
+	_check(not play_gate.is_on(), "one wisp beaten: the gate stays off")
+	(play_room.get_node(NodePath(right_wisp.name)) as Wisp).defeat()
+	await get_tree().create_timer(0.4).timeout
+	_check(play_gate.is_on() and play_door.open_amount > 0.9, "both beaten: the gate is on and the door open")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	_check(editor.save() == OK, "the level saves")
+	var reloaded: Node = (LevelStorage.load_level(path) as PackedScene).instantiate()
+	_check((reloaded.get_node("Room1/" + String(gate.name)) as EnemyGate).enemies.size() == 2, "the gate's enemies survive a reload")
+	reloaded.free()
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L10 enemies")
+
+
+## Stage L11: the StoryList file, progress keyed by scene path, unlocking, the run
+## from level to level (StoryPlayer, with scene changes only written down), the
+## EndScreen staying hidden in a story run, and the Story screen's pages.
+func _check_l11_story() -> void:
+	StoryProgress.progress_path = TEST_PROGRESS_PATH
+	StoryProgress.reset_all()
+	var default_story: StoryList = StoryList.load_story()
+	_check(default_story.entries.size() == 2 and default_story.entries[0].scene_path == "res://scenes/world.tscn",
+		"with no story file, the story is Air then Earth")
+
+	# A story of three: a level, the Air chapter, another level. Saved and read back.
+	var first_level: String = LevelStorage.create_level("Story One")
+	var last_level: String = LevelStorage.create_level("Story Three")
+	var story: StoryList = StoryList.new()
+	story.entries.append(StoryEntry.new("One", first_level))
+	story.entries.append(StoryEntry.new("Air", "res://scenes/world.tscn"))
+	story.entries.append(StoryEntry.new("Three", last_level))
+	_check(story.save_story() == OK and LevelStorage.story_path().begins_with(TEST_LEVELS_DIR), "the story saves next to the levels")
+	story = StoryList.load_story()
+	_check(story.entries.size() == 3 and story.entries[2].title == "Three", "and loads back in order")
+	_check(not LevelStorage.list_levels().has(LevelStorage.story_path()), "the story file isn't listed as a level")
+
+	_check(StoryProgress.is_open(story, 0) and not StoryProgress.is_open(story, 1), "at first only the first entry is open")
+	_check(StoryProgress.get_continue_index(story) == 0, "Continue starts the first")
+
+	# The run: scenes are only written down, the EndScreen stays hidden.
+	var opened: Array[String] = []
+	StoryPlayer.scene_opener = func(path: String) -> void: opened.append(path)
+	var end_screen: EndScreen = (load("res://scenes/ui/end_screen.tscn") as PackedScene).instantiate() as EndScreen
+	add_child(end_screen)
+	StoryPlayer.start(story, 0)
+	var player: StoryPlayer = StoryPlayer.current
+	await get_tree().process_frame
+	_check(opened == [first_level] and GameState.is_story_run, "Continue opens the first level as a story run")
+	GameState.register_death()
+	GameState.finish_run()
+	_check(player.card.visible and not end_screen.visible, "at the goal: the level-complete card, not the end screen")
+	_check(StoryProgress.is_finished(first_level) and StoryProgress.get_best_deaths(first_level) == 1, "the level is saved as finished, with its deaths")
+	_check(StoryProgress.is_open(story, 1) and not StoryProgress.is_open(story, 2), "the second opens, the third is still locked")
+	_check(StoryProgress.get_continue_index(story) == 1, "Continue now starts the second")
+	player.advance()
+	_check(opened.back() == "res://scenes/world.tscn" and not player.card.visible and GameState.death_count == 0,
+		"Jump opens the next level with a fresh run")
+	GameState.finish_run()
+	player.advance()
+	GameState.finish_run()
+	_check(player.card.visible and not player.is_showing_end, "the last level's card")
+	player.advance()
+	_check(player.is_showing_end and player.stats_label.text.contains("Total deaths: 1"), "then the end card with the run's totals")
+	player.advance()
+	await get_tree().process_frame
+	_check(opened.back() == StoryPlayer.STORY_SCREEN_SCENE and not GameState.is_story_run and StoryPlayer.current == null,
+		"and Jump goes back to the Story screen, the story run over")
+	end_screen.queue_free()
+	GameState.reset_run()
+
+	# Progress is keyed by scene path: reordering keeps it.
+	StoryProgress.record_finish(first_level, 99.0, 5)
+	_check(StoryProgress.get_best_time(first_level) < 99.0 and StoryProgress.get_best_deaths(first_level) == 1,
+		"a worse finish doesn't replace the bests")
+	story.move_entry(0, 2)
+	_check(story.entries[2].scene_path == first_level and StoryProgress.is_finished(story.entries[2].scene_path), "moving an entry keeps its progress")
+	story.move_entry(2, -2)
+	story.save_story()
+
+	# The Story screen.
+	StoryProgress.reset_all()
+	StoryProgress.record_finish(first_level, 12.5, 2)
+	var screen: StoryScreen = (load("res://scenes/ui/story_screen.tscn") as PackedScene).instantiate() as StoryScreen
+	add_child(screen)
+	await get_tree().process_frame
+	_check(screen.continue_button.text == "Continue: Air", "Continue names the next level, got '%s'" % screen.continue_button.text)
+	screen.select_button.pressed.emit()
+	var labels: Array[String] = []
+	var disabled: Array[bool] = []
+	for button: Node in screen.select_list.get_children():
+		labels.append((button as Button).text)
+		disabled.append((button as Button).disabled)
+	_check(labels.size() == 3 and labels[0].contains("0:12.50, 2 deaths") and not labels[0].begins_with(" "), "Level select: the finished one has its mark, time and deaths, got %s" % [labels])
+	_check(not disabled[1] and disabled[2] and labels[2].contains("(locked)"), "the next is open, the last locked")
+	screen._go_back()
+	screen.edit_button.pressed.emit()
+	_check(screen.edit_page.visible and screen.edit_list.item_count == 3, "Edit order lists the entries")
+	screen.edit_list.select(2)
+	screen.move_selected(-1)
+	_check(StoryList.load_story().entries[1].title == "Three", "Shift+Up moves an entry, saved at once")
+	screen.rename_entry(1, "Third level")
+	screen.add_entry("Earth", "res://scenes/earth_world.tscn")
+	_check(StoryList.load_story().entries[1].title == "Third level" and StoryList.load_story().entries[2].title == "Earth", "rename and add are saved")
+	screen.remove_entry(2)
+	_check(StoryList.load_story().entries.size() == 3, "and remove")
+	screen._show_page(screen.add_page, null)
+	_check(screen.add_list.item_count == LevelStorage.list_levels().size() + MainMenu.CHAPTERS.size(), "Add offers every level and chapter")
+	screen._on_new_run_pressed()
+	screen.prompt._pick(0)
+	_check(not StoryProgress.is_finished(first_level), "New run forgets the progress")
+	screen.queue_free()
+	await get_tree().process_frame
+
+	StoryPlayer.scene_opener = Callable()
+	DirAccess.remove_absolute(TEST_PROGRESS_PATH)
+	StoryProgress.progress_path = StoryProgress.DEFAULT_PROGRESS_PATH
+	finished_sections.append("L11 story")
+
+
+## After the L10 play-test (round 3): a vine holding weight is taut; a burning vine
+## lights the crate it holds (a metal one doesn't burn, and gusts move it half as
+## far); a falling plank landing by one end on a block tips onto the floor instead
+## of freezing; a vine-covered plank lit by fire drops level, all its vines at once.
+func _check_l10c_followups() -> void:
+	var path: String = LevelStorage.create_level("Rope Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	editor.set_property(room, &"fire_start_pips", 2)
+	var vine_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"vine")
+	var crate_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"crate")
+	var plank_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"hanging_platform")
+
+	# A wooden crate swinging on one vine, two crates on the floor (wood and metal).
+	var crate: Crate = editor.place_object(crate_entry, room, Vector2i(8, 12)) as Crate
+	var crate_vine: Vine = editor.place_object(vine_entry, room, Vector2i(5, 1)) as Vine
+	editor.toggle_link(crate, crate_vine)
+	var wood: Crate = editor.place_object(crate_entry, room, Vector2i(4, 20)) as Crate
+	var metal: Crate = editor.place_object(crate_entry, room, Vector2i(30, 20)) as Crate
+	_check(crate_entry.editable_properties.has(&"is_metal"), "a crate has an Is Metal setting")
+	editor.set_property(metal, &"is_metal", true)
+
+	# A plank on two vines over a block under its left end (the play-test's picture).
+	var block: Array[Vector2i] = []
+	for column: int in [10, 11]:
+		for row: int in range(17, 21):
+			block.append(Vector2i(column, row))
+	editor.paint_cells(room, block, true, PaletteCatalog.get_entry(&"ground"))
+	var plank: HangingPlatform = editor.place_object(plank_entry, room, Vector2i(16, 9)) as HangingPlatform
+	editor.set_property(plank, &"platform_width", 88.0)
+	var plank_vines: Array[Vine] = []
+	for column: int in [12, 21]:
+		var vine: Vine = editor.place_object(vine_entry, room, Vector2i(column, 1)) as Vine
+		editor.set_property(vine, &"end_point", Vector2(0, 68))
+		editor.toggle_link(plank, vine)
+		plank_vines.append(vine)
+
+	# A vine-covered plank on two vines, high on the right.
+	var covered: HangingPlatform = editor.place_object(plank_entry, room, Vector2i(30, 6)) as HangingPlatform
+	_check(plank_entry.editable_properties.has(&"vine_covered"), "a hanging platform has a Vine Covered setting")
+	editor.set_property(covered, &"vine_covered", true)
+	var covered_vines: Array[Vine] = []
+	for column: int in [28, 33]:
+		var vine: Vine = editor.place_object(vine_entry, room, Vector2i(column, 1)) as Vine
+		editor.set_property(vine, &"end_point", Vector2(0, 40))
+		editor.toggle_link(covered, vine)
+		covered_vines.append(vine)
+
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var get_play: Callable = func(node: Node) -> Node: return play_room.get_node(NodePath(node.name))
+	var play_crate: Crate = get_play.call(crate)
+	var play_crate_vine: Vine = get_play.call(crate_vine)
+	# Out of the way: the burning crate falls by the spawn point, and its flames
+	# would kill the player there, which resets the whole room mid-test.
+	editor.play_root.player.respawn_at(play_room.global_position + Vector2(300, 168))
+	await get_tree().create_timer(0.3).timeout
+
+	# Taut: every rope point on the line from the anchor to the knot.
+	var end: Vector2 = play_crate_vine.points[play_crate_vine.points.size() - 1]
+	var worst_sag: float = 0.0
+	for point: Vector2 in play_crate_vine.points:
+		worst_sag = maxf(worst_sag, absf(end.normalized().cross(point)))
+	_check(worst_sag < 0.5, "the vine holding the swinging crate is taut (sags %.2f px)" % worst_sag)
+
+	# Gusts: metal moves half as far.
+	var play_wood: Crate = get_play.call(wood)
+	var play_metal: Crate = get_play.call(metal)
+	play_wood.receive_gust(Vector2.RIGHT, 160.0)
+	play_metal.receive_gust(Vector2.RIGHT, 160.0)
+	_check(is_equal_approx(play_metal.velocity.x, play_wood.velocity.x * play_metal.metal_push_factor), "a gust pushes a metal crate %s as hard (%.0f vs %.0f)" % [play_metal.metal_push_factor, play_metal.velocity.x, play_wood.velocity.x])
+	play_metal.ignite(null)
+	_check(not play_metal.is_burning() and not play_metal.is_in_group(Flammable.GROUP), "a metal crate doesn't burn")
+
+	# The crate's vine lit near its anchor: the fire runs down it and lights the crate.
+	play_crate_vine.ignite_at(play_crate_vine.global_position + play_crate_vine.points[2], 1.0, null)
+	await _wait_until_true(func() -> bool: return play_crate.burn_state != Crate.BurnState.SOLID, 3.0)
+	_check(play_crate.burn_state != Crate.BurnState.SOLID, "a burning vine's fire lights the wooden crate it holds")
+
+	# The plank over the block: both vines cut, it lands by one end, tips, rests on the floor.
+	var play_plank: HangingPlatform = get_play.call(plank)
+	for vine: Vine in plank_vines:
+		(get_play.call(vine) as Vine).ignite(null)
+	await _wait_until_true(func() -> bool: return play_plank.is_resting(), 4.0)
+	var floor_y: float = play_room.global_position.y + 168.0
+	# This block stands on the floor, so resting from its top to the floor (a gentle
+	# ramp) is fine: what matters is that the far end comes all the way down.
+	var lower_end_y: float = maxf(play_plank.plank_ends[0].y, play_plank.plank_ends[1].y)
+	_check(play_plank.is_resting() and lower_end_y > floor_y - 4.0,
+		"a plank landing by one end on a block tips down onto the floor (lower end %.0f px above it)" % (floor_y - lower_end_y))
+
+	# The vine-covered plank: one of its vines lit, the cover and the other vine catch
+	# in the next frame; both snap together and it drops level.
+	var play_covered: HangingPlatform = get_play.call(covered)
+	_check(play_covered.is_in_group(Flammable.GROUP), "a vine-covered plank is flammable")
+	var first_vine: Vine = get_play.call(covered_vines[0])
+	var second_vine: Vine = get_play.call(covered_vines[1])
+	first_vine.ignite(null)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(play_covered.is_burning() and second_vine.is_burning(), "one burning vine lights the cover and, through it, every other vine at once")
+	await _wait_until_true(func() -> bool: return play_covered.has_fallen, 2.0)
+	var both_snapped: bool = covered_vines.all(func(vine: Vine) -> bool: return (get_play.call(vine) as Vine).has_snapped)
+	await get_tree().create_timer(0.15).timeout
+	_check(both_snapped and absf(play_covered.rotation) < 0.1, "both vines snap together and it falls level (rotation %.2f)" % play_covered.rotation)
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	# The map (play-test round 4): Room 2 under Room 1 starts at y = 180, half a tile
+	# off the grid; a room put beside Room 2 lines its rows up with it.
+	var map: MapView = editor.map_view
+	var lower: Room = map.create_room(Rect2(room.position + Vector2(0, 180), Vector2(320, 180)))
+	var beside: Rect2 = map.snap_moved(Rect2(lower.position + Vector2(320, 3), Vector2(320, 180)), null, 0.5)
+	_check(is_zero_approx(fposmod(beside.position.y - lower.position.y, 8.0)),
+		"a room beside one half a tile off the grid lines its tile rows up with it (y %.1f next to %.1f)" % [beside.position.y, lower.position.y])
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L10c follow-ups")
+
+
+## Play-test round 4: the Test level's Room 1. A plank over a small block floating in
+## the air, both vines burnt: it lands on the block, slides off its corner and lies
+## on the floor (it used to sink into the block, then hang off its corner).
+func _check_l10d_plank_on_block() -> void:
+	var path: String = LevelStorage.create_level("Block Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	editor.set_property(room, &"fire_start_pips", 2)
+	var block: Array[Vector2i] = [Vector2i(6, 12), Vector2i(7, 12), Vector2i(6, 13), Vector2i(7, 13)]
+	editor.paint_cells(room, block, true, PaletteCatalog.get_entry(&"ground"))
+	var plank: HangingPlatform = editor.place_object(PaletteCatalog.get_entry(&"hanging_platform"), room, Vector2i(12, 9)) as HangingPlatform
+	editor.set_property(plank, &"platform_width", 88.0)
+	editor.move_object(plank, Vector2(96, 76))
+	var vines: Array[Vine] = []
+	for column: int in [8, 15]:
+		var vine: Vine = editor.place_object(PaletteCatalog.get_entry(&"vine"), room, Vector2i(column, 1)) as Vine
+		editor.set_property(vine, &"end_point", Vector2(0, 68))
+		editor.toggle_link(plank, vine)
+		vines.append(vine)
+	_check(editor.start_playtest(), "play")
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	editor.play_root.player.respawn_at(play_room.global_position + Vector2(300, 168))
+	await get_tree().physics_frame
+	var play_plank: HangingPlatform = play_room.get_node(NodePath(plank.name)) as HangingPlatform
+	for vine: Vine in vines:
+		(play_room.get_node(NodePath(vine.name)) as Vine).ignite(null)
+	await _wait_until_true(func() -> bool: return play_plank.is_resting(), 6.0)
+	var floor_y: float = play_room.global_position.y + 168.0
+	var higher_end_y: float = minf(play_plank.plank_ends[0].y, play_plank.plank_ends[1].y)
+	_check(play_plank.is_resting() and higher_end_y > floor_y - 6.0,
+		"a plank over a floating block slides off it and lies on the floor (higher end %.0f px above it)" % (floor_y - higher_end_y))
+	editor.stop_playtest()
+	await get_tree().process_frame
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L10d plank on a block")
+
+
+## Waits until `condition` is true or `seconds` pass (physics frames).
+func _wait_until_true(condition: Callable, seconds: float) -> void:
+	var time_left: float = seconds
+	while time_left > 0.0 and not condition.call():
+		await get_tree().physics_frame
+		time_left -= get_physics_process_delta_time()
 
 
 ## The live (not shattered, not freed) boulders directly in `room`.

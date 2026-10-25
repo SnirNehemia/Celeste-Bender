@@ -11,7 +11,7 @@ extends Node2D
 ##     Shown as small white pips above the player while airborne.
 ##   - the COOLDOWN (one gust every tuning.gust_cooldown seconds)
 ##   - the BREATH cost (tuning.gust_uses_stamina, off by default): a gust spends
-##     shared glide/dash stamina
+##     glide stamina (the breath bar)
 ##   - pressing gust with no charge (or no breath) plays a small "fizzle" puff instead
 ##   - the HIT and the look, built with the shared AirBlast helper (abilities/air_blast.gd):
 ##       aimed gust   (an arrow held): a cone in that direction

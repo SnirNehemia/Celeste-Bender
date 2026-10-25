@@ -2,7 +2,6 @@ class_name AirBlast
 extends RefCounted
 ## Shared "blast of air" toolkit used by every air move that shoves the world:
 ##   - GustAbility: the gust cone in front of the player (Z)
-##   - AirDashAbility: the dash's WAKE, a smaller cone of air left behind at dash start
 ##
 ## It does three things, all as static functions (called on the class itself,
 ## like AirBlast.build_cone(...); this class is never instantiated):
@@ -11,14 +10,14 @@ extends RefCounted
 ##      push_around():    push everything Pushable inside a circle straight away
 ##                        from its center (the neutral, all-around gust)
 ##                        (the Pushable contract: scenes/objects/pushable.gd)
-##   3. spawn_fan() / spawn_wave() / spawn_ring(): the look, so dash wake and gust
-##                        read as the same power (particles, pressure waves, rings)
+##   3. spawn_fan() / spawn_wave() / spawn_ring(): the look, so every gust
+##                        reads as the same power (particles, pressure waves, rings)
 ##
-## Why a helper class and not code inside GustAbility? Both abilities need it, and
-## an ability shouldn't call into another ability. Each one stays a separate
-## component (CLAUDE.md), and the shared part lives here.
+## Why a helper class and not code inside GustAbility? It keeps the ability about
+## rules and timing (charges, cooldown, aim), and a later air move can reuse the
+## shapes and looks without calling into another ability (CLAUDE.md: components).
 
-## Color of all air effects (same pale cyan-white as dash and glide: one power).
+## Color of all air effects (same pale cyan-white as the glide: one power).
 const AIR_COLOR: Color = Color(0.85, 0.95, 1.0, 0.8)
 ## Physics layers a blast looks at: every layer except 2 ("player").
 ## 0xFFFFFFFF has all 32 layer bits set; & ~2 clears the player's bit.
@@ -168,8 +167,8 @@ static func spawn_wave(world: Node, world_position: Vector2, direction: Vector2,
 	wave_tween.chain().tween_callback(wave.queue_free)
 
 
-## An expanding, fading circle outline: a shockwave. Used by the dash start and the
-## neutral (all-around) gust.
+## An expanding, fading circle outline: a shockwave. Used by the neutral
+## (all-around) gust.
 static func spawn_ring(world: Node, world_position: Vector2, start_radius: float,
 		end_radius: float, duration: float) -> void:
 	var ring: Line2D = Line2D.new()

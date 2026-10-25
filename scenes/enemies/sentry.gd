@@ -14,6 +14,11 @@ extends StaticBody2D
 ## With mounted_on_ceiling, place it on the CEILING instead (top-center): it hangs
 ## down and watches the floor below.
 ## With can_fire off it never shoots: a passive TARGET for reflection practice.
+## With fire_orbs on (after the L10 play-test) it throws FIREBALLS instead of orbs:
+## the player's own Fireball (same arc, range, bounces, burst, lighting), made
+## hostile so it kills the player it touches (Fireball.make_hostile). Gusts don't
+## reflect a fireball: beat a fire sentry with your own fireball or a big rock.
+## Its body is painted ember orange instead of purple, so you can tell before it shoots.
 ##
 ## Firing rhythm, fair and readable:
 ##   - it only counts down while the player is in the same room, within
@@ -37,8 +42,14 @@ const BODY_COLOR: Color = Color(0.5, 0.24, 0.7)
 const BODY_DARK_COLOR: Color = Color(0.32, 0.14, 0.45)
 const EYE_IDLE_COLOR: Color = Color(0.2, 0.08, 0.28)
 const EYE_CHARGED_COLOR: Color = Color(1.0, 0.6, 0.15)
+## A fire-orb sentry's body: ember orange, darker at the base (Fire_bending.md §9.1).
+const FIRE_BODY_COLOR: Color = Color("#E8431A")
+const FIRE_BODY_DARK_COLOR: Color = Color("#8A2410")
 ## Preloaded once: the orb scene to instance for every shot.
 const ORB_SCENE: PackedScene = preload("res://scenes/enemies/sentry_orb.tscn")
+## A fire sentry's fireballs fly like the player's: these tunings set them.
+const FIRE_TUNING: FireTuning = preload("res://resources/fire_tuning.tres")
+const PLAYER_TUNING: PlayerTuning = preload("res://resources/player_tuning.tres")
 
 ## Emitted once when a reflected orb destroys the sentry. Same name as Wisp.defeated,
 ## so EnemyGate can treat every enemy the same way (duck typing).
@@ -54,6 +65,11 @@ signal defeated
 @export var can_fire: bool = true:
 	set(value):
 		can_fire = value
+		queue_redraw()
+## Throws fireballs like the player's instead of orbs (painted orange).
+@export var fire_orbs: bool = false:
+	set(value):
+		fire_orbs = value
 		queue_redraw()
 ## Turret size, px.
 @export var body_size: Vector2 = Vector2(12, 12):
@@ -159,11 +175,24 @@ func _can_see(target: Player) -> bool:
 
 
 func _fire() -> void:
+	if fire_orbs:
+		_throw_fireball()
+		return
 	var orb: SentryOrb = ORB_SCENE.instantiate() as SentryOrb
 	# The orb lives in the room (our parent), not under us, so the room's reset can
 	# find it and it keeps flying if we're destroyed.
 	get_parent().add_child(orb)
 	orb.launch(get_eye_position(), aim_direction * orb_speed, self)
+
+
+## A fire sentry's shot: the player's Fireball, thrown from just outside the eye
+## with the player's fireball gravity, made hostile. It lives in the room, like orbs.
+func _throw_fireball() -> void:
+	var start: Vector2 = get_eye_position() + aim_direction * (body_size.length() / 2.0)
+	var fireball: Fireball = Fireball.launch(get_parent(), start, aim_direction, FIRE_TUNING, self,
+		PLAYER_TUNING.gravity * FIRE_TUNING.fireball_gravity_scale)
+	fireball.make_hostile()
+	FX.play_sfx(&"fireball_throw")
 
 
 ## Hit by a reflected orb (SentryOrb calls this). Gone until the room resets.
@@ -236,7 +265,7 @@ func _spawn_burst() -> void:
 	# A gradient from orange to purple: each particle picks a random color along it.
 	var colors: Gradient = Gradient.new()
 	colors.set_color(0, EYE_CHARGED_COLOR)
-	colors.set_color(1, BODY_COLOR)
+	colors.set_color(1, _get_body_color())
 	burst.color_initial_ramp = colors
 	get_parent().add_child(burst)
 	burst.global_position = get_eye_position()
@@ -244,12 +273,18 @@ func _spawn_burst() -> void:
 	get_tree().create_timer(burst.lifetime + 0.1, false).timeout.connect(burst.queue_free)
 
 
+## Purple, or ember orange for a fire-orb sentry.
+func _get_body_color() -> Color:
+	return FIRE_BODY_COLOR if fire_orbs else BODY_COLOR
+
+
 func _draw() -> void:
 	var box: Rect2 = Rect2(_get_local_center() - body_size / 2.0, body_size)
-	draw_rect(box, BODY_COLOR)
+	var body_color: Color = _get_body_color()
+	draw_rect(box, body_color)
 	# A darker base strip on the mounting side, so it reads as "mounted", not as a crate.
 	var base_y: float = box.position.y if mounted_on_ceiling else box.end.y - 3.0
-	draw_rect(Rect2(box.position.x, base_y, box.size.x, 3.0), BODY_DARK_COLOR)
+	draw_rect(Rect2(box.position.x, base_y, box.size.x, 3.0), FIRE_BODY_DARK_COLOR if fire_orbs else BODY_DARK_COLOR)
 
 	# The eye: dark normally, blending to orange during the telegraph.
 	var charge: float = 0.0
@@ -259,9 +294,9 @@ func _draw() -> void:
 	draw_circle(eye_center, 3.5, EYE_IDLE_COLOR.lerp(EYE_CHARGED_COLOR, charge))
 	if not can_fire:
 		# A practice target: a bullseye ring instead of a pupil.
-		draw_arc(eye_center, 2.0, 0.0, TAU, 12, BODY_COLOR, 1.0)
+		draw_arc(eye_center, 2.0, 0.0, TAU, 12, body_color, 1.0)
 		return
 	# The pupil looks at the player while it can see them.
 	var pupil_offset: Vector2 = (aim_direction * 1.5).round() if can_see_player else Vector2.ZERO
 	draw_rect(Rect2(eye_center + pupil_offset - Vector2.ONE, Vector2(2, 2)),
-		Color.WHITE if charge > 0.0 else BODY_COLOR)
+		Color.WHITE if charge > 0.0 else body_color)

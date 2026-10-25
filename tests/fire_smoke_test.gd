@@ -30,8 +30,9 @@ func _ready() -> void:
 	await _check_f8_burning_objects(world, world.player)
 	await _check_f11_enemies(world, world.player)
 	await _check_f11b_elephant(world, world.player)
+	await _check_f12_shell(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b", "F12"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -189,10 +190,10 @@ func _check_f2_tuning_panel(player: Player) -> void:
 	panel.change_selected(-1)
 	_check(is_equal_approx(tuning.jump_squash.x, saved_squash.x) and tuning.jump_squash.y < saved_squash.y, "a Vector2 row changes only its own half")
 	panel.reset_selected()
-	var saved_flag: bool = tuning.dash_uses_stamina
-	panel.select_property("dash_uses_stamina")
+	var saved_flag: bool = tuning.gust_uses_stamina
+	panel.select_property("gust_uses_stamina")
 	panel.change_selected(1)
-	_check(tuning.dash_uses_stamina != saved_flag, "Left/Right flips a bool")
+	_check(tuning.gust_uses_stamina != saved_flag, "Left/Right flips a bool")
 	panel.reset_selected()
 
 	# Fire tab: an int with an @export_range clamps at its max.
@@ -938,9 +939,16 @@ func _check_f7_bonfire(world: RoomManager, player: Player) -> void:
 	through_ball.finished.connect(func(hit: Node) -> void: through_hit.append(hit))
 	await _wait_until(func() -> bool: return elevator_pile.is_burning(), 1.0)
 	_check(elevator_pile.is_burning(), "a fireball lights the pile's leaves")
-	await _wait_until(func() -> bool: return not through_hit.is_empty(), 1.0)
-	_check(not through_hit.is_empty() and through_hit[0] != elevator_pile and through_hit[0].get_parent() != elevator_pile,
+	# Past the pile, done, or bounced (since Stage F12 it bounces off the bare wall just
+	# beyond and would fly back in: either way it didn't stop on the leaves).
+	var pile_right: float = elevator_pile.global_position.x + 16.0
+	await _wait_until(func() -> bool: return not through_hit.is_empty() \
+		or (is_instance_valid(through_ball) and (through_ball.global_position.x > pile_right or through_ball.bounce_count > 0)), 1.0)
+	_check(through_hit.is_empty() or (through_hit[0] != elevator_pile and through_hit[0].get_parent() != elevator_pile),
 		"and flies on through it (it bursts on %s, not on the leaves)" % [through_hit])
+	# Gone now: bouncing back off the wall it would fly into the young bonfire.
+	if is_instance_valid(through_ball):
+		through_ball.queue_free()
 	await _wait_until(func() -> bool: return elevator_pile.fire != null and not elevator_pile.fire.get_lit_bonfires().is_empty(), 1.0)
 	var bonfire: Bonfire = null
 	if elevator_pile.fire != null and not elevator_pile.fire.get_lit_bonfires().is_empty():
@@ -1255,6 +1263,10 @@ func _check_f8_burning_objects(world: RoomManager, player: Player) -> void:
 		"with both cut it falls and comes to rest below (y %.0f)" % (swing_plank.global_position.y - origin.y))
 
 	# 3. The crate on the plate: lit, it kills, lights the grass, collapses; the plate lifts, the door opens.
+	# Planks bump into things since the L10 play-test: the fallen plank now rests
+	# leaning on the crate, in the fireball's way. R hangs it back up first.
+	room_g.reset_objects()
+	await _physics_frames(10)
 	_check(plate.is_on() and plate_door.open_amount == 0.0, "the crate holds the plate down and its door shut")
 	player.respawn_at(origin + Vector2(244, 160))
 	await _physics_frames(5)
@@ -1752,6 +1764,235 @@ func _check_f11b_elephant(world: RoomManager, player: Player) -> void:
 	player.respawn_at(room_l.get_spawn_position())
 	await _physics_frames(3)
 	finished_sections.append("F11b")
+
+
+## Stage F12: the Shell (only a big rock kills it), every enemy's row of the §7.2
+## table, and ricochets (fireballs off what doesn't burn and off the Shell, orbs off
+## walls and the Shell).
+func _check_f12_shell(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var earth_tuning: EarthTuning = player.earth_tuning
+	var room_m: Room = world.get_node("RoomFireM") as Room
+	var armor_shell: Shell = room_m.get_node("ArmorShell") as Shell
+	var drop_shell: Shell = room_m.get_node("DropShell") as Shell
+	var bridge_shell: Shell = room_m.get_node("BridgeShell") as Shell
+	var orb_shell: Shell = room_m.get_node("OrbShell") as Shell
+	var sentry: Sentry = room_m.get_node("OrbSentry") as Sentry
+	var wisp: Wisp = room_m.get_node("TableWisp") as Wisp
+	var monkey: VineMonkey = room_m.get_node("TableMonkey") as VineMonkey
+	var elephant: ThicketElephant = room_m.get_node("TableElephant") as ThicketElephant
+	var grid: FireGrid = room_m.get_node_or_null("FireGrid") as FireGrid
+	var origin: Vector2 = room_m.global_position
+	sentry.can_fire = false  # its orbs would hit the player mid-test; orbs are launched by hand
+	world.jump_to_room(room_m)
+	await _physics_frames(10)
+
+	# 1. The §7.2 table, every cell (rows: fire, big rock, small rock, gust, spikes).
+	# The small-rock row follows the Earth chapter: a sloppy small rock shoves a wisp
+	# and clonks off a sentry, a perfect one kills them.
+	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
+	var push: ElementImmunity.Response = ElementImmunity.Response.PUSH
+	var stagger: ElementImmunity.Response = ElementImmunity.Response.STAGGER
+	var ignore: ElementImmunity.Response = ElementImmunity.Response.IGNORE
+	var reflect: ElementImmunity.Response = ElementImmunity.Response.REFLECT
+	var fire: EnemyHit.Type = EnemyHit.Type.FIREBALL
+	var big: EnemyHit.Type = EnemyHit.Type.BIG_ROCK
+	var small: EnemyHit.Type = EnemyHit.Type.SMALL_ROCK
+	var perfect: EnemyHit.Type = EnemyHit.Type.PERFECT_ROCK
+	var gust: EnemyHit.Type = EnemyHit.Type.GUST
+	var spikes: EnemyHit.Type = EnemyHit.Type.SPIKES
+	var table_rows: Array = [
+		["wisp", wisp.immunity, {fire: kill, big: kill, small: push, perfect: kill, gust: push, spikes: kill}],
+		["sentry", sentry.immunity, {fire: kill, big: kill, small: ignore, perfect: kill}],
+		["vine monkey", monkey.immunity, {fire: kill, big: push, small: push, gust: push, spikes: ignore}],
+		["elephant", elephant.immunity, {fire: kill, big: push, small: ignore, gust: push, spikes: ignore}],
+		["shell", armor_shell.immunity, {fire: reflect, EnemyHit.Type.FLAME: ignore, big: kill, small: stagger,
+			perfect: stagger, gust: push, spikes: ignore, EnemyHit.Type.CRUSH: kill,
+			EnemyHit.Type.EARTH_PUSH: push, EnemyHit.Type.REFLECTED_ORB: reflect}],
+	]
+	for row: Array in table_rows:
+		var table: ElementImmunity = row[1]
+		var expected: Dictionary = row[2]
+		var wrong: Array[String] = []
+		for hit_type: EnemyHit.Type in expected:
+			if table.get_response(hit_type) != expected[hit_type]:
+				wrong.append("%s=%s" % [EnemyHit.Type.keys()[hit_type], ElementImmunity.Response.keys()[table.get_response(hit_type)]])
+		_check(wrong.is_empty(), "§7.2 table, %s row as written %s" % [row[0], wrong])
+	_check(armor_shell.is_in_group(EnemyHit.REFLECTS_GROUP) and not armor_shell.is_in_group(Flammable.GROUP),
+		"the Shell reflects orbs and can't burn")
+	_check(Shell.BODY_SIZE == Vector2(12, 8), "the Shell is 12x8")
+
+	# 2. Its patrol: slow, turning before the spikes (never on them), kills on touch.
+	var spikes_left: float = origin.x + 16 * 8
+	var turns: int = 0
+	var last_direction: float = armor_shell.walk_direction
+	var furthest_right: float = -INF
+	for frame: int in 60 * 8:
+		await get_tree().physics_frame
+		furthest_right = maxf(furthest_right, armor_shell.get_hitbox_global_rect().end.x)
+		if armor_shell.walk_direction != last_direction:
+			turns += 1
+			last_direction = armor_shell.walk_direction
+	_check(turns >= 2 and furthest_right <= spikes_left and armor_shell.state == Shell.State.WALK,
+		"the Shell patrols, turning before the spikes (%d turns, front reached x %.0f, spikes at %.0f)" % [turns, furthest_right, spikes_left])
+	player.respawn_at(armor_shell.global_position + Vector2(0, -1))
+	await _physics_frames(2)
+	_check(player.is_dead(), "touching the Shell kills you")
+	await _wait_until(func() -> bool: return not player.is_dead(), 2.0)
+	room_m.reset_objects()
+	await _physics_frames(3)
+	# (3 frames of walking since the reset: under 2 px.)
+	_check(armor_shell.global_position.distance_to(origin + Vector2(80, 160)) < 2.0, "reset puts the Shell back at its start")
+
+	# 3. Ricochets. A fireball down onto the grass lights it and ends there (no bounce).
+	var grass_ball: Fireball = Fireball.launch(world, origin + Vector2(60, 140), Vector2.DOWN, tuning, null)
+	var grass_result: Array[int] = [-1]
+	grass_ball.finished.connect(func(_hit: Node) -> void: grass_result[0] = grass_ball.bounce_count)
+	await _wait_until(func() -> bool: return grass_result[0] >= 0, 1.0)
+	_check(grass_result[0] == 0 and grid != null and grid.get_state(Vector2i(7, 20)) != FireGrid.State.GRASS,
+		"a fireball onto grass lights it and bursts there (no bounce)")
+	# The Shell walks through the burning grass, unharmed.
+	await _wait_game(2.0)
+	_check(armor_shell.state == Shell.State.WALK and armor_shell.visible, "the Shell walks through burning grass unharmed")
+	# A fireball into a bare earth wall (the room's left wall, up in open air) bounces
+	# back and flies on. Projectiles are held in arrays: a lambda that captured a node
+	# directly complains once it's freed.
+	var wall_ball: Array[Fireball] = [Fireball.launch(world, origin + Vector2(40, 100), Vector2.LEFT, tuning, null)]
+	await _wait_until(func() -> bool: return not is_instance_valid(wall_ball[0]) or wall_ball[0].bounce_count > 0, 1.0)
+	_check(is_instance_valid(wall_ball[0]) and wall_ball[0].bounce_count == 1 and wall_ball[0].velocity.x > 0.0
+		and not wall_ball[0].has_finished, "a fireball bounces off a bare earth wall and flies on")
+	await _wait_until(func() -> bool: return not is_instance_valid(wall_ball[0]), 2.0)
+	_check(not is_instance_valid(wall_ball[0]), "and gutters out at the end of its range")
+	# A fireball at the Shell sparks off and bounces; the Shell is unharmed. (The orb
+	# lane's Shell, held still: open floor on both sides.)
+	orb_shell.set_physics_process(false)
+	var shell_ball: Array[Fireball] = [Fireball.launch(world, orb_shell.global_position + Vector2(30, -6), Vector2.LEFT, tuning, null)]
+	await _wait_until(func() -> bool: return not is_instance_valid(shell_ball[0]) or shell_ball[0].bounce_count > 0, 1.0)
+	_check(is_instance_valid(shell_ball[0]) and shell_ball[0].bounce_count >= 1 and shell_ball[0].velocity.x > 0.0
+		and orb_shell.state != Shell.State.DEFEATED, "a fireball bounces off the Shell, which is unharmed")
+	if is_instance_valid(shell_ball[0]):
+		shell_ball[0].queue_free()
+	# An orb bounces off the Shell's plates, and off the ceiling.
+	var orb_scene: PackedScene = load("res://scenes/enemies/sentry_orb.tscn") as PackedScene
+	var shell_orb: Array[SentryOrb] = [orb_scene.instantiate() as SentryOrb]
+	room_m.add_child(shell_orb[0])
+	shell_orb[0].launch(orb_shell.global_position + Vector2(24, -4), Vector2(-60, 0), null)
+	await _wait_until(func() -> bool: return not is_instance_valid(shell_orb[0]) or shell_orb[0].bounce_count > 0, 1.5)
+	_check(is_instance_valid(shell_orb[0]) and shell_orb[0].bounce_count == 1 and shell_orb[0].velocity.x > 0.0
+		and orb_shell.state != Shell.State.DEFEATED, "a sentry orb bounces off the Shell")
+	if is_instance_valid(shell_orb[0]):
+		shell_orb[0].pop()
+	orb_shell.set_physics_process(true)
+	var ceiling_orb: Array[SentryOrb] = [orb_scene.instantiate() as SentryOrb]
+	room_m.add_child(ceiling_orb[0])
+	ceiling_orb[0].launch(origin + Vector2(100, 40), Vector2(0, -80), null)
+	await _wait_until(func() -> bool: return not is_instance_valid(ceiling_orb[0]) or ceiling_orb[0].bounce_count > 0, 1.5)
+	_check(is_instance_valid(ceiling_orb[0]) and ceiling_orb[0].bounce_count == 1 and ceiling_orb[0].velocity.y > 0.0
+		and not ceiling_orb[0].is_popped, "a sentry orb bounces off the ceiling")
+	if is_instance_valid(ceiling_orb[0]):
+		ceiling_orb[0].pop()
+	room_m.reset_objects()
+	await _physics_frames(3)
+
+	# 4. Hits on the Shell, with its walk stopped so only the hit moves it.
+	var walk_speed: float = tuning.shell_walk_speed
+	tuning.shell_walk_speed = 0.0
+	var before: Vector2 = drop_shell.global_position
+	_check(EnemyHit.send(drop_shell, small, Vector2(150, 0)) == stagger and drop_shell.state == Shell.State.STAGGER,
+		"a small rock staggers the Shell")
+	await _wait_game(tuning.shell_stagger_time * 0.6)
+	_check(drop_shell.state == Shell.State.STAGGER and absf(drop_shell.global_position.x - before.x - tuning.shell_stagger_knockback) < 1.0,
+		"it stops and is knocked back %.0f px (%.1f)" % [tuning.shell_stagger_knockback, drop_shell.global_position.x - before.x])
+	await _wait_game(tuning.shell_stagger_time * 0.6)
+	_check(drop_shell.state == Shell.State.WALK, "then walks on")
+	before = drop_shell.global_position
+	EnemyHit.send(drop_shell, EnemyHit.Type.EARTH_PUSH, Vector2(-150, 0))
+	await _wait_game(0.4)
+	_check(absf(before.x - drop_shell.global_position.x - tuning.shell_shove_distance) < 1.0,
+		"the snake's head shoves it one tile (%.1f px)" % (before.x - drop_shell.global_position.x))
+	before = drop_shell.global_position
+	EnemyHit.send(drop_shell, gust, Vector2(300, 0))
+	await _wait_game(0.5)
+	var nudge: float = drop_shell.global_position.x - before.x
+	_check(nudge > 0.0 and nudge < 4.0, "a gust barely nudges it (%.1f px)" % nudge)
+	EnemyHit.send(drop_shell, EnemyHit.Type.EARTH_PUSH, Vector2(0, -150))
+	await _physics_frames(3)
+	_check(not drop_shell.is_on_floor() and drop_shell.velocity.y < 0.0, "a column's tip lifts it")
+	await _wait_until(func() -> bool: return drop_shell.is_on_floor(), 1.0)
+	for harmless: EnemyHit.Type in [spikes, EnemyHit.Type.FLAME, EnemyHit.Type.WHIP]:
+		EnemyHit.send(drop_shell, harmless, Vector2(100, 0))
+	_check(drop_shell.state == Shell.State.WALK and drop_shell.visible, "spikes, flames and the whip do nothing")
+	# Crushing kills it: the snake's head ramming it into a wall, a small rock knocking
+	# it back into one, a column squeezing it. (The orb lane's Shell, set 2 px and then
+	# 1 px from the low wall at col 42; the shove and the knockback are longer.)
+	var wall_side: float = origin.x + 43 * 8
+	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 2.0, orb_shell.global_position.y)
+	await _physics_frames(2)
+	EnemyHit.send(orb_shell, EnemyHit.Type.EARTH_PUSH, Vector2(-150, 0))
+	await _wait_until(func() -> bool: return orb_shell.state == Shell.State.DEFEATED, 0.5)
+	_check(orb_shell.state == Shell.State.DEFEATED, "the snake's head shoving it into a wall crushes it")
+	room_m.reset_objects()
+	await _physics_frames(3)
+	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 1.0, orb_shell.global_position.y)
+	await _physics_frames(2)
+	EnemyHit.send(orb_shell, small, Vector2(-150, 0))
+	await _wait_until(func() -> bool: return orb_shell.state == Shell.State.DEFEATED, 0.5)
+	_check(orb_shell.state == Shell.State.DEFEATED, "a small rock knocking it back into a wall crushes it")
+	room_m.reset_objects()
+	await _physics_frames(3)
+	_check(Pushable.try_crush(orb_shell) and orb_shell.state == Shell.State.DEFEATED, "a column squeezing it crushes it")
+	tuning.shell_walk_speed = walk_speed
+	room_m.reset_objects()
+	await _physics_frames(3)
+
+	# 5. Big rocks. A small loose rock dropped on it does nothing; a big one dropped
+	# from 2+ tiles kills it; a thrown big rock kills it.
+	# (The orb lane's Shell, held still, open air above it.)
+	orb_shell.set_physics_process(false)
+	var small_rock: Boulder = Boulder.new()
+	small_rock.setup(orb_shell.global_position + Vector2(0, -40), Vector2.UP, 0.0, 0.0, earth_tuning)
+	room_m.add_child(small_rock)
+	small_rock.drop()
+	await _wait_game(1.0)
+	_check(orb_shell.state != Shell.State.DEFEATED, "a small rock dropped on the Shell does nothing")
+	var big_rock: Array[Boulder] = [Boulder.new()]
+	var big_center: Vector2 = orb_shell.global_position + Vector2(0, -48)
+	big_rock[0].setup(big_center, Vector2.UP, 0.0, 0.0, earth_tuning)
+	room_m.add_child(big_rock[0])
+	big_rock[0].grow(big_center, 16.0)
+	big_rock[0].drop()
+	await _wait_until(func() -> bool: return orb_shell.state == Shell.State.DEFEATED, 1.5)
+	_check(orb_shell.state == Shell.State.DEFEATED and not is_instance_valid(big_rock[0]),
+		"a big rock dropped on it from 2+ tiles cracks it open (and shatters)")
+	orb_shell.set_physics_process(true)
+	_check(EnemyHit.send(armor_shell, big, Vector2(200, 0), null, earth_tuning.boulder_enemy_defeat_delay) == kill
+		and armor_shell.state == Shell.State.DEFEATED, "a thrown big rock kills it")
+	room_m.reset_objects()
+	await _physics_frames(3)
+	_check(orb_shell.visible and orb_shell.state == Shell.State.WALK and armor_shell.state == Shell.State.WALK,
+		"R brings the Shells back")
+
+	# 6. Burn the thicket bridge under a Shell (standing still on it, at its start over
+	# the thicket): it drops into the pocket, alive.
+	tuning.shell_walk_speed = 0.0
+	var bridge_y: float = bridge_shell.global_position.y
+	if grid != null:
+		grid.ignite_at(origin + Vector2(35 * 8 + 4, 18 * 8 + 4), 4.0, null)
+	await _wait_until(func() -> bool: return bridge_shell.global_position.y > bridge_y + 12.0, 8.0)
+	_check(bridge_shell.global_position.y > bridge_y + 12.0 and bridge_shell.state == Shell.State.WALK,
+		"burning the thicket under a Shell drops it out of the way (%.0f px down)" % (bridge_shell.global_position.y - bridge_y))
+	tuning.shell_walk_speed = walk_speed
+	room_m.reset_objects()
+	await _physics_frames(3)
+	sentry.can_fire = true
+	player.respawn_at(room_m.get_spawn_position())
+	await _physics_frames(3)
+	finished_sections.append("F12")
+
+
+## Waits this many seconds of game time (physics frames).
+func _wait_game(seconds: float) -> void:
+	await _physics_frames(roundi(seconds * Engine.physics_ticks_per_second))
 
 
 # --- Helpers ---------------------------------------------------------------------

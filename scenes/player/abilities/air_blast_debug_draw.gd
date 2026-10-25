@@ -1,6 +1,6 @@
 class_name AirBlastDebugDraw
 extends Node2D
-## Debug drawing for air blasts (gust and dash wake). Toggle with F3 (`debug_gust_hitbox`).
+## Debug drawing for air blasts (the gust). Toggle with F3 (`debug_gust_hitbox`).
 ## Lives under the Player:  Player > AirBlastDebugDraw
 ##
 ## When on, it draws:
@@ -49,7 +49,7 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 
 
-## Called by GustAbility / AirDashAbility after every blast.
+## Called by GustAbility after every blast.
 func record_blast(cone_points: PackedVector2Array, hit_nodes: Array[Node]) -> void:
 	var hit_positions: Array[Vector2] = []
 	for target: Node in hit_nodes:

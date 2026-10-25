@@ -15,7 +15,7 @@ extends TileMapLayer
 ##     flutter (updrafts make it flutter without leaning)
 ##   - the player: blades the body overlaps lean the way you run, and part around your
 ##     feet when you stand still
-## A gust (or the dash wake) KICKS the blades' bend speed instead: they whip over and
+## A gust KICKS the blades' bend speed instead: they whip over and
 ## spring back. Gusts find the grass through the Pushable contract (pushable.gd), via
 ## one sensor Area2D per strip of blades, like the leaf pile does.
 ##
@@ -294,7 +294,9 @@ func _draw_blades() -> void:
 		var upper_color: Color = color
 		if fire_grid != null:
 			var fire_state: FireGrid.State = fire_grid.get_state(blade_cells[blade_index])
-			if fire_state == FireGrid.State.ASH:
+			# ASH: burnt grass. GONE: a grass-look cover that collapsed (its tile is
+			# open air now), so no blade must float there.
+			if fire_state == FireGrid.State.ASH or fire_state == FireGrid.State.GONE:
 				continue
 			if fire_state == FireGrid.State.SMOLDERING:
 				blades_canvas.draw_line(base + Vector2(0.0, BLADE_ROOT_DEPTH), base + Vector2(0.0, -1.0), FireGrid.CHAR_COLOR, 1.0)

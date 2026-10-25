@@ -38,11 +38,11 @@ func _ready() -> void:
 	_check(not gate.is_on(), "enemy gate off again after a room reset")
 
 	# No-glide zone: gliding allowed outside, refused inside (room 2's crystal chain).
-	var dash_room: Room = world.rooms[1]
-	world.jump_to_room(dash_room)
+	var chain_room: Room = world.rooms[1]
+	world.jump_to_room(chain_room)
 	await get_tree().create_timer(0.2).timeout
 	_check(world.player.glide.can_glide(), "can glide outside dead air")
-	var dead_air: NoGlideZone = dash_room.get_node("ChainDeadAir") as NoGlideZone
+	var dead_air: NoGlideZone = chain_room.get_node("ChainDeadAir") as NoGlideZone
 	world.player.respawn_at(dead_air.global_position + dead_air.zone_size / 2.0)
 	await get_tree().physics_frame
 	_check(not world.player.glide.can_glide(), "can't glide inside dead air")

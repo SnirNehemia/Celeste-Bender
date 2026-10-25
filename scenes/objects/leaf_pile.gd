@@ -8,7 +8,7 @@ extends Node2D
 ## Place the node ON the floor, at the CENTER of the mound's base.
 ##
 ## What moves the leaves:
-##   - a gust (or dash wake) blows the leaves within `gust_reach` of where it came
+##   - a gust blows the leaves within `gust_reach` of where it came
 ##     from (the Pushable contract's optional receive_gust_from(), pushable.gd)
 ##   - anything walking or sliding through the pile (the player, a crate) kicks the
 ##     leaves it touches a little

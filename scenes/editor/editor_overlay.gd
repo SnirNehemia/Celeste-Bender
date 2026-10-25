@@ -10,6 +10,10 @@ extends Node2D
 ## object under the mouse, the rectangle or spike strip being dragged, and links:
 ## a line from each door to each of its switches (dim; bright for the selected
 ## object), and in link mode an outline round everything that can be linked.
+## Vines (after the L10 play-test): a pivot mark on each vine's anchor (the point
+## everything it holds swings round), and for a crate or plank hanging on ONE vine,
+## the arc its knot swings along when let go (from where it is to the same height
+## on the other side).
 ##
 ## It draws in level coordinates (it's a Node2D in the same world as the rooms),
 ## so the editor camera moves and zooms it with everything else. Lines use width
@@ -43,6 +47,14 @@ const ARROW_HEAD: float = 3.0
 const ARROW_COLOR: Color = Color(0.75, 0.92, 1.0, 0.9)
 ## Room names are drawn this many SCREEN pixels tall, whatever the zoom.
 const NAME_FONT_SIZE: int = 8
+## Vine anchors and swing arcs: a vine-ish green, bright; the arc see-through.
+const PIVOT_COLOR: Color = Color(0.55, 0.95, 0.35, 0.95)
+const SWING_ARC_COLOR: Color = Color(0.55, 0.95, 0.35, 0.45)
+## The pivot mark's ring and the bar it hangs from, screen pixels.
+const PIVOT_SCREEN_RADIUS: float = 3.0
+const PIVOT_BAR_SCREEN_HALF_WIDTH: float = 5.0
+## A knot hanging (almost) straight down still gets an arc this wide each way.
+const MIN_SWING_ARC: float = 0.26  # about 15 degrees
 ## Room view: drawn over the rooms you're not editing.
 const NEIGHBOUR_DIM_COLOR: Color = Color(0.0, 0.0, 0.0, 0.45)
 ## Map view (Stage L7): openings (exits) green like the spawn point (GAME_DESIGN.md
@@ -85,6 +97,7 @@ func _draw() -> void:
 		_draw_stand_ins(room)
 
 	_draw_links()
+	_draw_pivots()
 	if editor.link_source != null:
 		_draw_link_targets()
 
@@ -118,6 +131,41 @@ func _draw_links() -> void:
 		var target_center: Vector2 = PaletteCatalog.get_bounds(target).get_center()
 		draw_line(PaletteCatalog.get_bounds(source).get_center(), target_center, color, -1.0)
 		draw_circle(target_center, dot_radius, color)
+
+
+## Every vine's anchor (catalog LINE_TO_POINT: the origin), and the swing arc of
+## each holder (catalog tie_kind) that hangs on exactly one vine.
+func _draw_pivots() -> void:
+	var pixel: float = 1.0 / editor.camera.get_zoom_factor()
+	for object: Node2D in editor.get_objects():
+		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(object)
+		if entry.bounds == PaletteCatalog.Bounds.LINE_TO_POINT:
+			var anchor: Vector2 = object.global_position
+			var bar: Vector2 = Vector2(PIVOT_BAR_SCREEN_HALF_WIDTH * pixel, 0.0)
+			draw_line(anchor - bar, anchor + bar, PIVOT_COLOR, -1.0)
+			draw_arc(anchor, PIVOT_SCREEN_RADIUS * pixel, 0.0, TAU, 12, PIVOT_COLOR, -1.0)
+		elif entry.tie_kind != PaletteCatalog.TieKind.NONE:
+			var vines: Array[Node2D] = []
+			for target: Variant in object.get(entry.link_property):
+				if target != null and is_instance_valid(target) and (target as Node).is_inside_tree():
+					vines.append(target as Node2D)
+			if vines.size() == 1:
+				_draw_swing_arc(object, vines[0])
+
+
+## The arc a holder's knot swings along round `vine`'s anchor: from its angle to the
+## mirror angle (a swing let go from rest rises as high on the other side).
+## Angles as Godot draws arcs: 0 = right, PI/2 = straight down.
+func _draw_swing_arc(holder: Node2D, vine: Node2D) -> void:
+	var anchor: Vector2 = vine.global_position
+	var end: Vector2 = anchor + (vine.get(PaletteCatalog.entry_for_node(vine).point_properties[0]) as Vector2)
+	var knot: Vector2 = PaletteCatalog.get_tie_point(holder, PaletteCatalog.get_tie_fraction(holder, end))
+	var radius: float = anchor.distance_to(knot)
+	if radius < 1.0:
+		return
+	var from_down: float = wrapf((knot - anchor).angle() - PI / 2.0, -PI, PI)
+	var reach: float = maxf(absf(from_down), MIN_SWING_ARC)
+	draw_arc(anchor, radius, PI / 2.0 - reach, PI / 2.0 + reach, 32, SWING_ARC_COLOR, -1.0)
 
 
 ## The map view: every room's outline (yellow if selected, bright if under the

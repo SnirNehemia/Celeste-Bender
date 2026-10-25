@@ -33,7 +33,7 @@ extends PlayerState
 ##
 ##   end:      Fall in the air, Idle/Run on the ground
 ##
-## Dash, ground jump and wall jump work in every phase, so the gust never eats an input.
+## Ground jump and wall jump work in every phase, so the gust never eats an input.
 
 enum Phase { RECOIL, BRAKE, FLOAT }
 
@@ -84,10 +84,6 @@ func enter() -> void:
 
 
 func physics_update(delta: float) -> void:
-	# Dash beats everything else this frame (Dash.enter() sets the velocity).
-	if player.wants_to_dash():
-		transition_requested.emit(&"Dash")
-		return
 
 	phase_time_remaining -= delta
 	match phase:

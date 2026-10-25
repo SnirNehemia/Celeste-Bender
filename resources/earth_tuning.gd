@@ -188,6 +188,10 @@ extends Resource
 ## "Next to": a loose rock within this many px of the player's sides (and level with
 ## their body, not under their feet) can be lifted.
 @export var loose_rock_lift_reach: float = 6.0
+## A loose BIG rock falling at least this far, px (2 tiles), onto an enemy hits it like
+## a thrown big rock (Stage F12: that's how you drop one on a Shell). A shorter drop
+## does nothing.
+@export var loose_rock_kill_drop: float = 16.0
 
 @export_group("Shatter creations (tap S)")
 ## After the E7 play-test: a TAP of S while touching a creation (a stuck or loose rock,

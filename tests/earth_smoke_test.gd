@@ -122,12 +122,13 @@ func _check_e2_bend_core(player: Player, room: Room, earth: EarthLayer) -> void:
 	player.facing_direction = 1.0
 	await _wait_real(0.2)
 
-	# Air is off here: X does nothing.
-	Input.action_press("dash")
+	# Air is off here: Z does nothing.
+	Input.action_press("gust")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	Input.action_release("dash")
-	_check(player.state_machine.current_state.name != &"Dash", "dash refused in an Earth-only room")
+	Input.action_release("gust")
+	var state_after_gust: StringName = player.state_machine.current_state.name
+	_check(state_after_gust != &"GustAim" and state_after_gust != &"GustRecoil", "gust refused in an Earth-only room")
 
 	# Hold A: rooted bend in slow motion, shadow waits under the feet.
 	Input.action_press("earth_column")

@@ -35,13 +35,32 @@ extends CharacterBody2D
 ## a little ash heap: no collision, it stops being heavy (a plate under it lifts),
 ## and it is gone until death or R.
 ##
-## Hung crates: `hung_from` lists Vines (Switches) holding it up. While any of them
-## is intact (off), it hangs still: no gravity, gusts don't move it. When one burns
-## through, it falls. Wired by signal, like a door.
+## Hung crates: `hung_from` lists Vines (Switches) holding it up. Held by two or
+## more intact vines, it hangs still: no gravity, gusts don't move it. Held by ONE
+## (after the L9 play-test), it's a real PENDULUM: its center moves on a circle
+## round the vine's anchor (radius: the vine plus half the crate), and it tilts so
+## its top always points at the anchor. The swing is worked out as an angle
+## (`swing_angle`, 0 = straight down) and its speed: each frame gravity speeds it
+## toward the bottom by g / radius x sin(angle). Gusts push it along the circle. If
+## the swing runs into something (a wall, the ground, the player), it bounces back
+## with `swing_bounce` of its speed. The vine coils round its top (a knot).
+## When the last vine burns through, it falls, keeping its swing speed, and turns
+## upright again as it falls. Wired by signal, like a door.
+## Falling or flung through the air (not sliding on the ground), it bounces a
+## little off walls instead of stopping dead (`air_wall_bounce`).
+##
+## METAL crates (`is_metal`, after the L10 play-test): steel gray with rivets. They
+## don't burn (not in the flammable group, ignite() does nothing) and are heavier:
+## gusts, a rising column's throw and swing pushes move them `metal_push_factor` as
+## much. Gravity is the same (everything falls alike).
 
 ## Brown, per the color key (GAME_DESIGN.md §2), with darker planks.
 const CRATE_COLOR: Color = Color(0.6, 0.38, 0.2)
 const PLANK_COLOR: Color = Color(0.4, 0.24, 0.12)
+## Metal crates: steel gray, a darker frame and lighter rivets.
+const METAL_COLOR: Color = Color(0.5, 0.53, 0.57)
+const METAL_FRAME_COLOR: Color = Color(0.3, 0.32, 0.36)
+const METAL_RIVET_COLOR: Color = Color(0.75, 0.78, 0.82)
 ## A burning crate chars toward this (fully at the end of its burn).
 const CHARRED_COLOR: Color = Color(0.13, 0.09, 0.08)
 ## The collapsed crate: a low heap of ash (Fire_bending.md §9.1), drawn only.
@@ -53,6 +72,8 @@ const IGNITE_INTERVAL: float = 0.15
 ## Flame tongues along the top of a burning crate, and the middle ones' length, px.
 const FLAME_COUNT: int = 4
 const FLAME_LENGTH: float = 10.0
+## The knot: the vine coils round the crate's top this thick, px.
+const KNOT_THICKNESS: float = 4.0
 
 enum BurnState { SOLID, BURNING, GONE }
 
@@ -76,6 +97,24 @@ enum BurnState { SOLID, BURNING, GONE }
 @export var fall_out_distance: float = 400.0
 ## Vines holding it up (Stage F8). Empty = it stands on the ground like always.
 @export var hung_from: Array[Switch] = []
+## Swinging on one vine: the fraction of its speed kept every physics frame, so a
+## swing slowly dies down (0.996 at 60 fps keeps about 79% after a second).
+@export var swing_damping: float = 0.996
+## A metal crate: doesn't burn, and pushes move it less (see the header).
+@export var is_metal: bool = false:
+	set(value):
+		is_metal = value
+		queue_redraw()
+## How much of a push (gust, column, swing push) a metal crate takes.
+@export var metal_push_factor: float = 0.5
+## Swinging into something: the fraction of its swing speed it bounces back with.
+@export var swing_bounce: float = 0.35
+## Off the ground and hitting a wall faster than this, px/s, it bounces back with
+## air_wall_bounce of its speed (slow touches just stop, as a gusted slide does).
+@export var air_wall_bounce: float = 0.3
+@export var air_wall_bounce_min_speed: float = 40.0
+## How fast a released crate turns upright again while it falls, radians/s.
+@export var upright_turn_speed: float = 8.0
 
 var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
 var burn_state: BurnState = BurnState.SOLID
@@ -87,6 +126,16 @@ var fire_hazard: FireHazard
 var flames: Array[FlameTongue] = []
 ## True while a vine in hung_from still holds it.
 var is_hanging: bool = false
+## Vine -> how far its anchor may be from the crate's top: the distance when placed.
+var vine_lengths: Dictionary = {}
+## False once it burnt out off the ground: then no ash heap is drawn (see _collapse).
+var ash_heap_visible: bool = true
+## The pendulum (one vine holds it): the vine, the angle from straight down
+## (radians, positive = to the right of the anchor) and its speed (radians/s).
+## swing_vine is null while it isn't swinging.
+var swing_vine: Vine = null
+var swing_angle: float = 0.0
+var swing_speed: float = 0.0
 
 ## Where it was placed, in world coordinates. reset() puts it back here.
 var start_position: Vector2
@@ -106,11 +155,13 @@ func _ready() -> void:
 	add_to_group(Pushable.GROUP)
 	add_to_group(PressurePlate.HEAVY_GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
-	add_to_group(Flammable.GROUP)
+	if not is_metal:
+		add_to_group(Flammable.GROUP)  # metal doesn't burn
 	_make_fire()
 	for vine: Switch in hung_from:
 		if vine != null:
 			vine.switched.connect(_on_vine_switched)
+			vine_lengths[vine] = vine.global_position.distance_to(_get_knot_point())
 	is_hanging = _is_held_by_a_vine()
 
 
@@ -151,6 +202,26 @@ func _is_held_by_a_vine() -> bool:
 	return false
 
 
+## The one intact Vine holding it, or null if none or several do (still then).
+func _get_single_holding_vine() -> Vine:
+	var holding: Vine = null
+	for vine_switch: Switch in hung_from:
+		var vine: Vine = vine_switch as Vine
+		if vine == null or vine.is_on():
+			continue
+		if holding != null:
+			return null  # two hold it: it hangs still
+		holding = vine
+	return holding
+
+
+## Where its vines are tied: the knot, half KNOT_THICKNESS down from the middle of
+## its top, world coordinates (turned with it while it swings). Each vine's length is
+## measured to here, so a vine holding the crate is at full length: taut.
+func _get_knot_point() -> Vector2:
+	return global_transform * Vector2(0.0, -crate_size.y + KNOT_THICKNESS / 2.0)
+
+
 ## One of our vines burnt through (or grew back on reset).
 func _on_vine_switched(_is_now_on: bool) -> void:
 	is_hanging = _is_held_by_a_vine()
@@ -159,11 +230,13 @@ func _on_vine_switched(_is_now_on: bool) -> void:
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
-	# The vines' tied ends follow the crate's top (no coils: thickness 0).
+	# The vines' tied ends follow the crate's top, and coil round it there: the knot
+	# sits half its thickness into the crate, along the crate's (turned) top edge.
+	var knot: Vector2 = _get_knot_point()
 	for vine_switch: Switch in hung_from:
 		var vine: Vine = vine_switch as Vine
 		if vine != null:
-			vine.tie_to(global_position + Vector2(0.0, -crate_size.y), Vector2.RIGHT, 0.0)
+			vine.tie_to(knot, global_transform.x, KNOT_THICKNESS)
 	if burn_state == BurnState.GONE:
 		return
 	if burn_state == BurnState.SOLID and catch_remaining >= 0.0:
@@ -175,26 +248,102 @@ func _physics_process(delta: float) -> void:
 		_advance_burn(delta)
 		if burn_state == BurnState.GONE:
 			return
-	if is_hanging:
-		velocity = Vector2.ZERO
+	var holding_vine: Vine = _get_single_holding_vine() if is_hanging else null
+	if holding_vine != swing_vine:
+		_change_swing(holding_vine)
+	if swing_vine != null:
+		_swing(delta)
 		return
-	if not is_on_floor():
+	if is_hanging:
+		velocity = Vector2.ZERO  # several vines: it hangs still
+		return
+	# Let go (or never hung): back upright while it falls.
+	rotation = move_toward(rotation, 0.0, upright_turn_speed * delta)
+	var was_on_floor: bool = is_on_floor()
+	if not was_on_floor:
 		velocity.y = minf(velocity.y + gravity * delta, max_fall_speed)
 	# Friction: slide toward a stop, faster on the ground than in the air.
-	var friction: float = ground_friction if is_on_floor() else air_friction
+	var friction: float = ground_friction if was_on_floor else air_friction
 	velocity.x = move_toward(velocity.x, 0.0, friction * delta)
+	var speed_before: Vector2 = velocity
 	# move_and_slide() also zeroes the part of velocity that runs into a wall,
-	# so a crate shoved into a wall just stops.
+	# so a crate shoved into a wall just stops...
 	move_and_slide()
+	# ...unless it flew into it: then it bounces back a little.
+	if is_on_wall() and not was_on_floor and absf(speed_before.x) > air_wall_bounce_min_speed:
+		velocity.x = -speed_before.x * air_wall_bounce
 	if global_position.y > start_position.y + fall_out_distance:
 		reset()
 
 
-## The Pushable contract: called by the gust (and the dash wake) when it hits us.
+## Starts swinging on `vine` (or stops, null). Starting: the angle comes from where
+## its top is now (it tilts to point at the anchor, turning round its top), and any
+## speed it had becomes swing speed. Stopping (the vine snapped): the swing speed
+## becomes a velocity along the circle, so it flies off the way it was going.
+func _change_swing(vine: Vine) -> void:
+	if vine == null:
+		if swing_vine != null:
+			velocity = _get_swing_tangent() * swing_speed * _get_swing_radius()
+		swing_vine = null
+		return
+	var from_anchor: Vector2 = _get_knot_point() - vine.global_position
+	swing_vine = vine
+	# The angle from straight down: atan2(x, y), so a point to the right is positive.
+	swing_angle = atan2(from_anchor.x, from_anchor.y)
+	swing_speed = velocity.dot(_get_swing_tangent()) / _get_swing_radius()
+	global_transform = _get_swing_transform(swing_angle)
+
+
+## Anchor to the crate's center, px: the vine's length plus knot to center.
+func _get_swing_radius() -> float:
+	return maxf(float(vine_lengths.get(swing_vine, 0.0)) + crate_size.y / 2.0 - KNOT_THICKNESS / 2.0, 1.0)
+
+
+## The direction the center moves in when the angle grows (along the circle).
+func _get_swing_tangent() -> Vector2:
+	return Vector2(cos(swing_angle), -sin(swing_angle))
+
+
+## The crate on the circle at `angle`: its center there, turned so its top points at
+## the anchor (rotation = -angle). The feet (the origin) are half the crate below the
+## center, in the turned frame.
+func _get_swing_transform(angle: float) -> Transform2D:
+	var center: Vector2 = swing_vine.global_position + Vector2(sin(angle), cos(angle)) * _get_swing_radius()
+	var turned: Transform2D = Transform2D(-angle, Vector2.ZERO)
+	return Transform2D(-angle, center + turned * Vector2(0.0, crate_size.y / 2.0))
+
+
+## One frame of the pendulum. It moves with move_and_collide toward its next spot on
+## the circle: if something is in the way it stops there and bounces back.
+func _swing(delta: float) -> void:
+	swing_speed -= gravity / _get_swing_radius() * sin(swing_angle) * delta
+	swing_speed *= swing_damping
+	var next_angle: float = swing_angle + swing_speed * delta
+	var target: Transform2D = _get_swing_transform(next_angle)
+	rotation = -next_angle  # turn first (a small turn, not checked), then move
+	var collision: KinematicCollision2D = move_and_collide(target.origin - global_position)
+	if collision == null:
+		swing_angle = next_angle
+		return
+	# Blocked: bounce back, staying on the circle where it stopped.
+	swing_speed = -swing_speed * swing_bounce
+	var center: Vector2 = global_transform * Vector2(0.0, -crate_size.y / 2.0)
+	var from_anchor: Vector2 = center - swing_vine.global_position
+	swing_angle = atan2(from_anchor.x, from_anchor.y)
+	rotation = -swing_angle
+
+
+## The Pushable contract: called by the gust when it hits us.
 ## Sideways: sets the slide speed (replacing it, so a gust can also stop or reverse
 ## a moving crate). Upward: a small hop. Downward: slams it down if it's in the air.
 func receive_gust(direction: Vector2, strength: float) -> void:
-	if is_hanging or burn_state == BurnState.GONE:
+	# Hanging still from several vines: gusts can't move it.
+	if (is_hanging and _get_single_holding_vine() == null) or burn_state == BurnState.GONE:
+		return
+	strength *= _get_push_factor()
+	if swing_vine != null:
+		# On one vine: the part of the push along the circle swings it.
+		swing_speed += direction.dot(_get_swing_tangent()) * strength / _get_swing_radius()
 		return
 	velocity.x = direction.x * strength
 	if direction.y < -0.1:
@@ -210,7 +359,12 @@ func receive_gust(direction: Vector2, strength: float) -> void:
 func receive_launch(launch_velocity: Vector2) -> void:
 	if burn_state == BurnState.GONE:
 		return
-	velocity = launch_velocity
+	velocity = launch_velocity * _get_push_factor()
+
+
+## 1 for wood; metal_push_factor for a heavier metal crate.
+func _get_push_factor() -> float:
+	return metal_push_factor if is_metal else 1.0
 
 
 # --- The Flammable contract (Stage F8) -----------------------------------------------
@@ -220,7 +374,7 @@ func receive_launch(launch_velocity: Vector2) -> void:
 ## glows meanwhile), so jetting up off a crate doesn't kill you (F8 play-test); any
 ## other fire lights it at once, even one that's already catching.
 func ignite(source: Node) -> void:
-	if burn_state != BurnState.SOLID:
+	if burn_state != BurnState.SOLID or is_metal:
 		return
 	if source is FlameJetAbility:
 		if catch_remaining < 0.0:
@@ -277,6 +431,10 @@ func _advance_burn(delta: float) -> void:
 ## drawn where it was, but it has no collision and presses nothing.
 func _collapse() -> void:
 	burn_state = BurnState.GONE
+	# Burnt out hanging or in mid-air: its ash just falls (AshFall below), no heap
+	# is left floating where it was.
+	ash_heap_visible = is_on_floor() and not is_hanging
+	rotation = 0.0
 	fire_hazard.active = false
 	for flame: FlameTongue in flames:
 		flame.visible = false
@@ -298,7 +456,11 @@ func _collapse() -> void:
 ## Called by Room.reset_objects() when the player dies or restarts the room.
 func reset() -> void:
 	global_position = start_position
+	rotation = 0.0
+	ash_heap_visible = true
 	velocity = Vector2.ZERO
+	swing_vine = null  # its vines grow back below: the next frame starts the swing again
+	swing_speed = 0.0
 	catch_remaining = -1.0
 	if burn_state != BurnState.SOLID:
 		burn_state = BurnState.SOLID
@@ -322,6 +484,8 @@ func _resize_hitbox() -> void:
 
 func _draw() -> void:
 	if burn_state == BurnState.GONE:
+		if not ash_heap_visible:
+			return
 		# A low heap of ash where it collapsed.
 		var half: float = crate_size.x / 2.0
 		draw_colored_polygon(PackedVector2Array([Vector2(-half + 1.0, 0.0), Vector2(-half * 0.4, -3.0),
@@ -337,6 +501,16 @@ func _draw() -> void:
 		# Catching from the jet: the planks start to glow before the flames come.
 		char_amount = 0.3 * (1.0 - catch_remaining / maxf(fire_tuning.crate_jet_catch_delay, 0.01))
 	var box: Rect2 = Rect2(-crate_size.x / 2.0, -crate_size.y, crate_size.x, crate_size.y)
+	if is_metal:
+		# Steel: a plate, a frame, a cross brace and a rivet in each corner.
+		draw_rect(box, METAL_COLOR)
+		draw_rect(box.grow(-0.5), METAL_FRAME_COLOR, false, 1.0)
+		draw_line(box.position + Vector2(1.0, 1.0), box.end - Vector2(1.0, 1.0), METAL_FRAME_COLOR, 1.0)
+		draw_line(Vector2(box.end.x - 1.0, box.position.y + 1.0), Vector2(box.position.x + 1.0, box.end.y - 1.0), METAL_FRAME_COLOR, 1.0)
+		for corner: Vector2 in [box.position + Vector2(2, 2), Vector2(box.end.x - 3, box.position.y + 2),
+				Vector2(box.position.x + 2, box.end.y - 3), box.end - Vector2(3, 3)]:
+			draw_rect(Rect2(corner, Vector2.ONE), METAL_RIVET_COLOR)
+		return
 	draw_rect(box, CRATE_COLOR.lerp(CHARRED_COLOR, char_amount))
 	# Outline plus a diagonal brace: reads as "crate" even as a placeholder.
 	var plank_color: Color = PLANK_COLOR.lerp(Color("#E8431A"), char_amount * 0.7)

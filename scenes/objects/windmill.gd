@@ -66,7 +66,7 @@ func _ready() -> void:
 	add_to_group(Room.RESETTABLE_GROUP)
 
 
-## The Pushable contract: called by the gust (and the dash wake) when it hits us.
+## The Pushable contract: called by the gust when it hits us.
 ## The strength doesn't matter: any gust spins it fully.
 func receive_gust(direction: Vector2, _strength: float) -> void:
 	spin_remaining = spin_time

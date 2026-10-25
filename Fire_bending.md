@@ -60,6 +60,7 @@ The jet is **steered, not aimed**. You fly it continuously, so it does **not** s
 ### 5.1 Fireball (Q)
 - **Flight:** 8×8 hitbox, **200 px/s** straight line **(tune: `fireball_speed`)**. No gravity, max range 160 px **(tune)**, then it gutters out. Costs **1 pip**.
 - **On hit:** ignites what it hits plus anything flammable within **6 px** **(tune: `fireball_splash`)**, then bursts.
+- **Ricochet (Stage F12):** if nothing it hits catches (bare earth, stone, ash, the Shell's plates), it **bounces** instead: mirrored off the surface, keeping 85% of its speed **(tune: `fireball_bounce_keep`)**, and flies on until its range is used up (bounces count toward it). Something that burns still stops it: grass, thicket, a crate, a brazier, a vine catch and it bursts, as before. Skimming or rolling (leaving a surface slower than `fireball_min_bounce_speed`, 40 px/s) bursts it there; `fireball_max_bounces` can cap the count (-1 = none). It never hurts you, even bouncing back.
 - **Recoil:** none. Recoil movement was rejected in the element design; the jet is the movement.
 - **Movement:** opens routes by burning vines and thicket walls, and lights fuses to braziers that open doors. It's indirect, which is fine because the jet carries the direct movement.
 - **Puzzle:** light things you can't reach, light a fuse from far away, convert an air diamond across a gap, burn a crate off a plate.
@@ -88,13 +89,13 @@ The jet is a **committed burst**: one press = one pip = one fixed-length burst y
 - **Chaining:** if W is **still held** when a burst ends and you have a pip left, the next pip fires straight away with a visible **"pump" flare**. Each chained burst restarts the thrust curve, so a long flight is a rhythm of surges. Letting go of W means the current burst finishes and nothing more is spent.
 - **Cutting short:** pressing **Jump (C)** during a burst ends it immediately. The pip is **still spent**: an escape from a bad line that never refunds fuel. Normal gravity takes over at once.
 - **End of a burst:** you keep `jet_end_carry` of your velocity, then normal gravity takes over (with apex half-gravity as usual).
-- **Distance guide:** one full burst carries you roughly 80–90 px in a straight line, more than twice a dash. Room layouts should be built around that, and re-measured whenever the curve is retuned.
+- **Distance guide:** one full burst carries you roughly 80–90 px in a straight line, more than twice the old dash. Room layouts should be built around that, and re-measured whenever the curve is retuned.
 - **The exhaust:** a flame plume **24 px** long **(tune: `jet_plume_length`)**, 8 px wide at the nozzle, fanning to 14 px, pointing opposite to the thrust.
 - **The exhaust ignites anything flammable it touches:** grass, leaf piles, vines, braziers, crates, sails, leaf platforms, air diamonds (conversion), wisps.
 - **You are immune to your own jet.** Other flames still kill you.
 - **Movement:** the main traversal tool. You can cross gaps, climb shafts, make mid-air corrections, and chain through fire diamonds.
 - **Puzzle:** your take-off scorches the grass under you, so taking off from grass **starts a fire behind you**. A sideways jet along the ground is a moving fuse. Rooms can ask you to light a long grass run by jetting along it.
-- **Combat:** the plume burns wisps that chase you, like the dash wake. Orbs pass through the plume and still hit you, so the jet is not a shield.
+- **Combat:** the plume burns wisps that chase you, like a gust stuns them. Orbs pass through the plume and still hit you, so the jet is not a shield.
 
 ### 5.3 Hot updrafts (from bonfires and burning grass)
 - A **lit leaf pile** becomes a bonfire with a hot updraft column above it, **48 px** tall, 16 px wide **(tune)**.
@@ -225,7 +226,7 @@ These are moved by **hot updrafts** (§5.3), never by the player directly. They 
 
 **Thicket elephant** (the heavy one)
 - **Look:** minimalist, like the wisp (option C, "stepped", the developer's pick of four): flat rectangles on the 8 px tile grid. A huge creature, 96x60 (12x7.5 tiles): a stepped gray stone silhouette (lighter top rows, a darker belly band), a block ear, two eyes (white with purple pupils), a pale tusk, four stepping legs, and three burnable parts in moss green: **moss tufts** on its back, a blocky **trunk** with a foot at the front, and a long **vine tail** (a simulated rope). Polish in F13.
-- **Behavior:** a slow patrol, turning at walls and ledges. It **kills on touch only at its front** (head, tusks, trunk). Its back is a **moving platform**, 60 px up, out of jumping reach: getting on is a small puzzle (a gust or dash up, a wall, the jet, a column next to it). Ride it across long spike stretches (it walks over them) or up to high fire diamonds. There's a gap under its belly, between its legs.
+- **Behavior:** a slow patrol, turning at walls and ledges. It **kills on touch only at its front** (head, tusks, trunk). Its back is a **moving platform**, 60 px up, out of jumping reach: getting on is a small puzzle (a gust up, a wall, the jet, a column next to it). Ride it across long spike stretches (it walks over them) or up to high fire diamonds. There's a gap under its belly, between its legs.
 - **It charges whenever it can hit you:** you're in front of it, on its level, within range and in clear view. It rears (the tell), then charges at normal speed. A wall stops it (stunned); it brakes at ledges.
 - **Tail whip:** every few seconds the tail **wiggles**, is **raised** high (the tell), then **strikes** down behind it like a whip, with a crack at the tip. The strike kills anything it touches (the player, wisps, monkeys). Between whips you can get behind it and reach the tail.
 - **Three burn spots, three ways in:** the trunk from the front (dangerous: you're in its path), the back from above (get up there, then a fireball down or the jet over it), the tail from behind (between whips). A burnt spot stays burnt until R. Burning all three kills it (it crumbles into a big heap of ash).
@@ -240,17 +241,17 @@ These are moved by **hot updrafts** (§5.3), never by the player directly. They 
 **Shell** (home: **Earth**; armored)
 - **Look:** a squat armored crawler, about 12×8. Slate-gray plates with ochre seams, so it's clearly "earth, but tougher".
 - **Behavior:** a slow patrol (25 px/s) that kills on touch and turns at ledges and spikes.
-- **Only a big rock (boulder) kills it.** That means a thrown 16×16 rock, or a loose big rock falling onto it from at least 2 tiles ⚠ confirm.
+- **Only Earth kills it: a big rock (boulder) or crushing.** A thrown 16×16 rock, or a loose big rock falling onto it from at least 2 tiles. Or crush it: shove it into a wall with the snake's head, knock it back into one with a small rock, or squeeze it against a ceiling with a column.
 - **Everything else is shrugged off:**
   - A small rock **staggers** it: it stops for 0.5 s and is knocked back 4 px.
   - Spikes don't hurt it.
-  - Crushing doesn't hurt it either: a rising column lifts it or the snake head shoves it one tile, but neither kills it.
+  - A rising column under it lifts it and the snake head shoves it one tile; in open space neither kills it (into a wall: crushed, above).
   - A fireball sparks off its plates harmlessly (the pip is still spent).
   - The jet and flames don't hurt it, and it walks through burning grass.
   - Gusts barely nudge it (heavy). Orbs bounce off it.
 - **Puzzle use in Fire rooms:**
   - Burn the thicket floor under it to drop it somewhere harmless.
-  - Ride a balloon over it.
+  - Jump it, or ride the thicket elephant past it.
   - Time your crossing against its slow patrol.
 - **Home chapter note:** the Shell is an **Earth chapter** enemy. Add it to `Earth_bending.md` as an addendum, with a new Earth room ("Armor", using big rocks against Shells) once the Earth play-test is done. It's built in Fire stage F12 because Fire rooms need it as an obstacle, and its boulder kill uses the existing big-rock hit hook.
 
@@ -258,7 +259,8 @@ These are moved by **hot updrafts** (§5.3), never by the player directly. They 
 |---|---|---|---|---|---|
 | Fire | dies | dies (fireball) | **dies (torch run)** | **one spot burns** (all 3 = dies) | immune |
 | Big rock | dies | dies | knocked back | pushed back (stops a charge) | **dies** |
-| Small rock | dies | dies | knocked back | bounces off | staggered |
+| Crushed (into a wall or ceiling) | dies | n/a | nothing | breaks the column / snake | **dies** |
+| Small rock | shoved (perfect throw: dies) | nothing (perfect throw: dies) | knocked back | bounces off | staggered |
 | Gust | stunned | reflects orbs | blown away | nudged | nudged |
 | Spikes | dies | n/a | immune | immune | immune |
 
@@ -413,7 +415,7 @@ These were agreed when planning the build. Where they differ from the sections a
 - **Plume shape (F3 play-test):** the §5.2 width stays (8 px at the nozzle, fanning to 14 px; a narrower 5→8 px was tried and rejected), but the plume is a sheaf of `jet_plume_tongue_count` = 4 FlameTongues spread over `jet_plume_spread_degrees` = 14°, middle ones longest and whitest. The flames **dance**: each tip forks into two points that sway apart and rejoin (`jet_plume_fork_amount`), and small licks tear off the tips (`jet_plume_licks_per_second` = 40, `jet_plume_lick_lifetime` = 0.3 s), flutter, shrink and cool to red as the jet leaves them behind. Both live in `FlameTongue`, so braziers and bonfires get them too.
 - **Measured:** one burst straight up from standing rises 80 px during the burst, then about 10 px more with `jet_end_carry` = 1 (smoke test prints it). Fire B's 10-tile gap is sized for that with a running start.
 - The F1 debug key (F spends a pip) is gone: W spends pips for real now.
-- Starting a jet: from Idle, Run, Jump, Fall, WallSlide, Glide and Launched (checked right after the dash and gust). Not from the Earth states or mid-dash/gust.
+- Starting a jet: from Idle, Run, Jump, Fall, WallSlide, Glide and Launched (checked right after the gust). Not from the Earth states or mid-gust.
 
 ### Decided in Stage F4
 
@@ -493,7 +495,7 @@ These were agreed when planning the build. Where they differ from the sections a
   - **Dense piles:** the untouched pile is laid out on a jittered grid filling the mound (random spots left air pockets). Fire F's piles have more leaves.
   - **Fireballs fly on through leaves:** a fireball lights every leaf it passes (heap or cloud) and keeps going. Leaf piles have no catch area on the "flammable" layer, so nothing in a pile bursts it.
   - **Burning grass lights leaves where its flames are** (FireGrid calls `ignite_at` on things that burn in parts), not the whole pile.
-- **Gusts put out grass and thicket fires** (F7 play-test, ahead of Stage F10's §5.4): a gust's cone (or an all-around gust's circle) over burning cells turns burning grass to ash at once (a firebreak) and makes burning thicket crumble away without lighting what it touched; cells about to catch inside the gust don't, and neither do cells only a snuffed cell was about to light. Smoldering cells and a flashing cover are left alone. A gust across a fire front stops it there. Through a new optional part of the Flammable contract, `snuff_in(world_polygon, direction)`, which `GustAbility` calls through `Flammable.snuff_in_area` (the dash wake doesn't). Stage F10 still has the rest of §5.4 (fireballs, vines, crates, the boosted gust).
+- **Gusts put out grass and thicket fires** (F7 play-test, ahead of Stage F10's §5.4): a gust's cone (or an all-around gust's circle) over burning cells turns burning grass to ash at once (a firebreak) and makes burning thicket crumble away without lighting what it touched; cells about to catch inside the gust don't, and neither do cells only a snuffed cell was about to light. Smoldering cells and a flashing cover are left alone. A gust across a fire front stops it there. Through a new optional part of the Flammable contract, `snuff_in(world_polygon, direction)`, which `GustAbility` calls through `Flammable.snuff_in_area`. Stage F10 still has the rest of §5.4 (fireballs, vines, crates, the boosted gust).
 - **Keep a hidden diamond out of the flame:** the crystal under Fire F's wide pile converts inside the bonfire (the fire is as wide as the heap); gust the heap apart from close by, then take it.
 - **All elements in the Fire test rooms** (F7 play-test): `_fire_room()` in build_fire_rooms.gd turns Air, Earth and Fire on. The chapter rooms (F14) stay Fire-only.
 - **Cost (measured headless, the leaf piles' own `_physics_process`, Fire F):** idle 0.03-0.09 ms a step; 170 unlit leaves flying ~1.1 ms (the per-leaf physics point query, as before, plus the landing lookup); a 60-leaf bonfire ~1 ms; ember rain of 40 leaves ~1 ms; a 170-leaf bonfire ~1.5 ms; 170 burning leaves flying ~2.2 ms (worst case: each one checks the room's flammables 5 times a second). Two fixes made it cheaper: a pile asked about a far-off point says no from its bounding box, and the bucket lookups don't build empty arrays. The later changes cost little: the ground sink is free; sliding off another leaf is one more bucket lookup (or a physics query, if no second leaf is there) per off-center landing; settling checks every resting leaf once per frame in which a leaf took off (a lookup each, a physics query only for leaves with no leaf under them); the merged bonfire draws one big tongue plus up to 6 small ones (up to 10 before). Drawing isn't included (one polygon per leaf, about what it was). If a room needs several big piles burning at once, the next step is fewer ignite checks for leaves inside a bonfire (the bonfire already lights what it touches).
@@ -505,7 +507,7 @@ These were agreed when planning the build. Where they differ from the sections a
 - **F8 play-test changes:**
   - **Vines are burning ropes.** A vine is simulated as a chain of points 3 px apart (Verlet, stretch-only constraints, a little slack, gravity 500, sleeps when still), anchored at one end, its other end following what it's tied to (`Vine.tie_to`, every frame). Lit at a point, it burns through THERE after `vine_cut_time` (0.15 s) and snaps; the fire runs both ways at `vine_burn_speed` (110 px/s) along the two dangling halves, each piece glowing, charring and dropping off as falling bits `vine_char_time` (0.25 s) after the fire reached it. (Replaces "the whole vine burns in 0.6 s, then snaps": `vine_burn_time` is gone.)
   - **Vines curl round what they hold:** 4 coils round the plank at the tie, a tendril winding 12 px along it toward its middle (ending in a leaf) and a short stub the other way. They burn when the fire reaches the tied end.
-  - **Planks swing.** `HangingPlatform` is a stiff two-point body (Verlet ends, a length constraint, each intact vine a leash from its anchor, ground pushed out with short rays down, an end resting on the ground doesn't slide). With one vine cut it swings on the other; with all cut it falls, lands, tips over edges and sleeps. A plank can stand on end held by a vine: a **drawbridge** that topples across a gap when the vine burns. The body is placed with one `global_transform` assignment (setting position then rotation put the old position back on a synced AnimatableBody2D).
+  - **Planks swing.** `HangingPlatform` is a stiff two-point body (Verlet ends, a length constraint, each intact vine a leash from its anchor, ground pushed out with short rays down, an end resting on the ground doesn't slide). With one vine cut it swings on the other; with all cut it falls, lands, tips over edges and sleeps. (After the L9 play-test: a plank placed on ONE vine is awake from the start and hangs from it, and a crate on one vine is a pendulum that gusts swing. After the L10 play-test: the crate's pendulum is angle-based, tilts with its rope and bounces off what it hits; planks are Pushable, so gusts swing them on their vines, and they bounce off solids instead of passing through. A sentry with Fire Orbs throws the player's own Fireball, made hostile. Third round: vines holding weight are taut; a burning vine lights what its fire touches and whole objects at its ends, so a wooden crate it holds catches fire; crates can be metal (never burn, half the push); a plank landing by one end on a block tips over instead of freezing; a vine-covered plank, set alight, burns all its vines at once and drops level.) A plank can stand on end held by a vine: a **drawbridge** that topples across a gap when the vine burns. The body is placed with one `global_transform` assignment (setting position then rotation put the old position back on a synced AnimatableBody2D).
   - **Vine gate dropped** (developer's call): a door a vine holds shut added nothing thicket walls don't, and wasn't readable. Vines still are Switches, so a Door could listen to one, but no room uses it.
   - **The jet catches crates late:** a crate lit by the jet glows and smokes for `crate_jet_catch_delay` (0.45 s, a bit longer than grass's `spread_delay`) before it burns, so jetting up off a crate no longer kills you on the spot. Fireballs and other fires light it at once (also while it's catching).
   - **Fire at the knot lights the vine:** a flame touching the coils and tendrils round what a vine holds (a fireball bursting on the plank near the tie) lights the vine at its tied end.
@@ -534,7 +536,7 @@ These were agreed when planning the build. Where they differ from the sections a
 
 ### Decided in Stage F11
 
-- **One damage path:** every hit on an enemy is an `EnemyHit` (scenes/enemies/enemy_hit.gd: a type, a push, a kill delay, a source) handed to the enemy's `receive_hit()`, which looks the type up in its `ElementImmunity` table (KILL, STAGGER, PUSH, IGNORE) and reacts its own way. Types: FIREBALL, FLAME, BIG_ROCK, PERFECT_ROCK, SMALL_ROCK, GUST, SPIKES, EARTH_PUSH (column tip or snake head), CRUSH, REFLECTED_ORB, DASH. Boulders, the orb and the fireball send hits; the gust (`receive_gust`), column and snake (`Pushable.try_launch/try_crush`) are turned into hits, so they didn't change. A column only crushes an enemy whose table says crushing kills; otherwise it stops short, like for a crate. The wisp and sentry behave exactly as before on every earlier hit (Earth and Air smoke tests unchanged).
+- **One damage path:** every hit on an enemy is an `EnemyHit` (scenes/enemies/enemy_hit.gd: a type, a push, a kill delay, a source) handed to the enemy's `receive_hit()`, which looks the type up in its `ElementImmunity` table (KILL, STAGGER, PUSH, IGNORE) and reacts its own way. Types: FIREBALL, FLAME, BIG_ROCK, PERFECT_ROCK, SMALL_ROCK, GUST, SPIKES, EARTH_PUSH (column tip or snake head), CRUSH, REFLECTED_ORB (DASH was dropped with the dash). Boulders, the orb and the fireball send hits; the gust (`receive_gust`), column and snake (`Pushable.try_launch/try_crush`) are turned into hits, so they didn't change. A column only crushes an enemy whose table says crushing kills; otherwise it stops short, like for a crate. The wisp and sentry behave exactly as before on every earlier hit (Earth and Air smoke tests unchanged).
 - **Two fireball hits:** the fireball itself is FIREBALL (only the thing it hits); its splash and every other fire is FLAME. That's how the sentry dies to a fireball but shrugs off burning grass and the plume. Wisps and monkeys are Flammable, so the plume, splashes, bonfires and burning things reach them with no new code; walking into burning grass or a bonfire is found by `FireHazard.touches_fire()` (FireHazard nodes plus `FireGrid.is_rect_in_flame()`, the same flame bands that kill the player).
 - **Orbs** are on the "enemies" layer too, so a fireball meets them: both burst. A reflected orb flies through an enemy that ignores orbs (the monkey).
 - **Vine monkey on the ground:** 10x10, runs at `monkey_run_speed` (45 px/s), turns at walls (a step counts as a wall) and ledges, and hops a gap when the far rim is at most `monkey_hop_max_gap` (24 px) away and level or up to `monkey_hop_max_rise` (16 px) higher, never lower (a lower floor is the gap's own bottom). Drops to lower ledges wait for F11a's routes. `hops_gaps` off = it turns at every ledge.
@@ -576,6 +578,20 @@ These were agreed when planning the build. Where they differ from the sections a
   - **Front kill = what's drawn:** the head's front face (1 px out so touching counts, not its top: standing on the head is safe), the tusk and the trunk in its current pose (hanging, raised, stub), each 1 px out, lifted with the rear. The old 30x56 box killed 14 px ahead of the face.
 - **Fire L** test room (720x180): the climb and ride over a 20-tile spike strip with a high diamond; a pen with two dodge ledges and a stone wall (a diamond behind it) to lure a charge into; a thicket wall to bolt through.
 
+### Decided in Stage F12
+
+- **The Shell** (scenes/enemies/shell.gd, a CharacterBody2D like the monkey): 12x8, flat rects on the pixel grid like the elephant (a stepped slate dome, ochre seams, a small head with a purple eye, stepping feet; drawing snapped to whole pixels, never rotated; the collision box is its outline). A slow patrol (`shell_walk_speed` 25 px/s) with gravity, turning at walls, ledges and spikes (a point query for a Spikes area just ahead). Kills on touch, always (staggered too). Sleeps outside the player's room, back at its start on reset. Tuning group "Shell".
+- **Its table:** BIG_ROCK and CRUSH kill (it cracks open into slate and ochre pebbles). Small and perfect rocks STAGGER it (`shell_stagger_time` 0.5 s, knocked back `shell_stagger_knockback` 4 px). A gust nudges it (`shell_gust_nudge_speed`); a column's tip (an upward EARTH_PUSH) lifts it as given; the snake's head (a sideways one) shoves it exactly one tile (`shell_shove_distance` 8 px). Flames, spikes and the whip do nothing: it walks through burning grass, and a burning thicket floor under it drops it.
+- **Crushing (added after the F12 build, the developer's call):** its armor holds against any hit, but not a squeeze. A shove that a wall stops before it's done (the snake's head ramming it into a wall, a small rock's 4 px knockback into one) cracks it open, and so does a column pressing it against a ceiling (CRUSH = KILL, so the column no longer stops short of it). A gust's nudge into a wall does nothing.
+- **REFLECT:** a new ElementImmunity response (added last, so saved tables keep their numbers): the fireball and a reflected orb bounce off. Enemies that bounce orbs join EnemyHit.REFLECTS_GROUP (unreflected orbs check the group, since they send no hit).
+- **Ricochets (the developer's call: fireballs AND orbs bounce, off the Shell, walls and floors):**
+  - Ricochet (scenes/objects/ricochet.gd): sweeps a shape along a move (cast_motion), then reads the surface normal where it first touches (get_rest_info); Vector2.bounce mirrors the velocity.
+  - The fireball sweeps its own move every frame against world and enemy bodies, so it meets a surface at its angle. Burnable (anything caught: the thing hit or the splash) = burst as before; else it bounces (see §5.1). Areas (orbs, catch areas) still come in through area_entered; body_entered is no longer used (it fired on the touching contact after a bounce and burst the ball).
+  - Sentry orbs bounce off walls, floors, crates, rocks and the Shell, up to `max_bounces` (3) on the orb, then pop on the next solid. Another sentry still pops them. They stay deadly while bouncing (until reflected by a gust).
+- **The small-rock row of the §7.2 table follows the Earth chapter** (Earth_bending.md, "small rocks shove, big rocks kill"): a sloppy small rock shoves a wisp and clonks off a sentry; only a perfect one kills them. The table text was wrong, not the code.
+- **A loose big rock falling 2+ tiles onto an enemy hits it like a thrown big rock** (`loose_rock_kill_drop` 16 px, EarthTuning): Boulder._drop_onto_enemies, for a LOOSE rock falling and for an unthrown rock coming down from its hop (off a ledge, or let go). It sends BIG_ROCK to every enemy under the move, then shatters. A shorter drop, or a small rock, does nothing (it passes through, as ever). Applies to every enemy, not just the Shell.
+- **Fire M** test room (720x180): (1) a Shell on grass between a low wall and spikes; (2) a Shell under a 2-row ledge to drop a big rock from; (3) a Shell on a thicket bridge over a pocket; (4) a Shell in front of a sentry (orbs bounce off it); (5) a wisp and a monkey before spikes; (6) an elephant behind a wall. The smoke test checks every cell of the §7.2 table from each enemy's own table.
+
 ### Play-test log
 
 *Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*
@@ -586,7 +602,6 @@ Open questions to answer in play-test:
 - Burst length (0.5 s) and taper (1.3 → 0.8): is one burst too long to control near hazards? Does the surge read as "fire" without feeling random?
 - Hold-to-chain: does it ever spend a pip the player didn't mean to? If so, try requiring a fresh press near the end of the burst instead.
 - Leafling torch run: chaotic in a fun way, or unfair? Is 1.5 s right, and should it run toward the player or keep its direction?
-- Shell: does a falling loose big rock count as a kill?
 - Overgrown covers: is the tell readable enough without being obvious?
 - Crates burning away: fun puzzle, or a frustrating way to lose a needed object?
 - Should the fireball aim root you on the ground, or let you keep walking slowly?

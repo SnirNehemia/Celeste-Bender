@@ -3,11 +3,11 @@ extends PlayerState
 ##
 ## Entered from Fall when jump is PRESSED again in the air (not just held from the
 ## jump: that keeps the Stage 2 jump feel untouched) and stamina is left.
-## Leaves when you release jump, run out of stamina, land, dash, wall-slide or wall-jump.
+## Leaves when you release jump, run out of stamina, land, wall-slide or wall-jump.
 ##
 ## Movement: horizontal control is the normal air control (wind included), except
 ## that speed above run speed fades slowly (tuning.glide_overspeed_deceleration), so
-## a gust or dash can be "spent" on a long fast glide; vertical
+## a gust can be "spent" on a long fast glide; vertical
 ## speed blends toward GlideAbility.get_target_vertical_speed(): a slow 30 px/s fall,
 ## or a rise inside an updraft. The GlideAbility component owns stamina and effects.
 
@@ -21,10 +21,6 @@ func exit() -> void:
 
 
 func physics_update(delta: float) -> void:
-	# Dash beats everything else this frame (Dash.enter() sets the velocity).
-	if player.wants_to_dash():
-		transition_requested.emit(&"Dash")
-		return
 	if player.wants_to_gust():
 		transition_requested.emit(player.get_gust_start_state())
 		return
@@ -34,7 +30,7 @@ func physics_update(delta: float) -> void:
 	if player.try_start_fireball():
 		transition_requested.emit(&"GustAim")
 		return
-	# Momentum is kept: speed above run speed (a gust or dash shove) fades slowly
+	# Momentum is kept: speed above run speed (a gust shove) fades slowly
 	# instead of being snapped back by normal air control.
 	player.apply_horizontal_movement(delta, false, player.tuning.glide_overspeed_deceleration)
 

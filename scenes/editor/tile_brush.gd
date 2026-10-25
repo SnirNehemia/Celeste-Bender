@@ -68,7 +68,9 @@ func get_layer(room: Room, level_root: Node, create: bool) -> TileMapLayer:
 		layer.tile_set = tile_set
 		room.add_child(layer)
 		room.move_child(layer, 0)
-		LevelStorage.adopt(layer, level_root)
+		# Only the layer itself is saved: the children its _ready() just built (a
+		# grass layer's blades, a thicket's leaves) are rebuilt on every load.
+		layer.owner = level_root
 	return layer
 
 

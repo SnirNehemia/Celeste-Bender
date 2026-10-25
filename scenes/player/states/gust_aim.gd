@@ -24,7 +24,7 @@ extends PlayerState
 ## The resource (charge / pip) is checked on the PRESS, so any direction chosen here
 ## is allowed.
 ##
-## Entered from Idle/Run/Jump/Fall/WallSlide/Glide/Launched. No dash or jump while
+## Entered from Idle/Run/Jump/Fall/WallSlide/Glide/Launched. No jump while
 ## aiming: the moment is short, and it keeps the state simple.
 
 ## The direction chosen so far. Starts at the held arrows; ZERO (nothing held, and

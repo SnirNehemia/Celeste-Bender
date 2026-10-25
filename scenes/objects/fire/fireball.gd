@@ -19,8 +19,27 @@ extends Area2D
 ##   - a flammable: lit (Flammable.try_ignite)
 ##   - plus every flammable within fireball_splash px of the hit (Flammable.ignite_near)
 ##   - then it bursts: flash, a ring of sparks, smoke, 1-2 embers stuck to the wall
-## The player (layer 2) isn't watched, so it never hits you. It isn't a FireHazard
-## either.
+## The player (layer 2) isn't watched, so it never hits you (not even bouncing back
+## at you). It isn't a FireHazard either.
+## HOSTILE fireballs (after the L10 play-test): a Sentry with fire_orbs on throws
+## this very fireball, then calls make_hostile(): its sweep also looks at layer 2,
+## touching the player kills them (and bursts it), and it never meets the sentry
+## that threw it. Everything else (flight, bounces, lighting, burst) is the same.
+##
+## Ricochets (Stage F12): solid things (world and enemy BODIES) are found by sweeping
+## the hitbox along each frame's move (Ricochet.find_contact) before moving, so it
+## knows the surface's angle. On a solid it:
+##   - an enemy: a FIREBALL hit; if its table says REFLECT (the Shell), it bounces
+##     off with a few sparks, else it bursts as above
+##   - anything else: lights it and everything in the splash; if anything caught
+##     (grass or thicket ground, a crate, a brazier...) it bursts there, as before
+##     F12. If nothing burns (bare earth, stone, ash) it BOUNCES: mirrored off the
+##     surface, keeping fireball_bounce_keep of its speed, and flies on until its
+##     range is used up (bounces count toward fireball_max_range). Too slow off the
+##     surface (skimming, rolling: fireball_min_bounce_speed) or past
+##     fireball_max_bounces: it bursts there.
+## Areas (orbs, the catch areas of braziers and vines) still come in through
+## area_entered, as before.
 ##
 ## Look: a bright 6 px core, 3 FlameTongues orbiting it and trailing behind, embers
 ## and smoke streaming off. It wobbles a little as it flies; that's only the drawing
@@ -48,6 +67,10 @@ const WOBBLE_SPEED: float = 22.0
 const GUTTER_TIME: float = 0.15
 ## Bit values: layer 1 "world" + layer 5 "enemies" (Stage F11) + layer 6 "flammable".
 const HIT_MASK: int = 1 | 16 | Flammable.LAYER_BIT
+## The bodies the move sweep looks for (Stage F12): "world" and "enemies".
+const SOLID_MASK: int = 1 | 16
+## Sparks off a bounce.
+const BOUNCE_SPARK_COUNT: int = 4
 
 ## Emitted once when it bursts on something (`hit_node`: what it touched) or gutters
 ## out (hit_node null).
@@ -67,6 +90,11 @@ var flight_time: float = 0.0
 ## > 0 while guttering out (counts down); the fireball is harmless by then.
 var gutter_remaining: float = 0.0
 var has_finished: bool = false
+var bounce_count: int = 0
+## True for a sentry's fireball (make_hostile): it kills the player it touches.
+var hurts_player: bool = false
+## The hitbox shape, also swept along each move to find what it would hit.
+var hit_shape: RectangleShape2D
 
 ## The drawing: a child that wobbles while the Area2D flies straight.
 var visual: Node2D
@@ -112,14 +140,18 @@ func _ready() -> void:
 	# checked against each other, so the fireball flew straight through the tile
 	# walls (static bodies). Found in Stage F5.
 	var shape_node: CollisionShape2D = CollisionShape2D.new()
-	var box: RectangleShape2D = RectangleShape2D.new()
-	box.size = HITBOX_SIZE
-	shape_node.shape = box
+	hit_shape = RectangleShape2D.new()
+	hit_shape.size = HITBOX_SIZE
+	shape_node.shape = hit_shape
 	add_child(shape_node)
-	body_entered.connect(_on_touched)
 	area_entered.connect(_on_touched)
 	z_index = 5
 	_build_visual()
+
+
+## Turns this into a sentry's fireball (see the header).
+func make_hostile() -> void:
+	hurts_player = true
 
 
 func _build_visual() -> void:
@@ -174,6 +206,19 @@ func _physics_process(delta: float) -> void:
 		return
 	velocity.y += fall_gravity * delta
 	var step: Vector2 = velocity * delta
+	# Sweep the move first: a solid in the way is met at its surface, with its angle.
+	var sweep_mask: int = SOLID_MASK | 2 if hurts_player else SOLID_MASK  # 2: layer 2, "player"
+	var exclude: Array[RID] = []
+	if hurts_player and source is CollisionObject2D and is_instance_valid(source):
+		exclude.append((source as CollisionObject2D).get_rid())  # never its own sentry
+	var contact: Dictionary = Ricochet.find_contact(get_world_2d().direct_space_state, hit_shape,
+		global_position, step, sweep_mask, exclude)
+	if not contact.is_empty():
+		var safe_position: Vector2 = contact["safe_position"]
+		distance_flown += global_position.distance_to(safe_position)
+		global_position = safe_position
+		_on_solid_contact(contact["collider"], contact["normal"], contact["point"])
+		return
 	global_position += step
 	_light_leaves_passed()
 	distance_flown += step.length()
@@ -218,6 +263,11 @@ func _draw_core(core: Node2D) -> void:
 func _on_touched(touched: Node) -> void:
 	if has_finished or gutter_remaining > 0.0:
 		return
+	# Solid bodies are the move sweep's job (_on_solid_contact, Stage F12): it stops the
+	# fireball touching them, and the overlap signal would then burst it on top of the
+	# sweep's bounce. Only areas (orbs, catch areas) are handled here.
+	if not touched is Area2D:
+		return
 	var hit_point: Vector2 = global_position
 	var heading: Vector2 = velocity.normalized() if velocity != Vector2.ZERO else direction
 	# Head-on into a sentry orb: both are gone (Stage F11).
@@ -229,6 +279,58 @@ func _on_touched(touched: Node) -> void:
 		# then counts as a flame for every flammable around, enemies included.
 		EnemyHit.send(touched, EnemyHit.Type.FIREBALL, heading * tuning.fireball_speed, source, 0.0, hit_point)
 	# Light what we hit, then everything within the splash radius.
+	Flammable.try_ignite(touched, source)
+	Flammable.ignite_near(get_tree(), hit_point, tuning.fireball_splash, source)
+	_burst(hit_point)
+	_finish(touched)
+
+
+## The sweep met a solid body (Stage F12): an enemy gets the hit and may reflect it;
+## anything else is lit if it can burn (then the fireball bursts, as ever), and if
+## nothing caught, it bounces.
+func _on_solid_contact(collider: Object, normal: Vector2, point: Vector2) -> void:
+	var touched: Node = collider as Node
+	if touched == null:
+		return
+	if touched is Player:
+		# Only a hostile fireball looks at the player at all.
+		if not (touched as Player).is_dead():
+			(touched as Player).die()
+		_end_on(touched, point)
+		return
+	if EnemyHit.is_enemy(touched):
+		var heading: Vector2 = velocity.normalized()
+		var response: ElementImmunity.Response = EnemyHit.send(touched, EnemyHit.Type.FIREBALL,
+			heading * tuning.fireball_speed, source, 0.0, point)
+		if response == ElementImmunity.Response.REFLECT and _try_bounce(normal, point):
+			return
+		_end_on(touched, point)
+		return
+	var caught: bool = Flammable.try_ignite(touched, source)
+	if Flammable.ignite_near(get_tree(), point, tuning.fireball_splash, source) > 0:
+		caught = true
+	if caught or not _try_bounce(normal, point):
+		_burst(point)
+		_finish(touched)
+
+
+## Mirrors the flight off a surface facing `normal`. False (no bounce) when it would
+## leave too slowly off the surface, or the bounce cap is reached: it bursts instead.
+func _try_bounce(normal: Vector2, point: Vector2) -> bool:
+	if tuning.fireball_max_bounces >= 0 and bounce_count >= tuning.fireball_max_bounces:
+		return false
+	var bounced: Vector2 = Ricochet.bounce(velocity, normal, tuning.fireball_bounce_keep)
+	if bounced.dot(normal) < tuning.fireball_min_bounce_speed:
+		return false
+	velocity = bounced
+	bounce_count += 1
+	EmberEmitter.burst(get_parent(), point, BOUNCE_SPARK_COUNT, normal, 120.0, 50.0)
+	FX.play_sfx(&"fireball_bounce")
+	return true
+
+
+## An enemy took it (its table didn't reflect it): the splash, then the burst.
+func _end_on(touched: Node, hit_point: Vector2) -> void:
 	Flammable.try_ignite(touched, source)
 	Flammable.ignite_near(get_tree(), hit_point, tuning.fireball_splash, source)
 	_burst(hit_point)

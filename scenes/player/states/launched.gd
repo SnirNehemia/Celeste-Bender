@@ -25,10 +25,6 @@ func enter() -> void:
 
 
 func physics_update(delta: float) -> void:
-	# Dash and gust work as in any air state (bouncing refilled the dash).
-	if player.wants_to_dash():
-		transition_requested.emit(&"Dash")
-		return
 	if player.wants_to_gust():
 		transition_requested.emit(player.get_gust_start_state())
 		return

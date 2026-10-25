@@ -15,6 +15,10 @@ extends Switch
 ## (tie_to(), called every frame by a HangingPlatform or a Crate), or stays at
 ## end_point if nothing ties it. So a vine holding a swinging plank swings with it.
 ## A rope that has stopped moving sleeps (no simulation) until something moves it.
+## TAUT (after the L10 play-test): while it is tied and holds weight (not snapped),
+## and its tied end is at (nearly) full length from the anchor, the rope lies in a
+## straight line: a rope holding a swinging crate is pulled straight, it doesn't
+## flop. It sags only when what it holds comes closer to the anchor than that.
 ##
 ## Burning:
 ##   - Lit at a point, the fire runs both ways along the rope at `vine_burn_speed`
@@ -24,9 +28,12 @@ extends Switch
 ##     SNAPS there and turns ON. What it held is let go at that moment; the two
 ##     halves keep burning while they dangle (one from the anchor, one from what it
 ##     held) until nothing is left.
-##   - Where the fire reaches an end, it lights grass and leaves there (flammables
-##     that burn in parts, with ignite_at), never whole objects: a crate hung on a
-##     vine falls, it isn't set on fire by the vine that held it.
+##   - The fire lights what it touches (after the L10 play-test): each front lights
+##     the flammables right at it as it runs along the rope (grass, leaves, another
+##     vine), and where it reaches an end it lights everything there, whole objects
+##     too: a wooden crate it holds catches when the fire gets to the knot (a metal
+##     one doesn't burn), so does a vine-covered plank. (Before, an end lit only
+##     grass and leaves, and a crate just fell.)
 ##   - The vine's flame doesn't kill (not a FireHazard). Gusts don't put it out
 ##     until Stage F10.
 ##
@@ -78,6 +85,11 @@ const BIT_LIFETIME: float = 0.6
 const CATCH_THICKNESS: float = 4.0
 ## A front reaching an end lights grass and leaves within this many px of it.
 const END_IGNITE_REACH: float = 3.0
+## Each fire front lights flammables within this many px of it as it runs.
+const FRONT_IGNITE_REACH: float = 2.0
+## Taut when the tied end is at least this fraction of the rope's straight length
+## from the anchor (see the header).
+const TAUT_FRACTION: float = 0.97
 ## The coils round what it's tied to: how many, how far apart along it (px), and the
 ## tendrils winding on along it to each side (px long, zigzag step px).
 const WRAP_TURNS: int = 4
@@ -320,6 +332,7 @@ func _advance_burn(delta: float) -> void:
 		lit_tied_end = true
 		_light_ground_at(to_global(points[points.size() - 1]))
 	_place_front_flames()
+	_light_at_fronts()
 	# Done when nothing is left: no segment, no falling bit, no coil.
 	var bits_falling: bool = false
 	for loose_time: float in loose_since:
@@ -344,11 +357,26 @@ func _remove_segment(segment_index: int) -> void:
 			loose_since[point_index] = burn_clock
 
 
-## Lights the things that burn in parts (grass cells, leaves) at an end of the vine.
+## Lights everything flammable at an end of the vine: grass cells and leaves (parts),
+## and whole objects (the crate it held, a vine-covered plank).
 func _light_ground_at(world_point: Vector2) -> void:
+	_light_near(world_point, END_IGNITE_REACH)
+
+
+## Lights every flammable but this vine within `reach` px of `world_point`.
+func _light_near(world_point: Vector2, reach: float) -> void:
 	for target: Node in get_tree().get_nodes_in_group(Flammable.GROUP):
-		if target != self and target.has_method(Flammable.METHOD_IGNITE_AT):
-			target.call(Flammable.METHOD_IGNITE_AT, world_point, END_IGNITE_REACH, self)
+		if target != self:
+			Flammable.ignite_if_near(target, world_point, reach, self)
+
+
+## Each fire front still on the rope lights what touches it there.
+func _light_at_fronts() -> void:
+	var travelled: float = burn_clock * fire_tuning.vine_burn_speed
+	var rope_arc: float = segment_arc_length * segment_alive.size()
+	for arc: float in [lit_arc - travelled, lit_arc + travelled]:
+		if arc >= 0.0 and arc <= rope_arc:
+			_light_near(to_global(_get_point_at_arc(arc)), FRONT_IGNITE_REACH)
 
 
 ## Each front's flame sits where the fire is now, while that front is still on rope.
@@ -416,6 +444,12 @@ func _simulate_rope(delta: float) -> void:
 			else:
 				points[segment_index] += correction * 0.5
 				points[segment_index + 1] -= correction * 0.5
+	# Holding weight at full length: pulled straight (see the header).
+	var rope_length: float = segment_arc_length * segment_alive.size()
+	if is_tied and not has_snapped and end_pin.length() >= rope_length * TAUT_FRACTION:
+		for point_index: int in range(1, last_index):
+			points[point_index] = end_pin * (float(point_index) / last_index)
+			previous_points[point_index] = points[point_index]
 	# 3. Loose burnt bits stop on the ground instead of falling through it.
 	for point_index: int in range(1, last_index):
 		if loose_since[point_index] < 0.0 or _is_dead_bit(point_index):

@@ -34,6 +34,10 @@ var current_room: Room = null:
 			room_entered.emit(value)
 ## True after the Goal is reached: the timer stops and R no longer restarts.
 var is_run_finished: bool = false
+## True while Story Mode plays its levels (Level_editor.md §9). Then the Goal's
+## run_finished belongs to StoryPlayer (level-complete card, next level), and the
+## EndScreen stays hidden. StoryPlayer sets it; the main menu clears it.
+var is_story_run: bool = false
 
 
 func _process(delta: float) -> void:

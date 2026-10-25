@@ -14,7 +14,7 @@ extends Node2D
 ##
 ## What moves them (the same ideas as the leaf pile, scenes/objects/leaf_pile.gd):
 ##   - the player, crates and wisps walking or landing on them kick them up
-##   - a gust (or dash wake) blows the ones near its origin (the Pushable contract)
+##   - a gust blows the ones near its origin (the Pushable contract)
 ##   - a wind zone pulls them along: a sideways current rolls them over the floor
 ## Unlike leaves, pebbles are stones: they fall fast, bounce a little, and roll to a
 ## stop on the ground. A resting pebble falls again when the ground under it goes (a

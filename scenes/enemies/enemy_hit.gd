@@ -2,7 +2,7 @@ class_name EnemyHit
 extends RefCounted
 ## EnemyHit (Stage F11, Fire_bending.md §7, §10): ONE hit on an enemy, and the one
 ## path every hit takes. Whatever hurts or moves an enemy (a fireball, a flame, a
-## thrown rock, a gust, spikes, a rising column, the snake, a reflected orb, a dash)
+## thrown rock, a gust, spikes, a rising column, the snake, a reflected orb)
 ## builds an EnemyHit and hands it to EnemyHit.deliver(). The enemy looks the hit's
 ## TYPE up in its ElementImmunity table (element_immunity.gd) and reacts: killed,
 ## staggered, pushed, or nothing.
@@ -32,12 +32,11 @@ enum Type {
 	BIG_ROCK,       ## a thrown big (16×16) rock
 	PERFECT_ROCK,   ## a small rock thrown in the perfect window
 	SMALL_ROCK,     ## a small rock thrown sloppily
-	GUST,           ## the gust or the dash wake
+	GUST,           ## the gust
 	SPIKES,         ## touching spikes
 	EARTH_PUSH,     ## a rising Earth Column's tip or the Earth Snake's head
 	CRUSH,          ## squeezed between a rising column and a solid
 	REFLECTED_ORB,  ## a sentry orb the gust sent back
-	DASH,           ## the player dashing into it (a stunned wisp)
 	WHIP,           ## the thicket elephant's tail whip (Stage F11b)
 }
 
@@ -47,6 +46,10 @@ const GROUP: StringName = &"enemies"
 ## elephant): a rising column or the snake's head shatters on them instead of
 ## pushing them. EarthColumn and EarthSnake check this group.
 const BREAKS_EARTH_GROUP: StringName = &"breaks_earth"
+## Enemies that projectiles BOUNCE off (Stage F12, the Shell): sentry orbs ricochet off
+## them, reflected or not (SentryOrb checks this group); a fireball asks the table,
+## which answers REFLECT.
+const REFLECTS_GROUP: StringName = &"reflects_projectiles"
 ## "Where it hit: unknown".
 const NO_POSITION: Vector2 = Vector2.INF
 const METHOD: StringName = &"receive_hit"
@@ -59,7 +62,7 @@ var push_velocity: Vector2 = Vector2.ZERO
 ## then pops). 0 = at once.
 var kill_delay: float = 0.0
 ## What dealt it (a Fireball, a Boulder, the Player...), or null. Enemies may look at
-## it (a dash kill refills the dasher's dash).
+## it.
 var source: Node = null
 ## Where it landed, world coordinates, or NO_POSITION. Enemies that burn in parts
 ## (the elephant's spots) or from one side (the monkey's creeping flame) use it.

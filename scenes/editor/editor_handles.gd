@@ -32,7 +32,16 @@ static func get_handles(node: Node2D) -> Array[Dictionary]:
 	if entry == null:
 		return handles
 	var outline: Rect2 = PaletteCatalog.get_bounds(node)
-	match entry.bounds:
+	# A size or width gets a handle only if it's a design setting the panel lists:
+	# an enemy's body_size gives its outline, but isn't for changing.
+	var outline_property: StringName = entry.width_property if entry.bounds == PaletteCatalog.Bounds.WIDTH_CENTERED else entry.size_property
+	var has_outline_handle: bool = entry.bounds == PaletteCatalog.Bounds.SPIKE_STRIP or entry.editable_properties.has(outline_property)
+	# A turned plank's handle would sit on the box around it, not on its end: none
+	# then (its width is still in the panel).
+	if entry.uses_rotation and not is_zero_approx(node.rotation):
+		has_outline_handle = false
+	# FIXED has no outline handle: the match below then adds none.
+	match entry.bounds if has_outline_handle else PaletteCatalog.Bounds.FIXED:
 		PaletteCatalog.Bounds.SIZE_TOP_LEFT:
 			handles.append(_handle(entry.size_property, Kind.SIZE_FROM_TOP_LEFT, outline.end))
 		PaletteCatalog.Bounds.SIZE_BOTTOM_CENTER:

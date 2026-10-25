@@ -45,6 +45,8 @@ extends Node2D
 ## Earth rooms (Stage L8): a room with an "Earth" layer is drawn by its
 ## GroundPainter, not by its tiles. After every tile change the editor has
 ## RoomLook rebuild that picture, so the room looks as it will in play.
+## Fire rooms (Stage L9): RoomLook also regrows the plant layers' blades and leaves,
+## and takes each room's FireGrid out while editing (it only belongs in play).
 ##
 ## Showing without running: the level file is a whole world (RoomManager, Player,
 ## camera, pause menu...). Added to the tree as is, it would start PLAYING: the
@@ -294,6 +296,8 @@ func open_level(path: String) -> Error:
 		if not (child is Room or child is LevelInfo):
 			set_aside_nodes.append(child)
 	_set_level_aside(false)
+	for room: Room in get_rooms():
+		RoomLook.prepare_for_editing(room)  # no FireGrid while editing (Stage L9)
 
 	undo_redo.clear_history()
 	saved_version = undo_redo.get_version()
@@ -490,9 +494,12 @@ func begin_stroke(room: Room, painting: bool, every_layer: bool = false, terrain
 	stroke_brushes = []
 	stroke_room_settings = {}
 	if every_layer:
+		# Two brushes can share a layer (the two Overgrown looks): one brush each.
+		var layer_names: Array[StringName] = []
 		for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
-			if entry.kind != PaletteCatalog.Kind.TERRAIN:
+			if entry.kind != PaletteCatalog.Kind.TERRAIN or layer_names.has(entry.layer_name):
 				continue
+			layer_names.append(entry.layer_name)
 			var brush: TileBrush = _brush_for(entry)
 			var layer: TileMapLayer = brush.get_layer(room, level_root, false)
 			if layer != null:
@@ -622,12 +629,20 @@ func _brush_for(entry: PaletteCatalog.Entry) -> TileBrush:
 ## right-click delete) or its own tool is chosen: then anywhere inside.
 func object_at(world_point: Vector2, area_insides: bool = false) -> Node2D:
 	var areas: Array[Node2D] = []
+	# Lines (vines) come after solid things: a vine's end lies on the plank or crate
+	# it holds, and a click there means that. The rest of the vine still picks it.
+	var lines: Array[Node2D] = []
 	for object: Node2D in _objects_top_first():
 		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(object)
 		if entry.is_area:
 			areas.append(object)
+		elif entry.bounds == PaletteCatalog.Bounds.LINE_TO_POINT:
+			lines.append(object)
 		elif PaletteCatalog.get_bounds(object).has_point(world_point):
 			return object
+	for line: Node2D in lines:
+		if PaletteCatalog.get_bounds(line).has_point(world_point):
+			return line
 	# The edge is EDGE_PICK_SCREEN_PIXELS wide on screen, inside and outside the outline.
 	var edge: float = EDGE_PICK_SCREEN_PIXELS / camera.get_zoom_factor()
 	for area: Node2D in areas:
@@ -671,7 +686,18 @@ func set_property(target: Object, property: StringName, value: Variant, old_valu
 ## Sets the property and keeps what depends on it in step: start-up positions
 ## (a sail's rail ends follow `rail_start`) and the drawing.
 func _apply_property(target: Object, property: StringName, value: Variant) -> void:
-	target.set(property, value)
+	# A holder resized or turned keeps its vines tied (not for its link list: linking
+	# ties in toggle_link). A vine's own end moved by hand isn't pulled back.
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(target as Node) if target is Node2D else null
+	var ties: Array[Array] = []
+	if entry != null and entry.tie_kind != PaletteCatalog.TieKind.NONE and property != entry.link_property:
+		ties = _capture_ties(target as Node)
+	set_on_node(target, property, value)
+	_apply_ties(ties)
+	# A sentry flipped to the ceiling (or back) moves up to the ceiling above it (or
+	# down to the ground below). Undo flips it back and it snaps back down the same way.
+	if entry != null and entry.snaps_to_ground and property == entry.hang_property:
+		set_on_node(target, &"position", get_grounded_position(target as Node2D, Room.find_room_of(target as Node), true))
 	if target is Node2D:
 		PaletteCatalog.sync_start_positions(target)
 	if target is CanvasItem:
@@ -695,6 +721,9 @@ func _show_selection_in_panel() -> void:
 			direction_properties.append(entry.arrow_property)
 		ui.property_panel.show_target(selected, "%s\n%s" % [entry.display_name, selected.name],
 			entry.editable_properties, direction_properties, entry.hint)
+		if entry.link_property != &"":
+			# The same as L: starts link mode, or ends it if it's on.
+			ui.property_panel.add_button("Link / unlink (L)", toggle_link_mode)
 		_update_link_footer()
 	elif current_room != null and is_instance_valid(current_room):
 		ui.property_panel.show_target(current_room, "Room\n%s" % room_title(current_room), ROOM_SETTINGS)
@@ -714,7 +743,7 @@ func _update_link_footer() -> void:
 		ui.property_panel.set_footer("")
 		return
 	var link_count: int = (selected.get(entry.link_property) as Array).size()
-	ui.property_panel.set_footer("Links: %d %s\nL: link / unlink" % [link_count, entry.link_target_class])
+	ui.property_panel.set_footer("Links: %d %s\nL: link / unlink" % [link_count, PaletteCatalog.link_target_name(entry)])
 
 
 # --- Links (Stage L6) ---
@@ -724,12 +753,20 @@ func _update_link_footer() -> void:
 func start_link_mode(source: Node2D) -> bool:
 	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(source) if source != null else null
 	if entry == null or entry.link_property == &"":
-		ui.show_message("Select a door first: L links it to plates and windmills.", true)
+		ui.show_message("Select something that links first (a door, a hanging platform, a crate, an enemy gate), then L.", true)
 		return false
 	link_source = source
-	ui.set_tool("Linking %s to %s" % [source.name, entry.link_target_class])
-	ui.show_message("Click a %s to link or unlink it.  L or Esc: done." % entry.link_target_class)
+	ui.set_tool("Linking %s to %s" % [source.name, PaletteCatalog.link_target_name(entry)])
+	ui.show_message("Click a %s to link or unlink it.  L or Esc: done." % PaletteCatalog.link_target_name(entry))
 	return true
+
+
+## L, or the panel's Link button: link mode on for the selected object, or off.
+func toggle_link_mode() -> void:
+	if link_source != null:
+		end_link_mode()
+	else:
+		start_link_mode(selected_object)
 
 
 func end_link_mode() -> void:
@@ -745,16 +782,34 @@ func end_link_mode() -> void:
 func toggle_link(source: Node2D, target: Node2D) -> bool:
 	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(source)
 	if target == source or not PaletteCatalog.is_link_target(entry, target):
-		ui.show_message("%s can't be linked to %s: it needs a %s." % [source.name, target.name, entry.link_target_class], true)
+		ui.show_message("%s can't be linked to %s: it needs a %s." % [source.name, target.name, PaletteCatalog.link_target_name(entry)], true)
 		return false
 	# duplicate(): a new list, so undo can put the old one back as it was.
-	var links: Array = (source.get(entry.link_property) as Array).duplicate()
+	var old_links: Array = (source.get(entry.link_property) as Array).duplicate()
+	var links: Array = old_links.duplicate()
 	var was_linked: bool = links.has(target)
 	if was_linked:
 		links.erase(target)
 	else:
 		links.append(target)
-	set_property(source, entry.link_property, links, null, false)
+	var end_property: StringName = _get_tie_end_property(target)
+	if entry.tie_kind == PaletteCatalog.TieKind.NONE or end_property == &"":
+		set_property(source, entry.link_property, links, null, false)
+	else:
+		# A holder and its vine: linking ties the vine's end onto it (the nearest
+		# spot), unlinking unties it. Both in the one undo step.
+		var old_end: Vector2 = target.get(end_property)
+		var fraction: float = PaletteCatalog.get_tie_fraction(source, target.global_position + old_end)
+		var tie_point: Vector2 = PaletteCatalog.get_tie_point(source, fraction)
+		var tie_axis: Vector2 = PaletteCatalog.get_tie_axis(source, fraction)
+		var tie: Callable = _tie_vine.bind(target, tie_point, tie_axis, entry.tie_thickness)
+		var untie: Callable = _untie_vine.bind(target, old_end)
+		undo_redo.create_action("%s %s" % ["Unlink" if was_linked else "Link", target.name], UndoRedo.MERGE_DISABLE)
+		undo_redo.add_do_method(_apply_property.bind(source, entry.link_property, links))
+		undo_redo.add_do_method(untie if was_linked else tie)
+		undo_redo.add_undo_method(_apply_property.bind(source, entry.link_property, old_links))
+		undo_redo.add_undo_method(tie if was_linked else untie)
+		undo_redo.commit_action()
 	ui.show_message("%s %s %s." % ["Unlinked" if was_linked else "Linked", target.name, "from " + String(source.name) if was_linked else "to " + String(source.name)])
 	return true
 
@@ -798,6 +853,7 @@ func place_object(entry: PaletteCatalog.Entry, room: Room, cell: Vector2i) -> No
 func place_object_at(entry: PaletteCatalog.Entry, room: Room, room_point: Vector2, free: bool = false) -> Node2D:
 	var node: Node2D = PaletteCatalog.instantiate(entry)
 	node.position = PaletteCatalog.placement_position(entry, node, room_point, free)
+	node.position = get_grounded_position(node, room)
 	_add_object_undoable(room, node, "Place %s" % entry.display_name)
 	return node
 
@@ -812,6 +868,7 @@ func duplicate_object(node: Node2D, room: Room, room_point: Vector2, free: bool 
 	var copy: Node2D = PaletteCatalog.instantiate(entry)
 	PaletteCatalog.copy_settings(node, copy)
 	copy.position = PaletteCatalog.placement_position(entry, copy, room_point, free)
+	copy.position = get_grounded_position(copy, room)
 	# Its _ready() runs as it's added, already at its new place, so its start-up
 	# positions (PaletteCatalog.sync_start_positions) come out right by themselves.
 	_add_object_undoable(room, copy, "Copy %s" % entry.display_name)
@@ -847,6 +904,51 @@ func place_strip(entry: PaletteCatalog.Entry, room: Room, start_cell: Vector2i, 
 	return spikes
 
 
+## Catalog `snaps_to_ground`: the position (room-local) at which `node` in `room`
+## stands on the first solid tile (any terrain layer) straight below its middle, or,
+## with its `hang_property` on, hangs from the first one above. Anything else, or
+## nothing solid that way inside the room: its position as it is. `node` may not be
+## in the room yet (it's being placed): only its position and outline are used.
+## The search starts at its middle; if that's inside a tile (clicked on the floor)
+## it first climbs out on the open side. `from_mount`: it was just flipped between
+## floor and ceiling, so its origin is still on the old surface: the search starts
+## right beside that, toward the new one.
+func get_grounded_position(node: Node2D, room: Room, from_mount: bool = false) -> Vector2:
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(node)
+	if entry == null or not entry.snaps_to_ground or room == null:
+		return node.position
+	var outline: Rect2 = PaletteCatalog.get_local_bounds(node)
+	outline.position += node.position
+	var hangs: bool = entry.hang_property != &"" and bool(node.get(entry.hang_property))
+	var room_rows: int = room_cell_rect(room).size.y
+	var step: int = -1 if hangs else 1
+	var cell: Vector2i
+	if from_mount:
+		cell = Vector2i(((node.position + Vector2(0.0, 0.5 * step)) / TILE).floor())
+	else:
+		cell = Vector2i((outline.get_center() / TILE).floor())
+		cell.y = clampi(cell.y, 0, room_rows - 1)
+		while cell.y > 0 and cell.y < room_rows - 1 and _is_solid_cell(room, cell):
+			cell.y -= step  # out of the tile, on the side away from the search
+	while cell.y >= 0 and cell.y < room_rows:
+		if _is_solid_cell(room, cell):
+			# Its top meets the tile's bottom (hanging), or its bottom the tile's top.
+			if hangs:
+				return node.position + Vector2(0.0, (cell.y + 1) * TILE - outline.position.y)
+			return node.position + Vector2(0.0, cell.y * TILE - outline.end.y)
+		cell.y += step
+	return node.position
+
+
+## True if any terrain layer of `room` has a tile at `cell`.
+func _is_solid_cell(room: Room, cell: Vector2i) -> bool:
+	for child: Node in room.get_children():
+		var layer: TileMapLayer = child as TileMapLayer
+		if layer != null and layer.get_cell_source_id(cell) != -1:
+			return true
+	return false
+
+
 ## Moves an object to `new_position` (room-local). Undoable.
 func move_object(node: Node2D, new_position: Vector2, old_position: Variant = null) -> void:
 	var from: Vector2 = node.position if old_position == null else old_position
@@ -858,10 +960,89 @@ func move_object(node: Node2D, new_position: Vector2, old_position: Variant = nu
 	undo_redo.commit_action()
 
 
-## Moves an object and keeps its drawn path / rail with it.
+## Moves an object and keeps its drawn path / rail with it. A holder's vines stay
+## tied to it; a vine that holds something keeps its end on it.
 func _set_object_position(node: Node2D, new_position: Vector2) -> void:
-	node.position = new_position
+	var ties: Array[Array] = _capture_ties(node)
+	set_on_node(node, &"position", new_position)
 	PaletteCatalog.sync_start_positions(node)
+	_apply_ties(ties)
+
+
+# --- Vines tied to what they hold (catalog `tie_kind`) ---
+
+## The ties to keep through a change of `node`: [holder, vine, fraction] for every
+## vine linked to `node` if it's a holder, and for every holder of `node` if it's a
+## vine. The fraction is where along the holder the vine's end is now.
+func _capture_ties(node: Node) -> Array[Array]:
+	var ties: Array[Array] = []
+	if not node is Node2D or level_root == null:
+		return ties
+	for holder: Node2D in get_objects():
+		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(holder)
+		if entry.tie_kind == PaletteCatalog.TieKind.NONE:
+			continue
+		for target: Variant in holder.get(entry.link_property):
+			var vine: Node2D = target as Node2D
+			if vine == null or not is_instance_valid(vine) or not vine.is_inside_tree() or (holder != node and vine != node):
+				continue
+			var end_property: StringName = _get_tie_end_property(vine)
+			if end_property != &"":
+				var end: Vector2 = vine.global_position + (vine.get(end_property) as Vector2)
+				ties.append([holder, vine, PaletteCatalog.get_tie_fraction(holder, end)])
+	return ties
+
+
+## Puts every captured vine's end back on its holder, at the same fraction.
+func _apply_ties(ties: Array[Array]) -> void:
+	for tie: Array in ties:
+		var holder: Node2D = tie[0]
+		var fraction: float = tie[2]
+		_tie_vine(tie[1], PaletteCatalog.get_tie_point(holder, fraction), PaletteCatalog.get_tie_axis(holder, fraction),
+			PaletteCatalog.entry_for_node(holder).tie_thickness)
+
+
+## Moves `vine`'s free end to `world_point` and has it draw its knot there (Vine's
+## own tie_to(), what holders call every frame in play).
+func _tie_vine(vine: Node2D, world_point: Vector2, axis: Vector2, thickness: float) -> void:
+	vine.set(_get_tie_end_property(vine), world_point - vine.global_position)
+	if vine.has_method(&"tie_to"):
+		vine.call(&"tie_to", world_point, axis, thickness)
+	vine.queue_redraw()
+
+
+## Unlinked: the end goes back to `end` (relative) and the knot goes.
+func _untie_vine(vine: Node2D, end: Vector2) -> void:
+	if &"is_tied" in vine:
+		vine.set(&"is_tied", false)
+	vine.set(_get_tie_end_property(vine), end)
+	vine.queue_redraw()
+
+
+## The property that's a link target's free end (its catalog entry's first point
+## property, a vine's end_point), or &"" if it has none.
+func _get_tie_end_property(target: Node) -> StringName:
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(target)
+	if entry == null or entry.point_properties.is_empty():
+		return &""
+	return entry.point_properties[0]
+
+
+## node.set(property, value), also for a body moved by script (AnimatableBody2D:
+## leaf and hanging platforms, the elephant). With `sync_to_physics` on, such a
+## body puts its last physics-step transform back when it's moved or turned between
+## steps, and the editor's disabled level never steps. So the sync goes off for the
+## change, as in ThicketElephant.reset(), and the physics server is told the new
+## transform before it comes back on.
+static func set_on_node(node: Object, property: StringName, value: Variant) -> void:
+	var body: AnimatableBody2D = node as AnimatableBody2D
+	if body == null or not body.sync_to_physics:
+		node.set(property, value)
+		return
+	body.sync_to_physics = false
+	body.set(property, value)
+	PhysicsServer2D.body_set_state(body.get_rid(), PhysicsServer2D.BODY_STATE_TRANSFORM, body.global_transform)
+	body.sync_to_physics = true
 
 
 ## Deletes an object (undoable). Spawn points can only be moved: every room
@@ -918,11 +1099,18 @@ func add_unlink_steps(removed: Node) -> void:
 			undo_redo.add_undo_method(_apply_property.bind(linker, linker_entry.link_property, old_links.duplicate()))
 
 
-## Turns the selected spikes a quarter turn (R). Returns false if it can't turn.
+## R: turns the selected spikes a quarter turn, or an object whose catalog entry
+## has `rotate_step_degrees` by that much (a hanging platform). Returns false if
+## it can't turn.
 func rotate_object(node: Node2D) -> bool:
 	var spikes: Spikes = node as Spikes
 	if spikes == null:
-		return false
+		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(node)
+		if entry == null or is_zero_approx(entry.rotate_step_degrees):
+			return false
+		# wrapf keeps it in -180..180, so turning round and round never grows the number.
+		set_property(node, &"rotation_degrees", wrapf(node.rotation_degrees + entry.rotate_step_degrees, -180.0, 180.0), null, false)
+		return true
 	var next_facing: Spikes.Facing = SPIKE_TURN_ORDER[(SPIKE_TURN_ORDER.find(spikes.facing) + 1) % SPIKE_TURN_ORDER.size()]
 	undo_redo.create_action("Turn spikes")
 	undo_redo.add_do_property(spikes, &"facing", next_facing)
@@ -951,6 +1139,13 @@ func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void
 	undo_redo.create_action(action_name)
 	undo_redo.add_do_method(attach_node.bind(room, node, -1))
 	undo_redo.add_undo_method(detach_node.bind(node))
+	# Room settings the object comes with (a brazier turns Fire on), in the same step.
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(node)
+	var room_settings: Dictionary = entry.room_settings_on_create if entry != null else {}
+	for setting: StringName in room_settings:
+		if room.get(setting) != room_settings[setting]:
+			undo_redo.add_do_property(room, setting, room_settings[setting])
+			undo_redo.add_undo_property(room, setting, room.get(setting))
 	# The do side holds the new node: if the placing is undone and then dropped
 	# from the history, UndoRedo frees the node.
 	undo_redo.add_do_reference(node)
@@ -959,12 +1154,25 @@ func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void
 
 
 ## Puts `node` into `parent` (at `index`, or last if -1) as part of the saved level.
+## The first time, the nodes to save are listed BEFORE it enters the tree: its
+## _ready() (or its children's) may build helper nodes (a grass layer's blades, a
+## room's FireGrid), and adopting those would save them, and get them built twice
+## on the next load. Later times (undo / redo) it keeps the owners it had.
 func attach_node(parent: Node, node: Node, index: int) -> void:
+	var is_first_time: bool = not node.is_node_ready()
+	var nodes_to_save: Array[Node] = []
+	if is_first_time:
+		nodes_to_save = LevelStorage.nodes_to_adopt(node)
 	# true: if the name is taken, Godot picks a readable one ("Goal2").
 	parent.add_child(node, true)
 	if index >= 0:
 		parent.move_child(node, index)
-	LevelStorage.adopt(node, level_root)
+	for saved_node: Node in nodes_to_save:
+		saved_node.owner = level_root
+	if not is_first_time and node.owner != level_root:
+		LevelStorage.adopt(node, level_root)  # ready but never adopted: the old way
+	if is_first_time and node is Room:
+		RoomLook.prepare_for_editing(node)  # a copied fire room: no FireGrid while editing
 
 
 func detach_node(node: Node) -> void:
@@ -1120,9 +1328,15 @@ func get_play_warnings() -> Array[String]:
 	for room: Room in get_rooms():
 		if room.get_node_or_null(NodePath(PaletteCatalog.SPAWN_POINT_NAME)) == null:
 			warnings.append("%s has no spawn point." % room_title(room))
+		var has_fire_diamond: bool = false
 		for child: Node in room.get_children():
 			if child is Goal:
 				has_goal = true
+			if child is FireDiamond:
+				has_fire_diamond = true
+		# Fire objects turn Fire on, but without pips the player can't light anything.
+		if room.fire_allowed and room.fire_start_pips == 0 and not has_fire_diamond:
+			warnings.append("%s allows Fire but has no fire pips (set Fire Start Pips, or place a fire diamond)." % room_title(room))
 	if not has_goal:
 		warnings.append("No goal yet: the level can't be finished.")
 	return warnings
@@ -1222,10 +1436,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_map()
 		ui.import_picker.open(level_path)
 	elif event.is_action_pressed("editor_link"):
-		if link_source != null:
-			end_link_mode()
-		else:
-			start_link_mode(selected_object)
+		toggle_link_mode()
 	# Redo before undo: Ctrl+Shift+Z is redo, and would also match plain Ctrl+Z.
 	elif event.is_action_pressed("editor_redo"):
 		redo()
@@ -1240,7 +1451,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_duplicate_selected(mouse_world)
 	elif event.is_action_pressed("editor_rotate"):
 		if selected_object != null and not rotate_object(selected_object):
-			ui.show_message("Only spikes can be turned.", true)
+			ui.show_message("Only spikes and hanging platforms can be turned.", true)
 	elif event.is_action_pressed("editor_toggle_grid"):
 		toggle_grid()
 	elif event.is_action_pressed("editor_back"):
@@ -1340,9 +1551,10 @@ func _on_mouse_released(mouse_world: Vector2) -> void:
 		place_strip(current_entry, strip_room, strip_start_cell, cell_at(strip_room, mouse_world))
 	elif dragged_object != null:
 		# The drag already moved it; record the move (from the start) as one step.
+		# Things bolted down (a sentry) drop onto the ground under where it was let go.
 		var moved_object: Node2D = dragged_object
 		dragged_object = null
-		move_object(moved_object, moved_object.position, drag_start_position)
+		move_object(moved_object, get_grounded_position(moved_object, Room.find_room_of(moved_object)), drag_start_position)
 
 
 ## Ctrl+D: copies the selected object to the mouse, or, with the mouse outside

@@ -63,60 +63,6 @@ extends Resource
 ## slides, so you don't need pixel-perfect contact (or to press into the wall).
 @export var wall_jump_check_distance: float = 2.0
 
-@export_group("Air Dash")
-## Speed of the dash in the aimed direction, px/s. Gravity is ignored during it.
-@export var dash_speed: float = 240.0
-## How long the dash lasts, seconds. Distance = dash_speed * dash_duration (36 px).
-@export var dash_duration: float = 0.15
-## Dashes available per airtime. Refilled on the ground or by a wind crystal.
-@export var max_dash_charges: int = 1
-## When the dash ends, horizontal speed is multiplied by this (1 = keep it all; air
-## control then eases it back to max_run_speed). Keeps the dash flowing into the arc.
-@export var dash_end_horizontal_multiplier: float = 1.0
-## When the dash ends, UPWARD speed is multiplied by this so an up-dash doesn't
-## launch you sky-high but still rises a little before falling.
-@export var dash_end_upward_multiplier: float = 0.6
-## Freeze frames at dash start, seconds (0.05 ≈ 3 frames at 60 fps).
-@export var dash_freeze_time: float = 0.05
-## Screen shake at dash start: max offset in px, and how long it fades, seconds.
-@export var dash_shake_strength: float = 2.0
-@export var dash_shake_duration: float = 0.12
-## Seconds between wind-trail streaks during a dash, and how long each one takes to fade.
-@export var dash_trail_interval: float = 0.03
-@export var dash_trail_lifetime: float = 0.25
-## How much the player's rectangle stretches along the dash (x) and thins across it (y)
-## while dashing, so the body reads as a gust of air rather than a solid block.
-@export var dash_stretch: Vector2 = Vector2(1.6, 0.6)
-## Opacity of the player during the dash (1 = solid). Partly "turns into air".
-@export_range(0.0, 1.0) var dash_body_opacity: float = 0.55
-## The dash leaves a WAKE: a small gust blown backward from where the dash starts
-## (the air shoved to launch you). When on, it also pushes Pushable things behind you,
-## like a gust. Off = a plain backward puff, no push.
-@export var dash_wake_enabled: bool = true
-## Length of the wake cone, px (the gust's is 40). Same opening angle as the gust.
-@export var dash_wake_range: float = 24.0
-## Push strength of the wake, px/s (the gust's is 160).
-@export var dash_wake_push_strength: float = 120.0
-## Defeating a stunned enemy by dashing into it gives the dash back (and the gust
-## charge, like a wind crystal), so you can chain a kill into the next move.
-@export var dash_defeat_refills: bool = true
-
-@export_group("Air Dash: Ride the Current (experimental)")
-## EXPERIMENT: the dash bursts out fast and eases off (same total distance), then
-## for a short window afterwards you "ride" your own wind: lighter gravity and more
-## air control. Turn on/off live in the Remote tab to compare with the rigid dash.
-@export var ride_current_enabled: bool = true
-## Dash speed multiplier at the START and END of the dash. The speed slides linearly
-## between them; with an average of 1.0 the dash covers the same distance as normal.
-@export var ride_current_dash_start_multiplier: float = 1.3
-@export var ride_current_dash_end_multiplier: float = 0.7
-## How long the "riding" window lasts after the dash ends, seconds.
-@export var ride_current_time: float = 0.5
-## Gravity multiplier during the riding window (<1 = floatier).
-@export var ride_current_gravity_multiplier: float = 0.4
-## Air acceleration multiplier during the riding window (>1 = more steering).
-@export var ride_current_air_control_multiplier: float = 1.6
-
 @export_group("Glide")
 ## Fall speed while gliding, px/s (GAME_DESIGN.md §5.2: 30).
 @export var glide_max_fall_speed: float = 30.0
@@ -132,16 +78,9 @@ extends Resource
 ## Stamina drain multiplier inside an updraft (0 = riding an updraft is free, so
 ## updrafts work as "elevators" of any height; 1 = drains like normal gliding).
 @export var glide_updraft_stamina_drain: float = 0.0
-## Shared air stamina (experimental): when on, the dash costs glide stamina instead
-## of using dash charges. Dash and glide then spend ONE "breath" bar; wind crystals
-## and the ground refill it. Off = classic GAME_DESIGN.md §5.1 dash charges.
-@export var dash_uses_stamina: bool = true
-## Stamina one dash costs, in glide-seconds (0.9 of 1.5 = 60% of the bar, so only
-## one dash fits in a full bar; a second needs a crystal or the ground).
-@export var dash_stamina_cost: float = 0.9
 ## Seconds between the curved gust arcs drawn under the player while gliding.
 @export var glide_gust_interval: float = 0.09
-## Gliding keeps momentum: horizontal speed ABOVE max_run_speed (from a gust, dash or
+## Gliding keeps momentum: horizontal speed ABOVE max_run_speed (from a gust or
 ## wind) only fades at this rate, px/s², instead of being pulled back by normal air
 ## control (~650 px/s²). Holding the opposite direction still brakes normally.
 ## 100 = a 200 px/s gust shove takes ~1.1 s to fade to run speed.
@@ -206,9 +145,9 @@ extends Resource
 @export var gust_shake_duration: float = 0.08
 ## Debug hitbox (F3): how long the cone flash stays visible after a gust, seconds.
 @export var gust_debug_flash_time: float = 0.25
-## Gust costs breath: when on, a gust spends gust_stamina_cost of the shared
-## glide/dash stamina bar. The bar refills on the ground, so ground gusts stay free;
-## only airborne gusts compete with dash and glide. Off = gusts are free.
+## Gust costs breath: when on, a gust spends gust_stamina_cost of the glide
+## stamina bar. The bar refills on the ground, so ground gusts stay free;
+## only airborne gusts compete with the glide. Off = gusts are free.
 ## Off by default since the gust charges (one per airtime) took over as the limit;
 ## kept as a toggle to compare.
 @export var gust_uses_stamina: bool = false

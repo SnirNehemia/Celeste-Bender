@@ -828,7 +828,7 @@ func receive_hit(hit: EnemyHit) -> ElementImmunity.Response:
 	return response
 
 
-## The Pushable contract (gust, dash wake): a GUST hit.
+## The Pushable contract (gust): a GUST hit.
 func receive_gust(direction: Vector2, strength: float) -> void:
 	receive_hit(EnemyHit.make(EnemyHit.Type.GUST, direction * strength))
 

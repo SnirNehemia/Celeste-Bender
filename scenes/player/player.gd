@@ -10,12 +10,11 @@ extends CharacterBody2D
 ##   Player (this script)
 ##   ├─ CollisionShape2D   8x11 hitbox
 ##   ├─ SquashPivot        Node2D at the feet, scaled for squash & stretch
-##   │  └─ Visual (ColorRect) white 8x11 rectangle (the dash stretches this one)
+##   │  └─ Visual (ColorRect) white 8x11 rectangle
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
-##   ├─ AirDashAbility     dash charges, aim, dash effects (abilities/air_dash_ability.gd)
 ##   ├─ GlideAbility       glide stamina, stamina bar, glide effects (abilities/glide_ability.gd)
 ##   ├─ GustAbility        gust charges + pips, cooldown, cone hit, gust effects (abilities/gust_ability.gd)
-##   ├─ AirBlastDebugDraw  F3 debug drawing of gust / dash-wake cones (abilities/air_blast_debug_draw.gd)
+##   ├─ AirBlastDebugDraw  F3 debug drawing of gust cones (abilities/air_blast_debug_draw.gd)
 ##   ├─ MovementEffects    squash & stretch and dust on jump / land / respawn (movement_effects.gd)
 ##   ├─ EarthBendAbility   shared Earth core: finds the earth we touch, runs the bend
 ##   │                     shadow (abilities/earth/earth_bend_ability.gd)
@@ -32,7 +31,7 @@ extends CharacterBody2D
 ##   │                     (abilities/fire/flame_jet_ability.gd); Jetting moves the body
 ##   ├─ FireballAbility    Fire move Q: pip check, fizzle, aim preview, throw
 ##   │                     (abilities/fire/fireball_ability.gd); aims in GustAim
-##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Dash, Glide,
+##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
 ##                         SnakeSteer, Jetting, Dead
 ##
@@ -86,7 +85,6 @@ signal died
 @onready var hitbox: CollisionShape2D = $CollisionShape2D
 @onready var visual: ColorRect = $SquashPivot/Visual
 @onready var death_burst: CPUParticles2D = $DeathBurst
-@onready var air_dash: AirDashAbility = $AirDashAbility
 @onready var glide: GlideAbility = $GlideAbility
 @onready var gust: GustAbility = $GustAbility
 @onready var blast_debug: AirBlastDebugDraw = $AirBlastDebugDraw
@@ -108,11 +106,8 @@ var jump_buffer_remaining: float = 0.0
 ## Counts down after a wall jump. While > 0 horizontal input is ignored.
 var wall_jump_lock_remaining: float = 0.0
 ## Which way the player faces: -1 left, +1 right. Follows the last held direction.
-## Used as the dash/gust direction when no arrow is held.
+## Used as the gust direction when no arrow is held.
 var facing_direction: float = 1.0
-## Experimental "Ride the Current" (tuning.ride_current_enabled): counts down after a
-## dash ends. While > 0, gravity is lighter and air control stronger. Set by the Dash state.
-var ride_current_remaining: float = 0.0
 ## Wind zones the player is currently inside. Filled by the zones themselves.
 var active_wind_zones: Array[WindZone] = []
 ## The last DIAGONAL aim held, and when (real-time ms), for the diagonal grace window
@@ -154,7 +149,7 @@ func _physics_process(delta: float) -> void:
 	var fall_speed_before_move: float = velocity.y
 	_move_without_wall_floor_snap()
 	# 5) Landing = "not on the floor last frame, on it now". Checked here, in one
-	#    place, instead of in every state that can land (Fall, Glide, Dash...).
+	#    place, instead of in every state that can land (Fall, Glide, Jetting...).
 	if not was_on_floor and is_on_floor() and not is_dead():
 		movement_effects.on_landed(fall_speed_before_move)
 
@@ -173,7 +168,6 @@ func _update_timers(delta: float) -> void:
 		jump_buffer_remaining = maxf(jump_buffer_remaining - delta, 0.0)
 
 	wall_jump_lock_remaining = maxf(wall_jump_lock_remaining - delta, 0.0)
-	ride_current_remaining = maxf(ride_current_remaining - delta, 0.0)
 
 	# Remember diagonals for the gust's diagonal grace window. Real time (not delta)
 	# because keys are released in real time, also during slow-motion aiming.
@@ -222,8 +216,6 @@ func respawn_at(spawn_position: Vector2) -> void:
 	coyote_time_remaining = 0.0
 	jump_buffer_remaining = 0.0
 	wall_jump_lock_remaining = 0.0
-	ride_current_remaining = 0.0
-	air_dash.refill()
 	glide.refill()
 	gust.reset()
 	# Fire pips are per room: back to what this room starts you with.
@@ -280,7 +272,6 @@ func get_forgiving_aim_input() -> Vector2:
 
 
 ## Like get_aim_input(), but with nothing held, aim the way the player faces.
-## Used by the dash, which always needs a direction.
 func get_aim_direction() -> Vector2:
 	var aim: Vector2 = get_aim_input()
 	if aim == Vector2.ZERO:
@@ -329,19 +320,6 @@ func consume_jump_press() -> void:
 	coyote_time_remaining = 0.0
 
 
-# --- Dash --------------------------------------------------------------------
-
-## True on the frame dash is pressed, if a charge is left. Every state that allows
-## dashing checks this first and switches to the Dash state.
-func wants_to_dash() -> bool:
-	return Input.is_action_just_pressed("dash") and is_element_allowed(ELEMENT_AIR) \
-		and air_dash.can_dash()
-
-
-func is_dashing() -> bool:
-	return state_machine.current_state.name == &"Dash"
-
-
 # --- Glide -------------------------------------------------------------------
 
 ## True when jump was pressed recently (buffered) and is still held, in the air,
@@ -358,15 +336,14 @@ func wants_to_glide() -> bool:
 
 # --- Refills ------------------------------------------------------------------
 
-## A wind crystal was touched: refill the dash (or breath, in shared stamina mode)
-## and the gust charge. Returns true if ANYTHING was restored, so the crystal
+## A wind crystal was touched: refill the breath (glide stamina) and the gust charge. Returns true if ANYTHING was restored, so the crystal
 ## is only used up when it helped. Lives here so the crystal doesn't need to know
 ## about each ability.
 func refill_from_crystal() -> bool:
 	# Both calls must run: `or` would skip the second one if the first returned true.
-	var dash_restored: bool = air_dash.refill()
+	var breath_restored: bool = glide.refill()
 	var gust_restored: bool = gust.refill_charges()
-	return dash_restored or gust_restored
+	return breath_restored or gust_restored
 
 
 ## A gust diamond was touched: two gust charges for this airtime (GAME_DESIGN.md §5.3).
@@ -390,7 +367,7 @@ func gain_fire_pips(amount: int) -> bool:
 ## On the frame W (flame_jet) is pressed where fire is allowed: spends a pip and
 ## returns true, and the caller switches to the Jetting state. With no pip the jet
 ## sputters (smoke, no thrust) and this returns false, so nothing else changes.
-## States that allow jetting check this right after the dash and gust checks.
+## States that allow jetting check this right after the gust check.
 func try_start_jet() -> bool:
 	return flame_jet.try_start()
 
@@ -414,8 +391,7 @@ func try_start_fireball() -> bool:
 
 ## True on the frame gust is pressed, if the cooldown is over and the gust can be
 ## paid for (a charge in the air, plus breath if that toggle is on).
-## States that allow gusting check this right after the dash check and switch to
-## get_gust_start_state().
+## States that allow gusting check this first and switch to get_gust_start_state().
 func wants_to_gust() -> bool:
 	return Input.is_action_just_pressed("gust") and is_element_allowed(ELEMENT_AIR) \
 		and gust.can_gust()
@@ -461,7 +437,7 @@ func is_one_key_column_snake() -> bool:
 
 ## True on the frame an earth key is pressed while we're touching fresh earth
 ## (standing on it or wall-sliding on it). Idle, Run and WallSlide check this
-## after the dash and gust checks and switch to the EarthBend state.
+## after the gust check and switch to the EarthBend state.
 ## On true, the key and the start face are remembered (EarthBendAbility.queue_bend)
 ## for EarthBend.enter(): once the state has switched we're no longer "in WallSlide",
 ## so the wall face couldn't be found again from there.
@@ -487,7 +463,7 @@ func try_tear_rock() -> bool:
 ##   down (from a ceiling):     column_launch_speed down
 ##   sideways (from a wall):    column_launch_speed sideways plus a lift upward, like
 ##                              Celeste's side springs (Earth_bending.md §11)
-## Refills the dash (for mixed Earth + Air rooms), and the Launched state takes over.
+## Refills the breath (for mixed Earth + Air rooms), and the Launched state takes over.
 func launch_from_column(direction: Vector2) -> void:
 	if is_dead():
 		return
@@ -503,7 +479,7 @@ func launch_from_column(direction: Vector2) -> void:
 		facing_direction = signf(direction.x)
 	# A buffered jump or coyote time must not turn the launch into a small jump.
 	consume_jump_press()
-	air_dash.refill()
+	glide.refill()
 	movement_effects.play_squash(tuning.jump_squash)
 	state_machine.transition_to(&"Launched")
 
@@ -515,7 +491,7 @@ func launch_by(launch_velocity: Vector2) -> void:
 		return
 	velocity = launch_velocity
 	consume_jump_press()
-	air_dash.refill()
+	glide.refill()
 	movement_effects.play_squash(tuning.jump_squash)
 	state_machine.transition_to(&"Launched")
 
@@ -639,9 +615,6 @@ func apply_gravity(delta: float) -> void:
 	# holding jump, fall more gently. This gives a moment of hang time to line up a landing.
 	if Input.is_action_pressed("jump") and absf(velocity.y) < tuning.apex_gravity_threshold:
 		gravity_scale = tuning.apex_gravity_multiplier
-	# Riding the current after a dash (experimental): the wind we made holds us up a bit.
-	if ride_current_remaining > 0.0:
-		gravity_scale *= tuning.ride_current_gravity_multiplier
 
 	# Fast-fall: holding Down raises the terminal speed. Releasing Down brings it back
 	# down gradually (move_toward approaches max_fall_speed at the gravity rate, no sudden stop).
@@ -663,7 +636,7 @@ func apply_gravity(delta: float) -> void:
 ## arrows aim instead of steering): you slow down on the ground, drift in the air.
 ## `overspeed_deceleration` (>= 0, airborne only): speed above max_run_speed fades at
 ## this gentler rate instead of normal air control, unless you steer against it.
-## The Glide state uses it so a gust or dash shove carries into the glide.
+## The Glide state uses it so a gust shove carries into the glide.
 func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 		overspeed_deceleration: float = -1.0) -> void:
 	if wall_jump_lock_remaining > 0.0:
@@ -683,9 +656,6 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 			velocity.x = move_toward(velocity.x, cruise_speed, overspeed_deceleration * delta)
 			return
 	var air_multiplier: float = 1.0 if is_on_floor() else tuning.air_acceleration_multiplier
-	# Riding the current after a dash (experimental): easier to steer in the air.
-	if ride_current_remaining > 0.0 and not is_on_floor():
-		air_multiplier *= tuning.ride_current_air_control_multiplier
 
 	# Wind shifts the speed we settle at instead of adding a raw force. Standing
 	# still in a 50 px/s current you drift at 50 px/s; running against it you make

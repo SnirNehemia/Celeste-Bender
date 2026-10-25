@@ -2,13 +2,13 @@
 class_name WindCrystal
 extends Area2D
 ## Wind crystal (GAME_DESIGN.md §5.1, §6): a floating green diamond that refills the
-## player's dash on touch, then respawns after a short delay.
+## player's breath (glide stamina) and gust charge on touch, then respawns after a short delay.
 ##
 ## Place the node where the CENTER of the diamond should be. Everything (shape,
 ## hitbox) is built in code in _ready(), so wind_crystal.tscn is a single node.
 ##
 ## It talks to the player only through Player.refill_from_crystal(), which refills
-## the dash (or breath) AND the gust charge. If nothing needed refilling it
+## the breath AND the gust charge. If nothing needed refilling it
 ## returns false and the crystal is NOT used up (same as Celeste), so you can't
 ## waste a crystal by brushing past it.
 ##
@@ -160,7 +160,7 @@ func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint() or not is_available:
 		return
 	# Checked every frame (not just on body_entered) so that a player who is ALREADY
-	# inside the crystal when they spend their dash gets refilled right away.
+	# inside the crystal when they spend their gust gets refilled right away.
 	for body: Node2D in get_overlapping_bodies():
 		var touched_player: Player = body as Player
 		if touched_player != null and not touched_player.is_dead() \

@@ -5,9 +5,8 @@ extends Node2D
 ##
 ## Responsibilities (and only these):
 ##   - glide STAMINA: seconds of gliding left this airtime, refilled on the ground.
-##     With tuning.dash_uses_stamina on, the dash spends it too (see AirDashAbility):
-##     one shared "breath" bar, with a notch marking the dash cost. With
-##     tuning.gust_uses_stamina the gust spends it too (fainter, shorter notch).
+##     It is the player's "breath": wind crystals refill it too. With
+##     tuning.gust_uses_stamina the gust spends it as well (a notch marks the cost).
 ##   - the small stamina bar above the player's head (drawn by this node)
 ##   - the glide's look. It should read as AIR BENDING: the player pushes air DOWN
 ##     to hold themself up:
@@ -18,14 +17,14 @@ extends Node2D
 ##   - NO-GLIDE ZONES (NoGlideZone, "dead air"): can_glide() is false while the
 ##     player is inside one, so a glide can't start there and one in progress ends
 ####
-## The glide MOVEMENT is the `Glide` state (states/glide.gd), same split as the dash:
-## states own movement, abilities own resources and effects.
+## The glide MOVEMENT is the `Glide` state (states/glide.gd): states own movement,
+## abilities own resources and effects.
 ##
-## Why a Node2D and not a plain Node (like AirDashAbility)? A Node2D has a position
+## Why a Node2D and not a plain Node (like GustAbility)? A Node2D has a position
 ## and can draw. It sits just above the player's head, so the bar drawn in _draw()
 ## follows the player for free.
 
-## Color of all air effects (same pale cyan-white as the dash, so they read as one power).
+## Color of all air effects (same pale cyan-white as the gust, so they read as one power).
 const AIR_COLOR: Color = Color(0.85, 0.95, 1.0, 0.8)
 ## Stamina bar look: size in px, and colors.
 const BAR_SIZE: Vector2 = Vector2(12, 2)
@@ -34,9 +33,7 @@ const BAR_FULL_COLOR: Color = Color(0.6, 0.9, 1.0)
 const BAR_LOW_COLOR: Color = Color(1.0, 0.35, 0.3)
 ## Below this fraction of stamina, the bar blinks as a warning.
 const BAR_LOW_FRACTION: float = 0.3
-## The dash-cost notch on the bar (shared stamina mode).
-const BAR_NOTCH_COLOR: Color = Color(1, 1, 1, 0.9)
-## The gust-cost notch: fainter and only bar-high, so the dash notch still stands out.
+## The gust-cost notch on the bar (tuning.gust_uses_stamina).
 const BAR_GUST_NOTCH_COLOR: Color = Color(1, 1, 1, 0.5)
 ## Where the player's feet are, relative to this node (this node sits 15 px above them).
 const FEET_OFFSET: Vector2 = Vector2(0, 15)
@@ -71,9 +68,7 @@ func _ready() -> void:
 ## Runs every physics frame, after the player's move_and_slide() (children run after
 ## their parent), so is_on_floor() is up to date.
 func _physics_process(delta: float) -> void:
-	# Same rule as dash charges: no ground refill mid-dash, otherwise a dash along
-	# the floor would cost nothing.
-	if player.is_on_floor() and not player.is_dashing():
+	if player.is_on_floor():
 		refill()
 	blink_time += delta
 	# queue_redraw() asks Godot to call _draw() again this frame.
@@ -107,7 +102,7 @@ func refill() -> bool:
 	return true
 
 
-## Spends a lump of stamina at once (used by the dash in shared stamina mode).
+## Spends a lump of stamina at once (used by the gust when tuning.gust_uses_stamina is on).
 func spend(amount: float) -> void:
 	stamina_remaining = maxf(stamina_remaining - amount, 0.0)
 	stamina_changed.emit(stamina_remaining)
@@ -186,12 +181,7 @@ func _draw() -> void:
 	draw_rect(Rect2(bar_origin, BAR_SIZE), BAR_BACK_COLOR)
 	var fill_color: Color = BAR_LOW_COLOR.lerp(BAR_FULL_COLOR, fraction)
 	draw_rect(Rect2(bar_origin, Vector2(BAR_SIZE.x * fraction, BAR_SIZE.y)), fill_color)
-	# Shared stamina: a notch where the dash cost is. Fill right of the notch = you
-	# can dash; left of it = glide only. Drawn 1 px taller than the bar to stand out.
-	if player.tuning.dash_uses_stamina and max_stamina > 0.0:
-		var notch_x: float = bar_origin.x + BAR_SIZE.x * (player.tuning.dash_stamina_cost / max_stamina)
-		draw_rect(Rect2(notch_x, -1.0, 1.0, BAR_SIZE.y + 2.0), BAR_NOTCH_COLOR)
-	# Same idea for the gust cost: fill right of this notch = you can gust.
+	# A notch where the gust cost is: fill right of this notch = you can gust.
 	if player.tuning.gust_uses_stamina and max_stamina > 0.0:
 		var gust_notch_x: float = bar_origin.x + BAR_SIZE.x * (player.tuning.gust_stamina_cost / max_stamina)
 		draw_rect(Rect2(gust_notch_x, 0.0, 1.0, BAR_SIZE.y), BAR_GUST_NOTCH_COLOR)

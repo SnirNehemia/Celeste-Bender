@@ -39,7 +39,7 @@ extends CharacterBody2D
 ##
 ## Contracts (no special code anywhere else):
 ##   - EnemyHit (group "enemies" + receive_hit): every hit
-##   - Pushable (group "pushable" + receive_gust): the gust, dash wake, column, snake
+##   - Pushable (group "pushable" + receive_gust): the gust, column, snake
 ##   - Flammable (group "flammable" + ignite/is_burning/snuff/get_fire_rect): every flame
 ##   - Heat receiver (group "heat_receiver" + apply_heat): hot updrafts lift it
 ##   - Room.RESETTABLE_GROUP + reset(); the `defeated` signal (EnemyGate counts it)
@@ -195,7 +195,7 @@ func _ready() -> void:
 
 
 ## The monkey's row of the §7.2 table: only fire kills it (and, Stage F11b, the
-## elephant's tail whip, which kills anything); rocks, gusts and earth push it. Spikes, crushing, orbs and dashes do nothing (a column under it stops
+## elephant's tail whip, which kills anything); rocks, gusts and earth push it. Spikes, crushing and orbs do nothing (a column under it stops
 ## short instead of crushing it).
 static func _make_immunity() -> ElementImmunity:
 	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
@@ -583,7 +583,7 @@ func _be_pushed(hit: EnemyHit) -> void:
 		stun_time_remaining = maxf(stun_time_remaining, fire_tuning.monkey_push_stun_time)
 
 
-## The Pushable contract (gust, dash wake): a GUST hit.
+## The Pushable contract (gust): a GUST hit.
 func receive_gust(direction: Vector2, strength: float) -> void:
 	receive_hit(EnemyHit.make(EnemyHit.Type.GUST, direction * strength))
 

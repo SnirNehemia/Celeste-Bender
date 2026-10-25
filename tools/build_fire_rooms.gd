@@ -18,6 +18,7 @@ extends "res://tools/build_earth_rooms.gd"
 ##   - tests/rooms/room_fire_g.tscn   Stage F8 vines (drawbridge, swinging plank), burning crate, leaf platform and sail (_build_room_fire_g)
 ##   - tests/rooms/room_fire_j.tscn   Stage F11 enemies vs fire and the vine monkey (_build_room_fire_j)
 ##   - tests/rooms/room_fire_l.tscn   Stage F11b the thicket elephant: climb and ride, charge, stone wall, bolt (_build_room_fire_l)
+##   - tests/rooms/room_fire_m.tscn   Stage F12 the Shell and every enemy against every element; ricochets (_build_room_fire_m)
 ##   - resources/tiles/thicket_tileset.tres  (Stage F6) the thicket tile and the
 ##                                    grass-looking cover tile, solid on layer 1.
 ##                                    Only written when missing.
@@ -35,7 +36,7 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_fire_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- fire_b` (names: fire_a … fire_g, fire_j, fire_l).
+## only those, e.g. `-- fire_b` (names: fire_a … fire_g, fire_j, fire_l, fire_m).
 
 const FIRE_DIAMOND_SCENE: PackedScene = preload("res://scenes/objects/fire/fire_diamond.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
@@ -50,6 +51,7 @@ const SAIL_SCENE: PackedScene = preload("res://scenes/objects/sail_platform.tscn
 const MONKEY_SCENE: PackedScene = preload("res://scenes/enemies/vine_monkey.tscn")
 const ELEPHANT_SCENE: PackedScene = preload("res://scenes/enemies/thicket_elephant.tscn")
 const STONE_WALL_SCENE: PackedScene = preload("res://scenes/objects/stone_wall.tscn")
+const SHELL_SCENE: PackedScene = preload("res://scenes/enemies/shell.tscn")
 const THICKET_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/thicket_layer.gd")
 const OVERGROWN_LAYER_SCRIPT: Script = preload("res://scenes/objects/fire/overgrown_layer.gd")
 ## Thicket tile picture colors: dark bramble green, lighter branches, brown thorns.
@@ -88,6 +90,8 @@ func _ready() -> void:
 		_build_room_fire_j()
 	if wanted.is_empty() or wanted.has("fire_l"):
 		_build_room_fire_l()
+	if wanted.is_empty() or wanted.has("fire_m"):
+		_build_room_fire_m()
 	print("[BuildFireRooms] Done.")
 	get_tree().quit()
 
@@ -689,3 +693,71 @@ func _build_room_fire_l() -> void:
 	_add(ELEPHANT_SCENE, "ThicketElephant", Vector2(560, 160))
 
 	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_l.tscn")
+
+
+## Fire test room M (Stage F12, the Shell; every enemy against every element: the
+## Fire_bending.md §7.2 table). All elements, 720×180 (scrolls), starts with 5 pips.
+## Earth frame and floor (rocks everywhere), floor at row 20 (y 160). Left to right:
+##   1. The armor: a Shell walks a grass strip between a low wall (col 4) and a spike
+##      strip (cols 16-18), turning before the spikes. Fireball it: the fireball
+##      bounces off (and off the walls: anything that doesn't burn). Burn the grass: it
+##      walks through the fire. A small rock staggers it; a thrown big rock kills it.
+##   2. The drop: a Shell in a pit-free lane (cols 22-28) under a 2-row ledge (row 15,
+##      reached from the step at cols 19-20). Tear a big rock from the ledge (hold S)
+##      and let it fall on the Shell: from 2+ tiles it kills it.
+##   3. The thicket bridge: a Shell walks a platform (cols 31-38, row 18) whose middle
+##      (cols 33-36) is thicket. Burn it: the Shell drops into the pocket below and is
+##      out of the way.
+##   4. Orbs: a sentry on the floor (col 56) shoots along the floor over a Shell (cols
+##      44-54). The orbs bounce off its plates and off the walls.
+##   5. A wisp and a vine monkey (cols 60-68) before a spike strip (cols 67-69): every
+##      element on them (a gust pushes the wisp into the spikes; the monkey doesn't
+##      mind spikes; only fire kills it).
+##   6. An elephant (cols 71-88) behind a 3-tile wall: rocks push it, fire burns a
+##      spot, a gust barely nudges it.
+func _build_room_fire_m() -> void:
+	_begin_room("RoomFireM", "Fire M - Shell & Element Table",
+		"Stage F12 test room. All elements, starts with 5 pips. The SHELL: only a big rock kills it (thrown, or dropped from 2+ tiles); a small rock staggers it; fire, spikes and crushing do nothing; fireballs and orbs BOUNCE off it (fireballs also bounce off anything that doesn't burn). 1: fireball it, burn its grass, rock it. 2: drop a big rock on it from the ledge. 3: burn the thicket bridge under it. 4: watch the sentry's orbs bounce off it. 5-6: a wisp, a monkey and an elephant to try every element on. R resets.",
+		Vector2(720, 180))
+	_fire_room(5)
+	# Frame (90 columns).
+	_earth(0, 0, 90, 1)
+	_earth(0, 0, 1, 23)
+	_earth(89, 0, 1, 23)
+	_earth(0, 20, 90, 3)
+
+	# 1. The armor: grass, a low wall, spikes to turn at.
+	_earth(4, 18, 1, 2)
+	_grass(5, 20, 11, 1)
+	_spikes("ArmorSpikes", 16, 19, 3)
+	_earth(19, 18, 2, 2)
+	_add(SHELL_SCENE, "ArmorShell", Vector2(80, 160))
+
+	# 2. The drop: the ledge to tear a big rock from, the lane under it.
+	_earth(21, 15, 6, 2)
+	_earth(29, 18, 1, 2)
+	_add(SHELL_SCENE, "DropShell", Vector2(200, 160), {"start_direction": -1})
+
+	# 3. The thicket bridge over its pocket.
+	_earth(31, 18, 2, 2)
+	_thicket(33, 18, 4, 2)
+	_earth(37, 18, 2, 2)
+	_add(SHELL_SCENE, "BridgeShell", Vector2(280, 144))
+	_fire_diamond("BridgeDiamond", Vector2(312, 100), 2)
+
+	# 4. Orbs: a Shell in front of a sentry.
+	_earth(42, 18, 1, 2)
+	_add(SHELL_SCENE, "OrbShell", Vector2(392, 160))
+	_add(SENTRY_SCENE, "OrbSentry", Vector2(452, 160))
+	_earth(58, 17, 1, 3)
+
+	# 5. A wisp and a monkey before the spikes.
+	_add(WISP_SCENE, "TableWisp", Vector2(488, 160))
+	_add(MONKEY_SCENE, "TableMonkey", Vector2(512, 160), {"hops_gaps": false})
+	_spikes("TableSpikes", 67, 19, 3)
+
+	# 6. The elephant behind its wall.
+	_earth(70, 17, 1, 3)
+	_add(ELEPHANT_SCENE, "TableElephant", Vector2(640, 160), {"start_direction": -1})
+
+	_finish_room(Vector2(24, 160), "res://tests/rooms/room_fire_m.tscn")

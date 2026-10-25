@@ -1,6 +1,6 @@
-[gd_resource type="Resource" script_class="EarthTuning" format=3 uid="uid://cv1v48isl5qu6"]
+[gd_resource type="Resource" script_class="EarthTuning" format=3]
 
-[ext_resource type="Script" uid="uid://c38wydujgiu5k" path="res://resources/earth_tuning.gd" id="1_earth_tuning"]
+[ext_resource type="Script" path="res://resources/earth_tuning.gd" id="1_earth_tuning"]
 
 [resource]
 script = ExtResource("1_earth_tuning")

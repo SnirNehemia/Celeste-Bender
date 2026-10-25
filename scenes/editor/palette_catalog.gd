@@ -5,8 +5,9 @@ extends RefCounted
 ## editor asks it how to make, find, outline, place and copy each kind of object,
 ## so the editor itself holds no per-object code.
 ##
-## Families: Terrain (Ground; Earth since L8), Basics (spawn point, goal, spikes;
-## Stage L3), Air (Stage L4), Earth (Stage L8). Later stages add Fire and enemies.
+## Families: Terrain (Ground; Earth since L8; Grass, Thicket, Overgrown since L9),
+## Basics (spawn point, goal, spikes; Stage L3), Air (Stage L4), Earth (Stage L8),
+## Fire (Stage L9), Enemies (Stage L10).
 ## CROSS-TRACK RULE (CLAUDE.md): a stage that adds a placeable object adds its
 ## entry here. A new entry needs: its scene, how its outline is found (`bounds`
 ## + the size property or a fixed rectangle), how it lands on the grid
@@ -38,6 +39,7 @@ enum Bounds {
 	SIZE_BOTTOM_CENTER,  ## <size_property> standing on the origin: crate
 	WIDTH_CENTERED,      ## <width_property> wide around the origin, `local_rect`'s y and height: platforms, plate
 	FIXED,               ## `local_rect` as is: crystals, windmill
+	LINE_TO_POINT,       ## from the origin to its first point property, at least LINE_THICKNESS thick: vine
 }
 
 ## Where a newly placed object's OUTLINE goes, relative to the clicked tile.
@@ -49,6 +51,15 @@ enum Placement {
 	ON_FLOOR,  ## its bottom on the tile's bottom: it stands there (crate, goal, plate)
 	HANGING,   ## its top on the tile's top (platforms)
 	CENTERED,  ## centered on the tile (crystals, windmill)
+}
+
+## Where the vines an object hangs from are tied to it (its link targets' ends).
+## The editor keeps each linked vine's end on that spot when the object is linked,
+## moved, resized or turned, and when the vine's anchor moves.
+enum TieKind {
+	NONE,         ## not a holder
+	TOP_CENTER,   ## the middle of its outline's top, half tie_thickness down (a crate)
+	CENTER_LINE,  ## the nearest point of its middle line, end to end, turned with it (a plank)
 }
 
 ## One placeable thing. An inner class: PaletteCatalog.Entry.
@@ -71,6 +82,18 @@ class Entry:
 	## Pixels per unit of `size_property`: 1 for sizes in pixels (a door's
 	## door_size), TILE for sizes in tiles (a wall's wall_size_tiles, a Vector2i).
 	var size_unit: int = 1
+	## A bool property that, when on, hangs a SIZE_BOTTOM_CENTER outline BELOW the
+	## origin instead of standing on it (a sentry mounted on the ceiling).
+	var hang_property: StringName = &""
+	## Stands on the ground under it, or hangs from the ceiling above it when its
+	## `hang_property` is on: placing, dragging or flipping it snaps it there (a
+	## sentry, a brazier: things bolted down that would otherwise float).
+	var snaps_to_ground: bool = false
+	## The outline turns with the node's rotation (a hanging platform stood on end).
+	var uses_rotation: bool = false
+	## R turns the selected object by this many degrees (0 = R does nothing; spikes
+	## turn their own way, through `facing`).
+	var rotate_step_degrees: float = 0.0
 	var width_property: StringName = &""
 	var local_rect: Rect2 = Rect2(-4, -4, 8, 8)
 	var placement: Placement = Placement.TOP_LEFT
@@ -93,6 +116,17 @@ class Entry:
 	## name its targets must have (e.g. a Door's `switches` <- "Switch").
 	var link_property: StringName = &""
 	var link_target_class: StringName = &""
+	## Or, instead of a class: the group its targets are in (an EnemyGate's
+	## `enemies` <- any enemy, group "enemies"; Stage L10). Enemies join it in
+	## _ready(), which runs in the editor too.
+	var link_target_group: StringName = &""
+	## What a target is called in messages; "" = the class name ("Switch").
+	var link_target_label: String = ""
+	## Holders (crate, hanging platform): where their linked vines are tied, and how
+	## thick they are there (the vine draws coils round anything thicker than 0).
+	## The target's first point property is its free end (a vine's end_point).
+	var tie_kind: TieKind = TieKind.NONE
+	var tie_thickness: float = 0.0
 	## Positions the object works out once in _ready() from where it stands (a
 	## leaf's home, a sail's rail ends) and draws from. Moving it in the editor
 	## must update them, or its path stays drawn where it was. Each entry is
@@ -107,8 +141,10 @@ class Entry:
 	## (the same cell when the tileset has one tile). See TileBrush.
 	var tile_plain: Vector2i = TileBrush.TILE_PLAIN
 	var tile_top_edge: Vector2i = TileBrush.TILE_TOP_EDGE
-	## Terrain kind: room settings set the first time this terrain is painted in a
-	## room ({setting: value}): a room with Earth painted allows Earth (Stage L8).
+	## Room settings that come with this thing ({setting: value}). Terrain: set the
+	## first time it's painted in a room (a room with Earth painted allows Earth,
+	## Stage L8). Objects: set when one is placed or copied there (a brazier turns
+	## Fire on, Stage L9). Part of the same undo step.
 	var room_settings_on_create: Dictionary = {}
 
 	func _init(new_id: StringName, new_name: String, new_family: String, new_kind: Kind) -> void:
@@ -124,6 +160,8 @@ const SPAWN_POINT_NAME: StringName = &"SpawnPoint"
 const SPAWN_MARKER_SIZE: Vector2 = Vector2(6, 12)
 ## Light blue, see-through: the air color of GAME_DESIGN.md §2.
 const WIND_STAND_IN_COLOR: Color = Color(0.6, 0.85, 1.0, 0.18)
+## The thinnest a LINE_TO_POINT outline gets (a vine is a 1-2 px line), px.
+const LINE_THICKNESS: float = 4.0
 
 ## All entries, in palette order. Built once, on first use.
 static var _entries: Array[Entry] = []
@@ -193,7 +231,7 @@ static func _build() -> void:
 
 	# Crystals bob 1.5 px, so the outline is a little bigger than the diamond.
 	var wind_crystal: Entry = _add_object(&"wind_crystal", "Wind crystal", "Air", preload("res://scenes/objects/wind_crystal.tscn"))
-	wind_crystal.hint = "Touch: refills the dash and the gust charge. Comes back after a few seconds, or when the room resets."
+	wind_crystal.hint = "Touch: refills the breath (glide) and the gust charge. Comes back after a few seconds, or when the room resets."
 	wind_crystal.local_rect = Rect2(-6, -7, 12, 14)
 	wind_crystal.placement = Placement.CENTERED
 	wind_crystal.editable_properties = [&"respawn_time"]
@@ -205,15 +243,17 @@ static func _build() -> void:
 	gust_diamond.editable_properties = [&"respawn_time"]
 
 	var crate: Entry = _add_object(&"crate", "Crate", "Air", preload("res://scenes/objects/crate.tscn"))
-	crate.hint = "Pushed only by wind (gusts slide it). Heavy: it holds a pressure plate down. You can stand on it. Fire burns it. Links (L): the vines it hangs from."
+	crate.hint = "Pushed only by wind (gusts slide it). Heavy: it holds a pressure plate down. You can stand on it. Fire burns it. Links (L): the vines it hangs from; on one vine it swings. Is Metal: doesn't burn, and pushes move it half as far."
 	crate.bounds = Bounds.SIZE_BOTTOM_CENTER
 	crate.size_property = &"crate_size"
 	crate.placement = Placement.ON_FLOOR
-	crate.editable_properties = [&"crate_size"]
+	crate.editable_properties = [&"crate_size", &"is_metal"]
 	# A crate's links are the VINES it hangs from (Fire F8): linked to a plate or
 	# windmill it would float, waiting for a vine to snap. Vines join in L9.
 	crate.link_property = &"hung_from"
 	crate.link_target_class = &"Vine"
+	crate.tie_kind = TieKind.TOP_CENTER
+	crate.tie_thickness = Crate.KNOT_THICKNESS
 
 	# The hub is the origin; the blades reach Windmill.HIT_RADIUS (11 px) round it.
 	var windmill: Entry = _add_object(&"windmill", "Windmill", "Air", preload("res://scenes/objects/windmill.tscn"))
@@ -262,7 +302,7 @@ static func _build() -> void:
 	pressure_plate.editable_properties = [&"plate_width"]
 
 	var no_glide_zone: Entry = _add_object(&"no_glide_zone", "No-glide zone", "Air", preload("res://scenes/objects/no_glide_zone.tscn"))
-	no_glide_zone.hint = "Dead air: gliding can't start inside it and a glide drifting in ends. Jump, dash and gust still work."
+	no_glide_zone.hint = "Dead air: gliding can't start inside it and a glide drifting in ends. Jump, gust and the flame jet still work."
 	no_glide_zone.bounds = Bounds.SIZE_TOP_LEFT
 	no_glide_zone.size_property = &"zone_size"
 	no_glide_zone.is_area = true
@@ -309,6 +349,151 @@ static func _build() -> void:
 	loose_rock.local_rect = Rect2(-4, -4, 8, 8)
 	loose_rock.placement = Placement.ON_FLOOR
 
+	# --- Fire (Stage L9; Fire_bending.md §6, §13) ---
+	# Plant terrain, in the Terrain tab. Grass is also the Earth chapter's plain
+	# ground, so painting it changes no room setting: it burns only where Fire is
+	# allowed. Thicket and covers exist to be burnt, so they turn Fire on. The
+	# room's FireGrid (what burns them) is made only in play: Room._ready() makes
+	# it, and RoomLook takes it out of rooms being edited.
+	var grass: Entry = _add(&"grass", "Grass", "Terrain", Kind.TERRAIN)
+	grass.hint = "Green ground the earth shadow can cross. Where Fire is allowed it burns: fire spreads along it, it smolders, then it's ash until the room resets."
+	grass.layer_name = &"Grass"
+	grass.tile_set = preload("res://resources/tiles/grass_tileset.tres")
+	grass.layer_script = preload("res://scenes/objects/earth/grass_layer.gd")
+	# tools/build_earth_rooms.gd TILE_GRASS_PLAIN / TILE_GRASS_TOP.
+	grass.tile_plain = Vector2i(1, 0)
+	grass.tile_top_edge = Vector2i(0, 0)
+
+	var thicket: Entry = _add(&"thicket", "Thicket", "Terrain", Kind.TERRAIN)
+	thicket.hint = "Solid brambles that fire burns THROUGH: a burnt tile crumbles to ash and stays open until the room resets. Rocks shatter on it. Painting it turns Fire on in the room."
+	thicket.layer_name = &"Thicket"
+	thicket.tile_set = preload("res://resources/tiles/thicket_tileset.tres")
+	thicket.layer_script = preload("res://scenes/objects/fire/thicket_layer.gd")
+	thicket.tile_plain = ThicketLayer.THICKET_TILE
+	thicket.tile_top_edge = ThicketLayer.THICKET_TILE
+	thicket.room_settings_on_create = {&"fire_allowed": true}
+
+	# Two brushes for the same "Overgrown" layer: covers passing for grass ground or
+	# for a thicket wall. Fire touching any cell burns the whole connected cover.
+	var overgrown_grass: Entry = _add(&"overgrown_grass", "Overgrown (grass look)", "Terrain", Kind.TERRAIN)
+	overgrown_grass.hint = "A cover that looks like grass ground (a shade off, roots poking out): solid, but fire touching it burns the whole connected cover away at once. Hides passages. Turns Fire on."
+	overgrown_grass.layer_name = &"Overgrown"
+	overgrown_grass.tile_set = thicket.tile_set
+	overgrown_grass.layer_script = preload("res://scenes/objects/fire/overgrown_layer.gd")
+	overgrown_grass.tile_plain = ThicketLayer.GRASS_LOOK_TILE
+	overgrown_grass.tile_top_edge = ThicketLayer.GRASS_LOOK_TILE
+	overgrown_grass.room_settings_on_create = {&"fire_allowed": true}
+
+	var overgrown_thicket: Entry = _add(&"overgrown_thicket", "Overgrown (thicket look)", "Terrain", Kind.TERRAIN)
+	overgrown_thicket.hint = "A cover that looks like a thicket wall (a little browner): fire touching it burns the whole connected cover away at once. Turns Fire on."
+	overgrown_thicket.layer_name = &"Overgrown"
+	overgrown_thicket.tile_set = thicket.tile_set
+	overgrown_thicket.layer_script = overgrown_grass.layer_script
+	overgrown_thicket.tile_plain = ThicketLayer.THICKET_TILE
+	overgrown_thicket.tile_top_edge = ThicketLayer.THICKET_TILE
+	overgrown_thicket.room_settings_on_create = {&"fire_allowed": true}
+
+	# Fire objects turn Fire on in their room. The player still needs pips: the
+	# room's Fire Start Pips, or a fire diamond (a play-test warning says so).
+	var fire_room: Dictionary = {&"fire_allowed": true}
+
+	var fire_diamond: Entry = _add_object(&"fire_diamond", "Fire diamond", "Fire", preload("res://scenes/objects/fire/fire_diamond.tscn"))
+	fire_diamond.hint = "Touch: +1 fire pip (2 for a double). Single use: back only after a death or R. With a full fire bar you leave it there."
+	fire_diamond.local_rect = Rect2(-7, -9, 14, 18)
+	fire_diamond.placement = Placement.CENTERED
+	fire_diamond.editable_properties = [&"pip_amount"]
+	fire_diamond.room_settings_on_create = fire_room
+
+	# The origin is where the post meets the floor; the bowl sits post_height above.
+	var brazier: Entry = _add_object(&"brazier", "Brazier", "Fire", preload("res://scenes/objects/fire/brazier.tscn"))
+	brazier.hint = "A switch: light it (fireball or flame jet) and the doors linked to it open. Burn Time 0: lit until death or R; else it goes out after that many seconds. Gusts can't put it out."
+	brazier.local_rect = Rect2(-6, -12, 12, 12)
+	brazier.placement = Placement.ON_FLOOR
+	brazier.snaps_to_ground = true
+	brazier.editable_properties = [&"burn_time", &"post_height"]
+	brazier.room_settings_on_create = fire_room
+
+	# The origin is the anchor (click the tile under a ceiling); end_point the free end.
+	var vine: Entry = _add_object(&"vine", "Vine", "Fire", preload("res://scenes/objects/fire/vine.tscn"))
+	vine.hint = "A rope from the ceiling that holds things: link a hanging platform or a crate to it (select that, then L). Fire cuts it: it snaps and what it held swings or falls. Also a switch: on once it snaps."
+	vine.bounds = Bounds.LINE_TO_POINT
+	vine.placement = Placement.HANGING
+	vine.editable_properties = [&"end_point"]
+	vine.point_properties = [&"end_point"]
+	vine.room_settings_on_create = fire_room
+
+	# The origin is the plank's center. R stands it on end (a drawbridge).
+	var hanging_platform: Entry = _add_object(&"hanging_platform", "Hanging platform", "Fire", preload("res://scenes/objects/fire/hanging_platform.tscn"))
+	hanging_platform.hint = "A one-way plank held by vines (L: link them). Burn one vine and it swings on the others; burn them all and it falls. Stood on end (R), cutting its vine topples it across a gap. Vine Covered: a fireball on it burns every vine at once, so it drops level."
+	hanging_platform.bounds = Bounds.WIDTH_CENTERED
+	hanging_platform.width_property = &"platform_width"
+	hanging_platform.local_rect = Rect2(0, -2, 0, 4)
+	hanging_platform.placement = Placement.CENTERED
+	hanging_platform.uses_rotation = true
+	hanging_platform.rotate_step_degrees = 90.0
+	hanging_platform.editable_properties = [&"platform_width", &"rotation_degrees", &"vine_covered"]
+	hanging_platform.link_property = &"vines"
+	hanging_platform.link_target_class = &"Vine"
+	hanging_platform.tie_kind = TieKind.CENTER_LINE
+	hanging_platform.tie_thickness = HangingPlatform.PLANK_THICKNESS
+	hanging_platform.room_settings_on_create = fire_room
+
+	# The origin is the middle of the mound's base, on the floor.
+	var leaf_pile: Entry = _add_object(&"leaf_pile", "Leaf pile", "Fire", preload("res://scenes/objects/leaf_pile.tscn"))
+	leaf_pile.hint = "Loose leaves drawn in front of everything: hides a plate or a passage. Gusts blow them away. Each leaf burns on its own; a heap of burning leaves is a bonfire (a hot updraft)."
+	leaf_pile.bounds = Bounds.WIDTH_CENTERED
+	leaf_pile.width_property = &"pile_width"
+	leaf_pile.local_rect = Rect2(0, -8, 0, 8)
+	leaf_pile.placement = Placement.ON_FLOOR
+	leaf_pile.editable_properties = [&"pile_width", &"pile_height", &"leaf_count"]
+
+	# --- Enemies (Stage L10; GAME_DESIGN.md §7, Fire_bending.md §7) ---
+	# Every enemy's origin is its feet (bottom-center): it stands on the clicked tile.
+	var wisp: Entry = _add_object(&"wisp", "Wisp", "Enemies", preload("res://scenes/enemies/wisp.tscn"))
+	wisp.hint = "Walks back and forth, turning at walls and ledges. Touch kills. Gusts knock it back (into spikes, off ledges); fire, a thrown rock or a column beats it."
+	wisp.bounds = Bounds.SIZE_BOTTOM_CENTER
+	wisp.size_property = &"body_size"
+	wisp.placement = Placement.ON_FLOOR
+	wisp.editable_properties = [&"start_direction", &"patrol_speed"]
+
+	var sentry: Entry = _add_object(&"sentry", "Sentry", "Enemies", preload("res://scenes/enemies/sentry.tscn"))
+	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It can hang from a ceiling, never fire (a target for an enemy gate), or throw fireballs like yours (Fire Orbs: painted orange)."
+	sentry.bounds = Bounds.SIZE_BOTTOM_CENTER
+	sentry.size_property = &"body_size"
+	sentry.hang_property = &"mounted_on_ceiling"
+	sentry.snaps_to_ground = true
+	sentry.placement = Placement.ON_FLOOR
+	sentry.editable_properties = [&"mounted_on_ceiling", &"can_fire", &"fire_orbs", &"fire_interval", &"first_shot_delay", &"sight_range"]
+
+	var vine_monkey: Entry = _add_object(&"vine_monkey", "Vine monkey", "Enemies", preload("res://scenes/enemies/vine_monkey.tscn"))
+	vine_monkey.hint = "A leafy monkey that walks and hops gaps. Fire turns it into a running torch that lights what it touches. Gusts and rocks knock it about."
+	vine_monkey.bounds = Bounds.SIZE_BOTTOM_CENTER
+	vine_monkey.size_property = &"body_size"
+	vine_monkey.placement = Placement.ON_FLOOR
+	vine_monkey.editable_properties = [&"start_direction", &"hops_gaps"]
+
+	var thicket_elephant: Entry = _add_object(&"thicket_elephant", "Thicket elephant", "Enemies", preload("res://scenes/enemies/thicket_elephant.tscn"))
+	thicket_elephant.hint = "A huge stone-and-moss elephant you can ride. Seeing you, it charges: only that breaks stone walls. Burning its moss beats it. 12 x 7.5 tiles."
+	thicket_elephant.local_rect = Rect2(-48, -60, 96, 60)
+	thicket_elephant.placement = Placement.ON_FLOOR
+	thicket_elephant.editable_properties = [&"start_direction"]
+
+	# Fire Stage F12 (still being built when L10 was): its scene exists already.
+	var shell: Entry = _add_object(&"shell", "Shell", "Enemies", preload("res://scenes/enemies/shell.tscn"))
+	shell.hint = "Earth's armored crawler: fireballs and orbs bounce off its dome. Knock it over or into something to beat it."
+	shell.local_rect = Rect2(-6, -8, 12, 8)
+	shell.placement = Placement.ON_FLOOR
+	shell.editable_properties = [&"start_direction"]
+
+	# A row of pips, one per linked enemy, centered on the origin.
+	var enemy_gate: Entry = _add_object(&"enemy_gate", "Enemy gate", "Enemies", preload("res://scenes/objects/enemy_gate.tscn"))
+	enemy_gate.hint = "A switch that turns on once every enemy linked to it (L) is beaten. Link a door to it (select the door, then L) for a 'beat them all' exit."
+	enemy_gate.local_rect = Rect2(-6, -4, 12, 8)
+	enemy_gate.placement = Placement.CENTERED
+	enemy_gate.link_property = &"enemies"
+	enemy_gate.link_target_group = EnemyHit.GROUP
+	enemy_gate.link_target_label = "enemy"
+
 
 static func _add(id: StringName, display_name: String, family: String, kind: Kind) -> Entry:
 	var entry: Entry = Entry.new(id, display_name, family, kind)
@@ -352,7 +537,15 @@ static func get_local_bounds(node: Node2D) -> Rect2:
 			return Rect2(Vector2.ZERO, Vector2(node.get(entry.size_property)) * entry.size_unit)
 		Bounds.SIZE_BOTTOM_CENTER:
 			var size: Vector2 = node.get(entry.size_property)
+			if entry.hang_property != &"" and node.get(entry.hang_property):
+				return Rect2(Vector2(-size.x / 2.0, 0.0), size)  # hangs below the origin
 			return Rect2(Vector2(-size.x / 2.0, -size.y), size)
+		Bounds.LINE_TO_POINT:
+			var end: Vector2 = node.get(entry.point_properties[0])
+			var line_box: Rect2 = Rect2(Vector2.ZERO, Vector2.ZERO).expand(end)
+			# Thickened only across: a vertical vine's top stays on its anchor.
+			var pad: Vector2 = (Vector2.ONE * LINE_THICKNESS - line_box.size).max(Vector2.ZERO) / 2.0
+			return line_box.grow_individual(pad.x, pad.y, pad.x, pad.y)
 		Bounds.WIDTH_CENTERED:
 			var width: float = node.get(entry.width_property)
 			return Rect2(-width / 2.0, entry.local_rect.position.y, width, entry.local_rect.size.y)
@@ -360,9 +553,13 @@ static func get_local_bounds(node: Node2D) -> Rect2:
 			return entry.local_rect
 
 
-## The object's outline in level (global) coordinates.
+## The object's outline in level (global) coordinates. An entry with
+## `uses_rotation` gives the box around its turned outline (Transform2D * Rect2).
 static func get_bounds(node: Node2D) -> Rect2:
 	var local_bounds: Rect2 = get_local_bounds(node)
+	var entry: Entry = entry_for_node(node)
+	if entry != null and entry.uses_rotation and not is_zero_approx(node.rotation):
+		return Transform2D(node.global_rotation, node.global_position) * local_bounds
 	return Rect2(node.global_position + local_bounds.position, local_bounds.size)
 
 
@@ -401,8 +598,13 @@ static func spawn_position(cell: Vector2i) -> Vector2:
 ## entry's `link_target_class` or extends it (a PressurePlate is a Switch).
 ## A script's class_name is its "global name"; get_base_script() walks up the
 ## `extends` chain.
+## An entry with `link_target_group` takes anything in that group instead.
 static func is_link_target(entry: Entry, target: Node) -> bool:
-	if entry == null or entry.link_target_class == &"":
+	if entry == null:
+		return false
+	if entry.link_target_group != &"":
+		return target.is_in_group(entry.link_target_group)
+	if entry.link_target_class == &"":
 		return false
 	var script: Script = target.get_script()
 	while script != null:
@@ -410,6 +612,49 @@ static func is_link_target(entry: Entry, target: Node) -> bool:
 			return true
 		script = script.get_base_script()
 	return false
+
+
+## Where along `holder` a vine whose end is at `world_point` is tied: 0..1 from one
+## end of its middle line to the other (CENTER_LINE), always 0.5 for TOP_CENTER.
+static func get_tie_fraction(holder: Node2D, world_point: Vector2) -> float:
+	var entry: Entry = entry_for_node(holder)
+	if entry.tie_kind != TieKind.CENTER_LINE:
+		return 0.5
+	var ends: PackedVector2Array = _get_center_line(holder, entry)
+	var along: Vector2 = ends[1] - ends[0]
+	if along.length_squared() <= 0.0:
+		return 0.5
+	return clampf((world_point - ends[0]).dot(along) / along.length_squared(), 0.0, 1.0)
+
+
+## The tie spot on `holder` at `fraction` (see get_tie_fraction), world coordinates.
+static func get_tie_point(holder: Node2D, fraction: float) -> Vector2:
+	var entry: Entry = entry_for_node(holder)
+	if entry.tie_kind == TieKind.CENTER_LINE:
+		var ends: PackedVector2Array = _get_center_line(holder, entry)
+		return ends[0].lerp(ends[1], fraction)
+	# TOP_CENTER: the knot sits half its thickness down from the top (as Crate ties it).
+	var outline: Rect2 = get_bounds(holder)
+	return Vector2(outline.get_center().x, outline.position.y + entry.tie_thickness / 2.0)
+
+
+## The holder's long direction at the tie, pointing toward its middle (the vine
+## winds its tendril that way, as HangingPlatform tells it in play).
+static func get_tie_axis(holder: Node2D, fraction: float) -> Vector2:
+	var axis: Vector2 = holder.global_transform.x.normalized()
+	return axis if fraction <= 0.5 else -axis
+
+
+## A CENTER_LINE holder's two ends (its width along its own x axis, turned with it).
+static func _get_center_line(holder: Node2D, entry: Entry) -> PackedVector2Array:
+	var half_width: float = float(holder.get(entry.width_property)) / 2.0
+	return PackedVector2Array([holder.global_transform * Vector2(-half_width, 0.0),
+		holder.global_transform * Vector2(half_width, 0.0)])
+
+
+## What an entry's link targets are called in messages: "Switch", "Vine", "enemy".
+static func link_target_name(entry: Entry) -> String:
+	return entry.link_target_label if entry.link_target_label != "" else String(entry.link_target_class)
 
 
 ## Updates the start-up positions of `node` (see Entry.start_positions) after it

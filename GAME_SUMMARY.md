@@ -13,7 +13,7 @@
 | Part | State |
 |---|---|
 | Core movement (Celeste feel) | Done, tuned in play |
-| **Air chapter**: dash, glide, gust; 7 rooms; end screen | Done (Milestone 1). The polish pass (Stage 10) is built but not yet ticked off |
+| **Air chapter**: glide, gust (the dash was removed); 7 rooms; end screen | Done (Milestone 1). The polish pass (Stage 10) is built but not yet ticked off |
 | **Earth chapter**: column, rock, snake, cracked walls, enemies | Mechanics done and play-tested (Stages E1–E6) |
 | Earth chapter rooms 1–10 | Built (Stage E7), **not yet play-tested** |
 | Two Earth control experiments | Built, **off by default**, waiting to be tried (§7.8) |
@@ -42,9 +42,9 @@ Two more rules followed so far: each element **uses its own keys** and never reu
 
 | Key | Action |
 |---|---|
-| Arrows | Move; aim (8 directions) for dash, gust and throws; steer the snake |
+| Arrows | Move; aim (8 directions) for the gust and throws; steer the snake |
 | **C** (or Space) | Jump (hold for higher). In the air: a fresh press = glide. Cancels bends and lets go of a held rock |
-| **X** | Air: dash |
+| **X** | free (was the Air dash, removed) |
 | **Z** | Air: gust (hold to aim in slow motion) |
 | **A** | Earth: column (quick tap) / snake (hold) |
 | **S** | Earth: rock (tap) / big rock (hold) |
@@ -65,22 +65,21 @@ Values in the spirit of Celeste: run 90 px/s, gravity 900 px/s², jump about 30 
 
 | Move | What it does | Movement / puzzle / combat |
 |---|---|---|
-| **Dash** (X) | 240 px/s burst for 0.15 s in 8 directions; refilled by ground or a wind crystal. Blows a small gust backward ("wake") | Cross gaps, crystal chains / the wake nudges things / defeats a stunned enemy |
 | **Glide** (jump again in the air) | Fall capped at 30 px/s; 1.5 s stamina per airtime; updrafts lift you | Long drifts, updraft "elevators" / reach high exits / float over enemies |
 | **Gust** (Z) | 40 px cone. Pushes pushable things, recoils you the other way. One gust per jump (ground gusts are free); down-gust = extra jump; no arrow = blast all around plus an air brake and float. Hold to aim in slow motion | Extra jump, mid-air correction / crates onto plates, windmills, leaf and sail platforms / knock enemies into spikes, reflect orbs |
 
-Shared "breath": the dash spends 60% of the glide stamina bar instead of a charge (on by default).
+The dash was removed: the gust and the flame jet replace it (GAME_DESIGN.md §5.1). Wind crystals refill the glide bar ("breath") and the gust charge.
 
 ### 7.2 Objects
 Spikes, wind zones (currents and updrafts), wind crystals, gust diamonds (two gusts this airtime), crates (gust-pushed, press plates), pressure plates, windmills (gust timer that opens a door), leaf platforms and sail platforms on rails, doors, leaf piles (cosmetic; they can hide things), no-glide "dead air" zones, enemy gates (open when the linked enemies are beaten), and the Goal.
 
 ### 7.3 Enemies
-- **Wisp:** patrols and kills on touch. A gust stuns it; dashing into a stunned wisp, or knocking it into spikes, defeats it.
+- **Wisp:** patrols and kills on touch. A gust stuns it; knocking it into spikes (or fire, a big rock, a reflected orb) defeats it.
 - **Sentry:** stationary turret, firing a slow orb every 2 s when it sees you. A gust reflects orbs, which destroy sentries.
 
 ### 7.4 Rooms
 1. First Breath (run, jump, wall jump)
-2. The Dash
+2. The Dash (built for the removed dash: needs redesign)
 3. Updraft
 4. Gust Works (puzzle)
 5. Sentry Pass (combat)
@@ -166,7 +165,7 @@ Celeste-style painted ground. Lumpy cracked rocks that tumble in flight. Banded 
 
 ## 11. Parked ideas (written down, not built)
 
-- **Earth + Air combos:** gust pushes a resting rock, dash through a column's bounce, a gust-propelled throw.
+- **Earth + Air combos:** gust pushes a resting rock, glide off a column's bounce, a gust-propelled throw.
 - Thicker earth layers allowing more bends; sand or mud variants of earth.
 - **Water:** now drafted in `Water_bending.md` (Chapter 4, draft v0: surf, freeze, water whip became pull-and-carry with pools and ice).
 - **Fire:** now specified in `Fire_bending.md` (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass).

@@ -6,10 +6,6 @@ const STOPPED_SPEED_THRESHOLD: float = 1.0
 
 
 func physics_update(delta: float) -> void:
-	# Dash beats everything else this frame (Dash.enter() sets the velocity).
-	if player.wants_to_dash():
-		transition_requested.emit(&"Dash")
-		return
 	if player.wants_to_gust():
 		transition_requested.emit(player.get_gust_start_state())
 		return

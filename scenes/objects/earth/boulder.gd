@@ -171,6 +171,9 @@ var thrown_perfectly: bool = false
 var stuck_layer: EarthLayer = null
 ## LOOSE: the order it settled in (higher = newer), so the oldest crumbles first.
 var loose_order: int = 0
+## LOOSE and falling: the height it started falling from (INF while it's held up).
+## A big rock that drops loose_rock_kill_drop px onto an enemy hits it (Stage F12).
+var loose_fall_start_y: float = INF
 ## Shared by every boulder: the next loose_order to hand out. `static` = one value for
 ## the whole class, like a Python class attribute.
 static var next_loose_order: int = 0
@@ -366,6 +369,7 @@ func lift(away_velocity_x: float, player_middle_y: float) -> void:
 	if phase != Phase.LOOSE:
 		return
 	phase = Phase.POPPING
+	loose_fall_start_y = INF
 	collision_layer = 0  # moving again: nothing collides with it
 	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * (size - MOVING_HITBOX_INSET * 2.0)
 	# Pretend it just came out of a hole right under where it lies, so the hop and the
@@ -436,6 +440,12 @@ func _update_pop(delta: float) -> void:
 		visual_angle = wrapf(visual_angle + _get_spin_sign(hop_velocity_x) * earth_tuning.rock_hop_spin_speed * delta, 0.0, TAU)
 		_shed_pebbles(delta)
 		velocity.y = move_toward(velocity.y, earth_tuning.boulder_max_fall_speed, earth_tuning.boulder_gravity * delta)
+		# Coming down unthrown (off a ledge, or let go): a big one dropping far enough
+		# onto an enemy hits it, like a loose rock (Stage F12).
+		if velocity.y > 0.0 and loose_fall_start_y == INF:
+			loose_fall_start_y = global_position.y
+		if velocity.y > 0.0 and _drop_onto_enemies(velocity * delta):
+			return
 		var collision: KinematicCollision2D = move_and_collide(velocity * delta)
 		if collision != null:
 			_on_pop_contact(collision)
@@ -533,6 +543,7 @@ func _on_pop_contact(collision: KinematicCollision2D) -> void:
 ## Down and never thrown: becomes a LOOSE rock (see the header).
 func _settle() -> void:
 	phase = Phase.LOOSE
+	loose_fall_start_y = INF
 	is_resting = false
 	velocity = Vector2.ZERO
 	loose_order = next_loose_order
@@ -550,11 +561,45 @@ func _update_loose(delta: float) -> void:
 	# test_move: "would moving this little bit down hit something?" without moving.
 	if test_move(global_transform, Vector2.DOWN * 0.5):
 		velocity = Vector2.ZERO
+		loose_fall_start_y = INF
 		return
+	if loose_fall_start_y == INF:
+		loose_fall_start_y = global_position.y
 	velocity.y = move_toward(velocity.y, earth_tuning.boulder_max_fall_speed, earth_tuning.boulder_gravity * delta)
+	if _drop_onto_enemies(velocity * delta):
+		return
 	var collision: KinematicCollision2D = move_and_collide(velocity * delta)
 	if collision != null and collision.get_normal().y < -0.7:
 		velocity = Vector2.ZERO
+
+
+## A loose BIG rock that has fallen loose_rock_kill_drop px or more lands on the
+## enemies under this frame's move like a thrown big rock (Stage F12): a BIG_ROCK hit
+## each (their tables decide: a Shell or wisp dies, a monkey is knocked about), then
+## it shatters, like a thrown rock that hits. Returns true if it did. A shorter drop,
+## or a small rock: nothing (a loose rock passes through enemies, as ever).
+func _drop_onto_enemies(motion: Vector2) -> bool:
+	if not is_big() or global_position.y - loose_fall_start_y < earth_tuning.loose_rock_kill_drop:
+		return false
+	var check_shape: RectangleShape2D = RectangleShape2D.new()
+	check_shape.size = Vector2.ONE * size
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = check_shape
+	query.transform = Transform2D(0.0, global_position + motion)
+	query.collision_mask = ENEMY_MASK
+	query.exclude = [get_rid()]
+	var hit_any: bool = false
+	for result: Dictionary in get_world_2d().direct_space_state.intersect_shape(query, MAX_ORB_RESULTS):
+		var enemy: Node = EnemyHit.find_enemy(result["collider"])
+		if enemy == null:
+			continue
+		EnemyHit.send(enemy, EnemyHit.Type.BIG_ROCK, Vector2(0.0, velocity.y), self,
+			earth_tuning.boulder_enemy_defeat_delay)
+		hit_any = true
+	if hit_any:
+		FX.freeze(0.05)
+		shatter()
+	return hit_any
 
 
 ## Pops every sentry orb (reflected or not) overlapping the rock: a rock you're holding
@@ -643,7 +688,7 @@ func _on_impact(collision: KinematicCollision2D) -> void:
 			velocity.normalized() * earth_tuning.boulder_enemy_knockback_speed, self,
 			earth_tuning.boulder_enemy_defeat_delay)
 		if response == ElementImmunity.Response.KILL:
-			FX.freeze(0.05)  # a crunchy hit, like dashing a stunned wisp
+			FX.freeze(0.05)  # a crunchy hit (freeze frame)
 		shatter()
 	elif collider is EarthLayer:
 		if not _stick_into(collider as EarthLayer, surface_normal, collision.get_position()):

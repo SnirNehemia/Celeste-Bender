@@ -22,6 +22,8 @@ enum Response {
 	PUSH,     ## moved and stunned (a gust, a column, a sloppy rock on a wisp)
 	STAGGER,  ## stops for a moment and is knocked back a little (the Shell, F12)
 	KILL,     ## defeated, in the enemy's own way
+	REFLECT,  ## bounces off it unharmed (Stage F12: fireballs and orbs off the Shell).
+	          ## Last, so the values above keep their numbers in saved tables.
 }
 
 @export_group("Fire")
@@ -36,7 +38,6 @@ enum Response {
 @export_group("Air")
 @export var gust: Response = Response.IGNORE
 @export var reflected_orb: Response = Response.IGNORE
-@export var dash: Response = Response.IGNORE
 @export_group("Creatures")
 @export var whip: Response = Response.IGNORE
 @export_group("Hazards")

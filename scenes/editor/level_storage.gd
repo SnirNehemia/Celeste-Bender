@@ -30,9 +30,17 @@ const REMAP_SUFFIX: String = ".remap"
 ## Title used when a level file has no readable title.
 const UNTITLED: String = "Untitled level"
 
+## Story Mode's list of levels (StoryList, Level_editor.md §9) lives next to them.
+const STORY_FILE_NAME: String = "story.tres"
+
 ## Folder the levels live in. A static var: one value shared by the whole game.
 ## The smoke test points it at a throwaway folder so it never touches real levels.
 static var levels_dir: String = DEFAULT_LEVELS_DIR
+
+
+## Where Story Mode's StoryList is saved: res://levels/story.tres.
+static func story_path() -> String:
+	return levels_dir.path_join(STORY_FILE_NAME)
 
 
 ## Paths of every level file in `levels_dir`, sorted by file name.
@@ -95,6 +103,17 @@ static func adopt(node: Node, level_root: Node) -> void:
 		return
 	for child: Node in node.get_children():
 		adopt(child, level_root)
+
+
+## The nodes adopt() would adopt: `node` and its children, not looking inside
+## instanced scenes. The editor lists them before a new node enters the tree, so
+## the helper nodes its _ready() builds are left out (LevelEditor.attach_node).
+static func nodes_to_adopt(node: Node) -> Array[Node]:
+	var nodes: Array[Node] = [node]
+	if node.scene_file_path == "":
+		for child: Node in node.get_children():
+			nodes.append_array(nodes_to_adopt(child))
+	return nodes
 
 
 ## The level's title, read from the file without building its nodes. A PackedScene

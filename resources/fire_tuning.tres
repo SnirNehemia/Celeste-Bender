@@ -4,6 +4,9 @@
 
 [resource]
 script = ExtResource("1_fire_tuning")
+fireball_max_range = 300.0
+fireball_gravity_scale = 0.05
+fireball_trail_embers_per_second = 50.0
 grass_tongues_per_tile = 4
 grass_flame_length = 4.0
 grass_flare_time = 0.3

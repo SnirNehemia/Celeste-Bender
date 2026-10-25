@@ -51,9 +51,9 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 
 @export_group("Elements")
 ## Which bending elements work in this room. The Earth chapter's rooms are
-## Earth-only (Earth_bending.md §11), so a dash can't skip their puzzles.
+## Earth-only (Earth_bending.md §11), so a gust or glide can't skip their puzzles.
 ## The player asks through Player.is_element_allowed(); the room only stores the flags.
-## Air: dash, glide and gust.
+## Air: glide and gust.
 @export var air_allowed: bool = true
 ## Earth: column, boulder and snake.
 @export var earth_allowed: bool = true

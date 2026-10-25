@@ -3,7 +3,7 @@ class_name SailPlatform
 extends AnimatableBody2D
 ## Sail platform: a one-way platform with a mast and sail, on a straight RAIL.
 ## Wind moves it along the rail in the direction the wind blows:
-##   - a gust (or dash wake) gives it a shove; only the part of the gust that runs
+##   - a gust gives it a shove; only the part of the gust that runs
 ##     ALONG the rail counts (a gust across the rail does nothing, like real sails
 ##     on a track). It then coasts and slows down with friction.
 ##   - inside a WindZone, it is pulled toward the zone's wind speed, so a current

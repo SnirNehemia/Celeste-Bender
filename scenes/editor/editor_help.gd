@@ -30,7 +30,7 @@ const LEFT_SECTIONS: Array = [
 		["editor_erase", "delete the object under the mouse"],
 		["editor_delete", "delete the selected object"],
 		["editor_duplicate", "copy the selected object to the mouse"],
-		["editor_rotate", "turn the selected spikes"],
+		["editor_rotate", "turn the selected spikes or plank"],
 		["Drag a handle", "resize, or move a point (leaf, rail)"],
 		["Zones", "pick a zone by its edge; inside, clicks reach what's in it"],
 	]],

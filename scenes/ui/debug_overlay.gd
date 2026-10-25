@@ -1,7 +1,7 @@
 class_name DebugOverlay
 extends CanvasLayer
 ## On-screen debug readout for tuning movement: current state, velocity, the
-## forgiveness timers, dash/glide/gust resources, and GameState (deaths, time, current
+## forgiveness timers, glide/gust resources, and GameState (deaths, time, current
 ## room). Toggle it with the `debug_toggle` action (F1).
 ##
 ## A CanvasLayer draws its children on a separate layer that ignores the game camera,
@@ -94,7 +94,7 @@ func _process(_delta: float) -> void:
 	var state_name: String = String(player.state_machine.current_state.name)
 	# GameState is the autoload: reachable by name from any script.
 	var room_name: String = String(GameState.current_room.name) if GameState.current_room != null else "-"
-	readout_label.text = "State: %s\nVel: %4.0f, %4.0f\nFloor:%s  Wall:%+d\nCoyote:%.2f  Buffer:%.2f  Lock:%.2f\nDashes:%d  Facing:%+d\nGlide:%.2f  Wind:%4.0f,%4.0f\nGust CD:%.2f  Charges:%s\nEarth: %s\nFire: %d/%d  Jet: %s\nDeaths:%d  Time:%s  Room:%s" % [
+	readout_label.text = "State: %s\nVel: %4.0f, %4.0f\nFloor:%s  Wall:%+d\nCoyote:%.2f  Buffer:%.2f  Lock:%.2f\nFacing:%+d\nGlide:%.2f  Wind:%4.0f,%4.0f\nGust CD:%.2f  Charges:%s\nEarth: %s\nFire: %d/%d  Jet: %s\nDeaths:%d  Time:%s  Room:%s" % [
 		state_name,
 		player.velocity.x,
 		player.velocity.y,
@@ -103,7 +103,6 @@ func _process(_delta: float) -> void:
 		player.coyote_time_remaining,
 		player.jump_buffer_remaining,
 		player.wall_jump_lock_remaining,
-		player.air_dash.get_dashes_available(),
 		int(player.facing_direction),
 		player.glide.stamina_remaining,
 		player.get_wind_velocity().x,

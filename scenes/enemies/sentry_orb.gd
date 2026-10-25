@@ -14,8 +14,13 @@ extends Area2D
 ##   - reflected, hits an enemy -> a REFLECTED_ORB hit (EnemyHit, Stage F11): its
 ##                              table decides (a sentry or wisp is destroyed); an
 ##                              enemy that ignores orbs (the vine monkey) lets it by
-##   - hits anything solid   -> pops (walls, crates, doors, other sentries).
-##                              Unreflected orbs fly past walking enemies.
+##   - hits anything solid   -> BOUNCES (Stage F12): walls, floors, crates, doors,
+##                              rocks, mirrored off the surface (Ricochet), up to
+##                              max_bounces times, then pops on the next one.
+##                              Another sentry still pops it. Unreflected orbs fly
+##                              past walking enemies.
+##   - hits the Shell         -> bounces off its plates, reflected or not (group
+##                              EnemyHit.REFLECTS_GROUP)
 ##   - meets a fireball      -> both burst (Stage F11, the fireball pops it)
 ##   - after max_lifetime     -> pops
 ##   - leaves its room         -> pops (after Stage E7: orbs never fly into the next room)
@@ -25,7 +30,7 @@ extends Area2D
 ##     func is_valid_orb_target() -> bool          (false once defeated)
 ##
 ## Contracts: Pushable (group "pushable" + receive_gust / receive_gust_from), so the
-## gust and the dash wake reflect it with no special code in the gust. Room
+## gust reflects it with no special code in the gust. Room
 ## RESETTABLE_GROUP + reset(): a room reset removes orbs in flight.
 ##
 ## Physics: an Area2D (detects, never blocks) on layer 4 ("pushable", so the gust
@@ -51,6 +56,8 @@ const HITBOX_RADIUS: float = 2.0
 @export var reflect_assist_degrees: float = 45.0
 ## Seconds before it pops by itself (also restarted when reflected).
 @export var max_lifetime: float = 8.0
+## Bounces off walls, floors and the Shell before the next solid pops it (Stage F12).
+@export var max_bounces: int = 3
 
 var velocity: Vector2 = Vector2.ZERO
 var is_reflected: bool = false
@@ -59,15 +66,17 @@ var shooter: Sentry = null
 var lifetime_remaining: float = 0.0
 ## Set once it pops, so it can't hit two things in the same frame.
 var is_popped: bool = false
+var bounce_count: int = 0
+var hit_shape: CircleShape2D
 
 
 func _ready() -> void:
 	collision_layer = 8 | 16  # bit values of layer 4 "pushable" and layer 5 "enemies"
 	collision_mask = 1 | 2 | 16  # bit values of layers 1 "world", 2 "player", 5 "enemies"
-	var circle: CircleShape2D = CircleShape2D.new()
-	circle.radius = HITBOX_RADIUS
+	hit_shape = CircleShape2D.new()
+	hit_shape.radius = HITBOX_RADIUS
 	var hitbox: CollisionShape2D = CollisionShape2D.new()
-	hitbox.shape = circle
+	hitbox.shape = hit_shape
 	add_child(hitbox)
 	add_to_group(Pushable.GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
@@ -84,19 +93,21 @@ func launch(world_position: Vector2, start_velocity: Vector2, fired_by: Sentry) 
 func _physics_process(delta: float) -> void:
 	if is_popped:
 		return
+	var previous_position: Vector2 = global_position
 	global_position += velocity * delta
 	lifetime_remaining -= delta
 	if lifetime_remaining <= 0.0 or not _is_inside_room():
 		pop()
 		return
-	_check_hits()
+	_check_hits(previous_position)
 	queue_redraw()
 
 
 ## What are we touching? Polled every frame instead of using the body_entered signal,
 ## so an orb reflected while still inside its sentry (you gusted point-blank) still
 ## counts as hitting it.
-func _check_hits() -> void:
+## `previous_position`: where it was before this frame's move (to find a bounce's angle).
+func _check_hits(previous_position: Vector2) -> void:
 	for body: Node2D in get_overlapping_bodies():
 		var touched_player: Player = body as Player
 		if touched_player != null:
@@ -106,6 +117,11 @@ func _check_hits() -> void:
 				return
 			continue  # reflected orbs pass harmlessly through the player
 		var enemy: Node = EnemyHit.find_enemy(body)
+		if enemy != null and enemy.is_in_group(EnemyHit.REFLECTS_GROUP):
+			# Armor (the Shell): it glances off, reflected or not.
+			if not _try_bounce(body, previous_position):
+				pop()
+			return
 		if enemy != null:
 			if is_reflected:
 				var response: ElementImmunity.Response = EnemyHit.send(enemy, EnemyHit.Type.REFLECTED_ORB,
@@ -120,9 +136,34 @@ func _check_hits() -> void:
 			# own sentry; another sentry is solid (it falls through to pop below).
 			if enemy is CharacterBody2D or enemy == shooter:
 				continue
-		# Anything else on layer 1 is solid: walls, crates, doors, other sentries.
-		pop()
+		# Anything else on layer 1 is solid: walls, floors, crates, doors and rocks
+		# bounce it (Stage F12); another sentry pops it.
+		if enemy != null or not _try_bounce(body, previous_position):
+			pop()
 		return
+
+
+## Mirrors the flight off `body`'s surface (Ricochet: the move from
+## `previous_position` swept against it gives the angle) and steps back out of it.
+## False once max_bounces is used up: it pops instead.
+func _try_bounce(body: Node2D, previous_position: Vector2) -> bool:
+	if bounce_count >= max_bounces:
+		return false
+	var exclude: Array[RID] = []
+	if shooter != null and is_instance_valid(shooter):
+		exclude.append(shooter.get_rid())
+	var contact: Dictionary = Ricochet.find_contact(get_world_2d().direct_space_state, hit_shape,
+		previous_position, global_position - previous_position, 1 | 16, exclude)
+	var normal: Vector2 = -velocity.normalized()
+	if not contact.is_empty() and contact["collider"] == body:
+		normal = contact["normal"]
+		global_position = contact["safe_position"]
+	else:
+		global_position = previous_position
+	velocity = Ricochet.bounce(velocity, normal)
+	bounce_count += 1
+	FX.play_sfx(&"orb_bounce")
+	return true
 
 
 ## True while we're inside the room we were fired into (our parent). Not a Room
@@ -137,7 +178,7 @@ func receive_gust(direction: Vector2, strength: float) -> void:
 	receive_gust_from(direction, strength, Pushable.NO_SOURCE)
 
 
-## The Pushable contract: a gust (or dash wake) hit us. Reflect.
+## The Pushable contract: a gust hit us. Reflect.
 func receive_gust_from(direction: Vector2, _strength: float, _source_position: Vector2) -> void:
 	if is_popped:
 		return

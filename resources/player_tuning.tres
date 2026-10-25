@@ -4,9 +4,7 @@
 
 [resource]
 script = ExtResource("1_tuning")
-ride_current_gravity_multiplier = 0.5
 glide_stamina_time = 3.0
-dash_stamina_cost = 1.55
 gust_cooldown = 0.1
 gust_recoil_speed = 200.0
 gust_down_boost_speed = 300.0

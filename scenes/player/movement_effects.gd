@@ -8,11 +8,11 @@ extends Node
 ## those things happen, and this node only plays effects. Turning it off (or
 ## deleting it) changes nothing about how the player moves.
 ##
-## Squash vs. the dash stretch: the body rectangle (Visual) sits under a Node2D
+## Why a pivot: the body rectangle (Visual) sits under a Node2D
 ## called SquashPivot whose origin is at the player's FEET. We squash by scaling
 ## SquashPivot, so the body squashes onto the ground instead of around its middle.
-## The dash stretches and rotates Visual itself (AirDashAbility). Two different
-## nodes = the two effects multiply together instead of overwriting each other.
+## Anything that wants to stretch or rotate the body can use Visual itself: two
+## different nodes = the two effects multiply instead of overwriting each other.
 ##
 ## All amounts live in PlayerTuning ("Feel: squash & dust" group).
 
