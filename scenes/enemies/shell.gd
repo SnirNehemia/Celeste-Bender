@@ -20,16 +20,21 @@ extends CharacterBody2D
 ##             gone until reset.
 ##
 ## CRUSHED (after the F12 plan, the developer's call): its armor holds against any hit,
-## but not against being squeezed. A shove that a wall stops before it's done (the
-## snake's head ramming it into a wall, a small rock knocking it back into one) or a
-## rising column pressing it against a ceiling (a CRUSH hit) kills it.
+## but not against being squeezed. Each is a CRUSH hit or ends in _crack_open():
+##   - the snake's head ramming it into a wall: EarthSnake carries bodies a tile and,
+##     when a wall is in the way, crushes the ones whose table says CRUSH kills
+##   - a small rock with a wall within shell_crush_reach (one tile) behind it
+##     (_stagger; it patrols turning a pixel before walls, so the 4 px knockback alone
+##     would almost never reach one: play-test)
+##   - a rising column pressing it against a ceiling (EarthColumn, Pushable.try_crush)
+## A knockback that a wall stops is a crush too (_physics_process).
 ##
 ## Everything else is shrugged off (its ElementImmunity row, _make_immunity):
 ##   - a fireball sparks off its plates and BOUNCES (REFLECT; the pip is still spent)
 ##   - flames, the jet and burning grass do nothing (it walks through fire)
 ##   - spikes do nothing
-##   - a column's tip lifts it; the snake's head shoves it one tile (shell_shove_*):
-##     into a wall, that crushes it (see CRUSHED)
+##   - a column's tip lifts it; the snake's head carries it one tile (into a wall:
+##     crushed, see CRUSHED)
 ##   - a gust barely nudges it (shell_gust_nudge_speed, it's heavy)
 ##   - sentry orbs, reflected or not, bounce off its plates (REFLECTS_GROUP)
 ##
@@ -266,21 +271,25 @@ func _stagger(hit: EnemyHit) -> void:
 	var away: float = signf(hit.push_velocity.x)
 	if away == 0.0:
 		away = -walk_direction
+	# A wall within a tile behind it: nowhere to go, crushed. test_move asks "would
+	# moving this far hit something?" without moving.
+	if test_move(global_transform, Vector2(away * fire_tuning.shell_crush_reach, 0.0)):
+		_crack_open(Vector2(away, 0.0))
+		return
 	_start_shove(away, fire_tuning.shell_stagger_knockback)
 	FX.spawn_gravel(_get_center(), 2, Vector2(away, -1.0).normalized())
 	FX.play_sfx(&"shell_clonk")
 
 
-## A gust nudges it; a column's tip (an upward push) lifts it as given; the snake's
-## head (a sideways push) shoves it one tile.
+## A gust nudges it; a column's tip (an upward push) lifts it as given. A sideways
+## push is the snake's head, which has already carried it a tile (EarthSnake moves
+## the bodies in its way itself): nothing more, or it would slide a second tile.
 func _be_pushed(hit: EnemyHit) -> void:
 	var push: Vector2 = hit.push_velocity
 	if hit.type == EnemyHit.Type.GUST:
 		push_speed = signf(push.x) * fire_tuning.shell_gust_nudge_speed
 	elif absf(push.y) > absf(push.x):
 		velocity.y = push.y
-	elif push.x != 0.0:
-		_start_shove(signf(push.x), fire_tuning.shell_shove_distance)
 
 
 func _start_shove(direction: float, distance: float) -> void:

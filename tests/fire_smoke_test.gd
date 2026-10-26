@@ -1905,11 +1905,26 @@ func _check_f12_shell(world: RoomManager, player: Player) -> void:
 		"it stops and is knocked back %.0f px (%.1f)" % [tuning.shell_stagger_knockback, drop_shell.global_position.x - before.x])
 	await _wait_game(tuning.shell_stagger_time * 0.6)
 	_check(drop_shell.state == Shell.State.WALK, "then walks on")
+	# The snake's head: its REAL shove (EarthSnake._shove_bodies_out_of, the step a
+	# head takes into a cell), on a snake that isn't in the tree.
+	var earth_layer: EarthLayer = null
+	for child: Node in room_m.get_children():
+		if child is EarthLayer:
+			earth_layer = child as EarthLayer
+			break
+	var ram: Callable = func(shell: Shell, direction: Vector2i) -> bool:
+		var snake: EarthSnake = EarthSnake.new()
+		snake.earth_layer = earth_layer
+		snake.earth_tuning = earth_tuning
+		var cell: Vector2i = earth_layer.local_to_map(earth_layer.to_local(shell._get_center()))
+		var entered: bool = snake._shove_bodies_out_of(cell, direction)
+		snake.free()
+		return entered
 	before = drop_shell.global_position
-	EnemyHit.send(drop_shell, EnemyHit.Type.EARTH_PUSH, Vector2(-150, 0))
+	var head_entered: bool = ram.call(drop_shell, Vector2i(-1, 0))
 	await _wait_game(0.4)
-	_check(absf(before.x - drop_shell.global_position.x - tuning.shell_shove_distance) < 1.0,
-		"the snake's head shoves it one tile (%.1f px)" % (before.x - drop_shell.global_position.x))
+	_check(head_entered and absf(before.x - drop_shell.global_position.x - 8.0) < 0.5 and drop_shell.state == Shell.State.WALK,
+		"the snake's head carries it exactly one tile (%.1f px)" % (before.x - drop_shell.global_position.x))
 	before = drop_shell.global_position
 	EnemyHit.send(drop_shell, gust, Vector2(300, 0))
 	await _wait_game(0.5)
@@ -1922,22 +1937,31 @@ func _check_f12_shell(world: RoomManager, player: Player) -> void:
 	for harmless: EnemyHit.Type in [spikes, EnemyHit.Type.FLAME, EnemyHit.Type.WHIP]:
 		EnemyHit.send(drop_shell, harmless, Vector2(100, 0))
 	_check(drop_shell.state == Shell.State.WALK and drop_shell.visible, "spikes, flames and the whip do nothing")
-	# Crushing kills it: the snake's head ramming it into a wall, a small rock knocking
-	# it back into one, a column squeezing it. (The orb lane's Shell, set 2 px and then
-	# 1 px from the low wall at col 42; the shove and the knockback are longer.)
+	# Crushing kills it: the snake's head ramming it into a wall, a small rock with a
+	# wall within a tile behind it, a column squeezing it. (The orb lane's Shell, next
+	# to the low wall at col 42.)
 	var wall_side: float = origin.x + 43 * 8
-	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 2.0, orb_shell.global_position.y)
+	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 1.0, orb_shell.global_position.y)
 	await _physics_frames(2)
-	EnemyHit.send(orb_shell, EnemyHit.Type.EARTH_PUSH, Vector2(-150, 0))
-	await _wait_until(func() -> bool: return orb_shell.state == Shell.State.DEFEATED, 0.5)
-	_check(orb_shell.state == Shell.State.DEFEATED, "the snake's head shoving it into a wall crushes it")
+	head_entered = ram.call(orb_shell, Vector2i(-1, 0))
+	_check(head_entered and orb_shell.state == Shell.State.DEFEATED,
+		"the snake's head ramming it into a wall crushes it (and goes in)")
 	room_m.reset_objects()
 	await _physics_frames(3)
-	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 1.0, orb_shell.global_position.y)
+	# 5 px from the wall: past the 4 px knockback, inside the tile.
+	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 5.0, orb_shell.global_position.y)
 	await _physics_frames(2)
 	EnemyHit.send(orb_shell, small, Vector2(-150, 0))
 	await _wait_until(func() -> bool: return orb_shell.state == Shell.State.DEFEATED, 0.5)
-	_check(orb_shell.state == Shell.State.DEFEATED, "a small rock knocking it back into a wall crushes it")
+	_check(orb_shell.state == Shell.State.DEFEATED, "a small rock with a wall a tile behind it crushes it")
+	room_m.reset_objects()
+	await _physics_frames(3)
+	# 12 px from the wall: just staggered.
+	orb_shell.global_position = Vector2(wall_side + Shell.BODY_SIZE.x / 2.0 + 12.0, orb_shell.global_position.y)
+	await _physics_frames(2)
+	EnemyHit.send(orb_shell, small, Vector2(-150, 0))
+	await _wait_game(0.2)
+	_check(orb_shell.state == Shell.State.STAGGER, "further from the wall, a small rock only staggers it")
 	room_m.reset_objects()
 	await _physics_frames(3)
 	_check(Pushable.try_crush(orb_shell) and orb_shell.state == Shell.State.DEFEATED, "a column squeezing it crushes it")

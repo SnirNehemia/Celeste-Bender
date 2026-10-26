@@ -424,9 +424,11 @@ extends Resource
 ## A small rock staggers it: it stops this long, seconds, knocked back this far, px.
 @export var shell_stagger_time: float = 0.5
 @export var shell_stagger_knockback: float = 4.0
-## The snake's head shoves it this far, px (one tile), at this speed, px/s.
-@export var shell_shove_distance: float = 8.0
+## A small rock's knockback slides it at this speed, px/s. A wall within
+## shell_crush_reach px (one tile) behind it when the rock hits: crushed instead.
+## (The snake's head carries it a tile itself; a wall in the way crushes it there.)
 @export var shell_shove_speed: float = 80.0
+@export var shell_crush_reach: float = 8.0
 ## A gust nudges it at this speed, px/s (it's heavy), sliding out at shell_push_decel.
 @export var shell_gust_nudge_speed: float = 14.0
 @export var shell_push_decel: float = 200.0

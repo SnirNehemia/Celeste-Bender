@@ -324,6 +324,11 @@ func _shove_bodies_out_of(cell: Vector2i, direction: Vector2i) -> bool:
 		# moving it. Only a full tile clears the way.
 		var collision: KinematicCollision2D = body.move_and_collide(motion, true)
 		if collision != null and collision.get_travel().length() < motion.length() - 0.01:
+			# Rammed into a wall (Stage F12): an enemy whose table says crushing kills
+			# (the Shell, a wisp) is crushed and the head goes in; anything else, a
+			# crate or a vine monkey, still blocks the head.
+			if (body.collision_layer & ENEMY_MASK) != 0 and Pushable.try_crush(body):
+				continue
 			return false
 		body.global_position += motion
 		if (body.collision_layer & ENEMY_MASK) != 0:

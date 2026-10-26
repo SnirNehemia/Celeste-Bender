@@ -12,7 +12,7 @@ You don't paste these. Claude Code reads this file itself. Run one stage per ses
 <!-- Claude Code updates this list when a stage is finished and you've confirmed it works -->
 - [x] Stage 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
 - Earth chapter: [x] E0 (plan) · [x] E1 · [x] E2 · [x] E3 · [x] E4 · [x] E4a · [x] E4b · [x] E4c · [x] E4c2 · [x] E4c3 · [x] E4d · [x] E4e · [x] E5 · [x] E6 · [x] E7
-- Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · ~~F9~~ (dropped) · [x] F10 (covered by F7) · [x] F11 · [ ] F11a · [x] F11b · [ ] F12 · [ ] F13 · [ ] F14 · [ ] F15
+- Fire chapter: [x] F0 (plan) · [x] F1 · [x] F2 · [x] F3 · [x] F4 · [x] F5 · [x] F6 · [x] F7 · [x] F8 · ~~F9~~ (dropped) · [x] F10 (covered by F7) · [x] F11 · [ ] F11a · [x] F11b · [x] F12 · [ ] F13 · [ ] F14 · [ ] F15
 - Level editor (parallel track): [x] L0 (plan) · [x] L1 · [x] L2 · [x] L3 · [x] L4 · [x] L5 · [x] L6 · [x] L7 · [x] L8 · [ ] L9 · [ ] L10 · [ ] L11
 
 ---
