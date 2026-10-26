@@ -34,7 +34,7 @@ Mouse is not needed. Celeste-style 8-direction aiming with the arrow keys is mor
 
 | Action | Key | Notes |
 |---|---|---|
-| Move / aim | Arrow keys | Aim direction for the gust (and the fireball) = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S are the Earth keys (`Earth_bending.md` §3), Q/W the Fire keys (`Fire_bending.md` §3) |
+| Move / aim | Arrow keys | Aim direction for the gust (and the fireball) = held arrows (8 directions). The WASD alternates are dropped in Stage E1: A/S are the Earth keys (`Earth_bending.md` §3), Q/W the Fire keys (`Fire_bending.md` §3), 1/2 the Water keys (`Water_bending.md` §3): one keyboard row per element |
 | Jump | **C** (Space as alternate) | Hold for higher jump; hold while falling = glide |
 | *(X)* | — | Was the Air Dash; removed (§5.1). Free for now |
 | Gust | **Z** | |
@@ -200,7 +200,7 @@ Real art, music/sound, story, menus beyond pause/restart, save files, gamepad, o
 
 - **Earth:** now specified in `Earth_bending.md` (its own chapter: column, boulder, snake) and planned as Stages E1–E7 in `PROMPTS.md`.
 - **Fire:** now specified in `Fire_bending.md` (Chapter 3: fire bar of pips, fireball, flame jet, burning grass), planned as Stages F0–F15 in `PROMPTS.md`.
-- **Water:** draft in `Water_bending.md` (Chapter 4, pull-and-carry model, pools and ice), to be refined after Fire is built.
+- **Water:** specified in `Water_bending.md` (Chapter 4, spec v2: a waterball steered in slow motion, water snakes, freeze; simulated water), built after Fire as Stages W1–W13.
 
 Design rule for all of them: same pattern as Air — each ability has a movement, puzzle and combat use. Abilities should be separate components the player can hold, so swapping or adding an element doesn't require rewriting the player.
 

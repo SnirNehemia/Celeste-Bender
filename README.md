@@ -32,11 +32,13 @@ godot --path .
 
 | Action | Key |
 |---|---|
-| Move / aim | Arrow keys (WASD) |
-| Jump (hold = higher) | C (Space) |
+| Move / aim | Arrow keys |
+| Jump (hold = higher, hold while falling = glide) | C (Space) |
 | Fast-fall | Hold ↓ while falling |
-| Air Dash | X *(Stage 4)* |
-| Gust | Z *(Stage 6)* |
+| Gust (Air) | Z |
+| Column / snake, boulder (Earth) | A, S |
+| Fireball, flame jet (Fire) | Q, W |
+| Water hands, freeze (Water, planned) | 1, 2 |
 | Restart room (counts as a death) | R |
 | Pause | Esc *(Stage 10)* |
 | Debug overlay | F1 |

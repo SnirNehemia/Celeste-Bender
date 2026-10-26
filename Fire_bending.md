@@ -24,7 +24,7 @@ Fire is the element of **spending**. You carry a small, **non-refilling** fire b
 | **Q** | **Fireball.** Tap = throw in the arrow direction (facing direction if no arrow). Hold = slow-motion aim (world 0.3×, aim moves in real time, like the gust); release throws |
 | **W** | **Flame jet.** Press = fire a fixed-length **burst** (1 pip) toward the arrow direction, steerable live in 8 directions while it burns. Flame pours out the opposite side. **Holding W** at the end of a burst chains the next pip. Jump (C) cuts a burst short, and the pip is still spent |
 
-Both keys are new and clash with nothing: Q and W sit above A/S (Earth), so each element has its own row, and the arrows stay free for movement (changed from D/F in Stage F3, see §13). C (Jump) cancels a fireball aim without spending a pip.
+Both keys are new and clash with nothing: Q and W sit above A/S (Earth), so each element has its own row (Water later takes the row above, 1/2: `Water_bending.md` §3), and the arrows stay free for movement (changed from D/F in Stage F3, see §13). C (Jump) cancels a fireball aim without spending a pip.
 
 The jet is **steered, not aimed**. You fly it continuously, so it does **not** slow the world (same logic as running). Only the fireball aim, which commits a resource to one direction, slows time.
 

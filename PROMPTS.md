@@ -359,7 +359,7 @@ Written into `Level_editor.md` (spec v1) and the stages below.
 ---
 
 ## Next chapters (not planned in this file yet)
-- **Water (Chapter 4):** only a draft in `Water_bending.md`. Refine it after Fire is built; no stages yet.
+- **Water (Chapter 4):** spec v2 in `Water_bending.md`, stages W1–W13 in its §14 (W1–W2: the water simulation only, each ending in a play-test gate). Write the stage prompts here in a W0 planning stage once Fire is finished.
 
 ---
 

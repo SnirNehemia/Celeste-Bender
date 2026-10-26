@@ -1,255 +1,318 @@
 # Windbound: Water bending (Chapter 4)
 
-*Spec v1, 22 Oct 2026. Replaces the v0 draft. Companion to `GAME_DESIGN.md` (core + Air), `Earth_bending.md` (Earth) and `Fire_bending.md` (Fire). Water is built **after** Fire: several combinations in §8 need Fire's `FireGrid`, `Flammable` and hot updrafts. Every number marked* **(tune)** *lives in `WaterTuning` and is exposed in the live tuning menu. Play-test decisions go in §15.*
+*Spec v2, 26 Oct 2026. Replaces spec v1 (the scoop / pull / carry / frost-dart model), rewritten from the developer's prompt of 26 Oct 2026, which takes priority over v1 wherever they differ. Companion to `GAME_DESIGN.md` (core + Air), `Earth_bending.md` (Earth) and `Fire_bending.md` (Fire). Water is built **after** Fire: several combinations in §9 need Fire's grid, `Flammable` and hot updrafts. Every number marked* **(tune)** *lives in `WaterTuning` and is exposed in the live tuning menu (F5). Play-test decisions go in §16.*
 
 ---
 
 ## 1. The idea in one paragraph
 
-Water is the element of **carrying and changing**. You **grab** water with your hands: a quick **scoop** on the run, or a rooted **pull** that drains a pool while its level visibly drops. Moving water (**streams and waterfalls**) never runs dry, and instead of taking from it you can **bend the flow itself** like a hose. Carried water floats beside you as a **blob** of up to 4 units. You **throw** it as a quick ball, **pour** it as an arcing stream, or **drip** a trail behind you. Then the **frost** shot freezes whatever water it hits: pool tops become slippery **ice sheets**, a poured arc becomes a curved **ice slide**, a bent waterfall becomes a sculpted ice ramp. And water **changes everything it touches**: earth turns to sticky **mud**, ash sets into **stone**, plants **grow**, fire goes out or bursts into **steam**. Water rooms are puzzles about *where to take water from, where to put it, and what to turn it into*.
+Water is the element of **shaping something that flows**. Hold the water key and the world slows down: a faint blue ring appears around you, and you steer a **waterball** with the arrows anywhere inside it. Touch water with it and it **gathers** water and swells. Lift it **slowly** out of a pool and the water follows it up as a **water snake**, a living column still joined to the pool; lift it **fast** and it tears free. Let go of the key (or push the ball out of the ring) and the water **flies on by itself**, faster than you moved it, and from then on it is just water: it arcs, splashes, drips, runs downhill, fills dips and makes waves. Then the **freeze** key turns the water you last threw (or the water you're touching) into **ice**, in exactly the shape it had: a flying ball becomes a block, a flung snake becomes a curved slide, a pool becomes a skating rink. Water rooms are puzzles about *where water is, where you can move it, and what shape to freeze it in*. Because the water is **simulated**, it has to look and feel like real water, and the first build stages exist only to get that right (§6, §14).
 
 ## 2. Pillars check
 
 | Pillar | How Water meets it |
 |---|---|
-| Movement first | Ice keeps your momentum (long jumps, slides, ramps). Swimming has its own burst, the **propel**, with a breach jump out of the water |
-| One verb, three uses | Grab, bend, throw, frost and propel each have a movement, puzzle and combat use (§5) |
-| Fail fast | R resets pools, flows, the blob, ice, mud, growth, steam and enemies |
-| Readable | Water is **blue**, ice is **cyan-white**, mud is **glossy brown**, steam is **white**. The blob's size *is* the water meter. Wet things look wet (darker, with droplets) |
+| Movement first | Ice keeps your momentum (long jumps, slides, ramps), and frozen snakes are platforms you sculpt yourself: pillars, bridges, slides |
+| One verb, three uses | The waterball, the snake and the freeze each have a movement, puzzle and combat use (§5) |
+| Fail fast | R resets every body of water, all loose water, ice, mud, growth, steam and enemies |
+| Readable | Water is **blue**, ice is **cyan-white**, mud is **glossy brown**, steam is **white**. The ball's size *is* how much water you hold. The ring shows your reach. Wet things look wet (darker, with droplets) |
 
 ## 3. Keys
 
+### 3.1 The water keys
+
 | Key | Action |
 |---|---|
-| **Q** | **Water hands.** What it does depends on where you are (table below) |
-| **W** | **Frost.** Tap = frost shot in the arrow direction (facing direction if no arrow). Hold = slow-motion aim (world 0.3×, aim moves in real time, like the gust); release fires. **One per airtime**: free on the ground, one shot per jump |
+| **1** | **Water hands.** Hold: slow motion, the ring, steer the waterball with the arrows. Release: the water flies on (§5.1) |
+| **2** | **Freeze.** Tap: freezes the water you're holding, else the water you last threw, else the water you're touching (§5.3) |
 
-Both keys are new and clash with nothing. Every element now has its own pair: Air Z/X, Earth A/S, Fire D/F, Water Q/W. **C (Jump)** cancels any aim, pull or bend without spending water.
+Action names: `water_hands` (1) and `water_freeze` (2), on **physical** keys like every other action, so they sit in the same place on any keyboard layout (QWERTY, AZERTY, Hebrew…). The top-row digits, not the numpad. **Jump cancels** a hold: the ball just drops (no throw boost) and you jump.
 
-**Q in context** (checked in this order, like the Earth one-key rule):
+### 3.2 One row per element
 
-| Where you are | Tap Q | Hold Q |
-|---|---|---|
-| **Submerged** (head under water) | Propel kick (short burst) | Propel (continuous thrust) |
-| **Touching water** (feet in a pool or puddle, swimming at the surface, or overlapping a stream or waterfall), blob not full | **Scoop** +1 unit, no stop | → see next rows |
-| Within 24 px of a **pool**, blob not full | — | **Pull**: rooted, slow motion. Once the blob is full and you're still holding, it turns into the **stream aim** ("fill and fire") |
-| Within 24 px of a **stream or waterfall** | — | **Bend the flow** (§5.2) |
-| **Carrying water**, none of the above | **Ball**: throw 1 unit | **Stream aim**, release pours all units. With **Down** held on the ground: **trail** instead |
-| Not carrying, not near water | Empty-hand flick (no effect, small click) | Nothing |
+The developer's idea, adopted: jump stays under one finger, and the other two fingers move **between rows, one row per element**. On a staggered keyboard, 1, Q, A, Z are one diagonal column and 2, W, S, X the next, so the two fingers simply slide up and down:
 
-**Down + tap Q** while carrying pours 1 unit at your feet.
+```
+          left finger   right finger
+Water     1 hands       2 freeze
+Fire      Q fireball    W flame jet
+Earth     A column      S boulder
+Air       Z gust        X (free)
+Jump      C  (index finger)   ·   Space (thumb)
+```
 
-## 4. The water resource
+Nothing clashes: 1 and 2 are unbound today, and Q/W (Fire) and A/S (Earth) stay put. Each row reads as one element, and the farther rows belong to the later chapters.
 
-### 4.1 Sources
-- **Pools** are still water with a visible surface line, measured in **units** (1 unit = one 8×8 tile of water). Pulling a unit lowers the whole surface evenly, so wide pools drop slowly and narrow ones fast. Pools are **finite** until reset.
-- **Streams** (horizontal or sloped channels of moving water) and **waterfalls** (vertical curtains) are **flows**. They are **endless**: scooping from a flow never lowers anything. You can't pull from a flow; you bend it instead (§5.2).
-- **Linked pools** share one level through a visible pipe: pulling from one lowers both.
-- **Basins** are empty dips. A flow diverted into a basin fills it as a pool at 1 unit/s **(tune)** up to its rim.
+**My take (with one caveat):** it's a good map: it's easy to learn, one row per element is easy to remember, and it leaves X free for a future second Air key or the element wheel. The caveat is **reach**: with the index on C, the number row is about 3½ key widths away diagonally, so *holding* jump while pressing 1 or 2 is a stretch. It matters less than it sounds:
+- **1 is never pressed together with jump.** It's held in slow motion, and jump cancels it.
+- **2 is a single tap**, usually right after letting go of 1. Those are neighbouring fingers on one row: a quick roll.
+- **Space stays a jump key.** With the thumb on Space, the fingers rest naturally on the 1–Q rows. It's the common PC-game grip (thumb on Space, fingers on 1–4), and it's the comfortable choice for Fire + Water rooms.
 
-### 4.2 The blob
-- Holds **up to 4 units** **(tune: `blob_max_units`)**. It floats above and behind your shoulder, wobbling, and **its size is the readout**: 1 unit is a droplet, 4 units a sloshing ball half your size.
-- It's a **shield**: each orb that hits it splashes and costs 1 unit.
-- Lost on death or R. Pools give their water back on reset.
+So: **keep C and Space both on jump, put Water on 1/2, change nothing else.** Two small flags: **Esc** (pause) and **Tab** (back to the editor while play-testing an editor level) are next to 1 and Q; an accidental press is harmless (a pause, or the editor), so no remap. If the reach still feels bad in play-test, the fallback is to try jump on **V**, which brings the hand one column closer to the middle (§16).
 
-### 4.3 Frost charge
-- **One frost per airtime.** It refills on the ground, while swimming, and on landing on ice. Ground frost has a short cooldown of 0.25 s **(tune)**.
-- Frost costs **no water**: water is the resource, frost only shapes it.
+## 4. The water itself
 
-### 4.4 HUD
-- A row of **4 droplet pips** in the stacked element HUD (the plan from `Fire_bending.md` §4.2). Full droplets mirror the blob. A small **snowflake** at the end of the row shows the frost charge; it dims when spent in the air.
-- The player is **not** tinted when frost is spent, (the old pale-blue "no dash" tint is gone with the dash, so a tint is free again if wanted).
+### 4.1 Units
+- **1 unit = 64 px² of water** (one 8×8 tile full). Every amount in this chapter (the ball, a snake, a pool, a puddle) is counted in units, and **water is conserved**: a unit taken from a pool is visibly gone from it, a unit thrown somewhere is there. The only exceptions are **sources and sinks** (§4.2), soaking (§8.2) and steam (§9.2).
+
+### 4.2 Where water lives
+- **Pools:** still water lying in a dip. Their surface makes waves (§6). Finite until reset.
+- **Puddles:** thin pools on flat ground (thrown water that spread out). Same thing as a pool, just shallow.
+- **Basins:** just dips with no water yet. No special object: any dip fills if water is put in it.
+- **Streams:** water that really flows along a channel, fed by a **source** and drained by a **sink** (§7.4). Endless.
+- **Waterfalls:** water really falling from a lip, also fed by a source. Endless.
+- **Loose water:** everything in the air or running over a surface: drops, splashes, thrown balls, flung snakes, spills off a ledge.
+
+### 4.3 No meter
+There's no water bar and nothing to carry between holds: you hold water only while the key is down. The **ball's size** shows how much you hold. The freeze has only a short cooldown (§5.3), so Water needs **no HUD row**.
 
 ## 5. Moves
 
-### 5.1 Scoop and pull (grab)
-- **Scoop** (tap Q while touching water): a gulp of water leaps from the surface in a little arc into the blob. +1 unit, 0.15 s cooldown **(tune)**. You keep running, jumping or swimming. Works on pools, puddles, streams and waterfalls (from a pool it lowers the level by 1 unit; from a flow it costs nothing).
-- **Pull** (hold Q within 24 px of a pool): the world slows to 0.3× and you're rooted (like the Earth bend). A tendril rises from the closest point of the surface and twists into the blob, **1 unit per 0.15 s real time** **(tune)**, until you release, the blob is full, or the pool is empty. If you keep holding at full, the pull flows straight into the stream aim.
-- **Movement:** lowering a pool uncovers a passage under it, or drains a pool you'd otherwise have to swim through. Scooping on the run keeps you moving.
-- **Puzzle:** floating things ride the level down: a crate onto a plate, a lily pad down to a ledge. Linked pools drain together.
-- **Combat:** the blob blocks orbs. Draining a pool strands what floats on it.
+### 5.1 Water hands (hold 1): the waterball
 
-### 5.2 Bending a flow (hold Q near a stream or waterfall)
-The signature move: you grab moving water and **steer it like a hose**.
+**Hold**
+- The world slows to **0.3×** **(tune: `hold_time_scale`)**. The ball and its steering run in **real time**, like the fireball aim.
+- A **faint blue ring** of radius **56 px** **(tune: `control_radius`)** appears around you and moves with you: that's your reach.
+- The **ball** appears at your hands (8 px in front of you). It starts **empty**: a small blue spark with no water in it.
+- **Arrows steer the ball** at up to **90 px/s real time** **(tune: `ball_move_speed`)**, with a little acceleration and drag (`ball_accel`, `ball_drag`), so it feels like moving a weight of water, not a mouse cursor. Diagonals work.
+- **You:** the arrows belong to the ball, so you don't steer. On the ground you stand still; in the air you keep your arc, slowed by the slow motion (like the gust aim) ⚠ confirm.
+- Auto-release after **4 s real time** **(tune: `max_hold_time`)**, so the slow motion can't be held forever ⚠ confirm.
 
-- **Grab:** the flow bends at the point closest to you. The world slows to 0.25× and you're rooted. The part of the flow past the grab point swings toward your aim, steered with the arrows in real time (tip speed 90 px/s **(tune)**), keeping its length. It stops at solid walls.
-- **Release:** the flow snaps back to its natural course in 0.2 s, **unless its end rests in a catch**: a **channel** (a carved dry trench), a **basin**, or a **waterwheel**. Then it keeps its new course until reset.
-- **Freeze while bending:** pressing **W** while holding a flow freezes it **in its bent shape** (no aiming needed; the frost races down the flow from your hands). That's **sculpting**: a waterfall bent into a curve becomes a curved ice ramp, and the passage it was covering is open.
-- Auto-release after 3 s **(tune)**, like the snake's auto-harden.
-- **Movement:** bend a waterfall aside to reach the ledge behind it, sculpt ramps and bridges out of flows, ride a bent stream's current.
-- **Puzzle:** divert a stream into a dry channel or onto a waterwheel; fill a basin to float a crate up. Flows are endless, so bending or freezing them is the only way to "turn them off".
-- **Combat:** swing a flow through enemies: it shoves wisps and leaflings along and **kills cinders**.
+**Gathering**
+- When the ball is **within 6 px of water** **(tune: `gather_reach`)** (a pool's surface, inside a pool, a puddle, loose drops, a stream, a waterfall), water flows into it at **6 units/s real time** **(tune: `gather_rate`)** up to **4 units** **(tune: `ball_max_units`)**. A short tendril joins the ball to the water while it gathers.
+- The pool **loses exactly what the ball gains**: its level drops and the surface dips toward the ball, rippling outward.
+- **Streams and waterfalls never run dry**; gathering from them costs nothing.
+- The ball's **size grows with the water** it holds (its area is the volume: 4 units is a ball about 18 px across, about the player's height). It wobbles, sloshes when it changes direction, and sheds a few drops when moved fast.
+- An empty ball released does nothing (a small fizzle of sparkles).
 
-**Waterfalls are curtains:** passing through one pushes you down hard (200 px/s **(tune)**), so a ledge hidden behind a waterfall can only be reached once it's bent aside or frozen bent.
+**The water snake** (raise it slowly)
+- If the ball is **lifted out of water while still gathering** and rises **no faster than 40 px/s** **(tune: `snake_max_rise_speed`)**, the water **follows it up**: a column of water joins the ball to the surface. That's the **water snake**.
+- The snake is **6 px thick** **(tune: `snake_width`)** and keeps drawing water from its source to fill its length (1 unit per ~11 px), so the pool keeps dropping while it rises. It bends like a rope as you steer the ball sideways, and its foot slides along the surface to stay under it, dragging a wave.
+- It **tears** (pinches into drops that fall back) if you lift **faster** than the limit, if the pool runs out of water, or if the snake hits its length limit (the ring sets the reach). After a tear, the ball is just a ball: it no longer gathers from that pool until it touches water again.
+- From a **waterfall or stream** the snake is endless: it never drains anything.
+- **While held, the snake is water you can steer:** its head **shoves** crates, leaf piles, wisps and floating things, **douses** fires it sweeps through, **kills cinders** and **absorbs orbs**. You can't stand on it (it's water) until you freeze it.
 
-### 5.3 Throw: ball, stream, trail, pour
-
-**Ball** (tap Q while carrying)
-- **1 unit**, 200 px/s **(tune)**, a light arc (gravity 250 px/s²). On impact it **splashes**: wets the hit tile and one neighbor each side along the surface, shoves light pushables, knocks back and **wets** wisps.
-- Freeze a ball **in flight** with a frost shot and it becomes an **8×8 ice block** that drops.
-
-**Stream** (hold Q while carrying, aim, release)
-- Slow-motion aim at 0.3×, aim moving in real time, with a dotted preview of the arc.
-- On release, **all carried units** pour out as a continuous rope of water over 0.4 s **(tune)**, along a ballistic arc (launch 220 px/s, gravity 500 px/s² **(tune)**). Length ≈ **24 px per unit** **(tune)**, so 4 units make about 96 px of arc.
-- Where it lands, it wets a run of surface tiles (or fills a basin, or soaks into a plant).
-- **Freezing a stream:** press **W during the pour or up to 0.3 s after it** **(tune: `stream_freeze_window`)** and the whole arc freezes into an **ice slide**, shaped exactly as it was at that moment. No aiming needed: frost races along the arc from your hand. (Outside that window, W fires a normal aimed frost.)
-
-**Trail** (hold Q with Down held, on the ground, while carrying)
-- No slow motion. You run normally and water dribbles behind you: **1 unit wets 4 tiles** of ground (32 px) **(tune)**, until you release or run dry.
-- Frost the trail and it becomes an **ice runway** along your path.
-
-**Pour** (Down + tap Q): 1 unit drops at your feet. On rock it makes a puddle; on earth, grass, ash or plants it soaks in (§7.2).
+**Release** (let go of 1, or the ball leaves the ring)
+- The world returns to normal speed. The water keeps the **velocity it had while you steered it, times 2.5** **(tune: `throw_multiplier`)**. It was moving in slow motion, so without the boost a throw would look feeble.
+- So **steering the ball fast out of the ring is a throw**, and the ring edge is where it leaves your hands. A ball that wasn't moving just **drops**: that's how you pour water onto a spot.
+- A **snake** is released like a whip: every point of it keeps its own velocity times the boost, so a snake swung upward flies off as a **curved arc of water**. Its foot stays in the pool and falls back in.
+- From the moment it's released, it's **loose water** (§6): it arcs under gravity, splashes, wets what it lands on, fills dips, runs downhill.
+- **Jump** while holding: the ball drops in place (no boost) and you jump.
 
 **Uses**
-- **Movement:** stream + frost = a slide over a gap; trail + frost = a runway for a long jump; ball + frost = an ice block to stand on.
-- **Puzzle:** wet things to change them (§7.2, §8): mud, stone, growth, dousing. A ball fills a water scale; a stream refills a pool.
-- **Combat:** a ball stuns and wets a wisp; a stream pushes enemies off edges; any water **kills cinders**; a ball **douses** a sentry (no fire for 3 s **(tune)**).
+- **Movement:** the water is the material for your ice (§5.3, §7); move a pool's water to where you need ice.
+- **Puzzle:** move water from pool to pool: fill a basin to float a crate up to a ledge, drain a pool to uncover a passage, fill a water scale, spin a waterwheel, soak a plant, wet a floor into mud.
+- **Combat:** a thrown ball knocks back and wets enemies; a snake sweeps them off ledges; any water **kills cinders**; the held ball and snake **block orbs** (each orb costs the ball 1 unit and fizzles).
 
-### 5.4 Frost (W)
-- A pale cyan dart, 280 px/s, range 128 px **(tune)**, straight line, no gravity. It freezes the **first water it touches**, then bursts in a puff of snow. On dry things it bursts harmlessly (exceptions: fire and cinders, §8.3 and §9).
-- **What freezes when it hits:**
+### 5.2 What "slowly" means (the snake rule, worked through)
+- At 0.3× world speed, 40 px/s real time is about the speed of a gentle hand-lift. A full 56 px snake takes about 1.4 s real time to raise, the same as aiming a careful fireball.
+- Tearing is shown before it happens: as the lift speed nears the limit, the snake's neck **thins** and drips, so you learn the speed by eye.
+- Sideways speed doesn't tear the snake (only rising does), so you can sweep it fast once it's up ⚠ confirm in play-test.
 
-| Hit | Becomes |
+### 5.3 Freeze (tap 2)
+
+The freeze picks its target in this order:
+
+| # | When | Freezes |
+|---|---|---|
+| 1 | You're **holding** water (1 is down) | The **ball or snake you hold**, in place, and ends the hold. ⚠ Added in this spec (not in the prompt): it's the precise way to build an ice pillar from a snake. Drop it if it makes rule 2 pointless |
+| 2 | The water you **last threw** still has loose, unfrozen water | **All of it**, wherever it is now and in its current shape |
+| 3 | Otherwise (the last throw is already frozen, or all of it has merged into a pool or soaked in) | The **water you're touching**: the pool or puddle you stand or swim in, the stream or waterfall you're inside, a wet tile under your feet |
+| 4 | Nothing to freeze | A small frost puff, no effect |
+
+- **No cost**, cooldown **0.25 s** **(tune: `freeze_cooldown`)**. Ice is limited by the ice cap (§7.3), and above all by how much water you can get to.
+- **Which shape the ice takes:**
+
+| Frozen water | Becomes |
 |---|---|
-| **Pool** surface | A full-width **ice sheet**, 8 px thick, on top. The water below stays water (you can swim under it) |
-| **Stream** | The whole visible segment freezes into ice; its current stops. Melting restarts it |
-| **Waterfall** | A solid **ice column** from top to bottom, with ice walls (wall jumps work, no cling). The flow below stops |
-| **Wet surface tiles** (puddles, trails, wet patches, mud, wet grass) | An **ice crust**, spreading along connected wet tiles up to 16 tiles **(tune: `frost_surface_reach`)** in a quick wipe |
-| **Wet wall patch** | An **ice ledge**: a foothold, like a stuck rock |
-| **Ball in flight** | An **8×8 ice block** that drops |
-| **Your stream / held flow** | Frozen whole, automatically (§5.2, §5.3) |
-| **A wet wisp** | Frozen into an ice block (§9) |
+| **Compact** (a ball, a splash, anything ≤ 16 px across **(tune)**) | An **ice block** that **falls** and behaves like a crate (§7.3) |
+| **Long** (a snake, a flung arc, a stream of drops > 16 px) | A **static ice shape**, staying where it froze: a pillar, a bridge, a **curved slide** (§7.2) |
+| A snake whose foot is still in its pool (rule 1) | A **pillar** standing in the pool, with a small ice collar on the surface |
+| A **pool** you touch | An **ice sheet** over its whole surface, 8 px thick **(tune)**; the water below stays water. If you're swimming in it, you're lifted to stand on the new ice ⚠ confirm |
+| A **puddle** or **wet tile** you touch | An **ice patch**, spreading along connected wet tiles up to 16 tiles **(tune: `freeze_surface_reach`)** in a quick wipe |
+| A **stream** or **waterfall** you're inside | The stretch of it within 48 px of you **(tune)**: a frozen stream stops flowing there (the water backs up behind it); a frozen waterfall becomes an **ice column** with wall-jumpable sides (no cling) |
+| Thrown water **clinging to a wisp** | The wisp, in an ice block (§10) |
 
-- **Movement:** freeze where you want to slide. Frost refills on landing on ice, so ice chains can be built mid-air: jump, freeze, land, freeze again.
-- **Puzzle:** frozen water can't be scooped or pulled (a commitment, like spent earth). Freezing a waterfall cuts what it feeds.
-- **Combat:** kills cinders, freezes wet wisps, freezes orbs mid-flight (they drop and shatter), snuffs small fires.
+- **Melting** (any flame, §9.2) gives the water back as loose water: an ice block collapses into a splash, a slide rains down in drops, a sheet sinks back into its pool. Conservation holds: the pool you drained to build a pillar refills when the pillar melts into it.
+- **Movement:** freeze a thrown ball in the air and land on the block, freeze a flung arc into a slide over spikes, freeze a snake into a pillar to climb, freeze a pool and long-jump off it.
+- **Puzzle:** ice is a commitment: frozen water can't be gathered. Freezing a stream dams it; freezing a waterfall cuts what it feeds.
+- **Combat:** freeze the water on a wet wisp to trap it; ice blocks stop orbs.
 
-### 5.5 Swimming and propel
-- **Swimming:** in water you swim at 70 px/s, gravity 180 px/s², max sink 60 px/s **(tune)**. **C** strokes upward; at the surface, C jumps out with a full jump. No breath meter. Under an ice sheet you can't surface; find an open edge or hole.
-- **Propel** (Q while submerged): you push a current out behind you and shoot through the water in the arrow direction (8 directions): 170 px/s, accel 1200 px/s² **(tune)**. Tap = a short kick (0.15 s), hold = continuous thrust. No slow motion: like the flame jet, it's flown, not aimed.
-- **Breach:** propel up through the surface and you leave the water in the `Launched` state, about **1.5× a full jump** **(tune: `breach_launch`)**. This is the swimming "super jump".
-- **Currents:** streams push you along (60 px/s **(tune)**); propelling against a current is slower. Waterfalls push you down.
-- **Not underwater:** frost can't be fired while submerged, and Air and Fire moves are off while submerged (the flame jet sputters, the dash and gust are suppressed) ⚠ confirm.
-- **Movement:** fast swimming, breach jumps to high ledges. **Puzzle:** the propel's back-current shoves floating and sunken objects. **Combat:** the back-current shoves enemies; a breach under a wisp knocks it into the air.
+### 5.4 Swimming
+- In water deeper than half your height you swim: 70 px/s, gravity 180 px/s², max sink 60 px/s **(tune)**. **Jump** strokes upward; at the surface, jump leaps out with a full jump. No breath meter. Under an ice sheet you can't surface: find an open edge or a hole.
+- Your body **pushes the water**: jumping in makes a splash and a wave, swimming leaves a wake. That's the simulation, not an effect.
+- You can **hold water while swimming**: the ball starts inside the water and fills at once.
+- **Currents:** real flow in a stream carries you along (its speed scaled by `current_push`, start 0.6 **(tune)**). Waterfalls push you down.
+- **Off underwater:** the flame jet sputters and the fireball fizzles while you're submerged. The gust works but is weak (half strength) ⚠ confirm.
 
-## 6. Ice
+## 6. The water simulation
 
-### 6.1 Ice surfaces
+This is the heart of the chapter, so it's specified before any move is built (stages W1–W2, §14). **Goals:** waves that travel, bounce off walls and settle; water that runs downhill, spreads into puddles and levels out between connected dips; drips, splashes and spills that fall as streams; every unit accounted for. **Constraint:** it's GDScript, at 60 physics frames a second, in a game that already spends a few ms a frame on fire.
+
+### 6.1 Three forms of water, one budget
+
+Water moves between three forms. Each form uses the cheapest model that still looks right for it:
+
+**1. Bodies: pools, puddles, streams (a height field)**
+- A body is a horizontal run of **columns 2 px wide** **(tune: `column_width`)** over its floor. Each column stores its floor height, its water depth and the flow through its two sides.
+- Update rule: the **virtual pipe model**. Each pair of neighbouring columns is joined by a "pipe" whose flow speeds up with the difference in their surface heights and is slightly damped. Depths change by the net flow, never below zero. This one rule gives **waves** that travel and reflect, water that **runs down steps and levels out**, and exact volume bookkeeping. It's the standard shallow-water trick for games, and it's cheap: a full-room-width body is 160 columns.
+- On top of it, a light **ripple layer** (the classic spring chain along the surface line) adds the small, fast ripples from drops and swimmers, so the bulk model can stay coarse.
+- **Spilling:** where a column's neighbour is a drop (its floor more than 6 px lower **(tune: `spill_drop`)**) or a body's end, the outflow becomes **loose water** at the lip: water you see pour over the edge.
+- **Puddles stop spreading** at a minimum depth of 2 px **(tune: `puddle_min_depth`)** (surface tension). So 4 units thrown onto a flat floor spread about 128 px: a natural ice runway once frozen.
+- Bodies **merge** when their surfaces meet and **split** when a column runs dry. A body whose flows are all below a small threshold **sleeps** and costs nothing until something touches it.
+- **Things in the water:** anything entering, moving in or leaving a body pushes its columns (displacement), so a falling crate makes a wave and a swimmer leaves a wake. Floating things read the local depth and slope for buoyancy (§8.5).
+
+**2. Loose water (particles)**
+- Each particle is a little packet of **1/16 unit** **(tune: `particle_units`)**: position, velocity, age. Gravity, light air drag, and collision against the room's solid tiles through a **grid lookup** (not physics bodies), plus a short list of moving solids (crates, columns, ice blocks, the player) as boxes.
+- **Cohesion:** particles within 4 px pull gently together and slightly match their neighbours' speed (viscosity), found through a spatial hash with 4 px cells. That's enough for a thrown ball to stay round, a flung snake to stay a rope that **thins and breaks into drops** when stretched, and spray to bead. It has **no pressure solve**, the expensive part of a real fluid simulation: water that has landed stops being particles.
+- **Landing:** a particle that touches a body's surface **merges** into it (its volume goes into that column, plus a wave kick where it hit). One that comes to rest on bare ground **starts or joins a puddle**. One that hits a dry absorbent tile **soaks in** (§8.2).
+- **Cap:** at most **400 particles** per room **(tune: `max_particles`)**. Near the cap, splashes spawn fewer, bigger drops and the slowest particles merge into the nearest body first. The player never sees water vanish.
+
+**3. Held water (the ball and the snake)**
+- Not particles while held. The **ball** is one object (position, velocity, units), drawn as a wobbling blob. The **snake** is a short rope of 8–16 points (verlet) from its foot to the ball, with water per unit of length.
+- On release, both are **converted into particles** carrying their velocities times the throw boost.
+
+### 6.2 Sources, sinks and flows
+- A **source** adds water at a fixed rate (units/s) into a body or as falling particles at a lip. A **sink** (a drain grate, or the room edge) removes it. Streams are bodies on a long or stepped channel with a source upstream and a sink or spill downstream, so their current is real flow. Waterfalls are particles from a lip to whatever is below.
+- **Waterfall cost is bounded:** particles in a waterfall = rate × fall time. Long falls use fewer, bigger particles drawn stretched (`waterfall_particle_scale`) to stay under the cap.
+
+### 6.3 Drawing it
+- **Bodies:** one filled polygon per body along its column tops, a lighter surface line, foam where the flow is fast or a wave breaks.
+- **Particles, ball and snake:** drawn as soft dots into one low-resolution `SubViewport`, then a **threshold shader** merges overlapping dots into smooth blobs with a crisp pixel edge and a lighter rim (2D "metaballs"). In the same colors as the bodies, so a ball landing in a pool reads as one water, and a drop pinching off a snake looks like water, not a sprite. One draw call, cheap on the GPU, skipped in headless runs.
+- **Fallback** if the shader misbehaves in the web export (the project uses the Compatibility renderer): plain 2 px dots, no merging.
+
+### 6.4 Time and slow motion
+- The simulation runs in `_physics_process` with a fixed step (2 sub-steps for bodies, 1 for particles **(tune)**), on the world's scaled time, so slow motion slows the water too, while the ball you steer runs in real time. Fixed steps keep headless tests repeatable.
+
+### 6.5 Cost: what's heavy, and what this design does about it
+
+**Budget:** the whole water simulation must stay under **2 ms per physics frame** in the worst test room on this machine (for scale: Fire's heaviest room measured 3.85 ms a frame for everything). Stage W1 adds a performance section to the smoke test that prints the water's ms per frame under a fixed stress test and **fails over budget**, so this is checked from day one, not discovered in room 9.
+
+| | What | Cost | Decision |
+|---|---|---|---|
+| 🔴 | A real particle fluid (SPH / FLIP / PBF) for all water | Thousands of particles with a pressure solve every frame: roughly 10–50 ms a frame in GDScript | **Not used.** Still water is a height field, which costs almost nothing, and sleeps when calm |
+| 🔴 | One node, `RigidBody2D` or `Area2D` per droplet | Node overhead per drop, and drops that behave like marbles | **Not used.** One `WaterWorld` node per room owns all water in packed arrays and draws it all |
+| 🟠 | Particles with cohesion | Grows with particles × neighbours; the main risk | Capped at 400, spatial hash, one cohesion pass. If GDScript can't hold 400 in about 1 ms: lower the cap first; then, only if needed, move the particle loop to a compute shader or a small C++ GDExtension (that adds a build toolchain, so it's the last resort) |
+| 🟠 | Waterfalls and streams that never stop | Particles are spawned forever | Bounded by rate × fall time; stretched particles on long falls |
+| 🟠 | Several rooms simulating at once | Cost × rooms | Only the current room (and the one you're entering) simulates. This ties into the "freeze far rooms" work already in the game |
+| 🟡 | Metaball rendering | One extra viewport + a shader; GPU work, not CPU | Fine; check it in the web export (fallback in §6.3) |
+| 🟡 | Solid-tile lookup for particles | A grid built at room load | Rebuilt only for the tiles that change (Earth columns, cracked walls, new ice) |
+| 🟡 | Freezing into collision shapes | Building a polygon | Once per freeze; ice cap 6 |
+| 🟢 | Height-field bodies | About 160 columns per room-wide body, a few multiplies each | Cheap; sleeps when calm |
+| 🟢 | Wetting tiles | A grid write when water lands | Cheap |
+
+## 7. Ice
+
+### 7.1 Ice surfaces
 Starting values, all **(tune)**:
 
 | Property | Ice | Notes |
 |---|---|---|
 | Ground acceleration | ×0.15 of normal | Slow to start, slow to turn |
 | Ground friction | ×0.08 of normal | You keep sliding after release |
-| Speed cap on ground | **not applied** while above run speed | Momentum from a dash, flame jet, breach or column launch is kept |
+| Speed cap on ground | **not applied** while above run speed | Momentum from a flame jet, an Earth launch or a slope is kept |
 | Jump | keeps full horizontal speed | **Long jumps** off ice are the signature move |
 | Ice walls | wall slide ×2, no cling | Wall jumps still work |
 
-### 6.2 Ice slides (the first slopes in the game)
-- Frozen streams (yours) and sculpted flows can be **curved**, so this is the first time the game has slopes. Slopes exist **only as ice**.
-- A slide is a 4 px thick polyline. **Your own frozen streams are one-way** (solid from above, pass through from below and the sides) so they never trap you. Frozen natural flows are solid.
-- **New player state `Sliding`:** on a slide you follow its tangent; gravity accelerates you along it (`g · sinθ · slide_gravity_scale`, start 1.0 **(tune)**), with ice friction. Arrows lean slightly (±40 px/s² **(tune)**). You can't walk up an ice slope steeper than 15° **(tune)**; you slide back down.
+### 7.2 Ice slides (the first slopes in the game)
+- Frozen snakes and flung arcs are **curved**, so this is the first time the game has slopes. Slopes exist **only as ice**.
+- A slide is a 4 px thick polyline along the frozen water. **Your own ice slides are one-way** (solid from above, pass through from below and the sides) so they never trap you. Pillars and ice blocks are fully solid.
+- **New player state `Sliding`:** on a slide you follow its slope; gravity pulls you along it (`g · sinθ · slide_gravity_scale`, start 1.0 **(tune)**), with ice friction. Arrows lean slightly (±40 px/s² **(tune)**). You can't walk up an ice slope steeper than 15° **(tune)**; you slide back down.
 - Jumping off a slide keeps your velocity. A slide that curves upward at its end is a **ramp**: you launch off the lip.
 
-### 6.3 Ice objects and limits
-- **Ice block** (8×8): standable, pushable (gust, snake head, crates), slides far on ice, **floats** on water and rides currents (a raft), blocks orbs. Shatters when a big rock hits it or it falls 4+ tiles **(tune)**. Fire melts it into a 1-unit puddle.
-- **Ice cap:** at most **6** pieces of player-made ice per room **(tune: `max_player_ice`)**. Making a 7th melts the oldest with a visible drip-and-crack. Natural sheets and frozen flows don't count. (Flows are endless, so without a cap you could ice over a whole room.)
-- **Look:** pale cyan with white streaks, a glint that slides along it as you move, white skid sparks when you change direction. Ice over water keeps a faint blue tint below so you can see there's water under it.
+### 7.3 Ice objects and limits
+- **Ice block** (a compact frozen shape, its size from its water: 1 unit ≈ 8×8): standable, pushable (gust, Earth snake, crates), slides far on ice, **floats** on water and rides currents (a raft), blocks orbs. Shatters when a big rock hits it or it falls 4+ tiles **(tune)**, into loose water.
+- **Ice cap:** at most **6** pieces of player-made ice per room **(tune: `max_player_ice`)**. Making a 7th melts the oldest with a visible drip-and-crack (its water comes back as loose water). Ice placed in the level doesn't count.
+- **Look:** pale cyan with white streaks, a glint that slides along it as you move, white skid sparks when you change direction. Ice over water keeps a faint blue tint below.
 
-## 7. Materials and objects
+## 8. Materials and objects
 
-### 7.1 Water bodies
+### 8.1 Water in a level
 
-| Body | Behavior |
+| Placed in the editor | Behavior |
 |---|---|
-| **Pool** | Finite units, level drops evenly. Swim in it. Frost → ice sheet |
-| **Stream** | Endless flow along a channel. Pushes you and floating things. Scoop, bend, frost → ice |
-| **Waterfall** | Endless vertical curtain. Pushes you down. Scoop, bend, frost → ice column |
-| **Puddle** | 1 unit lying on a non-absorbent tile (gray rock, ashstone, crates, metal). Scoopable. Frost → ice patch |
-| **Basin** | An empty dip that a diverted flow fills as a pool |
+| **Water** (painted per tile) | Becomes a body at room load; the level settles flat in the first frames |
+| **Source** | Endless water at a rate, at a point or along a lip (streams, waterfalls) |
+| **Sink** | A drain grate: removes water that reaches it |
+| **Ice** (painted) | Level ice; doesn't count toward the cap; melts into water |
 
-### 7.2 What water does to each tile (the wet layer)
+### 8.2 What water does to each tile (the wet layer)
 
-Water that lands on a tile changes it. This is the heart of the chapter.
+Water that lands on a tile changes it. **Absorbent tiles soak water in**: each takes up to 0.25 unit **(tune: `soak_per_tile`)** before it's wet, then water runs over it like rock. So a small throw soaks into a lawn; a big one wets it and puddles.
 
 | Tile | Wet result | Details |
 |---|---|---|
-| **Fresh / used / hardened earth** | **Mud** (fresh mud stays bendable once; used mud stays spent) | Sticky floor and walls, mud rocks (§8.1). The Earth shadow crosses mud |
-| **Grass** | **Wet grass**, which **grows into tall grass** in 0.8 s **(tune)** | Won't burn while wet (§8.2). Tall grass hides you and objects (§7.3) |
-| **Ash** (from Fire) | **Wet ash** (gray-black sludge) that **sets into ashstone** after 2 s **(tune: `ash_set_time`)** | Ashstone acts like gray rock: solid, never burns, **blocks the Earth shadow**. Frost wet ash before it sets and it's ice instead |
-| **Thicket** | **Wet thicket** that grows a **branch** (§7.3) | Won't burn while wet |
-| **Gray rock, ashstone** | **Puddle / wet patch** | Freezes into an ice patch or ice ledge |
-| **Burning anything** | **Doused** (§8.2) | Often makes steam |
+| **Fresh / used / hardened earth** | **Mud** (fresh mud stays bendable once; used mud stays spent) | Sticky floor and walls, mud rocks (§9.1). The Earth shadow crosses mud |
+| **Grass** | **Wet grass**, which **grows into tall grass** in 0.8 s **(tune)** | Won't burn while wet (§9.2). Tall grass hides you and objects (§8.3) |
+| **Ash** (from Fire) | **Wet ash** (gray-black sludge) that **sets into ashstone** after 2 s **(tune: `ash_set_time`)** | Ashstone acts like gray rock: solid, never burns, **blocks the Earth shadow**. Freeze wet ash before it sets and it's ice instead |
+| **Thicket** | **Wet thicket** that grows a **branch** (§8.3) | Won't burn while wet |
+| **Gray rock, ashstone, crates, metal** | Not absorbent: water **puddles** on them | Freezes into an ice patch |
+| **Burning anything** | **Doused** (§9.2) | Often makes steam |
 | **Ice** | Nothing (water runs off) | |
 
-- **Wet things stay wet until reset**, but **heat dries them**: a direct flame (fireball, flame jet plume, bonfire, burning leafling, cinder) touching a wet tile dries it back in a puff of steam **instead** of igniting it. The next flame ignites as usual. Fire **spreading** from a neighbor does **not** dry wet tiles, so a wet line is a firebreak.
+- **Wet things stay wet until reset**, but **heat dries them**: a direct flame (fireball, flame jet plume, bonfire, a burning vine monkey, a cinder) touching a wet tile dries it in a puff of steam **instead** of igniting it. The next flame ignites as usual. Fire **spreading** from a neighbor does **not** dry wet tiles, so a wet line is a firebreak.
 - Dried tall grass stays tall.
 
-### 7.3 Plants: water makes things grow
+### 8.3 Plants: water makes things grow
 
-| Plant | Watered (per unit) | Uses |
+| Plant | Watered (per unit landing on it) | Uses |
 |---|---|---|
-| **Tall grass** (grown from grass) | Grows 16 px tall in 0.8 s | **Hiding:** while you're on the ground inside tall grass, **sentries can't see you**. **Hides objects:** authored tall grass can hide diamonds, plates or seeds; it parts as you walk through and lies flat for 1 s under a gust. **Slows you** to ×0.8 run speed **(tune)**. **Burns bigger** once dry: 16 px flames, burn time 1.4 s **(tune)**, tall enough to block a jump over it |
-| **Vine** (from Fire) | Grows **16 px longer** per unit **(tune)**, up to its authored max | Lowers whatever it holds (a platform, a crate), or reaches down to a lower ledge. Still a rope, not a ladder |
-| **Seed: stalk** (new) | A stalk grows **24 px up** per unit (max 2 units) **(tune)**, with a leaf pad on top | A slow-rising platform: it lifts you gently, it doesn't throw you (that's Earth's column). Flammable |
-| **Seed: lily** (new, on water) | A **lily pad** 16 px wide opens on the surface | Floats, rides the water level up and down and drifts with currents. Standable. Flammable |
-| **Thicket** (from Fire) | Grows a **branch** straight out of the face the water hit, **1 tile per unit**, max 4 **(tune)** | Hit a side face → a horizontal bridge. Hit the top → a wall grows up. Solid, and Fire can burn it later |
+| **Tall grass** (grown from grass) | Grows 16 px tall in 0.8 s | **Hiding:** while you're on the ground inside tall grass, **sentries can't see you**. **Hides objects:** authored tall grass can hide diamonds, plates or seeds; it parts as you walk through and lies flat for 1 s under a gust. **Slows you** to ×0.8 run speed **(tune)**. **Burns bigger** once dry: 16 px flames, burn time 1.4 s **(tune)** |
+| **Vine** (from Fire) | Grows **16 px longer** **(tune)**, up to its authored max | Lowers whatever it holds (a plank, a crate), or reaches down to a lower ledge. Still a rope, not a ladder |
+| **Seed: stalk** (new) | A stalk grows **24 px up** (max 2 units) **(tune)**, with a leaf pad on top | A slow-rising platform: it lifts you gently. Flammable |
+| **Seed: lily** (new, on water) | A **lily pad** 16 px wide opens on the surface | Floats, rides the waves and the level, drifts with currents. Standable. Flammable |
+| **Thicket** (from Fire) | Grows a **branch** straight out of the face the water hit, **1 tile per unit**, max 4 **(tune)** | Hit a side face → a horizontal bridge. Hit the top → a wall grows up. Solid; Fire can burn it later |
 
-Growth needs water to **land on** the plant (ball, stream, trail, pour, a bent flow, rain from melting ice). A plant that's already grown to its max ignores more water.
+Growth needs water to **land on** the plant: a thrown ball, a dropped ball, a snake swept over it, a waterfall, melting ice dripping on it. A plant at its max ignores more water.
 
-### 7.4 New objects
+### 8.4 New objects
 
 | Object | Behavior |
 |---|---|
-| **Channel** | A carved dry trench. A flow bent into it stays there |
-| **Waterwheel** | A paddle wheel. Spins while a flow hits its paddles and holds its door open. When the flow stops, it winds down and the door's timer starts (like the windmill). Also a catch for bent flows |
-| **Steam turbine** | A bladed wheel in a metal housing. **Only steam spins it** (§8.2): a steam burst or steam shot. Spins up and opens its linked door for N seconds **(tune)**; a steady steam column keeps it spinning. Often placed out of reach |
+| **Waterwheel** | Spins while water (falling particles or a stream's flow) hits its paddles, and holds its door open. When the water stops, it winds down and the door's timer starts (like the windmill). Turned by a waterfall, a thrown ball (a short spin) or a stream led onto it |
+| **Steam turbine** | A bladed wheel in a metal housing. **Only steam spins it** (§9.2). Spins up and opens its linked door for N seconds **(tune)**; a steady steam column keeps it spinning. Often out of reach |
 | **Water scale** | A cup on a spring. Sinks and presses like a pressure plate while it holds **2+ units** **(tune)** of water or ice. Fire evaporating its water lifts it again |
-| **Linked pools + pipe** | Share one level |
-| **Seeds** (stalk, lily) | See §7.3 |
+| **Drain grate** | A sink (§8.1). Can be opened or closed by a switch: empty a pool on a switch |
+| **Seeds** (stalk, lily) | See §8.3 |
 
-### 7.5 What floats
-Crates, ice blocks, lily pads, leaf platforms and loose leaf piles **float** and ride the water level and currents. Rocks, Shells and the player don't (the player swims). Implemented as a `floatable` group with a buoyancy hook.
+No pipe or basin objects: with real flow, a pool **connected under a wall** shares its level by itself, and any dip is a basin.
 
-## 8. Element combinations
+### 8.5 What floats
+Crates, ice blocks, lily pads, leaf platforms and loose leaf piles **float**, bob on the waves and drift with currents. Rocks, Shells and the player don't (the player swims). A floating thing pushes the water as much as it weighs, so a crate dropped in a narrow pool raises its level a little. Implemented as a `floatable` group with a buoyancy hook that reads `WaterWorld` depth and slope.
 
-Every element changes at least one material, and Water touches all of them. Mixed rooms are built on this map.
+## 9. Element combinations
 
-### 8.0 Transformation map
+### 9.0 Transformation map
 
 ```
 earth  --water--> mud        --heat--> earth
 grass  --water--> tall grass (wet) --heat--> tall grass (dry) --fire--> big fire --> ash
 ash    --water--> wet ash    --2 s--> ashstone (blocks the Earth shadow, never burns)
-water  --frost--> ice        --fire--> water
+water  --freeze--> ice       --fire--> water
 fire   --water--> doused + steam
-fire   --frost--> snuffed
-steam  --> lifts gliders, balloons; spins turbines
+steam  --> lifts gliders; spins turbines
 ```
 
-### 8.1 Water + Earth
+### 9.1 Water + Earth
 
 **Mud** (wet earth)
 - **Sticky floor:** run ×0.5, jump height ×0.65 **(tune)**. Landing on mud **kills any momentum** at once: the brake at the end of an ice runway.
-- **Sticky walls:** on a mud wall you **cling without sliding** for as long as you hold toward it. Wall jumps still work. A rest stop on a long climb.
+- **Sticky walls:** on a mud wall you **cling without sliding** for as long as you hold toward it. Wall jumps still work.
 - Frozen mud is ice (slippery). Heat dries it back to earth.
 
-**Mud rocks** (pressing S on a mud tile)
-- Brown, dripping. They **stick to anything** they hit: gray rock, walls, ceilings, ice, crates, not only earth. Mud footholds can go anywhere.
-- They **do no damage**. Instead they **gum enemies up** for `mud_stick_time` = 4 s **(tune)** ⚠ confirm (or until reset):
-  - **Walking enemies** (wisp, leafling, Shell) are **stuck in place**.
-  - **Shooting enemies** (sentry) are **clogged**: no orbs.
-  - **Cinders** are **smothered and die** (mud is wet).
-- A big mud rock gums a bigger area (everything it touches) and still breaks cracked walls.
+**Mud rocks** (the boulder key S on a mud tile)
+- Brown, dripping. They **stick to anything** they hit: gray rock, walls, ceilings, ice, crates.
+- They **do no damage**. They **gum enemies up** for 4 s **(tune: `mud_stick_time`)**: walking enemies are stuck in place, sentries are clogged (no orbs), **cinders are smothered and die**.
 
-**Other**
-- A **hardened snake** across a stream dams it: the flow ends there, and if there's a basin behind the dam, it fills.
-- A rock thrown into a pool **splashes**, wetting the tiles within 16 px of the surface.
+**Other** (most of these come free from the simulation)
+- An Earth **column rising in a pool** pushes the water aside: the level rises and a wave runs out.
+- A **hardened snake across a stream** dams it: the water backs up behind it and spills over or fills the dip behind.
+- A rock thrown into a pool **splashes** (real particles: it wets what the splash lands on).
 - A rising column under an ice block launches it.
-- The Earth shadow crosses mud and ice crust but **stops at ashstone**.
+- The Earth shadow crosses mud and ice but **stops at ashstone**.
 - **Shells sink** and walk along pool floors. On ice they can't stop at ledges, so they slide off.
 
-### 8.2 Water + Fire
+### 9.2 Water + Fire
 
 **Douse** (water touching fire)
 
@@ -259,204 +322,203 @@ steam  --> lifts gliders, balloons; spins turbines
 | **Bonfire** | Out; a smoking **wet leaf pile** (needs one flame to dry, then another to relight). A big **steam burst** |
 | Burning crate | **Charred wet crate** (solid, usable) |
 | Burning vine | Stops; the burnt part is gone |
-| Burning leafling | Snuffed, stunned 1 s, then a normal leafling |
-| **Brazier** | **Goes out**, and its door closes ⚠ confirm (the gust can't do this; water can) |
-| Fireball in flight (hit by a ball) | Both pop in a steam puff |
-| **Cinder** | **Dies** (§9) |
+| Burning vine monkey | Snuffed, stunned 1 s, then carries on (as in `Fire_bending.md` §5.4) |
+| **Brazier** | **Goes out**, and its door closes ⚠ confirm |
+| **Cinder** | **Dies** (§10) |
 
-**Steam** is **fast-moving clusters of hot vapor**. It's harmless to you.
-- **Steam burst** (water onto a bonfire, or onto 3+ burning tiles at once): a jet of puffs shooting **up 64 px** for 1.2 s **(tune)**. It's a **hot updraft** while it lasts (lifts gliders, balloons, heat sails) and **spins any turbine** in its path.
-- **Steam shot** (fireball thrown **through your blob** while carrying water): the fireball spends 1 unit of water and leaves as a **steam shot**, a fast cluster of puffs (260 px/s, range 160 px **(tune)**) flying the fireball's direction. It doesn't ignite anything; it **spins turbines from afar**, shoves light objects and dries wet tiles it crosses.
-- **Jet over water:** the flame jet's plume touching a pool raises a steam column for as long as it touches + 0.5 s, and **boils off 1 unit per 0.5 s** ⚠ confirm.
+**Steam** is fast-moving clusters of hot vapor. Harmless to you.
+- **Steam burst** (water onto a bonfire, or onto 3+ burning tiles at once): a jet of puffs shooting **up 64 px** for 1.2 s **(tune)**. A **hot updraft** while it lasts (lifts gliders) that **spins any turbine** in its path.
+- **Steam shot** (a fireball flying **through loose water**: a thrown ball, a flung snake, a waterfall): the fireball spends up to 1 unit of that water and leaves as a **steam shot** (260 px/s, range 160 px **(tune)**) in its direction. It ignites nothing; it **spins turbines from afar**, shoves light objects and dries wet tiles it crosses. A fireball through a *small* splash just goes out in a puff.
+- **Jet over water:** the flame jet's plume touching a body raises a steam column while it touches + 0.5 s, and boils off 1 unit per 0.5 s ⚠ confirm.
 
-**Fire melts ice**
-- Any flame touching ice turns it back to water: a sheet sinks back into its pool, a frozen flow starts flowing again, a slide or ice block falls as puddles and wet tiles, an ice ledge drips into a wet patch. The flame jet can **carve through** ice.
+**Fire melts ice**: any flame touching ice turns it back to loose water (§5.3). The flame jet carves through ice.
 
-**Frost snuffs fire**
-- A frost shot on a small fire (grass, thicket, vine, crate, leafling): out, and the tile is left **wet** (the frost melts in the heat), unlike the gust, which leaves ash.
-- On a **bonfire**: it freezes into an **ice-coated leaf pile**, a standable lump. A flame thaws it into a wet pile.
-- Frost meeting a fireball: both burst into a steam puff.
-
-### 8.3 Water + Air
-- A **gust over a pool** raises a wave in its direction that shoves floating things across.
-- A gust **slides ice blocks** and carries a **ball** in flight along with it.
-- A gust through a **stream arc in flight** sprays it wide: it wets a wider, shorter area.
+### 9.3 Water + Air
+- A **gust over a pool** pushes its surface: a real wave runs across and shoves floating things.
+- A gust **pushes loose water** (it's particles): it sprays a ball wide, bends a falling stream, slides ice blocks.
 - A gust **bends a steam column** sideways: aim steam at a turbine.
-- The **dash** keeps its momentum on ice. **Gliding** over steam lifts you.
-- Air moves are off while submerged ⚠ confirm.
+- **Gliding** over steam lifts you.
 
-### 8.4 Three or four elements (summit and mixed rooms)
-- Burn a grass run (Fire) → wet the ash (Water) → it sets into ashstone → the Earth shadow can't cross there, so the shadow is forced the long way round.
+### 9.4 Three or four elements (summit and mixed rooms)
+- Burn a grass run (Fire) → wet the ash (Water) → it sets into ashstone → the Earth shadow can't cross there, so it must go the long way round.
 - Wet earth into mud (Water) → tear a mud rock (Earth) → stick a sentry shut → glide past (Air).
 - Douse a bonfire (Water) → steam burst → glide up on it (Air) → a gust bends it onto a turbine.
+- Raise an Earth column in a pool to lift its level up to a ledge, then freeze the surface to run across (Earth + Water).
 - Water grass into tall grass, hide from a sentry, then let a cinder walk into it once it's dry: a big fire that clears the thicket ahead.
 
-## 9. Enemies
+## 10. Enemies
 
-### 9.1 Cinder (home: **Water**)
+### 10.1 Cinder (home: **Water**)
 Completes "one enemy per element that only its element kills".
 
-- **Look:** an 8×7 lump of coal with glowing orange seams and a small flame crown that flickers. It moves in short hops and sheds sparks.
-- **Behavior:** patrols at 40 px/s **(tune)** and kills on touch. **It ignites flammable things it touches**, so in grassy rooms it leaves a burning trail behind it: a walking fuse you don't control.
+- **Look:** an 8×7 lump of coal with glowing orange seams and a small flickering flame crown. It moves in short hops and sheds sparks.
+- **Behavior:** patrols at 40 px/s **(tune)** and kills on touch. **It ignites flammable things it touches**, so in grassy rooms it leaves a burning trail: a walking fuse you don't control.
 - **It fears water:** it turns around at wet tiles, puddles, mud and ice. A wet line is a fence.
-- **Only water kills it:** a ball, a stream, a swung flow, a frost shot, a mud rock, or falling into a pool. It dies with a hiss and a **steam puff** (a small steam burst that can nudge a turbine).
-- **Everything else fails:**
-  - Fire feeds it (no effect).
-  - Spikes don't hurt it; a column crush doesn't either.
-  - Rocks (small and big) knock it back.
-  - A **gust flares it**: ×1.5 speed for 1 s, and it ignites everything along the way.
-- **Puzzle use:** fence it with water, or **use it** as a fuse to burn thicket or light a fuse you can't reach, then kill it.
-- **Note:** the Cinder is built in stage W9 and also appears in later mixed rooms. Add it to the enemy table in `Fire_bending.md` §7.2 when Fire is play-tested.
+- **Only water kills it:** a ball, a snake, a waterfall, a mud rock, falling into a pool. It dies with a hiss and a **steam puff** (a small steam burst that can nudge a turbine).
+- **Everything else fails:** fire feeds it; spikes and column crushes don't hurt it; rocks knock it back; a **gust flares it** (×1.5 speed for 1 s, igniting everything along the way).
+- **Puzzle use:** fence it with water, or **use it** as a fuse to burn thicket, then kill it.
 
-### 9.2 All enemies against Water
+### 10.2 All enemies against Water
 
-| | Wisp | Sentry | Leafling | Shell | **Cinder** |
-|---|---|---|---|---|---|
-| Ball | stunned 0.5 s + **wet** | doused 3 s | knocked back, wet (won't burn) | nudged | **dies** |
-| Stream / flow | pushed far | doused 3 s | carried away | nudged | **dies** |
-| Frost | freezes **if wet** (else nothing) | freezes orbs mid-flight | nothing | nothing | **dies** |
-| Mud rock | stuck 4 s | clogged 4 s | stuck 4 s | stuck 4 s | **dies** |
-| Deep water | **dies** (can't swim) | n/a | floats | sinks, walks the floor | **dies** |
-| Fire | dies | dies (fireball) | **dies (torch)** | immune | immune |
-| Big rock | dies | dies | knocked back | **dies** | knocked back |
+| | Wisp | Sentry | Vine monkey | Thicket elephant | Shell | **Cinder** |
+|---|---|---|---|---|---|---|
+| Thrown ball | stunned 0.5 s + **wet** | doused 3 s (no orbs) | knocked back, wet (won't burn) | wet (won't burn), not moved | nudged | **dies** |
+| Snake (held) | pushed far | doused while touched | pushed | not moved | nudged | **dies** |
+| Freeze | in an ice block **if wet** | its orbs, if wet | nothing | nothing | nothing | dies (it was already in water) |
+| Mud rock | stuck 4 s | clogged 4 s | stuck 4 s | stuck 4 s | stuck 4 s | **dies** |
+| Deep water | **dies** (can't swim) | n/a | floats, swims to shore | wades, half speed ⚠ | sinks, walks the floor | **dies** |
+| Fire | dies | dies (fireball) | **dies (torch)** | burns (as in Fire) | immune | immune |
+| Big rock | dies | dies | knocked back | pushed back | **dies** | knocked back |
 
 - **Frozen wisp:** a wisp in an ice block is harmless and pushable. Push it into spikes or drop it 4+ tiles to shatter it, which defeats it. Fire thaws it out.
+- Orbs that fly through loose water get wet; the next freeze (rule 2 or 3) can freeze them mid-air, and they drop and shatter.
 
-## 10. Player
-- **New states:** `Swimming` (with propel), `Sliding` (ice slopes), `Pulling` and `Bending` (rooted, slow motion). The ball and stream aims and the frost aim reuse the gust aim state. The breach reuses `Launched`.
-- **Hazards:** water isn't a hazard by itself. Spikes under water still kill. Steam is harmless.
-- **Momentum on ice** carries into every move: jumps, dashes and jets launched from ice keep their speed.
+## 11. Player
+- **New states:** `WaterHolding` (slow motion, ball steering; on the ground you stand, in the air you keep your arc), `Swimming`, `Sliding` (ice slopes).
+- **Hazards:** water isn't a hazard. Spikes under water still kill. Steam is harmless.
+- **Momentum on ice** carries into every move: jumps and jets launched from ice keep their speed.
 
-## 11. The look: water must feel alive
+## 12. The look: water must feel alive
 
-Placeholder rules still apply (shapes, lines, particles, one color family per type). As with fire, "alive" comes from **motion**.
+Placeholder rules still apply (shapes, lines, particles, one color family per type). With the simulation (§6) most of "alive" comes for free: real waves, real drips. The look's job is to make it readable and pretty.
 
-### 11.1 Palette (water family)
+### 12.1 Palette (water family)
 
 | Use | Color |
 |---|---|
 | Deep water | `#1F4E8C` |
-| Water body | `#2F7FD1` at 85% alpha |
-| Surface line / foam | `#BFE4FF` |
+| Water body, ball, drops | `#2F7FD1` at 85% alpha |
+| Surface line / foam / blob rim | `#BFE4FF` |
+| Control ring | `#7FC8FF` at 25% alpha |
 | Ice | `#A9F0FF` with `#FFFFFF` streaks |
-| Frost dart | `#E8FBFF` core, `#7FDFFF` trail |
+| Freeze wipe | `#E8FBFF` crystal lines |
 | Mud | `#5A3B22` with glossy `#A47A4E` highlights |
 | Wet ash / ashstone | `#2B2A2E` sludge / `#565359` stone with pale flecks |
 | Steam | `#F2F2F2` at 50–70% alpha |
 | Plants | the existing grass greens; tall grass slightly bluer while wet |
 
-### 11.2 Building blocks (one script each, reused everywhere)
-1. **`WaterSurface`:** a 1D spring chain along the pool's surface line (the classic 2D water trick: each column is a damped spring, coupled to its neighbors). Splashes, scoops, swimmers and floating objects push the springs, so waves ripple outward. Cheap and very alive.
-2. **`FlowRibbon`:** a `Line2D` polyline for streams and waterfalls with scrolling stripes, a foam lip and spray at the bottom. Bending a flow just moves its points.
-3. **`Blob`:** a wobbling polygon whose radius is driven by noise and by your motion (it lags and sloshes when you turn), with a highlight. Its size steps up with each unit.
-4. **`Tendril`:** a tapering `Line2D` with noise along its length for pulls and scoops.
-5. **`DropletEmitter`** and **`SteamEmitter`:** droplets arc and splash; steam puffs rise fast, swell and fade.
-6. **`FreezeWipe`:** frost spreads from the hit point as branching white crystal lines, then the surface snaps to ice with a glint.
+### 12.2 Building blocks (one script each, reused everywhere)
+1. **`WaterWorld`**: the simulation (§6), one per room.
+2. **`WaterRenderer`**: body polygons + the metaball layer for particles, ball and snake (§6.3).
+3. **`ControlRing`**: the faint ring, with a soft pulse where the ball nears its edge ("about to leave your hands").
+4. **`FreezeWipe`**: frost spreads from where the freeze starts as branching white crystal lines, then the water snaps to ice with a glint. For thrown water, it races along the shape from the end nearest you.
+5. **`SteamEmitter`**: puffs rise fast, swell and fade.
 
-### 11.3 Per source
+### 12.3 Per source
 
 | Source | Look |
 |---|---|
-| Scoop | A gulp leaps from the surface in an arc; the surface dips and rings outward |
-| Pull | The tendril twists up into the blob; the pool level visibly slides down; ripples run toward the pull point |
-| Bend | The flow curves smoothly toward your hands, foam where it bends, spray at its tip |
-| Ball | A wobbling droplet with a short trail; splash crown on impact, droplets, a dark wet patch |
-| Stream | A glossy rope of water along the arc, thinning at the tail, splashing where it lands |
-| Trail | Drips behind your heels, wet footprints |
-| Frost | A sparkling dart; on impact, the `FreezeWipe`, a freeze frame of 2 frames, a soft crackle |
-| Ice slide | A cyan ribbon following the frozen arc, with frozen ripples along it |
-| Propel | A cone of bubbles and current lines behind you; on breach, a splash crown and spray |
-| Mud | Glossy, slowly dripping; footprints sink and squelch; mud walls show hand prints when you cling |
-| Wet ash → ashstone | Sludge bubbles, then the bubbles freeze and it dulls to stone with a small crack sound |
+| Hold | The world dims a touch, the ring fades in, a spark at your hands |
+| Gather | A tendril from the surface into the ball; the surface dips under it and rings outward; the ball swells |
+| Snake | A glossy column with a foam lip at its foot; the neck thins and drips as you near the tear speed |
+| Tear | The neck pinches into drops that rain back into the pool |
+| Throw | The ball stretches along its flight, sheds a few drops; a splash crown and spray on impact, waves if it lands in a pool, a dark wet patch on land |
+| Freeze | The `FreezeWipe`, a 2-frame freeze frame, a soft crackle |
+| Ice slide | A cyan ribbon along the frozen arc, frozen ripples on it |
+| Swimming | A wake behind you; a splash crown when you jump in or leap out |
+| Mud | Glossy, slowly dripping; footprints sink and squelch; hand prints where you cling |
+| Wet ash → ashstone | Sludge bubbles, then the bubbles freeze and it dulls to stone with a small crack |
 | Growth | Tall grass pushes up and sways; stalks uncurl their leaf; branches knot outward tile by tile |
 | Steam | Puffs shooting fast in their direction, curling at the edges, thinning to nothing |
 | Douse | The flame hisses down into a steam puff; the tile turns dark and dripping |
-| Melt | Ice glows, drips, then collapses into water and a splash |
+| Melt | Ice glows, drips, then collapses into loose water and a splash |
 | Cinder | Pulsing seams, a flickering crown, sparks on each hop; dies in a hiss and a white puff |
 
-### 11.4 Feel
-- Big actions get big reactions: a breach = splash crown + small shake; freezing a pool = freeze frame + crackle; a steam burst = whoosh + puff column.
-- Droplets, steam and ice shards count toward the per-room particle cap and degrade gracefully.
-- SFX hooks: `water_scoop`, `water_pull_loop`, `water_throw`, `water_splash`, `stream_pour`, `flow_bend_loop`, `frost_shot`, `freeze`, `ice_skid`, `swim_stroke`, `propel_loop`, `breach`, `mud_squelch`, `douse_hiss`, `steam_burst`, `grow`, `melt`.
+### 12.4 Feel
+- Big actions get big reactions: a big splash = small shake; freezing a pool = freeze frame + crackle; a steam burst = whoosh + puff column.
+- SFX hooks: `water_hold_loop`, `water_gather`, `snake_rise_loop`, `snake_tear`, `water_throw`, `water_splash`, `water_drip`, `freeze`, `ice_skid`, `swim_stroke`, `mud_squelch`, `douse_hiss`, `steam_burst`, `grow`, `melt`.
 
-## 12. Architecture (reuse first)
+## 13. Architecture (reuse first)
 
-- **`WaterTuning`** resource: every number above, in the live tuning menu.
-- **`WaterCarrier`**: a component on the player holding the blob's units (an int). Signals `units_changed`, `ran_dry`.
-- **Abilities** (shared-core pattern, like the Earth bend): `WaterHandsAbility` (context resolver for Q: scoop, pull, bend, ball, stream, trail, pour, propel), `FrostAbility` (dart, airtime charge, auto-freeze of your own stream or held flow).
-- **`Pool`** node: units, level, `WaterSurface`, linked pools, basin filling. **`Flow`** node: a polyline with a source, natural path, current zone (reuse the Air `WindZone`), bend state and catch detection.
-- **`SurfaceGrid`**: one per-room grid of tile **states** shared by Fire and Water: burning, smoldering, ash, wet, mud, wet ash, ashstone, ice crust, tall grass. **If Fire's `FireGrid` isn't built yet when this spec is approved, build it as `SurfaceGrid` from the start**; otherwise generalize it in stage W2.
-- **Contracts** (like `Pushable` and `Flammable`): `Wettable` (`wet(source)`, `is_wet()`, `dry()`), `Freezable` (`freeze(source)`, `thaw()`), `Growable` (`water(units, from_direction)`), and the `floatable` group. Steam reuses `HeatReceiver` and the `heat` WindZone flag; turbines join a `steam_receiver` group.
-- **Ice slides:** a `StaticBody2D` with a `CollisionPolygon2D` built from the frozen arc (one-way for player-made slides). `CharacterBody2D` already handles slopes (`floor_max_angle`); the `Sliding` state adds the tangent acceleration.
-- **`ElementImmunity`** gains water, frost, mud and deep-water entries for every enemy.
-- **Rooms:** new flag `water_allowed`. Fire objects (bonfires, braziers, burning grass) can appear **pre-lit** in Water-only rooms, so steam and dousing work without Fire moves. Main menu: "Water chapter", "Water test rooms", and mixed test rooms.
-- **Headless smoke test:** every room loads, pools, flows, grid and ice reset on R, ice count stays under the cap.
+- **`WaterTuning`** resource: every number above, in the live tuning panel.
+- **`WaterWorld`** (one per room, created by `Room` like the fire grid): owns every body, every particle (packed arrays), the spatial hash, the solid-tile grid, sources, sinks and the volume bookkeeping. It's the only node that steps water. API used by everyone else: `depth_at(pos)`, `surface_at(x)`, `gather(pos, max_units) -> units`, `add_loose(points, velocities, units, group_id)`, `push(pos, impulse)`, `freeze_group(id)`, `freeze_touching(rect)`, `total_units()` (for tests), `reset()`.
+- **Abilities** (components under the player): `WaterHandsAbility` (hold, ring, ball, snake, release), `FreezeAbility` (picks the target in the §5.3 order). `HeldWater` holds the ball + snake rope while held.
+- **Throw groups:** each release gets a group id; particles keep it until they merge or soak. "The water you last threw" = the newest group with particles left.
+- **Ice:** `IcePiece` (`StaticBody2D` with a `CollisionPolygon2D` built from the frozen shape; one-way for player slides) and `IceBlock` (a falling, pushable, floating block, built on the crate). Both melt back into `WaterWorld`.
+- **`SurfaceGrid`**: generalize Fire's `FireGrid` into one per-room grid of tile states shared by Fire and Water: burning, smoldering, ash, wet, mud, wet ash, ashstone, ice crust, tall grass.
+- **Contracts** (like `Pushable` and `Flammable`): `Wettable` (`wet(source)`, `is_wet()`, `dry()`), `Freezable` (`freeze(source)`, `thaw()`), `Growable` (`water(units, from_direction)`), and the `floatable` group. Steam reuses `HeatReceiver`; turbines join a `steam_receiver` group.
+- **`ElementImmunity`** gains water, freeze, mud and deep-water entries for every enemy.
+- **Rooms:** new flag `water_allowed`. Fire objects (bonfires, braziers, burning grass) can appear **pre-lit** in Water-only rooms. Main menu: "Water chapter", "Water test rooms", mixed test rooms.
+- **Level editor:** each stage that adds something placeable adds it to `palette_catalog.gd` (water tiles, source, sink, drain grate, painted ice, waterwheel, turbine, scale, seeds, cinder), per CLAUDE.md rule 7.
+- **Tests:** `tests/water_test_world.tscn` + `tests/water_smoke_test.tscn` (one section per W stage; checks volume conservation, reset, the ice cap, and the §6.5 budget), later `tests/water_chapter_smoke_test.tscn`.
 
-## 13. Build stages
+## 14. Build stages
+
+The first two stages build **only the water**, with no bending, and end with a play-test gate: nothing else is built until the developer says the water feels right.
 
 | Stage | Contents | Done when |
 |---|---|---|
-| **W1** | `WaterTuning`, `Pool` with `WaterSurface`, `WaterCarrier`, blob visual, HUD row; scoop and pull | Scoop on the run, pull a pool down and see the level drop and the waves ripple |
-| **W2** | Ball, stream aim and pour, trail, pour at feet; `SurfaceGrid` wet states, puddles, mud and wet grass looks; `Wettable` | Wet a floor three ways; it looks wet |
-| **W3** | Swimming, propel, breach; `Flow` (streams, waterfalls) with currents and endless scooping; floating | Breach out of a pool onto a high ledge; ride a stream on a crate |
-| **W4** | Frost dart, airtime charge; freezing pools, puddles, wet tiles, balls, wet wisps; ice ground physics; ice blocks; ice cap | Freeze a pool and long-jump off it |
-| **W5** | Ice slides from frozen streams and flows; `Sliding` state; one-way slides; ramps | Pour and freeze a slide over a spike pit and ride it across |
-| **W6** | Bending flows: grab, steer, snap back, catches (channel, basin, waterwheel); sculpting with frost; waterfall curtains | Bend a waterfall onto a waterwheel; sculpt it into a ramp and reach the ledge behind it |
-| **W7** | Plants: tall grass (hiding, sentry sight, hidden objects, slow, big burn), vine growth, stalk and lily seeds, thicket branches; water scale | Every row of §7.3 works in a test room |
-| **W8** | Combinations: mud floor and walls, mud rocks and gumming, wet ash → ashstone, heat dries, douse table, steam burst / shot / jet-over-water, steam turbine, fire melts ice, frost snuffs | Every row of §8.1–8.3 works in a test room |
-| **W9** | Cinder; `ElementImmunity` rows for all enemies; frozen wisp | Every cell of the §9.2 table behaves as written |
-| **W10** | Look and feel pass (§11) | It looks alive in a screenshot and in motion |
-| **W11** | Rooms 1–10, mixed test rooms, smoke test | Chapter playable start to Goal |
+| **W1** | **Water sim I: bodies.** `WaterTuning`, `WaterWorld` with height-field bodies (pipe model + ripple layer), sleeping, merging/splitting, spilling at lips (as simple falling drops for now), body drawing, painted water in rooms; floating crate (buoyancy); debug keys: poke a wave, dump 4 units at the player, drain 4 units. Water test world (a pool, a stepped channel, two pools joined under a wall, a ledge to spill over); smoke test with volume checks and the **performance section** | A dumped bucket makes a wave that crosses the pool, bounces and settles; water runs down the steps and levels out; the joined pools share a level; a crate bobs. Water ≤ 2 ms per frame in the stress test. **Play-test gate 1** |
+| **W2** | **Water sim II: loose water.** Particles with cohesion, tile and moving-solid collision, merging into bodies, puddles forming and spreading, soaking (stub wet flag), splash spray, drips; the metaball renderer; sources and sinks; streams and waterfalls; a debug "throw a ball" key in the arrow direction | A thrown ball arcs, splashes into a pool with a crown and waves; on a floor it spreads into a puddle; a waterfall pours into a pool and the waterwheel test stub turns. Total volume is conserved (sources/sinks aside). ≤ 2 ms with 400 particles. **Play-test gate 2: "the water feels right"** |
+| **W3** | **Water hands:** `water_hands` / `water_freeze` actions on 1 / 2, `WaterHoldingState`, slow motion, the ring, ball steering, gathering (bodies, puddles, loose drops, flows), release with the boost, auto-release at the ring edge and after `max_hold_time`, jump cancel, orbs vs the held ball | Gather 4 units from one pool and throw them into another: the first is lower, the second higher |
+| **W4** | **Water snake:** rise-speed rule, rope, foot sliding along the surface, tear, draining while it rises, endless from flows, shoving, dousing, whip release | Raise a snake slowly and sweep a crate off a ledge; lift too fast and it tears and rains back |
+| **W5** | **Freeze and ice:** target order (held / last throw / touching / fizzle), ice blocks from compact water, static ice from long shapes, pool sheets, puddle and wet-tile ice, frozen streams and waterfalls, ice ground physics, ice cap, melting back to water | Freeze a thrown ball mid-air and land on the block; freeze a pool and long-jump off it; a melted pillar refills its pool |
+| **W6** | Ice slides: one-way polylines, `Sliding` state, slopes, ramps | Fling a snake arc over a spike pit, freeze it into a slide and ride it across |
+| **W7** | Swimming, currents, floating objects riding waves and streams, enemies in deep water | Swim through a pool, ride a stream on a floating crate |
+| **W8** | Wet layer: `SurfaceGrid` (from `FireGrid`), `Wettable`, soaking, mud, wet grass, wet ash → ashstone, heat dries, looks | Wet a floor three ways (ball, drop, waterfall); it looks wet; mud brakes an ice runway |
+| **W9** | Plants: tall grass (hiding, hidden objects, slow, big burn), vine growth, stalk and lily seeds, thicket branches; water scale, waterwheel, drain grate | Every row of §8.3 and §8.4 works in a test room |
+| **W10** | Combinations: mud rocks and gumming, douse table, steam burst / shot / jet-over-water, steam turbine, fire melts ice, gust on water | Every row of §9.1–9.3 works in a test room |
+| **W11** | Cinder; `ElementImmunity` rows for all enemies; frozen wisp | Every cell of the §10.2 table behaves as written |
+| **W12** | Look and feel pass (§12) | It looks alive in a screenshot and in motion |
+| **W13** | Rooms 1–10, mixed test rooms, chapter smoke test | Chapter playable start to Goal |
 
-Each stage should ship with basic visuals (a wobbling blob, a rippling surface) so it's tested with water that already looks like water. W10 is the full pass.
+The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire is finished, like Fire's F0.
 
-## 14. Rooms (draft)
+## 15. Rooms (draft)
 
-1. **Still Water:** scoop on the run, pull a pool, watch the level drop, swim through.
-2. **Undercurrent:** propel and breach out of a deep pool to a high ledge; a stream current carries you along.
-3. **Draining:** pull a pool down to uncover the way on; a floating crate rides the level down onto a plate; a lily pad lowers you to a ledge.
-4. **First Frost:** freeze a pool into an ice sheet and run across; long jumps off ice.
-5. **Slide:** pour a stream and freeze it into a slide over a spike pit; drip a trail and freeze it into a runway, ending in mud to stop you.
-6. **The Falls:** bend a waterfall onto a waterwheel to open a door; sculpt a waterfall into a ramp to reach the ledge it hid; wall-jump up a frozen waterfall.
+1. **Still Water:** hold, gather, throw. Carry water from a deep pool to a dry basin until a floating crate rises to a ledge.
+2. **Rising:** raise a snake slowly to sweep a crate off a shelf; lift too fast and watch it tear. Draining a pool with snakes uncovers the way on.
+3. **Waves:** float on lily pads and crates; a dropped ball's wave carries a floating platform across; joined pools share their level.
+4. **First Frost:** freeze a thrown ball into a block to stand on; freeze a pool and long-jump off it; build a pillar from a snake to climb.
+5. **Slide:** fling an arc over a spike pit and freeze it into a slide; spread a puddle into a runway, freeze it, and brake in mud at the end.
+6. **The Falls:** gather endlessly from a waterfall; spin a waterwheel with thrown water; freeze a waterfall and wall-jump up it; freeze a stream to dam it.
 7. **Green Thumb:** grow a vine down to a ledge, a stalk up to an exit, a thicket branch across a gap; hide in tall grass to sneak past a sentry.
 8. **Mud and Ash:** cling to mud walls on a long climb; a pre-burnt field of ash becomes ashstone where you wet it; douse a pre-lit bonfire for a steam burst that spins a turbine.
-9. **Cinders:** the water enemy. Fence cinders with wet lines, kill them with balls and frost, and let one burn a thicket open for you before you put it out.
+9. **Cinders:** fence cinders with wet lines, kill them with water, and let one burn a thicket open before you put it out.
 10. **Glacier:** scrolling summit with everything together, the Goal.
 
 **Mixed test rooms**
-- **Water + Fire:** steam shots at an out-of-reach turbine; douse a fuse to save a bridge; melt an ice wall with the jet; dry tall grass and burn it for a big fire.
-- **Water + Earth:** mud rocks on gray rock and ceilings; gum a sentry shut; snake-dam a stream to fill a basin; slide a Shell off an ice sheet.
-- **Water + Air:** gust waves across a pool; dash along ice runways; glide on steam; bend steam onto a turbine with a gust.
-- **All four:** the §8.4 chains.
+- **Water + Fire:** steam shots through a waterfall at an out-of-reach turbine; douse a burning vine to save a plank; melt an ice wall with the jet; dry tall grass and burn it.
+- **Water + Earth:** raise a column in a pool to lift its level; mud rocks on gray rock and ceilings; gum a sentry shut; dam a stream with a hardened snake; slide a Shell off an ice sheet.
+- **Water + Air:** gust waves across a pool; spray a falling stream sideways onto a wheel; glide on steam; bend steam onto a turbine.
+- **All four:** the §9.4 chains.
 
-## 15. Decision log (play-test)
+## 16. Decision log
 
-*Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*
+### Decided in the v2 rewrite (26 Oct 2026, developer's prompt)
+- **Keys moved from Q/W to 1/2** (Q/W are Fire's). One row per element: Air Z, Earth A/S, Fire Q/W, Water 1/2; jump stays on C (index) and Space (thumb). X stays free (§3).
+- **One water verb instead of six:** scoop, pull, flow-bending, ball, stream, trail and pour are replaced by the held **waterball** steered in slow motion inside a ring, which gathers water, raises a **snake** when lifted slowly, and flies on with a **throw boost** when released or pushed out of the ring.
+- **Freeze instead of the frost dart:** no aiming and no airtime charge; it freezes the last thrown water, else the water you touch. Added: freezing what you hold (⚠ confirm).
+- **Simulated water** (height-field bodies + capped particles + metaball drawing) with a hard 2 ms budget, built and play-tested before any bending (W1–W2).
+- **Dropped:** the blob carried between uses and its HUD row, the frost charge, propel and breach (the 1 key is the waterball even underwater), pipes and basin objects (real flow does it), the "Q in context" table.
 
-Open questions to answer in play-test:
-- **Q in context:** carrying water at a pool's edge, a tap scoops instead of throwing. Is that annoying? If so, try "an arrow pointing away from the water throws".
-- **Fill and fire:** does holding Q through a full pull into the stream aim feel natural, or does it fire streams you didn't mean to?
-- **Frost one per airtime:** too stingy for building slides mid-air? Should landing on ice refill it (as written) or only ground?
-- **Stream freeze window** (0.3 s after the pour): easy to hit? Should W during a pour always freeze your stream, even with an arrow held?
-- **Slopes:** does the `Sliding` state feel good at 1.0 gravity scale? Are one-way slides readable?
-- **Bend:** is rooted slow motion right for bending flows, or should you be able to walk slowly while holding one?
+### Open questions for play-test
+- **Reach:** is 1/2 comfortable with the index on C? If not, try jump on V, or rely on Space (§3.2).
+- **Moving while holding:** standing still on the ground, and keeping your arc in the air: right? Or should you walk slowly while holding?
+- **Throw boost 2.5×:** throws feel strong enough? Too wild?
+- **Snake rise speed 40 px/s:** learnable by eye? Should sideways speed also tear it?
+- **Freeze while holding:** keep it, or does it make throwing-then-freezing pointless?
+- **Freezing a pool you swim in** lifts you onto it: helpful or weird?
+- **Max hold 4 s:** enough to build a snake, short enough to stop slow-motion camping?
+- **Ice cap 6:** enough?
 - **Mud gum time:** 4 s, or until reset?
 - **Douse a brazier** closing its door: good puzzle, or confusing?
 - **Jet over water** boiling pools down: fun, or a way to wreck a room by accident?
-- **Tall grass everywhere:** does all watered grass growing tall clutter rooms? If so, only "sprout grass" tiles grow tall.
-- **Ice cap 6:** enough?
-- **Submerged:** should Air and Fire moves really be off underwater?
+- **Tall grass everywhere:** if all watered grass growing tall clutters rooms, only "sprout grass" tiles grow tall.
+- **Underwater:** the jet and fireball off, the gust at half strength: right?
 
-## 16. Parking lot (not confirmed)
-- **Water whip:** a tendril strike from the blob.
-- **Surfing:** stand on an ice block riding a stream (it may just work with floating + currents; test it).
-- **Climbing up a waterfall** with the propel, salmon-style.
-- **Icicles** that grow under wet ceilings and fall when shot.
-- **Big ice block** (16×16) from 3–4 units.
+## 17. Parking lot (not confirmed)
+- **Propel and breach** (v1): a swimming burst and a jump out of the water. Needs a key: maybe holding 1 with the ball inside the water you're in.
+- **Bending a flow like a hose** (v1): steer a whole waterfall. The snake from a waterfall covers part of it.
+- **Water whip:** a quick snake strike.
+- **Riding a snake:** stand on a frozen snake's head while it's raised (freeze, thaw, raise again).
+- **Surfing:** stand on an ice block riding a stream (may just work with floating + currents; test it).
+- **Climbing up a waterfall**, salmon-style.
+- **Icicles** that grow under wet ceilings and fall when shaken.
 - **Bloom cap:** a seed that grows into a bouncy mushroom.
-- **Frost crystal:** a pickup that refills the frost charge mid-air (the wind-crystal equivalent).
+- **Frost crystal:** a pickup that refreshes the freeze or the hold.
 - **Cinder on ice:** a cinder touching ice melts it and drowns in the puddle.
-- **Wet leafling** grows bigger and slower.
+- **Wet vine monkey** grows bigger and slower.
 - **Gust dries:** wind slowly dries wet tiles.
-- **Steam vents** as static objects (dropped for now).
-- **A water diamond** to refill the blob far from any source.
+- **Rain:** a room where water falls from the ceiling all the time (cheap with sources; watch the particle cap).
+- **A water diamond** to give a full ball far from any water.

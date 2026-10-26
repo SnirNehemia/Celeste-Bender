@@ -167,7 +167,7 @@ Celeste-style painted ground. Lumpy cracked rocks that tumble in flight. Banded 
 
 - **Earth + Air combos:** gust pushes a resting rock, glide off a column's bounce, a gust-propelled throw.
 - Thicker earth layers allowing more bends; sand or mud variants of earth.
-- **Water:** now drafted in `Water_bending.md` (Chapter 4, draft v0: surf, freeze, water whip became pull-and-carry with pools and ice).
+- **Water:** now specified in `Water_bending.md` (Chapter 4, spec v2, 26 Oct 2026: hold 1 for slow motion and steer a waterball inside a ring; it gathers water, rises as a water snake when lifted slowly, flies on when released; 2 freezes the last thrown water or the water you touch. The water is simulated: height-field pools with waves + capped particles for loose water, under a 2 ms budget).
 - **Fire:** now specified in `Fire_bending.md` (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass).
 - An element wheel in slow motion once there are several elements. Plan: one stamina bar per element, showing only the active one.
 
@@ -175,7 +175,7 @@ Celeste-style painted ground. Lumpy cracked rocks that tumble in flight. Banded 
 
 1. Play-test Earth rooms 1–10 and fix what feels unfair or confusing.
 2. Try the two Earth experiments and keep or drop each.
-3. **Next elements:** Fire is specced in `Fire_bending.md` and planned in `PROMPTS.md` as Stages F1–F15 (jet first, then fireball, burning grass, thicket, bonfires, vines, hot-air objects, gust vs fire, enemies, look pass, rooms, mixed rooms); Water is a draft in `Water_bending.md`, to refine after Fire. Any further element should be designed in the same format as `Earth_bending.md`:
+3. **Next elements:** Fire is specced in `Fire_bending.md` and planned in `PROMPTS.md` as Stages F1–F15 (jet first, then fireball, burning grass, thicket, bonfires, vines, hot-air objects, gust vs fire, enemies, look pass, rooms, mixed rooms); Water is specced in `Water_bending.md` (spec v2) as Stages W1–W13, to build after Fire; its first two stages build only the water simulation, with play-test gates. Any further element should be designed in the same format as `Earth_bending.md`:
    - the idea in one paragraph
    - its materials or tiles
    - its own keys
