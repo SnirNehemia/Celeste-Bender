@@ -541,6 +541,8 @@ func _is_current_room() -> bool:
 
 
 func _find_room_wind_zones() -> void:
+	if not is_inside_tree():
+		return  # (deferred) our room left the tree first: an undone paste or import
 	for member: Node in get_tree().get_nodes_in_group(WindZone.GROUP):
 		var zone: WindZone = member as WindZone
 		if zone != null and Rect2(zone.global_position, zone.zone_size).intersects(room.get_bounds()):

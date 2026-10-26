@@ -26,6 +26,12 @@ extends Node2D
 ##     own tool is chosen (then anywhere inside works).
 ##   - Eraser (E): click or drag; removes the object under the mouse (zones
 ##     anywhere inside), or else the tiles of every terrain layer there.
+##   - Select: a click selects the object under the mouse and drags it; where
+##     several overlap (a crate in a wind zone on a plate), a list (EditorUI.
+##     show_menu) asks which one. Empty space selects nothing (the room's settings).
+##   - Fill: a click floods the connected area of the same tiles (or of empty air)
+##     with the last terrain brush chosen (fill_region); right-click clears it.
+##     Choosing a terrain while Fill is on keeps Fill, with that terrain.
 ##   - H: the quick reference (EditorHelp), every key, read from the InputMap.
 ##   - Strips (spikes): drag along a row or column; facing comes from the ground
 ##     next to them; R turns the selected strip.
@@ -421,8 +427,16 @@ func room_cell_rect(room: Room) -> Rect2i:
 func choose_entry(entry: PaletteCatalog.Entry) -> void:
 	if entry.kind == PaletteCatalog.Kind.ERASER and current_entry != null and current_entry.kind != PaletteCatalog.Kind.ERASER:
 		tool_before_eraser = current_entry
+	# A terrain picked while Fill is on: Fill stays, and fills with that terrain.
+	var keeps_fill: bool = entry.kind == PaletteCatalog.Kind.TERRAIN and current_entry != null \
+		and current_entry.kind == PaletteCatalog.Kind.FILL
+	if keeps_fill:
+		last_terrain_entry = entry
+		ui.show_chosen_entry(current_entry, entry)
+		ui.show_message("Fill with %s." % entry.display_name)
+		return
 	current_entry = entry
-	ui.show_chosen_entry(entry)
+	ui.show_chosen_entry(entry, _get_fill_terrain() if entry.kind == PaletteCatalog.Kind.FILL else null)
 	if entry.hint != "":
 		ui.show_message("%s: %s" % [entry.display_name, entry.hint])
 	if entry.kind == PaletteCatalog.Kind.TERRAIN and entry != last_terrain_entry:
@@ -595,6 +609,125 @@ func erase_block(room: Room, corner_a: Vector2i, corner_b: Vector2i) -> void:
 	for node: Node2D in doomed:
 		_add_delete_steps(node)
 	undo_redo.commit_action(true)
+
+
+## The terrain the Fill tool uses: the last terrain brush chosen, else Ground.
+func _get_fill_terrain() -> PaletteCatalog.Entry:
+	return last_terrain_entry if last_terrain_entry != null else PaletteCatalog.get_entry(&"ground")
+
+
+## The Fill tool at `start_cell` of `room` (room-local cell), as ONE undo step.
+## The area is every cell connected to it (up, down, left, right, inside the room)
+## that holds the same terrain layers: the same tiles, or the same empty air.
+## `painting`: it becomes the fill terrain (other terrain there is erased);
+## else it's cleared. Returns how many cells the area had (0 = nothing changed).
+func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
+	var bounds: Rect2i = room_cell_rect(room)
+	if not bounds.has_point(start_cell):
+		return 0
+	var terrain: PaletteCatalog.Entry = _get_fill_terrain()
+	# The room's terrain layers, one per layer name (two brushes share Overgrown's).
+	var layers: Array[TileMapLayer] = []
+	var layer_brushes: Array[TileBrush] = []
+	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+		if entry.kind != PaletteCatalog.Kind.TERRAIN:
+			continue
+		var brush: TileBrush = _brush_for(entry)
+		var layer: TileMapLayer = brush.get_layer(room, level_root, false)
+		if layer != null and not layers.has(layer):
+			layers.append(layer)
+			layer_brushes.append(brush)
+	var start_contents: int = _cell_contents(layers, start_cell)
+	if not painting and start_contents == 0:
+		return 0  # clearing empty air: nothing to do
+	# The connected area (breadth-first search over the 4 neighbours).
+	var area: Array[Vector2i] = [start_cell]
+	var seen: Dictionary = {start_cell: true}
+	var next: int = 0
+	while next < area.size():
+		var cell: Vector2i = area[next]
+		next += 1
+		for step: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var neighbour: Vector2i = cell + step
+			if not seen.has(neighbour) and bounds.has_point(neighbour) \
+					and _cell_contents(layers, neighbour) == start_contents:
+				seen[neighbour] = true
+				area.append(neighbour)
+	# 1. Erase the other layers in the area (all of them when clearing).
+	stroke_room = room
+	stroke_painting = false
+	stroke_brushes = []
+	for layer_index: int in layers.size():
+		if painting and layers[layer_index].name == terrain.layer_name:
+			continue  # the fill's own layer: painted below, not erased first
+		layer_brushes[layer_index].begin_stroke(layers[layer_index])
+		stroke_brushes.append(layer_brushes[layer_index])
+	for cell: Vector2i in area:
+		_stroke_cell(cell)
+	var changes: Array[Array] = _finish_stroke()
+	# 2. Paint the fill terrain. A different layer than step 1, so the two steps
+	# can be undone in any order.
+	if painting:
+		begin_stroke(room, true, false, terrain)
+		for cell: Vector2i in area:
+			_stroke_cell(cell)
+		changes.append_array(_finish_stroke())
+	if changes.is_empty():
+		stroke_room_settings = {}
+		RoomLook.refresh(room)
+		return 0
+	undo_redo.create_action("Fill" if painting else "Clear area")
+	_add_stroke_steps(room, changes)
+	undo_redo.commit_action(true)
+	return area.size()
+
+
+## What a cell holds, for fill_region: one bit per layer with a tile there.
+func _cell_contents(layers: Array[TileMapLayer], cell: Vector2i) -> int:
+	var bits: int = 0
+	for layer_index: int in layers.size():
+		if layers[layer_index].get_cell_source_id(cell) != -1:
+			bits |= 1 << layer_index
+	return bits
+
+
+## Every catalog object under `world_point`, the one drawn on top first. Zones
+## count anywhere inside (the Select tool lists them too).
+func objects_at(world_point: Vector2) -> Array[Node2D]:
+	var found: Array[Node2D] = []
+	for object: Node2D in _objects_top_first():
+		var outline: Rect2 = PaletteCatalog.get_bounds(object)
+		if PaletteCatalog.entry_for_node(object).bounds == PaletteCatalog.Bounds.LINE_TO_POINT:
+			outline = outline.grow(1.0)
+		if outline.has_point(world_point):
+			found.append(object)
+	return found
+
+
+## The Select tool's click: one object there is selected (and can be dragged);
+## several open a list to pick from; none selects nothing.
+func _select_at(mouse_world: Vector2) -> void:
+	var found: Array[Node2D] = objects_at(mouse_world)
+	if found.size() == 1:
+		select(found[0])
+		dragged_object = found[0]
+		drag_start_position = found[0].position
+		drag_start_mouse = mouse_world
+		return
+	if found.is_empty():
+		select(null)
+		return
+	var names: Array[String] = []
+	for object: Node2D in found:
+		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(object)
+		names.append("%s  (%s)" % [entry.display_name, object.name])
+	ui.show_menu(names, get_viewport().get_mouse_position(), _select_from_list.bind(found))
+
+
+## The Select list's answer: the object at `index` of `found`.
+func _select_from_list(index: int, found: Array[Node2D]) -> void:
+	if index >= 0 and index < found.size() and is_instance_valid(found[index]) and found[index].is_inside_tree():
+		select(found[index])
 
 
 ## Sets cells on a layer (undo and redo of a stroke) and redraws the room's ground.
@@ -1479,6 +1612,10 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 	if current_entry.kind == PaletteCatalog.Kind.ERASER:
 		_start_erasing(room, mouse_world)
 		return
+	if current_entry.kind == PaletteCatalog.Kind.FILL:
+		if room != null and fill_region(room, cell_at(room, mouse_world), true) == 0:
+			ui.show_message("Already %s there." % _get_fill_terrain().display_name)
+		return
 	# The selected object's handles come first: they can sit on top of anything.
 	if selected_object != null and is_instance_valid(selected_object) and selected_object.is_inside_tree():
 		var handle: Dictionary = EditorHandles.handle_at(selected_object, mouse_world, camera.get_zoom_factor())
@@ -1489,6 +1626,9 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 	if current_entry.kind == PaletteCatalog.Kind.TERRAIN:
 		if room != null:
 			_start_terrain(room, mouse_world, true)
+		return
+	if current_entry.kind == PaletteCatalog.Kind.SELECT:
+		_select_at(mouse_world)
 		return
 	# Object tools: an object under the mouse is picked up, else a new one is placed.
 	var hit: Node2D = object_at(mouse_world)
@@ -1519,6 +1659,13 @@ func _on_right_pressed(mouse_world: Vector2) -> void:
 	if current_entry.kind == PaletteCatalog.Kind.ERASER:
 		_start_erasing(room_at(mouse_world), mouse_world)
 		return
+	if current_entry.kind == PaletteCatalog.Kind.FILL:
+		var fill_room: Room = room_at(mouse_world)
+		if fill_room != null:
+			fill_region(fill_room, cell_at(fill_room, mouse_world), false)
+		return
+	if current_entry.kind == PaletteCatalog.Kind.SELECT:
+		return  # right-click does nothing with Select (it never deletes by surprise)
 	if current_entry.kind == PaletteCatalog.Kind.TERRAIN:
 		var room: Room = room_at(mouse_world)
 		if room != null:
@@ -1635,7 +1782,8 @@ func _update_hover() -> void:
 		var room: Room = room_at(mouse_world)
 		ui.set_cursor_info("" if room == null else "%s  %dx%d" % [room_title(room), room.room_size.x, room.room_size.y])
 		return
-	if link_source != null or (current_entry != null and current_entry.kind != PaletteCatalog.Kind.TERRAIN):
+	if link_source != null or (current_entry != null and current_entry.kind != PaletteCatalog.Kind.TERRAIN
+			and current_entry.kind != PaletteCatalog.Kind.FILL):
 		hover_object = object_at(mouse_world, current_entry.kind == PaletteCatalog.Kind.ERASER)
 	hover_room = room_at(mouse_world)
 	if hover_room == null:

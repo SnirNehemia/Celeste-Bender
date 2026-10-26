@@ -61,7 +61,20 @@ extends Node2D
 ## layer draws the root tendrils itself. A covered HiddenLayer chamber touching a
 ## cover is drawn in the cover's kind instead of earth.
 ## Thicket crumbling and covers collapsing change the shape many times in a row, so
-## those redraws are batched: one per frame at most (_queue_rebuild).
+## those redraws are batched (_queue_rebuild).
+##
+## WHILE A FIRE BURNS (play-test: burning a thicket wall dropped the frame rate):
+## painting pixels in GDScript costs ~3.5 µs each, and a burning wall changes cells
+## every frame (catch, char, crumble), each repainting a few thousand pixels: ~30 ms a
+## frame at its peak, so the game stuttered. While the room's FireGrid has anything
+## burning or waiting to catch:
+##   - shape redraws run at most every BURN_REBUILD_INTERVAL, all changes since the
+##     last one together (one bigger area instead of many overlapping ones), and
+##   - the pixels to repaint go into a queue (paint_queue) that _process works through
+##     a row at a time, PAINT_BUDGET_USEC of work per frame.
+## The picture then catches up a few frames late, under the flames and smoke. Once
+## nothing burns or smolders, new changes (tears, resets) are painted at once, as
+## before.
 ##
 ## Updates: when only some cells changed (a tear, an opened chamber, a reset filling
 ## holes) only the pixels near them are recomputed; the first build does everything.
@@ -100,6 +113,11 @@ const TEAR_REDRAW_RADIUS: int = 5
 ## smaller area keeps the redraw short, since it runs several times a second while
 ## thicket burns (~25-45 ms at 5 tiles, too long for one frame).
 const BURN_REDRAW_RADIUS: int = 3
+## While a fire burns: shape redraws at most this often, seconds...
+const BURN_REBUILD_INTERVAL: float = 0.1
+## ...and at most this much pixel painting per frame, microseconds (of a 16 667 µs
+## frame at 60 fps).
+const PAINT_BUDGET_USEC: int = 2500
 
 ## Palette per kind (Celeste-like: bright crust, deep saturated inside).
 ## [crust, rim (top surfaces), edge line, inside, hatch stripe]
@@ -159,6 +177,11 @@ var is_rebuild_queued: bool = false
 var fire_grid: FireGrid
 ## True while a repainted picture waits to be uploaded (see _on_fire_cells_changed).
 var is_upload_queued: bool = false
+## While a fire burns: areas of the picture (px) still to repaint, oldest first.
+## _process paints them a row at a time (see the header, "WHILE A FIRE BURNS").
+var paint_queue: Array[Rect2i] = []
+## When the last batched shape redraw ran (Time.get_ticks_msec()).
+var last_burn_rebuild_msec: int = -100000
 var tile_size: int = 8
 ## The room's cells: (0, 0) to room_size / tile_size. Outside counts as solid ground.
 var cell_bounds: Rect2i
@@ -197,6 +220,7 @@ func _ready() -> void:
 	fire_grid = room.get_node_or_null("FireGrid") as FireGrid
 	if earth_layer != null:
 		tile_size = earth_layer.tile_set.tile_size.x
+	set_process(false)  # only while paint_queue has work (_queue_paint)
 	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
 	width = cell_bounds.size.x * tile_size
 	height = cell_bounds.size.y * tile_size
@@ -249,8 +273,11 @@ func get_pixel_distance(pixel: Vector2i) -> float:
 ## filled by a reset) only the pixels within TEAR_REDRAW_RADIUS tiles of them are
 ## redone; the first build (or a rebuild with nothing changed) redoes it all, unless
 ## `only_if_changed` (then nothing changed = nothing to do). `redraw_radius`: how many
-## tiles around the changed cells are redone.
-func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RADIUS) -> void:
+## tiles around the changed cells are redone. `paint_later` (a fire is burning): the
+## shape is updated now, but the pixels go into the paint queue (only for a partial
+## update; the first build always paints everything at once).
+func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RADIUS,
+		paint_later: bool = false) -> void:
 	var previous_kinds: Dictionary = kinds.duplicate()
 	_find_kinds()
 	var region: Rect2i = Rect2i(0, 0, width, height)
@@ -283,24 +310,77 @@ func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RAD
 		var cell_region: Rect2i = Rect2i(region.position / tile_size, region.size / tile_size)
 		_build_mask(cell_region)
 		_compute_distances(region)
-		_paint(region)
-		texture.update(image)
+		if paint_later:
+			_queue_paint(region)
+		else:
+			_paint(region)
+			texture.update(image)
 	queue_redraw()
 	overlay.queue_redraw()
 
 
 ## Thicket burnt away or a cover collapsed or came back: redraw once at the end of
-## the frame, however many times it changed (call_deferred).
+## the frame, however many times it changed (call_deferred). While a fire burns, at
+## most once every BURN_REBUILD_INTERVAL: a timer waits out the rest of the interval,
+## and every change in the meantime is redrawn together.
 func _queue_rebuild() -> void:
 	if is_rebuild_queued:
 		return
 	is_rebuild_queued = true
-	_run_queued_rebuild.call_deferred()
+	var wait: float = BURN_REBUILD_INTERVAL - (Time.get_ticks_msec() - last_burn_rebuild_msec) / 1000.0
+	if wait <= 0.0 or not _is_fire_busy():
+		_run_queued_rebuild.call_deferred()
+	else:
+		# A one-off countdown; false = it pauses with the game. (If we're freed before it
+		# runs out, Godot drops the connection.)
+		get_tree().create_timer(wait, false).timeout.connect(_run_queued_rebuild)
 
 
 func _run_queued_rebuild() -> void:
 	is_rebuild_queued = false
-	rebuild(true, BURN_REDRAW_RADIUS)
+	var fire_busy: bool = _is_fire_busy()
+	if fire_busy:
+		last_burn_rebuild_msec = Time.get_ticks_msec()
+	rebuild(true, BURN_REDRAW_RADIUS, fire_busy)
+
+
+## True while the room's fire has anything burning, smoldering or about to catch:
+## then repaints are batched and spread over frames (the header's "WHILE A FIRE
+## BURNS"). Smoldering counts: a burnt field turns to ash cell by cell after the
+## flames are gone (time_left holds burning and smoldering cells).
+func _is_fire_busy() -> bool:
+	return fire_grid != null and (not fire_grid.time_left.is_empty() or not fire_grid.pending.is_empty())
+
+
+## Adds an area (px) to the paint queue and starts working through it.
+func _queue_paint(region: Rect2i) -> void:
+	if region.has_area():
+		paint_queue.append(region)
+		set_process(true)
+
+
+## Works through the paint queue for PAINT_BUDGET_USEC, a row at a time (so a big
+## area can stop halfway and go on next frame), then uploads the picture once.
+## Also after the fire is over: finishing a long queue in one frame was a visible
+## hitch.
+func _process(_delta: float) -> void:
+	var start_usec: int = Time.get_ticks_usec()
+	var painted_any: bool = false
+	while not paint_queue.is_empty() and Time.get_ticks_usec() - start_usec < PAINT_BUDGET_USEC:
+		var region: Rect2i = paint_queue[0]
+		_paint(Rect2i(region.position, Vector2i(region.size.x, 1)))
+		painted_any = true
+		region.position.y += 1
+		region.size.y -= 1
+		if region.size.y <= 0:
+			paint_queue.pop_front()
+		else:
+			paint_queue[0] = region
+	if painted_any:
+		texture.update(image)
+		queue_redraw()
+	if paint_queue.is_empty():
+		set_process(false)
 
 
 ## Which kind fills each cell: earth wins over grass over gray over thicket over a
@@ -705,8 +785,15 @@ func _on_fire_cells_changed(cells: Array[Vector2i]) -> void:
 		return
 	var picture: Rect2i = Rect2i(0, 0, width, height)
 	var margin: int = ceili(FIRE_EDGE_RAGGEDNESS) + 1
+	var fire_busy: bool = _is_fire_busy()
 	for cell: Vector2i in cells:
-		_paint(Rect2i(cell * tile_size, Vector2i.ONE * tile_size).grow(margin).intersection(picture))
+		var region: Rect2i = Rect2i(cell * tile_size, Vector2i.ONE * tile_size).grow(margin).intersection(picture)
+		if fire_busy:
+			_queue_paint(region)  # painted over the next frames, uploaded there
+		else:
+			_paint(region)
+	if fire_busy:
+		return
 	if not is_upload_queued:
 		is_upload_queued = true
 		# call_deferred = run it later this frame, after the current code is done.

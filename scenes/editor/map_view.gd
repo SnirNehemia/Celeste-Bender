@@ -15,6 +15,12 @@ extends RefCounted
 ## Keys: S makes the selected room the start room, Delete deletes it, I imports a
 ## room from another world (RoomImport; a ghost follows the mouse until you click),
 ## Esc cancels an import or closes the map.
+## Right-click (after the L11 play-test): a menu (EditorUI.show_menu) to copy the
+## room under the mouse, paste the copied one (a ghost follows the mouse like an
+## import, a click puts it down), edit it, make it the start room or delete it.
+## Copying packs the level as it is now (unsaved changes too) and keeps that
+## (`clipboard`), so later changes to the original don't change the copy. Links to
+## things outside the room are dropped, as with an import.
 ##
 ## Snapping ("180 + whole tiles", decided in Stage L7):
 ##   - widths are whole tiles, at least one screen (320)
@@ -64,8 +70,13 @@ var drag_start_rect: Rect2 = Rect2()
 ## Where the dragged (or new, or imported) room would go, and whether it can.
 var preview_rect: Rect2 = Rect2()
 var preview_valid: bool = true
-## A copied room waiting to be placed with a click (I), or null.
+## A copied room waiting to be placed with a click (I, or Paste), or null.
 var importing_room: Room = null
+## The copied room: the level packed when Copy was chosen, and the room's name in
+## it. Null = nothing copied yet.
+var clipboard: PackedScene = null
+var clipboard_room_name: String = ""
+var clipboard_title: String = ""
 
 ## The room view's camera, to come back to when the map closes.
 var room_view_zoom_index: int = 0
@@ -134,7 +145,10 @@ func handle_input(event: InputEvent, mouse_world: Vector2) -> bool:
 	elif event.is_action_released("editor_paint"):
 		_on_release()
 	elif event.is_action_pressed("editor_erase"):
-		cancel_import()  # right-click drops a room you were about to place
+		if importing_room != null:
+			cancel_import()  # right-click drops a room you were about to place
+		else:
+			_open_room_menu(mouse_world)
 	elif event.is_action_pressed("editor_delete"):
 		if selected_room != null:
 			delete_room(selected_room)
@@ -593,6 +607,66 @@ func _add_room_undoable(room: Room, action_name: String) -> void:
 	editor.undo_redo.add_do_reference(room)
 	editor.undo_redo.commit_action()
 	select_room(room)
+
+
+# --- The right-click menu: copy and paste ---
+
+## The right-click menu for the room under `mouse_world` (or empty space).
+func _open_room_menu(mouse_world: Vector2) -> void:
+	var room: Room = editor.room_at(mouse_world)
+	var rows: Array[String] = []
+	var actions: Array[Callable] = []
+	if room != null:
+		select_room(room)
+		rows.append("Copy %s" % editor.room_title(room))
+		actions.append(copy_room.bind(room))
+	if clipboard != null:
+		rows.append("Paste %s" % clipboard_title)
+		actions.append(begin_paste)
+	if room != null:
+		rows.append("Edit room")
+		actions.append(close.bind(room))
+		rows.append("Make it the start room")
+		actions.append(set_start_room.bind(room))
+		rows.append("Delete room")
+		actions.append(delete_room.bind(room))
+	if rows.is_empty():
+		editor.ui.show_message("Right-click a room to copy it, then right-click anywhere to paste it.")
+		return
+	editor.ui.show_menu(rows, editor.get_viewport().get_mouse_position(),
+		func(index: int) -> void: actions[index].call())
+
+
+## Copy: remembers `room` as it is now (see the header).
+func copy_room(room: Room) -> void:
+	editor._make_level_whole()
+	var packed: PackedScene = LevelStorage.pack_level(editor.level_root)
+	editor._set_level_aside(true)
+	if packed == null:
+		editor.ui.show_message("Could not copy %s." % editor.room_title(room), true)
+		return
+	clipboard = packed
+	clipboard_room_name = String(room.name)
+	clipboard_title = editor.room_title(room)
+	editor.ui.show_message("Copied %s. Right-click and Paste to place a copy." % editor.room_title(room))
+
+
+## Paste: a new copy of the copied room follows the mouse until a click puts it
+## down (place_import), like an imported room. False if nothing is copied.
+func begin_paste() -> bool:
+	if clipboard == null:
+		return false
+	cancel_import()
+	importing_room = RoomImport.take_room(clipboard.instantiate(), clipboard_room_name)
+	if importing_room == null:
+		editor.ui.show_message("Could not paste %s." % clipboard_room_name, true)
+		return false
+	if importing_room.display_title != "":
+		importing_room.display_title += " copy"
+	preview_rect = Rect2(Vector2.ZERO, importing_room.room_size)
+	preview_valid = false
+	editor.ui.show_message("Click where the copy goes.  Esc or right-click: cancel.")
+	return true
 
 
 # --- Importing a copy ---

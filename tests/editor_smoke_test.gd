@@ -48,10 +48,11 @@ func _ready() -> void:
 	await _check_l10c_followups()
 	await _check_l10d_plank_on_block()
 	await _check_l11_story()
+	await _check_l12_palette_tools()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -477,10 +478,10 @@ func _check_l3_playtest() -> void:
 ## Stage L4: the Air objects in the catalog, palette tabs, snapped and free
 ## placement, copying with Ctrl+D, and a play-test with all of them.
 func _check_l4_air_objects() -> void:
-	_check(PaletteCatalog.get_families().slice(0, 3) == ["Terrain", "Basics", "Air"], "the palette's tabs start Terrain, Basics, Air, got %s" % [PaletteCatalog.get_families()])
+	_check(PaletteCatalog.get_families() == PaletteCatalog.TAB_ORDER, "the palette's tabs are %s, got %s" % [PaletteCatalog.TAB_ORDER, PaletteCatalog.get_families()])
 	var air_ids: Array[StringName] = []
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
-		if entry.family == "Air":
+		if entry.element == "Air" and entry.family != "Enemies":
 			air_ids.append(entry.id)
 	_check(air_ids == [&"wind_zone", &"wind_crystal", &"gust_diamond", &"crate", &"windmill", &"leaf_platform",
 		&"sail_platform", &"door", &"pressure_plate", &"no_glide_zone"], "Air has all ten objects, got %s" % [air_ids])
@@ -494,10 +495,10 @@ func _check_l4_air_objects() -> void:
 
 	# Tabs: choosing an entry opens its family's tab.
 	editor.choose_entry(PaletteCatalog.get_entry(&"crate"))
-	_check(editor.ui.open_family == "Air" and (editor.ui.family_lists["Air"] as Control).visible
-		and not (editor.ui.family_lists["Basics"] as Control).visible, "choosing the crate opens the Air tab and hides the others")
+	_check(editor.ui.open_family == "Objects" and (editor.ui.family_lists["Objects"] as Control).visible
+		and not (editor.ui.family_lists["Basics"] as Control).visible, "choosing the crate opens the Objects tab and hides the others")
 	editor.ui.show_family("Terrain")
-	_check((editor.ui.family_lists["Terrain"] as Control).visible and not (editor.ui.family_lists["Air"] as Control).visible, "clicking a tab shows its entries")
+	_check((editor.ui.family_lists["Terrain"] as Control).visible and not (editor.ui.family_lists["Objects"] as Control).visible, "clicking a tab shows its entries")
 
 	# Every Air object can be placed, found, and is recognised by the catalog.
 	var cells: Dictionary = {
@@ -568,7 +569,7 @@ func _check_l4_air_objects() -> void:
 	var saved_ids: Array[StringName] = []
 	for child: Node in saved.get_node("Room1").get_children():
 		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(child)
-		if entry != null and entry.family == "Air":
+		if entry != null and entry.element == "Air" and entry.family != "Enemies":
 			saved_ids.append(entry.id)
 	saved_ids.sort()
 	var expected_ids: Array[StringName] = air_ids.duplicate()
@@ -1089,11 +1090,15 @@ func _check_l8_earth() -> void:
 	add_child(editor)
 	await get_tree().process_frame
 	var room: Room = editor.get_rooms()[0]
-	_check(PaletteCatalog.get_families().has("Earth"), "the palette has an Earth tab")
 	var earth_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"earth")
-	_check(earth_entry != null and earth_entry.kind == PaletteCatalog.Kind.TERRAIN and earth_entry.family == "Terrain", "Earth is a Terrain brush")
+	_check(earth_entry != null and earth_entry.kind == PaletteCatalog.Kind.TERRAIN and earth_entry.family == "Terrain"
+		and earth_entry.element == "Earth", "Earth is a Terrain brush, of the Earth element")
+	for id: StringName in [&"cracked_wall", &"stone_wall"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Breakable", "%s is in the Breakable tab" % id)
+	for id: StringName in [&"boulder", &"loose_rock"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Objects", "%s is in the Objects tab" % id)
 	for id: StringName in [&"cracked_wall", &"stone_wall", &"boulder", &"loose_rock"]:
-		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Earth", "%s is in the Earth tab" % id)
+		_check(PaletteCatalog.get_entry(id).element == "Earth", "%s is an Earth thing" % id)
 
 	# Painting earth: an EarthLayer, Earth turned on, drawn by a GroundPainter.
 	room.earth_allowed = false
@@ -1246,12 +1251,17 @@ func _check_l9_fire() -> void:
 	add_child(editor)
 	await get_tree().process_frame
 	var room: Room = editor.get_rooms()[0]
-	_check(PaletteCatalog.get_families().has("Fire"), "the palette has a Fire tab")
-	for id: StringName in [&"grass", &"thicket", &"overgrown_grass", &"overgrown_thicket"]:
+	var grass_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"grass")
+	_check(grass_entry != null and grass_entry.kind == PaletteCatalog.Kind.TERRAIN and grass_entry.family == "Terrain", "grass is a Terrain brush")
+	for id: StringName in [&"thicket", &"overgrown_grass", &"overgrown_thicket"]:
 		var entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(id)
-		_check(entry != null and entry.kind == PaletteCatalog.Kind.TERRAIN and entry.family == "Terrain", "%s is a Terrain brush" % id)
-	for id: StringName in [&"fire_diamond", &"brazier", &"vine", &"hanging_platform", &"leaf_pile"]:
-		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Fire", "%s is in the Fire tab" % id)
+		_check(entry != null and entry.kind == PaletteCatalog.Kind.TERRAIN and entry.family == "Breakable" and entry.element == "Fire",
+			"%s is a terrain brush in the Breakable tab (fire burns it)" % id)
+	var fire_tabs: Dictionary = {&"fire_diamond": "Crystals", &"brazier": "Triggers", &"vine": "Objects",
+		&"hanging_platform": "Objects", &"leaf_pile": "Objects"}
+	for id: StringName in fire_tabs:
+		var entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(id)
+		_check(entry != null and entry.family == fire_tabs[id] and entry.element == "Fire", "%s is in the %s tab, a Fire thing" % [id, fire_tabs[id]])
 
 	# Grass: a GrassLayer, saved; its blades grow at once but aren't saved.
 	_check(not room.fire_allowed, "a new room doesn't allow Fire")
@@ -1460,7 +1470,7 @@ func _check_l10b_followups() -> void:
 		if child is ScrollContainer:
 			palette_scroll = child
 	_check(palette_scroll != null and palette_scroll.size_flags_vertical & Control.SIZE_EXPAND, "the palette's buttons are in a scrolling list")
-	editor.ui.show_family("Air")
+	editor.ui.show_family("Objects")  # the longest list
 	await get_tree().process_frame
 	_check(editor.ui.palette.size.y <= editor.ui.get_viewport().get_visible_rect().size.y - 2.0 * EditorUI.BAR_HEIGHT + 0.5,
 		"the palette ends above the status line, got %.0f" % editor.ui.palette.size.y)
@@ -1541,8 +1551,9 @@ func _check_l10_enemies() -> void:
 	await get_tree().process_frame
 	var room: Room = editor.get_rooms()[0]
 	_check(PaletteCatalog.get_families().has("Enemies"), "the palette has an Enemies tab")
-	for id: StringName in [&"wisp", &"sentry", &"vine_monkey", &"thicket_elephant", &"shell", &"enemy_gate"]:
+	for id: StringName in [&"wisp", &"sentry", &"vine_monkey", &"thicket_elephant", &"shell"]:
 		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Enemies", "%s is in the Enemies tab" % id)
+	_check(PaletteCatalog.get_entry(&"enemy_gate").family == "Triggers", "the enemy gate is a switch: in the Triggers tab")
 
 	var wisp_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"wisp")
 	var left_wisp: Wisp = editor.place_object(wisp_entry, room, Vector2i(8, 20)) as Wisp
@@ -1888,6 +1899,110 @@ func _boulders_in(room: Room) -> Array[Boulder]:
 		if rock != null and not rock.is_queued_for_deletion() and rock.phase != Boulder.Phase.SHATTERED:
 			rocks.append(rock)
 	return rocks
+
+
+## After the L11 play-test: the Select tool (and its list), the Fill tool, the new
+## tabs with icons and element colors, and copying / pasting a room on the map.
+func _check_l12_palette_tools() -> void:
+	var path: String = LevelStorage.create_level("Tools Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+
+	# The tools row: Select, Eraser, Fill side by side, no tab of their own.
+	var tool_ids: Array[StringName] = []
+	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+		if entry.family == "":
+			tool_ids.append(entry.id)
+	_check(tool_ids == [&"select", &"eraser", &"fill"], "the tools are Select, Eraser, Fill, got %s" % [tool_ids])
+	var eraser_button: Button = editor.ui.palette_buttons[&"eraser"]
+	_check(eraser_button.get_parent() is HBoxContainer and editor.ui.palette_buttons[&"select"].get_parent() == eraser_button.get_parent(),
+		"Select sits next to the Eraser, in one row")
+	# Icons and element colors.
+	var every_icon: bool = true
+	for id: StringName in editor.ui.palette_buttons:
+		var icon: Texture2D = (editor.ui.palette_buttons[id] as Button).icon
+		every_icon = every_icon and icon != null and icon.get_width() == PaletteIcons.SIZE
+	_check(every_icon, "every palette button has a small picture")
+	var crate_style: StyleBoxFlat = (editor.ui.palette_buttons[&"crate"] as Button).get_theme_stylebox(&"normal") as StyleBoxFlat
+	_check(crate_style != null and crate_style.border_color == PaletteIcons.element_color("Air"), "an Air thing's button is tinted in the Air color")
+	_check(not (editor.ui.palette_buttons[&"spawn_point"] as Button).has_theme_stylebox_override(&"normal"), "a button of no element keeps the plain look")
+
+	# Select: one object is selected; several give a list.
+	var crate: Node2D = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(10, 20))
+	var zone: Node2D = editor.place_object(PaletteCatalog.get_entry(&"wind_zone"), room, Vector2i(5, 14))
+	editor.choose_entry(PaletteCatalog.get_entry(&"select"))
+	_check(editor.ui.tool_label.text == "Select", "the Select tool is on")
+	# The zone moved so that it holds the crate.
+	var crate_point: Vector2 = PaletteCatalog.get_bounds(crate).get_center()
+	editor.move_object(zone, zone.position + crate_point - PaletteCatalog.get_bounds(zone).get_center())
+	var under_crate: Array[Node2D] = editor.objects_at(crate_point)
+	var zone_only_point: Vector2 = PaletteCatalog.get_bounds(zone).position + Vector2(2, 2)
+	editor.select(null)
+	editor._on_left_pressed(zone_only_point)
+	editor._on_mouse_released(zone_only_point)
+	_check(editor.selected_object == zone and not editor.ui.menu.visible, "clicking where only the zone is selects it at once (inside it too)")
+	_check(under_crate.size() == 2 and under_crate.has(crate) and under_crate.has(zone), "objects_at finds the crate and the zone it sits in")
+	editor.select(null)
+	editor._on_left_pressed(crate_point)
+	_check(editor.ui.menu.visible and editor.ui.menu.item_count == 2 and editor.selected_object == null,
+		"clicking where two overlap opens a list of both, selecting nothing yet")
+	var crate_row: int = under_crate.find(crate)
+	editor.ui._on_menu_row_pressed(crate_row)
+	editor.ui.menu.hide()
+	_check(editor.selected_object == crate, "choosing the crate in the list selects it")
+
+	# Fill: a closed box of ground is filled inside with one click, undoable.
+	var box: Array[Vector2i] = []
+	for x: int in range(2, 7):
+		box.append(Vector2i(x, 2))
+		box.append(Vector2i(x, 6))
+	for y: int in range(3, 6):
+		box.append(Vector2i(2, y))
+		box.append(Vector2i(6, y))
+	editor.paint_cells(room, box, true, PaletteCatalog.get_entry(&"ground"))
+	editor.choose_entry(PaletteCatalog.get_entry(&"fill"))
+	editor.choose_entry(PaletteCatalog.get_entry(&"earth"))
+	_check(editor.current_entry.id == &"fill" and editor.ui.tool_label.text == "Fill: Earth"
+		and editor.ui.palette_buttons[&"earth"].button_pressed and editor.ui.palette_buttons[&"fill"].button_pressed,
+		"choosing Earth while Fill is on keeps Fill, now with Earth")
+	var filled: int = editor.fill_region(room, Vector2i(4, 4), true)
+	var earth_layer: TileMapLayer = room.get_node_or_null("Earth") as TileMapLayer
+	_check(filled == 9 and earth_layer != null and earth_layer.get_used_cells().size() == 9 and room.earth_allowed,
+		"Fill inside the box fills its 9 cells with earth (and turns Earth on), got %d" % filled)
+	_check((room.get_node("Tiles") as TileMapLayer).get_cell_source_id(Vector2i(2, 2)) != -1, "the box's ground walls stay")
+	editor.fill_region(room, Vector2i(4, 4), true)
+	_check(editor.fill_region(room, Vector2i(2, 4), false) > 0 and (room.get_node("Tiles") as TileMapLayer).get_cell_source_id(Vector2i(2, 4)) == -1
+		and earth_layer.get_used_cells().size() == 9, "right-click Fill clears only the connected ground (the box walls)")
+	editor.undo()
+	_check((room.get_node("Tiles") as TileMapLayer).get_cell_source_id(Vector2i(2, 4)) != -1, "Ctrl+Z brings the walls back")
+	editor.undo()
+	_check(earth_layer.get_used_cells().is_empty() or room.get_node_or_null("Earth") == null or (room.get_node("Earth") as TileMapLayer).get_used_cells().is_empty(),
+		"Ctrl+Z again empties the box")
+
+	# Map: copy a room and paste it next to it.
+	var map: MapView = editor.map_view
+	editor.toggle_map()
+	map.copy_room(room)
+	_check(map.clipboard != null and map.clipboard_room_name == String(room.name), "Copy remembers the room")
+	_check(map.begin_paste() and map.importing_room != null, "Paste makes a copy that follows the mouse")
+	var pasted: Room = map.place_import(room.position + Vector2(room.room_size.x, 0))
+	_check(pasted != null and editor.get_rooms().size() == 2 and pasted != room, "a click puts the copy down next to the original")
+	var pasted_crate: Node2D = null
+	for child: Node in pasted.get_children():
+		if child is Crate:
+			pasted_crate = child
+	_check(pasted_crate != null and pasted_crate != crate and (pasted.get_node("Tiles") as TileMapLayer).get_used_cells().size()
+		== (room.get_node("Tiles") as TileMapLayer).get_used_cells().size(), "the copy has the room's objects and tiles")
+	editor.undo()
+	_check(editor.get_rooms().size() == 1, "Ctrl+Z takes the pasted room away")
+	editor.toggle_map()
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L12 palette tools")
 
 
 func _button_texts(page: Node) -> Array[String]:

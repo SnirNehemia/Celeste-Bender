@@ -5,9 +5,15 @@ extends RefCounted
 ## editor asks it how to make, find, outline, place and copy each kind of object,
 ## so the editor itself holds no per-object code.
 ##
-## Families: Terrain (Ground; Earth since L8; Grass, Thicket, Overgrown since L9),
-## Basics (spawn point, goal, spikes; Stage L3), Air (Stage L4), Earth (Stage L8),
-## Fire (Stage L9), Enemies (Stage L10).
+## Tabs (`family`, the palette's tabs, TAB_ORDER; reorganized after the L11
+## play-test): Terrain, Basics (spawn, goal, spikes, zones), Triggers (switches),
+## Activated (what switches work: doors), Crystals (pick-ups), Breakable (walls and
+## plant terrain that rocks, elephants or fire open), Objects (crates, platforms,
+## rocks, vines, leaves), Enemies. Entries are written below in the order their
+## stages added them, with the stage's own family as their ELEMENT (Air, Earth,
+## Fire, or none): _assign_tabs() then puts each in its tab (TAB_OF). The element
+## colors the palette button (EditorUI) and picks the icon's palette.
+## Tools (no tab, a row above the tabs): Select, Eraser, Fill.
 ## CROSS-TRACK RULE (CLAUDE.md): a stage that adds a placeable object adds its
 ## entry here. A new entry needs: its scene, how its outline is found (`bounds`
 ## + the size property or a fixed rectangle), how it lands on the grid
@@ -29,6 +35,8 @@ enum Kind {
 	OBJECT,       ## an instance of `scene`, placed with a click
 	STRIP,        ## an instance of `scene` laid along a row or column (spikes)
 	ERASER,       ## not a thing to place: the tool that removes whatever is clicked
+	SELECT,       ## not a thing to place: picks what's under the mouse (a list if several)
+	FILL,         ## not a thing to place: floods a connected area with the last terrain
 }
 
 ## How an object's outline is worked out, relative to its origin.
@@ -71,8 +79,10 @@ class Entry:
 	## triggers (a door), what breaks or burns it. Shown as the palette button's
 	## floating tooltip, in the status line when chosen, and in the property panel.
 	var hint: String = ""
-	## Palette tab the button goes in.
+	## Palette tab the button goes in ("" = a tool, in the row above the tabs).
 	var family: String
+	## The chapter element it belongs to: "Air", "Earth", "Fire" or "" (see header).
+	var element: String = ""
 	var kind: Kind
 	## Object kinds: the scene to instantiate.
 	var scene: PackedScene = null
@@ -163,6 +173,25 @@ const WIND_STAND_IN_COLOR: Color = Color(0.6, 0.85, 1.0, 0.18)
 ## The thinnest a LINE_TO_POINT outline gets (a vine is a 1-2 px line), px.
 const LINE_THICKNESS: float = 4.0
 
+## The palette's tabs, in order (see the header).
+const TAB_ORDER: Array[String] = ["Terrain", "Basics", "Triggers", "Activated", "Crystals", "Breakable", "Objects", "Enemies"]
+## Each entry's tab, where it isn't the family it's written with (_assign_tabs).
+const TAB_OF: Dictionary = {
+	&"wind_zone": "Basics", &"no_glide_zone": "Basics",
+	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
+	&"door": "Activated",
+	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
+	&"cracked_wall": "Breakable", &"stone_wall": "Breakable", &"thicket": "Breakable",
+	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
+	&"crate": "Objects", &"leaf_platform": "Objects", &"sail_platform": "Objects", &"boulder": "Objects",
+	&"loose_rock": "Objects", &"vine": "Objects", &"hanging_platform": "Objects", &"leaf_pile": "Objects",
+}
+## Elements of entries whose stage family doesn't say it (terrain, enemies).
+const ELEMENT_OF: Dictionary = {
+	&"earth": "Earth", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
+	&"wisp": "Air", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
+}
+
 ## All entries, in palette order. Built once, on first use.
 static var _entries: Array[Entry] = []
 
@@ -180,10 +209,15 @@ static func get_entry(id: StringName) -> Entry:
 	return null
 
 
-## The families in palette order (one tab each). Entries without a family (the
-## eraser) get no tab: the palette shows them above the tabs.
+## The families in palette order (one tab each, TAB_ORDER first). Entries without
+## a family (the tools) get no tab: the palette shows them above the tabs.
 static func get_families() -> Array[String]:
 	var families: Array[String] = []
+	for family: String in TAB_ORDER:
+		for entry: Entry in get_entries():
+			if entry.family == family:
+				families.append(family)
+				break
 	for entry: Entry in get_entries():
 		if entry.family != "" and not families.has(entry.family):
 			families.append(entry.family)
@@ -191,9 +225,13 @@ static func get_families() -> Array[String]:
 
 
 static func _build() -> void:
-	# --- Tools (no family: shown above the tabs) ---
+	# --- Tools (no family: shown in a row above the tabs) ---
+	var select_tool: Entry = _add(&"select", "Select", "", Kind.SELECT)
+	select_tool.hint = "Selects the object under the mouse (drag to move it). Where several overlap, a list asks which one. Empty space: the room's settings."
 	var eraser: Entry = _add(&"eraser", "Eraser", "", Kind.ERASER)
 	eraser.hint = "Removes the object under the mouse (zones from inside too), else the tiles of every layer. Shift+drag: a whole block, objects inside it too."
+	var fill: Entry = _add(&"fill", "Fill", "", Kind.FILL)
+	fill.hint = "Left: fills the connected area of the same tiles (or of empty air) with the chosen terrain; pick it in the Terrain or Breakable tab. Right: clears that area."
 
 	# --- Terrain ---
 	var ground: Entry = _add(&"ground", "Ground", "Terrain", Kind.TERRAIN)
@@ -493,6 +531,21 @@ static func _build() -> void:
 	enemy_gate.link_property = &"enemies"
 	enemy_gate.link_target_group = EnemyHit.GROUP
 	enemy_gate.link_target_label = "enemy"
+
+	_assign_tabs()
+
+
+## Moves every entry from its stage's family (now its element) to its tab.
+static func _assign_tabs() -> void:
+	for entry: Entry in _entries:
+		if entry.family == "":
+			continue  # a tool
+		if ["Air", "Earth", "Fire"].has(entry.family):
+			entry.element = entry.family
+		if ELEMENT_OF.has(entry.id):
+			entry.element = ELEMENT_OF[entry.id]
+		if TAB_OF.has(entry.id):
+			entry.family = TAB_OF[entry.id]
 
 
 static func _add(id: StringName, display_name: String, family: String, kind: Kind) -> Entry:

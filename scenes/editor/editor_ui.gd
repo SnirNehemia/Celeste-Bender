@@ -4,11 +4,16 @@ extends CanvasLayer
 ## LevelEditor tells it what to show and owns all the logic.
 ##   - top bar:     level title, unsaved dot, current tool, zoom
 ##   - help:        the quick reference (EditorHelp), from the top bar's "?" or H
-##   - palette:     left column: tools without a family (the Eraser) at the very
-##                  top, then a tab per family (Terrain, Basics, Air...),
-##                  below it one button per PaletteCatalog entry of the open tab
-##                  (a scrolling list when it is taller than the screen);
-##                  emits `entry_chosen` when an entry is clicked
+##   - palette:     left column: the tools without a family (Select, Eraser,
+##                  Fill) in a row at the very top, then a tab per family
+##                  (Terrain, Basics, Triggers...), below it one button per
+##                  PaletteCatalog entry of the open tab (a scrolling list when it
+##                  is taller than the screen); emits `entry_chosen` when an entry
+##                  is clicked. Each button shows a small picture of its thing
+##                  (PaletteIcons) and is tinted in its element's color (Air cyan,
+##                  Earth tan, Fire orange), with a stripe of it on the left.
+##   - menu:        a pop-up list at the mouse (show_menu): the Select tool's
+##                  "which one?" and the map's right-click room menu
 ##   - property panel: right column, the selected object's (or room's) settings
 ##                  (PropertyPanel, Stage L5)
 ##   - status line: room + tile under the mouse, the last message, key hints
@@ -44,7 +49,14 @@ const TERRAIN_HINTS: String = "Left: paint  Right: erase  Shift+drag: rectangle"
 const OBJECT_HINTS: String = "Left: place / drag  Alt: free  Right: delete  Del  Ctrl+D: copy  L: link"
 const STRIP_HINTS: String = "Drag along a row or column: spikes  R: turn selected  Right: delete"
 const ERASER_HINTS: String = "Click or drag: remove objects (zones too), else tiles  Shift+drag: a block  E: eraser off"
-const MAP_HINTS: String = "Drag empty: new room  Drag room / edge: move / resize  Double-click: edit  S: start  Del  I: import  M: back"
+const SELECT_HINTS: String = "Left: select (a list when several overlap), drag to move  Del: delete  Ctrl+D: copy  L: link"
+const FILL_HINTS: String = "Left: fill the connected area  Right: clear it  Pick the terrain in its tab"
+const MAP_HINTS: String = "Drag empty: new room  Drag room / edge: move / resize  Double-click: edit  Right: copy / paste  S: start  Del  I: import  M: back"
+## How strongly a palette button is tinted in its element's color: resting,
+## under the mouse, chosen.
+const ELEMENT_TINT: Array[float] = [0.22, 0.34, 0.6]
+## The element stripe on a button's left edge, px.
+const ELEMENT_STRIPE_WIDTH: int = 2
 const COMMON_HINTS: String = "H: all keys  M: map  Tab: play  Space/Middle: pan  Wheel: zoom  G: grid  E: eraser  Ctrl+Z/Y  Ctrl+S"
 
 var title_label: Label
@@ -71,6 +83,9 @@ var family_lists: Dictionary = {}
 var open_family: String = ""
 ## Seconds until the status line goes back to the key hints (0 = showing hints).
 var message_time_left: float = 0.0
+## The pop-up list (show_menu) and what to call with the chosen row's index.
+var menu: PopupMenu
+var menu_callback: Callable = Callable()
 
 
 func _ready() -> void:
@@ -146,6 +161,12 @@ func _ready() -> void:
 	root.add_child(help)
 	import_picker = RoomImportPicker.new()
 	root.add_child(import_picker)
+	# A PopupMenu is a small window of clickable rows; it closes itself when a row
+	# is clicked or the mouse clicks elsewhere.
+	menu = PopupMenu.new()
+	menu.add_theme_font_size_override("font_size", FONT_SIZE)
+	menu.id_pressed.connect(_on_menu_row_pressed)
+	root.add_child(menu)
 	show_message("")
 	# The palette's height follows the screen: stretch it between the two bars.
 	get_viewport().size_changed.connect(_fit_palette)
@@ -166,28 +187,60 @@ func set_tool(text: String) -> void:
 
 
 ## Shows `entry` as the chosen palette button, its name in the top bar, and its
-## key hints in the status line.
-func show_chosen_entry(entry: PaletteCatalog.Entry) -> void:
+## key hints in the status line. `fill_terrain` (the Fill tool): the terrain it
+## fills with, shown pressed too, and its tab opened.
+func show_chosen_entry(entry: PaletteCatalog.Entry, fill_terrain: PaletteCatalog.Entry = null) -> void:
 	if entry.family != "":
-		show_family(entry.family)  # the eraser keeps whatever tab is open
+		show_family(entry.family)  # the tools keep whatever tab is open
+	elif fill_terrain != null:
+		show_family(fill_terrain.family)
 	# set_pressed_no_signal() skips the ButtonGroup's "release the others", so set all.
 	for id: StringName in palette_buttons:
-		(palette_buttons[id] as Button).set_pressed_no_signal(id == entry.id)
+		var pressed: bool = id == entry.id or (fill_terrain != null and id == fill_terrain.id)
+		(palette_buttons[id] as Button).set_pressed_no_signal(pressed)
 	match entry.kind:
 		PaletteCatalog.Kind.TERRAIN:
 			set_tool("Brush: " + entry.display_name)
 		PaletteCatalog.Kind.ERASER:
 			set_tool("Eraser")
+		PaletteCatalog.Kind.SELECT:
+			set_tool("Select")
+		PaletteCatalog.Kind.FILL:
+			set_tool("Fill: " + (fill_terrain.display_name if fill_terrain != null else "Ground"))
 		_:
 			set_tool("Place: " + entry.display_name)
 	var tool_hints: String = TERRAIN_HINTS
-	if entry.kind == PaletteCatalog.Kind.ERASER:
-		tool_hints = ERASER_HINTS
-	elif entry.kind == PaletteCatalog.Kind.STRIP:
-		tool_hints = STRIP_HINTS
-	elif entry.kind != PaletteCatalog.Kind.TERRAIN:
-		tool_hints = OBJECT_HINTS
+	match entry.kind:
+		PaletteCatalog.Kind.ERASER:
+			tool_hints = ERASER_HINTS
+		PaletteCatalog.Kind.SELECT:
+			tool_hints = SELECT_HINTS
+		PaletteCatalog.Kind.FILL:
+			tool_hints = FILL_HINTS
+		PaletteCatalog.Kind.STRIP:
+			tool_hints = STRIP_HINTS
+		PaletteCatalog.Kind.TERRAIN:
+			tool_hints = TERRAIN_HINTS
+		_:
+			tool_hints = OBJECT_HINTS
 	set_key_hints(tool_hints)
+
+
+## Opens the pop-up list with `rows` at `screen_point` (viewport coordinates);
+## clicking row i calls `on_chosen` with i. Clicking elsewhere closes it, calling
+## nothing.
+func show_menu(rows: Array[String], screen_point: Vector2, on_chosen: Callable) -> void:
+	menu.clear()
+	for row_index: int in rows.size():
+		menu.add_item(rows[row_index], row_index)
+	menu_callback = on_chosen
+	menu.reset_size()  # shrink to the new rows
+	menu.popup(Rect2i(Vector2i(screen_point), Vector2i.ZERO))
+
+
+func _on_menu_row_pressed(row_id: int) -> void:
+	if menu_callback.is_valid():
+		menu_callback.call(row_id)
 
 
 ## Shows `tool_hints` (then the hints that always apply) when there's no message.
@@ -232,7 +285,7 @@ func is_over_panels(screen_point: Vector2) -> bool:
 	for panel: Control in [top_bar, palette, property_panel, status_bar]:
 		if panel.get_global_rect().has_point(screen_point):
 			return true
-	return prompt.visible or help.visible or import_picker.visible
+	return prompt.visible or help.visible or import_picker.visible or menu.visible
 
 
 ## LevelEditor changes the window back while leaving, which fires size_changed;
@@ -253,11 +306,20 @@ func show_family(family: String) -> void:
 ## is a ButtonGroup: toggle buttons that work like radio buttons, pressing one
 ## releases the others.
 func _build_palette(column: VBoxContainer) -> void:
-	# Tools (entries without a family) first, one per row, then a line.
+	# Tools (entries without a family) first, side by side in one row, then a line.
 	var entry_group: ButtonGroup = ButtonGroup.new()
+	var tool_row: HBoxContainer = HBoxContainer.new()
+	tool_row.add_theme_constant_override("separation", 1)
+	column.add_child(tool_row)
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 		if entry.family == "":
-			column.add_child(_make_entry_button(entry, entry_group))
+			var tool_button: Button = _make_entry_button(entry, entry_group)
+			tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			# Icon only (the row is narrow); the name is in the tooltip.
+			tool_button.tooltip_text = entry.display_name + "\n" + tool_button.tooltip_text
+			tool_button.text = ""
+			tool_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			tool_row.add_child(tool_button)
 	column.add_child(HSeparator.new())
 
 	var tab_grid: GridContainer = GridContainer.new()
@@ -299,8 +361,30 @@ func _make_entry_button(entry: PaletteCatalog.Entry, group: ButtonGroup) -> Butt
 	# Godot doesn't wrap tooltips, so the lines are broken here.
 	button.tooltip_text = wrap_text(entry.hint, TOOLTIP_LINE_LENGTH)
 	button.pressed.connect(func() -> void: entry_chosen.emit(entry))
+	button.icon = PaletteIcons.get_icon(entry)
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	if entry.element != "":
+		_tint_button(button, PaletteIcons.element_color(entry.element))
 	palette_buttons[entry.id] = button
 	return button
+
+
+## Gives `button` a background in `color` (stronger under the mouse and when
+## chosen) with a stripe of it on the left edge. A StyleBoxFlat is a plain colored
+## box; a Button draws one per state ("normal", "hover", "pressed"...).
+func _tint_button(button: Button, color: Color) -> void:
+	var states: Array[StringName] = [&"normal", &"hover", &"pressed", &"hover_pressed"]
+	var strengths: Array[float] = [ELEMENT_TINT[0], ELEMENT_TINT[1], ELEMENT_TINT[2], ELEMENT_TINT[2]]
+	for state_index: int in states.size():
+		var style: StyleBoxFlat = StyleBoxFlat.new()
+		style.bg_color = Color(color.darkened(0.35), strengths[state_index])
+		style.border_width_left = ELEMENT_STRIPE_WIDTH
+		style.border_color = color
+		style.content_margin_left = 3
+		style.content_margin_right = 2
+		style.content_margin_top = 1
+		style.content_margin_bottom = 1
+		button.add_theme_stylebox_override(states[state_index], style)
 
 
 ## `text` with line breaks between words, so no line is longer than `line_length`

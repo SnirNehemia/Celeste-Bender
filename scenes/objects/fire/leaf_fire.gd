@@ -13,7 +13,12 @@ extends Node
 ##
 ## BONFIRES: wherever at least bonfire_min_leaves burning leaves LIE together
 ## (resting, not falling: in touching cells of bonfire_cluster_cell px), a Bonfire
-## stands over them, as wide as the heap. Its leaves are HELD: they don't burn out
+## stands over them, as wide as the heap. A heap much wider than bonfire_max_width
+## (a long pile along a floor) gets a ROW of bonfires side by side, one per
+## bonfire_max_width stretch of the pile (fixed stretches, so they don't jump around
+## while the fire spreads), so flames rise along the whole pile. Each bonfire's
+## tongues are as tall as the leaves under them are dense (Bonfire.set_leaf_spread):
+## low where the pile thins out. Its leaves are HELD: they don't burn out
 ## while it lasts (bonfire_duration, 0 = until R); when it runs out they all burn
 ## away at once. Blow the heap apart (a close gust launches its leaves) and the
 ## bonfire goes out, while the leaves fly on, still burning, as a spray of embers
@@ -24,6 +29,12 @@ extends Node
 ## that never burn (Air rooms) never pay for it. The pile keeps moving the leaves
 ## (flying, landing, stacking); this node only reads their positions and tells the
 ## pile when one is gone (LeafPile.remove_leaf).
+##
+## LIT BY THE JET (play-test: jetting along a floor of leaves got you killed by the
+## fire you'd just lit): leaves the flame jet touches are PRIMED, not lit. They catch
+## leaf_jet_catch_delay later (glowing meanwhile), so you're past before a bonfire
+## forms behind you. Like a crate (crate_jet_catch_delay). Fireballs and other fires
+## light leaves at once.
 ##
 ## Cost (see Fire_bending.md §13 "F7 play-test"): nothing while no leaf burns. While
 ## some do, per physics frame: one pass over the live leaves to bucket them (spread
@@ -40,6 +51,11 @@ const LEAVES_PER_ASH_FLAKE: int = 3
 ## Two heaps closer than this (px, between centers) are the same bonfire from frame
 ## to frame (so a bonfire that shifts a little doesn't restart its growth).
 const BONFIRE_MATCH_DISTANCE: float = 12.0
+## A heap wider than this many bonfire_max_width gets a row of bonfires (see
+## _split_wide_heap); up to it, one bonfire (clamped to bonfire_max_width) covers it.
+const WIDE_HEAP_SHARE: float = 1.25
+## "Not part of a row" (see bonfire_stretches).
+const NO_STRETCH: int = -1000000
 
 var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
 var pile: LeafPile
@@ -54,10 +70,17 @@ var ignite_left: PackedFloat32Array = PackedFloat32Array()
 var held_by: PackedInt32Array = PackedInt32Array()
 ## How many leaves burn right now.
 var burning_count: int = 0
+## Per leaf: seconds until a leaf primed by the jet catches; < 0 = not primed.
+var catch_left: PackedFloat32Array = PackedFloat32Array()
+## How many leaves are primed right now.
+var primed_count: int = 0
 ## Seconds of fire time (drives the embers' flicker in the pile's drawing).
 var clock: float = 0.0
 ## Bonfires made so far (reused; the pile's children). Put-out ones wait for a heap.
 var bonfires: Array[Bonfire] = []
+## Bonfire -> the pile's stretch it burns over, when it is part of a row (see
+## _split_wide_heap); NO_STRETCH for a bonfire over a whole heap.
+var bonfire_stretches: Dictionary = {}
 var burnt_leaf_count: int = 0
 ## Live leaves (not gone) by SPREAD_BUCKET bucket, rebuilt each frame while burning.
 var buckets: Dictionary = {}
@@ -72,6 +95,7 @@ func setup(owner_pile: LeafPile) -> void:
 	spread_left.resize(count)
 	ignite_left.resize(count)
 	held_by.resize(count)
+	catch_left.resize(count)
 	reset()
 
 
@@ -108,21 +132,52 @@ func get_lit_bonfires() -> Array[Bonfire]:
 # --- Lighting --------------------------------------------------------------------
 
 ## Lights every unlit leaf within `radius` px (plus the leaf's own size) of `point`
-## (the pile's local px). Returns true if any caught.
-func light_near(point: Vector2, radius: float) -> bool:
+## (the pile's local px). Returns true if any caught. `catch_delay` > 0 (the jet):
+## they're primed instead, and catch that many seconds later.
+func light_near(point: Vector2, radius: float, catch_delay: float = 0.0) -> bool:
 	var reach: float = radius + 2.0  # a leaf is 4 px long: touch its tip, it catches
 	var any_caught: bool = false
 	for leaf_index: int in leaf_states.size():
 		if leaf_states[leaf_index] == LeafState.UNLIT \
 				and pile.leaf_positions[leaf_index].distance_to(point) <= reach:
-			light_leaf(leaf_index)
+			if catch_delay > 0.0:
+				prime_leaf(leaf_index, catch_delay)
+			else:
+				light_leaf(leaf_index)
 			any_caught = true
 	return any_caught
+
+
+## Lights every unlit leaf inside `local_rect` (the pile's local px): a bonfire's
+## flame lighting the leaves of its own pile it reaches.
+func light_in_rect(local_rect: Rect2) -> void:
+	for leaf_index: int in leaf_states.size():
+		if leaf_states[leaf_index] == LeafState.UNLIT and local_rect.has_point(pile.leaf_positions[leaf_index]):
+			light_leaf(leaf_index)
+
+
+## The leaf catches `delay` seconds from now (unless something lights it sooner).
+## Priming it again doesn't push its moment back: the jet touches it every frame.
+func prime_leaf(leaf_index: int, delay: float) -> void:
+	if leaf_states[leaf_index] != LeafState.UNLIT or catch_left[leaf_index] >= 0.0:
+		return
+	catch_left[leaf_index] = delay
+	primed_count += 1
+
+
+## 0..1: how close a primed leaf is to catching (it glows hotter), 0 if not primed.
+func get_prime_share(leaf_index: int) -> float:
+	if catch_left[leaf_index] < 0.0:
+		return 0.0
+	return 1.0 - clampf(catch_left[leaf_index] / maxf(fire_tuning.leaf_jet_catch_delay, 0.01), 0.0, 1.0)
 
 
 func light_leaf(leaf_index: int) -> void:
 	if leaf_states[leaf_index] != LeafState.UNLIT:
 		return
+	if catch_left[leaf_index] >= 0.0:
+		catch_left[leaf_index] = -1.0
+		primed_count -= 1
 	leaf_states[leaf_index] = LeafState.BURNING
 	var jitter: float = fire_tuning.leaf_burn_jitter
 	burn_left[leaf_index] = fire_tuning.leaf_burn_time * randf_range(1.0 - jitter, 1.0 + jitter)
@@ -135,6 +190,8 @@ func light_leaf(leaf_index: int) -> void:
 func reset() -> void:
 	leaf_states.fill(LeafState.UNLIT)
 	held_by.fill(-1)
+	catch_left.fill(-1.0)
+	primed_count = 0
 	burning_count = 0
 	burnt_leaf_count = 0
 	buckets.clear()
@@ -145,6 +202,8 @@ func reset() -> void:
 # --- Every frame (called by the pile's _physics_process) ----------------------------
 
 func update(delta: float) -> void:
+	if primed_count > 0:
+		_catch_primed_leaves(delta)
 	if burning_count == 0:
 		return
 	clock += delta
@@ -172,6 +231,20 @@ func update(delta: float) -> void:
 	for leaf_index: int in burnt_out:
 		_burn_away(leaf_index)
 	_update_bonfires()
+
+
+## Primed leaves count down; the ones whose time is up catch.
+func _catch_primed_leaves(delta: float) -> void:
+	for leaf_index: int in catch_left.size():
+		if catch_left[leaf_index] < 0.0:
+			continue
+		if leaf_states[leaf_index] != LeafState.UNLIT:
+			catch_left[leaf_index] = -1.0  # (can't happen: lighting clears it; just in case)
+			primed_count -= 1
+			continue
+		catch_left[leaf_index] -= delta
+		if catch_left[leaf_index] <= 0.0:
+			light_leaf(leaf_index)
 
 
 ## Buckets every live leaf (falling ones too: embers light a falling cloud).
@@ -250,22 +323,36 @@ func _update_bonfires() -> void:
 	var heaps: Array = _find_heaps()
 	held_by.fill(-1)
 	var kept: Array[Bonfire] = []
-	for heap: Array in heaps:
-		var bounds: Rect2 = _get_heap_bounds(heap)
-		# The base: the middle of the heap's bottom (leaves lie ~1 px above what they
-		# rest on, so +1 puts the coals on the floor).
-		var base: Vector2 = Vector2(bounds.get_center().x, bounds.end.y + 1.0)
-		var heap_width: float = bounds.size.x + 4.0  # + a leaf's half length each side
-		var bonfire: Bonfire = _find_bonfire_near(base, kept)
-		if bonfire == null:
-			bonfire = _get_free_bonfire(kept)
-			bonfire.start(base, heap_width)
-		else:
-			bonfire.set_footprint(base, heap_width)
-		kept.append(bonfire)
-		var bonfire_index: int = bonfires.find(bonfire)
-		for leaf_index: int in heap:
-			held_by[leaf_index] = bonfire_index
+	for whole_heap: Array in heaps:
+		var parts: Array = _split_wide_heap(whole_heap)
+		for heap: Array in parts:
+			var bounds: Rect2 = _get_heap_bounds(heap)
+			# The base: the middle of the heap's bottom (leaves lie ~1 px above what they
+			# rest on, so +1 puts the coals on the floor).
+			var base: Vector2 = Vector2(bounds.get_center().x, bounds.end.y + 1.0)
+			var heap_width: float = bounds.size.x + 4.0  # + a leaf's half length each side
+			# A part of a row keeps the bonfire of its stretch, however far its middle
+			# moves as the fire spreads through it; a whole heap, the nearest bonfire.
+			var stretch: int = NO_STRETCH
+			if parts.size() > 1:
+				stretch = floori(base.x / maxf(fire_tuning.bonfire_max_width, 1.0))
+			var bonfire: Bonfire = _find_bonfire_for(base, stretch, kept)
+			if bonfire == null:
+				bonfire = _get_free_bonfire(kept)
+				bonfire.start(base, heap_width)
+			else:
+				bonfire.set_footprint(base, heap_width)
+			bonfire_stretches[bonfire] = stretch
+			bonfire.set_in_row(stretch != NO_STRETCH)
+			# Where its leaves lie, across it: the tongues are tall where they're dense.
+			var leaf_offsets: PackedFloat32Array = PackedFloat32Array()
+			for leaf_index: int in heap:
+				leaf_offsets.append(pile.leaf_positions[leaf_index].x - base.x)
+			bonfire.set_leaf_spread(leaf_offsets)
+			kept.append(bonfire)
+			var bonfire_index: int = bonfires.find(bonfire)
+			for leaf_index: int in heap:
+				held_by[leaf_index] = bonfire_index
 	for bonfire: Bonfire in bonfires:
 		if bonfire.is_lit() and not kept.has(bonfire):
 			bonfire.put_out(false)
@@ -309,6 +396,40 @@ func _find_heaps() -> Array:
 	return heaps
 
 
+## A heap no wider than WIDE_HEAP_SHARE x bonfire_max_width stays one bonfire (a
+## little too wide for it is covered well enough). A wider one is cut into the
+## pile's fixed stretches of bonfire_max_width px (x / bonfire_max_width, in the
+## pile's own coordinates, so a stretch's bonfire stays put while the fire spreads).
+## A stretch with fewer than bonfire_min_leaves burning leaves joins the stretch
+## before it (or after it, for the first), so no leaves of the heap go unheld.
+## Returns Array of Array[int], left to right.
+func _split_wide_heap(heap: Array) -> Array:
+	var span: float = maxf(fire_tuning.bonfire_max_width, 1.0)
+	if _get_heap_bounds(heap).size.x + 4.0 <= span * WIDE_HEAP_SHARE:
+		return [heap]
+	var stretches: Dictionary = {}  # stretch number -> Array of leaf indices
+	for leaf_index: int in heap:
+		var stretch: int = floori(pile.leaf_positions[leaf_index].x / span)
+		if stretches.has(stretch):
+			(stretches[stretch] as Array).append(leaf_index)
+		else:
+			stretches[stretch] = [leaf_index]
+	var numbers: Array = stretches.keys()
+	numbers.sort()
+	var parts: Array = []
+	for number: int in numbers:
+		var part: Array = stretches[number]
+		if part.size() < fire_tuning.bonfire_min_leaves and not parts.is_empty():
+			(parts[parts.size() - 1] as Array).append_array(part)
+		else:
+			parts.append(part)
+	# The first stretch may still be too small (nothing before it to join).
+	if parts.size() > 1 and (parts[0] as Array).size() < fire_tuning.bonfire_min_leaves:
+		(parts[1] as Array).append_array(parts[0])
+		parts.remove_at(0)
+	return parts
+
+
 func _get_heap_bounds(heap: Array) -> Rect2:
 	var bounds: Rect2 = Rect2(pile.leaf_positions[heap[0]], Vector2.ZERO)
 	for leaf_index: int in heap:
@@ -316,9 +437,14 @@ func _get_heap_bounds(heap: Array) -> Rect2:
 	return bounds
 
 
-## The lit bonfire standing nearest `base` (within BONFIRE_MATCH_DISTANCE), not
-## already given a heap this frame.
-func _find_bonfire_near(base: Vector2, taken: Array[Bonfire]) -> Bonfire:
+## The lit bonfire that goes on burning over this heap, not already given a heap
+## this frame: the one of the same stretch of a row (`stretch`), else the one
+## standing nearest `base` (within BONFIRE_MATCH_DISTANCE).
+func _find_bonfire_for(base: Vector2, stretch: int, taken: Array[Bonfire]) -> Bonfire:
+	if stretch != NO_STRETCH:
+		for bonfire: Bonfire in bonfires:
+			if bonfire.is_lit() and not taken.has(bonfire) and bonfire_stretches.get(bonfire, NO_STRETCH) == stretch:
+				return bonfire
 	var best: Bonfire = null
 	var best_distance: float = BONFIRE_MATCH_DISTANCE
 	for bonfire: Bonfire in bonfires:

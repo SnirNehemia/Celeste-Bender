@@ -65,6 +65,13 @@ static func copy_room(world_path: String, room_name: String) -> Room:
 	var world: Node = _instantiate(world_path)
 	if world == null:
 		return null
+	return take_room(world, room_name)
+
+
+## Takes the room named `room_name` out of `world` (a world built just for this,
+## outside the tree) as a copy, then frees the world. The map's copy and paste
+## uses it on the level being edited, packed as it is right now. Null if not found.
+static func take_room(world: Node, room_name: String) -> Room:
 	var original: Room = world.get_node_or_null(NodePath(room_name)) as Room
 	if original == null:
 		world.free()

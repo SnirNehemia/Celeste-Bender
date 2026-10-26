@@ -29,8 +29,12 @@ extends Node2D
 ## bonfire_max_width). The pile owns it (puts it out on reset), so the bonfire
 ## isn't in the reset group.
 ##
-## Look: FlameTongues spread over the width (more for a wider fire, the middle ones
-## tallest), drawn through a FlameMerge so they share one outline: one fire with many
+## Look: FlameTongues spread over the width (more for a wider fire), each as tall as
+## the burning leaves under it are dense (set_leaf_spread; play-test: a wide pile
+## burnt with one fixed-width flame): full height where there are
+## bonfire_full_density leaves per px or more, lower where the heap thins out.
+## Without leaf positions the middle ones are tallest. Drawn through a FlameMerge so
+## they share one outline: one fire with many
 ## tips, not a row of separate flames (F7 play-test). Plus coals, a soft additive
 ## glow, smoke and sparks popping up in bursts. The full look pass (smoke column,
 ## shimmer) is Stage F13.
@@ -40,10 +44,17 @@ signal burnt_out(bonfire: Bonfire)
 
 enum Stage { OUT, AMBER, LOW, GROWING, FULL }
 
-## One tongue per this many px of width, between MIN_TONGUES and MAX_TONGUES.
+## One tongue per this many px of width, between MIN_TONGUES and MAX_TONGUES...
 const PX_PER_TONGUE: float = 5.0
+## ...or this many in a bonfire that is part of a row along a long pile (see
+## LeafFire._split_wide_heap): a row of 5 bonfires would be 50 tongues, and each
+## tongue costs ~0.2 ms a frame to draw. Wider apart, the merged fire still reads
+## as one flame with many tips.
+const ROW_PX_PER_TONGUE: float = 8.0
 const MIN_TONGUES: int = 3
 const MAX_TONGUES: int = 10
+## The shortest a tongue gets (a share of the full height), however few leaves.
+const MIN_TONGUE_HEIGHT_SHARE: float = 0.3
 ## How often it lights what it touches, seconds (a flame standing still doesn't need
 ## to check every frame).
 const IGNITE_INTERVAL: float = 0.25
@@ -70,9 +81,13 @@ var ignite_timer: float = 0.0
 var spark_timer: float = 0.0
 ## MAX_TONGUES made; the first tongue_heights.size() are in use.
 var flames: Array[FlameTongue] = []
-## Each tongue's share of the full height (the middle ones tallest), set when the
-## tongues are laid out.
+## Each tongue's share of the full height, set when the tongues are laid out.
 var tongue_heights: Array[float] = []
+## Tongue spacing, px: PX_PER_TONGUE, or ROW_PX_PER_TONGUE in a row (set_in_row).
+var px_per_tongue: float = PX_PER_TONGUE
+## Where the heap's leaves lie across the fire: x relative to our origin, px (see
+## set_leaf_spread). Empty = not known.
+var leaf_offsets: PackedFloat32Array = PackedFloat32Array()
 var hazard: FireHazard
 var updraft: WindZone
 ## The additive child the glow is drawn into.
@@ -140,6 +155,25 @@ func set_footprint(base: Vector2, heap_width: float) -> void:
 	if absf(clamped - width) >= 0.5 or tongue_heights.is_empty():
 		width = clamped
 		_lay_out_tongues()
+
+
+## The pile tells us whether we're one of a row of bonfires along a long pile:
+## then our tongues stand further apart (ROW_PX_PER_TONGUE).
+func set_in_row(in_row: bool) -> void:
+	var spacing: float = ROW_PX_PER_TONGUE if in_row else PX_PER_TONGUE
+	if spacing != px_per_tongue:
+		px_per_tongue = spacing
+		_lay_out_tongues()
+
+
+## The pile tells us where the heap's leaves lie (x relative to our origin, px), so
+## the tongues can follow how dense it is. Only re-laid out when the heap changed
+## (a bonfire's leaves are held: usually they don't move).
+func set_leaf_spread(offsets: PackedFloat32Array) -> void:
+	if offsets == leaf_offsets:
+		return
+	leaf_offsets = offsets
+	_lay_out_tongues()
 
 
 ## Goes out. `instant` (a room reset): no smoke.
@@ -247,8 +281,10 @@ func _update_flame() -> void:
 		flame.smoke_rate = fire_tuning.bonfire_smoke_per_second / 2.0 if tongue_heights[tongue_index] >= 0.95 else 0.0
 	hazard.active = flaming
 	if flaming:
-		hazard.hazard_size = Vector2(width, flame_height)
-		hazard.position = Vector2(0.0, -flame_height / 2.0)
+		# As tall as the tallest tongue (a thin heap's fire is low all along).
+		var kill_height: float = flame_height * float(tongue_heights.max()) if not tongue_heights.is_empty() else flame_height
+		hazard.hazard_size = Vector2(width, kill_height)
+		hazard.position = Vector2(0.0, -kill_height / 2.0)
 	# The updraft: as wide as the fire, standing on the flame's top (the zone's
 	# position is its top-left corner). Resized only on a real change (see RESIZE_STEP).
 	var wanted_size: Vector2 = Vector2(width, fire_tuning.bonfire_updraft_height)
@@ -261,27 +297,44 @@ func _update_flame() -> void:
 	updraft.visible = flaming
 
 
-## Spreads the tongues over the width: one per PX_PER_TONGUE, the middle ones tallest.
+## Spreads the tongues over the width: one per PX_PER_TONGUE. Each one's height:
+## from the density of the leaves around it (leaves per px within one tongue spacing
+## either side, over bonfire_full_density), or without leaf positions 1.0 in the
+## middle down to 0.5 at the ends. Plus a little irregularity either way.
 func _lay_out_tongues() -> void:
-	var tongue_count: int = clampi(roundi(width / PX_PER_TONGUE), MIN_TONGUES, MAX_TONGUES)
+	var tongue_count: int = clampi(roundi(width / px_per_tongue), MIN_TONGUES, MAX_TONGUES)
+	var spacing: float = (width - 4.0) / tongue_count
 	tongue_heights.clear()
 	for tongue_index: int in tongue_count:
 		# -1 at the left end, +1 at the right end.
 		var across: float = (float(tongue_index) + 0.5) / tongue_count * 2.0 - 1.0
-		flames[tongue_index].position = Vector2(across * (width / 2.0 - 2.0), 0.0)
-		# 1.0 in the middle down to 0.5 at the ends, with a little irregularity.
-		var height_share: float = 1.0 - 0.5 * across * across + (0.06 if tongue_index % 2 == 0 else -0.06)
-		tongue_heights.append(clampf(height_share, 0.4, 1.0))
+		var tongue_x: float = across * (width / 2.0 - 2.0)
+		flames[tongue_index].position = Vector2(tongue_x, 0.0)
+		var height_share: float = 1.0 - 0.5 * across * across
+		if not leaf_offsets.is_empty():
+			var leaves_near: int = 0
+			for offset: float in leaf_offsets:
+				if absf(offset - tongue_x) <= spacing:
+					leaves_near += 1
+			var density: float = leaves_near / (spacing * 2.0)
+			height_share = density / maxf(fire_tuning.bonfire_full_density, 0.01)
+		height_share += 0.06 if tongue_index % 2 == 0 else -0.06
+		tongue_heights.append(clampf(height_share, MIN_TONGUE_HEIGHT_SHARE, 1.0))
 
 
 ## Lights what the flame touches: flammables in it (grown by bonfire_ignite_reach)
-## and grass along its base and sides. Not our own pile: its leaves spread by
-## themselves.
+## and grass along its base and sides. Our own pile's leaves are lit directly (its
+## LeafFire), only the ones in reach: leaf-to-leaf spread alone stops at the gaps
+## of a pile's thin ends (play-test: a wide pile burnt only near where it was lit).
 func _ignite_touching() -> void:
 	var flame_height: float = maxf(get_flame_height(), 2.0)
 	var flame_rect: Rect2 = Rect2(global_position + Vector2(-width / 2.0, -flame_height), Vector2(width, flame_height))
-	Flammable.ignite_in_rect(get_tree(), flame_rect.grow(fire_tuning.bonfire_ignite_reach), self,
-		get_parent(), fire_tuning.bonfire_ignite_reach)
+	var reach_rect: Rect2 = flame_rect.grow(fire_tuning.bonfire_ignite_reach)
+	Flammable.ignite_in_rect(get_tree(), reach_rect, self, get_parent(), fire_tuning.bonfire_ignite_reach)
+	var pile: LeafPile = get_parent() as LeafPile
+	if pile != null and pile.fire != null:
+		# The pile isn't rotated or scaled: a world rect moves into its coordinates.
+		pile.fire.light_in_rect(Rect2(pile.to_local(reach_rect.position), reach_rect.size))
 
 
 ## Sparks pop upward in bursts at random intervals (§9.3).

@@ -5,7 +5,9 @@ extends Node2D
 ## level design: it's drawn IN FRONT of other objects, so it can hide a pressure
 ## plate, a crate's goal, or the entrance to a secret path. Wind blows it away.
 ##
-## Place the node ON the floor, at the CENTER of the mound's base.
+## Place the node ON the floor, at the CENTER of the mound's base. A pile placed in
+## the air pours down when its room starts running (and after every reset), like
+## leaves that lost what they lay on.
 ##
 ## What moves the leaves:
 ##   - a gust blows the leaves within `gust_reach` of where it came
@@ -187,6 +189,12 @@ var home_rotations: PackedFloat32Array = PackedFloat32Array()
 var leaf_shape: PackedVector2Array = PackedVector2Array([
 	Vector2(-2.0, 0.0), Vector2(0.0, -1.0), Vector2(2.0, 0.0), Vector2(0.0, 1.0)])
 
+## Reused by _draw() every frame: the drawn leaves' corners and colors, and the
+## triangle list joining them (built once per leaf count).
+var draw_points: PackedVector2Array = PackedVector2Array()
+var draw_colors: PackedColorArray = PackedColorArray()
+var draw_indices: PackedInt32Array = PackedInt32Array()
+
 ## Randomness for launches. Separate from the pile layout's seeded generator.
 var launch_random: RandomNumberGenerator = RandomNumberGenerator.new()
 ## Reused for every "is this point solid?" question (saves allocating one per leaf).
@@ -219,6 +227,11 @@ func _ready() -> void:
 	add_to_group(Pushable.GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
 	add_to_group(Flammable.GROUP)
+	# Check once, on our first physics frame (when our room wakes up, see
+	# RoomManager), whether the pile has something under it: a pile placed in the
+	# air (play-test, editor levels) pours down instead of hanging there. On the
+	# floor nothing moves and it costs one check per leaf, once.
+	leaf_supports_dirty = true
 
 
 func _physics_process(delta: float) -> void:
@@ -228,9 +241,9 @@ func _physics_process(delta: float) -> void:
 	# player, a platform, a door) touching the pile, so when nothing like that is
 	# around (the usual case) we skip all of their checks: an idle pile costs ~nothing.
 	var any_changed: bool = false
-	if fire != null and fire.burning_count > 0:
+	if fire != null and (fire.burning_count > 0 or fire.primed_count > 0):
 		fire.update(delta)
-		any_changed = true  # embers flicker: redraw every frame while any burn
+		any_changed = true  # embers flicker (primed leaves glow): redraw every frame
 	if _kick_from_moving_bodies():
 		any_changed = _update_resting_leaves() or any_changed
 	if leaf_supports_dirty:
@@ -316,7 +329,7 @@ func reset() -> void:
 	leaf_supports.fill(null)
 	leaf_support_leaves.fill(NO_LEAF)
 	resting_buckets_dirty = true
-	leaf_supports_dirty = false
+	leaf_supports_dirty = true  # back home: a pile placed in the air pours down again
 	if fire != null:
 		fire.reset()
 	_update_sensor_bounds()
@@ -645,10 +658,21 @@ func _kick_from_moving_bodies() -> bool:
 		# Both the player and crates have their origin at the feet / bottom-center.
 		var feet: Vector2 = to_local(mover.global_position)
 		var half_width: float = _get_body_half_width(mover) + 2.0
+		var body_height: float = _get_body_height(mover)
+		var mover_speed: float = mover.velocity.length()
 		for leaf_index: int in leaf_positions.size():
-			if leaf_is_flying[leaf_index] == 1 or _is_gone(leaf_index):
+			if _is_gone(leaf_index):
 				continue
 			var offset: Vector2 = leaf_positions[leaf_index] - feet
+			if leaf_is_flying[leaf_index] == 1:
+				# A leaf in the air that the body passes through (play-test: you jumped
+				# through falling leaves and they ignored you) is swept along with it.
+				# Only while it's slower than that, so it isn't pushed again every frame.
+				if absf(offset.x) < half_width and offset.y > -body_height - 2.0 and offset.y < 2.0 \
+						and leaf_velocities[leaf_index].length() < mover_speed * 0.5:
+					leaf_velocities[leaf_index] = mover.velocity * launch_random.randf_range(0.5, 0.9) \
+						+ Vector2(launch_random.randf_range(-15.0, 15.0), -launch_random.randf_range(10.0, 30.0))
+				continue
 			if absf(offset.x) < half_width and offset.y > -12.0 and offset.y < 2.0:
 				_launch_leaf(leaf_index, Vector2(
 					mover.velocity.x * launch_random.randf_range(0.4, 0.9),
@@ -665,6 +689,15 @@ func _get_body_half_width(body: CharacterBody2D) -> float:
 		if shape_node != null and shape_node.shape is RectangleShape2D:
 			return (shape_node.shape as RectangleShape2D).size.x / 2.0
 	return 4.0
+
+
+## Height of a body's first rectangle collision shape (12 px fallback).
+func _get_body_height(body: CharacterBody2D) -> float:
+	for child: Node in body.get_children():
+		var shape_node: CollisionShape2D = child as CollisionShape2D
+		if shape_node != null and shape_node.shape is RectangleShape2D:
+			return (shape_node.shape as RectangleShape2D).size.y
+	return 12.0
 
 
 ## "What solid is at this point (local coordinates)?" asked of the physics world.
@@ -770,8 +803,30 @@ func _update_sensor_bounds() -> void:
 		sensor_shape_node.position = bounds.get_center()
 
 
+## Every live leaf as ONE triangle list (two triangles per diamond), the way
+## ThicketLeaves draws (see its _draw): one draw_colored_polygon per leaf made Godot
+## cut every leaf into triangles again on every redraw, ~20 µs a leaf, and a
+## 300-leaf pile redraws every frame while leaves fly or burn.
 func _draw() -> void:
-	for leaf_index: int in leaf_positions.size():
+	var total_leaves: int = leaf_positions.size()
+	if total_leaves == 0:
+		return
+	draw_points.resize(total_leaves * 4)
+	draw_colors.resize(total_leaves * 4)
+	if draw_indices.size() != total_leaves * 6:
+		draw_indices.resize(total_leaves * 6)
+		for leaf_index: int in total_leaves:
+			var first_vertex: int = leaf_index * 4
+			var first_index: int = leaf_index * 6
+			# Corners 0-1-2 and 0-2-3 of leaf_shape.
+			draw_indices[first_index] = first_vertex
+			draw_indices[first_index + 1] = first_vertex + 1
+			draw_indices[first_index + 2] = first_vertex + 2
+			draw_indices[first_index + 3] = first_vertex
+			draw_indices[first_index + 4] = first_vertex + 2
+			draw_indices[first_index + 5] = first_vertex + 3
+	var drawn_count: int = 0
+	for leaf_index: int in total_leaves:
 		var color: Color = leaf_colors[leaf_index]
 		var leaf_scale: float = 1.0
 		if fire != null:
@@ -787,12 +842,28 @@ func _draw() -> void:
 				color = color.lerp(ember, 0.9)
 				color = color.lerp(LEAF_CHAR_COLOR, clampf(burnt * 2.0 - 1.0, 0.0, 1.0))
 				leaf_scale = 1.0 - 0.5 * burnt
-		# draw_set_transform moves, rotates and scales everything drawn after it, so
-		# the same 4-point diamond can be drawn at every leaf's position and angle.
-		draw_set_transform(leaf_positions[leaf_index] + Vector2(0.0, ground_sink),
-			leaf_rotations[leaf_index], Vector2.ONE * leaf_scale)
-		draw_colored_polygon(leaf_shape, color)
-	draw_set_transform(Vector2.ZERO, 0.0)
+			elif fire.primed_count > 0:
+				# Touched by the jet, about to catch: warming up toward ember red.
+				color = color.lerp(LEAF_EMBER_COLOR, 0.7 * fire.get_prime_share(leaf_index))
+		# The diamond moved to the leaf, turned and scaled: corner = position
+		# + x * long_axis + y * short_axis (what draw_set_transform would do).
+		var leaf_position: Vector2 = leaf_positions[leaf_index] + Vector2(0.0, ground_sink)
+		var long_axis: Vector2 = Vector2.from_angle(leaf_rotations[leaf_index]) * leaf_scale
+		var short_axis: Vector2 = Vector2(-long_axis.y, long_axis.x)  # turned +90°
+		var first_vertex: int = drawn_count * 4
+		for corner: int in 4:
+			var shape_point: Vector2 = leaf_shape[corner]
+			draw_points[first_vertex + corner] = leaf_position + long_axis * shape_point.x + short_axis * shape_point.y
+			draw_colors[first_vertex + corner] = color
+		drawn_count += 1
+	if drawn_count == 0:
+		return
+	draw_points.resize(drawn_count * 4)
+	draw_colors.resize(drawn_count * 4)
+	var indices: PackedInt32Array = draw_indices
+	if drawn_count < total_leaves:
+		indices = draw_indices.slice(0, drawn_count * 6)  # some burnt away
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, draw_points, draw_colors)
 
 
 # --- Fire (Stage F7) ----------------------------------------------------------------
@@ -821,7 +892,7 @@ func ignite(source: Node) -> void:
 ## The Flammable contract's optional part: lights the leaves within `radius` px of
 ## `world_point` (a fireball's splash, the jet plume, a burning grass cell, an ember
 ## from another pile). Returns true if any caught.
-func ignite_at(world_point: Vector2, radius: float, _source: Node) -> bool:
+func ignite_at(world_point: Vector2, radius: float, source: Node) -> bool:
 	var point: Vector2 = to_local(world_point)
 	# Quick no: nowhere near any live leaf (the sensor covers them all, +3 px). Burning
 	# leaves ask every pile in the room several times a second, so this matters.
@@ -829,7 +900,11 @@ func ignite_at(world_point: Vector2, radius: float, _source: Node) -> bool:
 		(sensor_shape_node.shape as RectangleShape2D).size)
 	if not live_area.grow(radius).has_point(point):
 		return false
-	return _get_fire().light_near(point, radius)
+	# The jet's flame catches a moment later (LeafFire's "LIT BY THE JET").
+	var catch_delay: float = 0.0
+	if source is FlameJetAbility:
+		catch_delay = _get_fire().fire_tuning.leaf_jet_catch_delay
+	return _get_fire().light_near(point, radius, catch_delay)
 
 
 func is_burning() -> bool:

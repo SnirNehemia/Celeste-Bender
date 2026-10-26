@@ -18,8 +18,25 @@ extends Node2D
 ##     tuning.death_respawn_delay seconds, then respawns at the current room's spawn.
 ##   - Restart (R, or the pause menu): kills the player through the same path, so
 ##     it counts as a death.
-##   - Reset: on every respawn, the room's puzzle objects go back to their start
+##   - Reset: on every respawn, EVERY room's objects go back to their start
 ##     (Room.reset_objects()), so a misplaced crate can't leave a room unsolvable.
+##     All rooms, not only the current one (play-test): a fire that had spread over
+##     the border into the next room kept burning there, and lit your room again
+##     after every reset.
+##   - Freezing: only the rooms near the player run. Every other room is set to
+##     PROCESS_MODE_DISABLED, which pauses its whole branch of the tree (no _process,
+##     no _physics_process, particles stop, bodies leave the physics world) and keeps
+##     everything exactly as it was, so a fire left burning picks up where it stopped
+##     when you come back. Without this, all rooms of a level ran every frame, and a
+##     long level got slower the more fires you'd left behind.
+
+## How far around the player's hitbox a room counts as "near" and stays awake, in
+## pixels. A room wakes up a little BEFORE the player reaches it, so its doors,
+## platforms and hazards are back in the physics world in time (the player moves
+## at most a few pixels per frame), and the room you just left keeps running until
+## you're clear of its edge. Tile collision doesn't need this: TileMapLayers stay
+## solid even in a frozen room.
+const AWAKE_MARGIN: float = 16.0
 
 @export var player: Player
 @export var camera: RoomCamera
@@ -47,10 +64,16 @@ func _ready() -> void:
 		return
 	GameState.current_room = current_room
 	camera.snap_to_room(current_room.get_bounds())
+	_update_awake_rooms()
 
 
 func _physics_process(_delta: float) -> void:
-	if is_transitioning or player.is_dead() or current_room == null:
+	if current_room == null:
+		return
+	# Every frame, even during a slide or a death: the player keeps moving through
+	# rooms' edges then too.
+	_update_awake_rooms()
+	if is_transitioning or player.is_dead():
 		return
 
 	var player_center: Vector2 = _get_player_center()
@@ -82,6 +105,9 @@ func restart_room() -> void:
 
 func _transition_to_room(next_room: Room) -> void:
 	var previous_room: Room = current_room
+	# Wake it before anything else touches it (it's near the player, so it should be
+	# awake already; this makes sure).
+	_set_room_awake(next_room, true)
 	# Enemies start where they were placed every time you walk in (they sleep while
 	# you're elsewhere, see Room.reset_enemies).
 	next_room.reset_enemies()
@@ -114,6 +140,9 @@ func jump_to_room(target_room: Room) -> void:
 	target_room.reset_objects()
 	player.respawn_at(target_room.get_spawn_position())
 	camera.snap_to_room(target_room.get_bounds())
+	# Right away, not next frame: whoever called this (the room picker, a smoke test)
+	# may use the room's objects in the same frame.
+	_update_awake_rooms()
 
 
 func _on_player_died() -> void:
@@ -123,10 +152,30 @@ func _on_player_died() -> void:
 	await get_tree().create_timer(player.tuning.death_respawn_delay).timeout
 	# Reset at respawn time, not at death: during the death effect the room still
 	# shows what happened.
-	current_room.reset_objects()
+	for room: Room in rooms:
+		room.reset_objects()
 	player.respawn_at(current_room.get_spawn_position())
+	_update_awake_rooms()
 	# A soft white flash (alpha 0.35, not a full white-out) hides the teleport.
 	FX.flash_screen(Color(1.0, 1.0, 1.0, 0.35), player.tuning.respawn_flash_time)
+
+
+## Wakes the current room and every room within AWAKE_MARGIN of the player's
+## hitbox; freezes all the others. Cheap: one rectangle test per room.
+func _update_awake_rooms() -> void:
+	var near_player: Rect2 = player.get_hitbox_rect().grow(AWAKE_MARGIN)
+	for room: Room in rooms:
+		var is_near: bool = room == current_room or room.get_bounds().intersects(near_player)
+		_set_room_awake(room, is_near)
+
+
+## True: the room runs normally (INHERIT: it follows this node, so pausing the game
+## still pauses it). False: frozen (DISABLED). Only writes on a change, since
+## setting process_mode notifies every node in the room.
+func _set_room_awake(room: Room, awake: bool) -> void:
+	var wanted_mode: ProcessMode = Node.PROCESS_MODE_INHERIT if awake else Node.PROCESS_MODE_DISABLED
+	if room.process_mode != wanted_mode:
+		room.process_mode = wanted_mode
 
 
 func _find_room_containing(point: Vector2) -> Room:

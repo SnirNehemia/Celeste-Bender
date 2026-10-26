@@ -84,6 +84,12 @@ var leaf_colors: PackedColorArray = PackedColorArray()
 var leaf_cells: Array[Vector2i] = []
 var winds_found: bool = false
 var sway_clock: float = 0.0
+## Reused by _draw() every frame (so it doesn't allocate new arrays 60 times a
+## second): every drawn leaf's 4 corners and their color, and the triangle list
+## that joins them (see _build_draw_indices).
+var draw_points: PackedVector2Array = PackedVector2Array()
+var draw_colors: PackedColorArray = PackedColorArray()
+var draw_indices: PackedInt32Array = PackedInt32Array()
 
 
 func _ready() -> void:
@@ -267,15 +273,30 @@ func receive_gust_from(direction: Vector2, strength: float, source_position: Vec
 
 ## Every leaf whose tile is still there: LEAF_SHAPE moved to its bent position (whole
 ## pixels, so it stays crisp), turned by its rotation plus a little for the bend, and
-## scaled. draw_set_transform moves, turns and scales everything drawn after it, so
-## one small polygon serves every leaf (the leaf pile does the same).
-## On a burning cell a leaf blackens and shrinks as the fire works through it, and
-## drops off at its own moment between BURN_DROP_EARLIEST and _LATEST of the burn.
+## scaled. On a burning cell a leaf blackens and shrinks as the fire works through
+## it, and drops off at its own moment between BURN_DROP_EARLIEST and _LATEST of the
+## burn.
+##
+## All the leaves go to the renderer as ONE triangle list (two triangles per leaf
+## diamond), not one polygon per leaf. Measured in a 544-leaf room: one
+## draw_colored_polygon per leaf cost ~11 ms a frame (Godot re-triangulates every
+## polygon on every redraw, and each is its own draw command), the triangle list well
+## under 1 ms. So we turn and scale the 4 corners ourselves instead of using
+## draw_set_transform.
 func _draw() -> void:
 	if not fire_grid_looked_up:
 		fire_grid_looked_up = true
 		fire_grid = layer.get_parent().get_node_or_null("FireGrid") as FireGrid
-	for leaf_index: int in leaf_anchors.size():
+	var leaf_count: int = leaf_anchors.size()
+	if leaf_count == 0:
+		return
+	# Sized for every leaf; cut down to the leaves actually drawn at the end.
+	draw_points.resize(leaf_count * 4)
+	draw_colors.resize(leaf_count * 4)
+	if draw_indices.size() != leaf_count * 6:
+		_build_draw_indices(leaf_count)
+	var drawn_count: int = 0
+	for leaf_index: int in leaf_count:
 		var cell: Vector2i = leaf_cells[leaf_index]
 		if layer.get_cell_source_id(cell) == -1:
 			continue  # burnt away
@@ -292,6 +313,41 @@ func _draw() -> void:
 		var bend: Vector2 = leaf_bends[leaf_index]
 		var across: Vector2 = leaf_directions[leaf_index].orthogonal()
 		var leaf_rotation: float = leaf_rotations[leaf_index] + bend.dot(across) * TURN_PER_BEND
-		draw_set_transform((leaf_anchors[leaf_index] + bend).round(), leaf_rotation, Vector2.ONE * leaf_scale)
-		draw_colored_polygon(LEAF_SHAPE, color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var leaf_position: Vector2 = (leaf_anchors[leaf_index] + bend).round()
+		# The diamond's long axis (LEAF_SHAPE's x) and short axis (its y), turned and
+		# scaled: each corner is position + x * long_axis + y * short_axis.
+		var long_axis: Vector2 = Vector2.from_angle(leaf_rotation) * leaf_scale
+		var short_axis: Vector2 = Vector2(-long_axis.y, long_axis.x)  # turned +90°
+		var first_vertex: int = drawn_count * 4
+		for corner: int in 4:
+			var shape_point: Vector2 = LEAF_SHAPE[corner]
+			draw_points[first_vertex + corner] = leaf_position + long_axis * shape_point.x + short_axis * shape_point.y
+			draw_colors[first_vertex + corner] = color
+		drawn_count += 1
+	if drawn_count == 0:
+		return
+	draw_points.resize(drawn_count * 4)
+	draw_colors.resize(drawn_count * 4)
+	var indices: PackedInt32Array = draw_indices
+	if drawn_count < leaf_count:
+		indices = draw_indices.slice(0, drawn_count * 6)  # some burnt off
+	# The RenderingServer is the engine's drawing backend that every draw_* call goes
+	# through; this one takes a whole triangle list at once. Called inside _draw(), it
+	# is cleared and redone with every queue_redraw(), like the draw_* calls.
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, draw_points, draw_colors)
+
+
+## Two triangles per leaf diamond (corners 0-1-2 and 0-2-3), for `leaf_count`
+## leaves. Leaf i's corners are vertices 4i..4i+3, so this never changes for a
+## given count: built once, not every frame.
+func _build_draw_indices(leaf_count: int) -> void:
+	draw_indices.resize(leaf_count * 6)
+	for leaf_index: int in leaf_count:
+		var first_vertex: int = leaf_index * 4
+		var first_index: int = leaf_index * 6
+		draw_indices[first_index] = first_vertex
+		draw_indices[first_index + 1] = first_vertex + 1
+		draw_indices[first_index + 2] = first_vertex + 2
+		draw_indices[first_index + 3] = first_vertex
+		draw_indices[first_index + 4] = first_vertex + 2
+		draw_indices[first_index + 5] = first_vertex + 3

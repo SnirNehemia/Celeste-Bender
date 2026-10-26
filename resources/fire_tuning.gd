@@ -269,6 +269,10 @@ extends Resource
 ## this (3 = a cloud gusted ~90 px up comes down in ~3 s instead of ~7: a fluttering
 ## leaf averages only ~0.7 x fall_speed).
 @export_range(1.0, 5.0) var leaf_ember_fall_scale: float = 3.0
+## Leaves the flame JET touches catch this many seconds later (they glow
+## meanwhile), so you can jet along a floor of leaves and leave the fire behind you
+## (play-test). Like crate_jet_catch_delay. Fireballs light leaves at once.
+@export var leaf_jet_catch_delay: float = 0.4
 
 @export_group("Bonfire")
 ## A bonfire forms where at least bonfire_min_leaves burning leaves LIE together
@@ -277,7 +281,13 @@ extends Resource
 @export var bonfire_cluster_cell: float = 6.0
 ## Its flame (and kill zone and updraft) is as wide as the burning heap, within these.
 @export var bonfire_min_width: float = 12.0
+## A heap much wider than this gets a row of bonfires, one per bonfire_max_width px
+## of the pile (LeafFire._split_wide_heap), so a long pile burns all along.
 @export var bonfire_max_width: float = 48.0
+## A tongue reaches the full flame height where the heap has this many leaves per
+## px of width; thinner parts of the heap burn lower (down to 0.3 of the height).
+## A default 60-leaf, 36 px pile has ~2.5/px in its middle and ~0.5 near its ends.
+@export var bonfire_full_density: float = 1.5
 ## How it grows (F7 play-test): first AMBER (glowing leaves, harmless, no lift) for
 ## bonfire_amber_time, then a LOW flame (bonfire_low_height_share of full height,
 ## kills, lifts) for bonfire_low_time, then it rises to full height over

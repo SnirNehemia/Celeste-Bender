@@ -22,17 +22,18 @@ extends Node2D
 ## over the tongues' own licks and smoke, like before.
 ##
 ## Bases: inside a merge each tongue's base is drawn base_widen times wider and
-## base_drop px lower (FlameTongue.draw_layer), so neighbouring bases overlap into one
+## base_drop px lower (FlameTongue.get_layer_shape), so neighbouring bases overlap into one
 ## bed of flame instead of separate feet.
 ##
 ## Redrawing: a canvas item keeps showing its last drawing until it's asked to draw
 ## again. So when a tongue leaves (a fire burnt out, or R cleared it) we redraw once
 ## more, or its last frame would stay frozen on screen.
 ##
-## Cost: none extra. The tongues' polygons are built and drawn as before, only onto
-## one canvas item (two, with the additive one) instead of two per tongue.
+## Cost: less than separate tongues. The tongues' polygons are built as before, but
+## sent to the renderer as one triangle list per canvas item (two, with the additive
+## one), not one draw command per tongue and layer (see _draw_layers).
 
-## The tongues' layers, drawn in this order (see FlameTongue.draw_layer).
+## The tongues' layers, drawn in this order (see FlameTongue.get_layer_shape).
 const OUTER_LAYERS: Array[int] = [FlameTongue.Layer.EDGE, FlameTongue.Layer.BODY]
 const HOT_LAYERS: Array[int] = [FlameTongue.Layer.INNER, FlameTongue.Layer.CORE]
 
@@ -101,13 +102,34 @@ func _draw_hot_layers() -> void:
 
 
 ## Draws `layers` of every visible tongue onto `on_item`, all tongues one layer at a
-## time, each through its transform relative to us.
+## time, each through its transform relative to us. Everything goes to the renderer
+## as ONE triangle list (play-test: a burning room had ~100 tongues, and one draw
+## command per tongue and layer, ~400 a frame, cost more than everything else in
+## the fire). The list keeps the order: every tongue's first layer, then every
+## tongue's second, so the outline still only shows around the outside.
 func _draw_layers(on_item: CanvasItem, layers: Array[int]) -> void:
 	var to_local_space: Transform2D = get_global_transform().affine_inverse()
+	var points: PackedVector2Array = PackedVector2Array()
+	var colors: PackedColorArray = PackedColorArray()
+	var indices: PackedInt32Array = PackedInt32Array()
 	for layer: int in layers:
 		for tongue: FlameTongue in tongues:
 			if not is_instance_valid(tongue) or not tongue.is_visible_in_tree() or not tongue.has_flame():
 				continue
-			on_item.draw_set_transform_matrix(to_local_space * tongue.get_global_transform())
-			tongue.draw_layer(on_item, layer)
-	on_item.draw_set_transform_matrix(Transform2D.IDENTITY)
+			var shape: Array = tongue.get_layer_shape(layer)
+			if shape.is_empty():
+				continue
+			# Cut into triangles in the tongue's own space (its size limits are in
+			# its own px), then moved into ours.
+			var fill: Array = FlameTongue.prepare_fill(shape[0])
+			if fill.is_empty():
+				continue
+			var first_vertex: int = points.size()
+			points.append_array((to_local_space * tongue.get_global_transform()) * (fill[0] as PackedVector2Array))
+			for vertex_index: int in fill[1]:
+				indices.append(first_vertex + vertex_index)
+			var color: Color = shape[1]
+			for vertex_index: int in (fill[0] as PackedVector2Array).size():
+				colors.append(color)
+	if not indices.is_empty():
+		RenderingServer.canvas_item_add_triangle_array(on_item.get_canvas_item(), indices, points, colors)

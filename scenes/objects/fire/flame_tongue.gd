@@ -116,6 +116,8 @@ var lick_spawn_debt: float = 0.0
 ## Smoke wisps. Each: {position (world), velocity (world), age, lifetime, phase}.
 var smoke: Array[Dictionary] = []
 var smoke_spawn_debt: float = 0.0
+## True if last frame drew anything of our own (see _process).
+var had_own_drawing: bool = true
 
 
 func _ready() -> void:
@@ -143,8 +145,15 @@ func _process(delta: float) -> void:
 	noise_time += delta * flicker_speed
 	_update_licks(delta)
 	_update_smoke(delta)
-	queue_redraw()
-	core_layer.queue_redraw()
+	# Inside a FlameMerge our own canvas items only show licks and smoke. With none
+	# of those (most tongues, most frames) there's nothing to redraw, apart from one
+	# last empty redraw to clear the final frame of the last one. Saves ~100
+	# pointless redraws a frame on a burning thicket wall.
+	var has_own_drawing: bool = merge == null or not licks.is_empty() or not smoke.is_empty()
+	if has_own_drawing or had_own_drawing:
+		queue_redraw()
+		core_layer.queue_redraw()
+	had_own_drawing = has_own_drawing
 
 
 ## Tears new licks off the tip and moves/ages the ones in flight.
@@ -299,12 +308,20 @@ func has_flame() -> bool:
 	return length >= 0.5 and opacity > 0.0
 
 
-## Draws one layer of the flame onto `on_item`, in this tongue's local coordinates
-## (a FlameMerge sets the transform first). EDGE and BODY belong on a normal canvas
-## item, INNER and CORE on an additive one.
+## Draws one layer of the flame onto `on_item`, in this tongue's local coordinates.
+## EDGE and BODY belong on a normal canvas item, INNER and CORE on an additive one.
+## (A FlameMerge doesn't use this: it collects get_layer_shape() of all its tongues
+## and draws them in one go.)
+func draw_layer(on_item: CanvasItem, layer: int) -> void:
+	var shape: Array = get_layer_shape(layer)
+	if not shape.is_empty():
+		_fill(on_item, shape[0], shape[1])
+
+
+## One layer's outline (tongue-local points) and color: [PackedVector2Array, Color].
 ## Inside a FlameMerge the base is wider and a little lower (merge.base_widen and
 ## base_drop), so neighbouring tongues' feet run together.
-func draw_layer(on_item: CanvasItem, layer: int) -> void:
+func get_layer_shape(layer: int) -> Array:
 	var base_widen: float = 1.0
 	var base_drop: float = 0.0
 	if merge != null:
@@ -312,18 +329,19 @@ func draw_layer(on_item: CanvasItem, layer: int) -> void:
 		base_drop = merge.base_drop
 	match layer:
 		Layer.EDGE:
-			_fill(on_item, _make_polygon(1.0, 1.0, 0.0, base_widen, base_drop), Color(EDGE_COLOR, opacity))
+			return [_make_polygon(1.0, 1.0, 0.0, base_widen, base_drop), Color(EDGE_COLOR, opacity)]
 		Layer.BODY:
-			_fill(on_item, _make_polygon(0.78, 0.85, 7.0, base_widen, base_drop), Color(BODY_COLOR, opacity))
+			return [_make_polygon(0.78, 0.85, 7.0, base_widen, base_drop), Color(BODY_COLOR, opacity)]
 		Layer.INNER:
 			var inner_scale: float = lerpf(0.45, 0.6, heat)
-			_fill(on_item, _make_polygon(inner_scale, inner_scale + 0.1, 13.0, base_widen, base_drop),
-				Color(INNER_COLOR, 0.8 * opacity))
+			return [_make_polygon(inner_scale, inner_scale + 0.1, 13.0, base_widen, base_drop),
+				Color(INNER_COLOR, 0.8 * opacity)]
 		Layer.CORE:
 			var core_scale: float = lerpf(0.2, 0.42, heat)
 			var core_color: Color = INNER_COLOR.lerp(CORE_COLOR, heat)
-			_fill(on_item, _make_polygon(core_scale, core_scale + 0.05, 19.0, base_widen, base_drop),
-				Color(core_color, opacity))
+			return [_make_polygon(core_scale, core_scale + 0.05, 19.0, base_widen, base_drop),
+				Color(core_color, opacity)]
+	return []
 
 
 ## The flame outline for one layer. `width_scale`/`length_scale` shrink the layer,
@@ -368,26 +386,45 @@ func _wander(t: float, row: float) -> float:
 	return noise.get_noise_2d(t * 4.0, row * 13.0)
 
 
-## Fills `points` on `on_item`. The noise can fold a forked tip over itself, and Godot
-## can't fill a self-crossing outline ("triangulation failed"); then the convex hull
-## (the outline with its dents filled in) is drawn instead, for that one frame.
-## Shapes smaller than MIN_FILL_AREA (a lick that has nearly burnt out) are skipped:
-## the renderer rejects near-zero-area polygons even when they triangulate here.
+## Fills `points` on `on_item` (see prepare_fill), drawn with the transform the
+## caller set, like any draw_* call.
 func _fill(on_item: CanvasItem, points: PackedVector2Array, color: Color) -> void:
+	var fill: Array = prepare_fill(points)
+	if fill.is_empty():
+		return
+	# The triangles from prepare_fill, drawn directly (a triangle list on the
+	# RenderingServer, the drawing backend under every draw_* call): no second cut
+	# into triangles as draw_colored_polygon() would do. One color for every vertex.
+	RenderingServer.canvas_item_add_triangle_array(on_item.get_canvas_item(), fill[1], fill[0],
+		PackedColorArray([color]))
+
+
+## An outline ready to fill: [points, triangle indices], or [] if there's nothing to
+## fill. The noise can fold a forked tip over itself, and a self-crossing outline
+## can't be cut into triangles; then the convex hull (the outline with its dents
+## filled in) is used instead, for that one frame. Shapes smaller than
+## MIN_FILL_AREA (a lick that has nearly burnt out) are skipped: the renderer
+## rejects near-zero-area polygons.
+static func prepare_fill(points: PackedVector2Array) -> Array:
 	# not is_finite(): a node scaled to 0 (a fireball guttering out) turns world
 	# positions into infinite local ones.
 	var area: float = absf(_get_signed_area(points))
 	if not is_finite(area) or area < MIN_FILL_AREA:
-		return
-	if Geometry2D.triangulate_polygon(points).is_empty():
+		return []
+	var triangles: PackedInt32Array = Geometry2D.triangulate_polygon(points)
+	if triangles.is_empty():
 		points = Geometry2D.convex_hull(points)
 		if points.size() < 4:  # convex_hull repeats the first point at the end
-			return
-	on_item.draw_colored_polygon(points, color)
+			return []
+		points.remove_at(points.size() - 1)
+		triangles = Geometry2D.triangulate_polygon(points)
+		if triangles.is_empty():
+			return []
+	return [points, triangles]
 
 
 ## The polygon's area (shoelace formula; the sign says which way it winds).
-func _get_signed_area(points: PackedVector2Array) -> float:
+static func _get_signed_area(points: PackedVector2Array) -> float:
 	var doubled_area: float = 0.0
 	for index: int in points.size():
 		var next: Vector2 = points[(index + 1) % points.size()]
