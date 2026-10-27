@@ -198,6 +198,51 @@ extends Resource
 @export var spray_life: float = 0.45
 @export_range(0, 1000) var max_spray: int = 300
 
+@export_group("Water hands")
+## Stage W3 (Water_bending.md §5.1): hold 1 to steer a waterball in slow motion.
+## The world's speed while holding (the ball runs in real time).
+@export_range(0.05, 1.0) var hold_time_scale: float = 0.3
+## The ring: how far from your center the ball can go, px. Pushing it out of the
+## ring lets go of it (a throw).
+@export_range(16.0, 160.0) var control_radius: float = 56.0
+## Where the ball appears: this far in front of you, px.
+@export var ball_start_distance: float = 8.0
+## Steering, in REAL time: top speed px/s, how fast it gets there (px/s²), and how
+## fast it stops with no arrow held (px/s²). A weight of water, not a mouse cursor.
+@export var ball_move_speed: float = 90.0
+@export var ball_accel: float = 500.0
+@export var ball_drag: float = 350.0
+## Let go by itself after this many REAL seconds (slow motion can't be held forever).
+@export_range(0.5, 10.0) var max_hold_time: float = 4.0
+## The ball gathers water within this many px of its edge, at gather_rate units per
+## REAL second, up to ball_max_units.
+@export var gather_reach: float = 6.0
+@export var gather_rate: float = 6.0
+@export_range(0.5, 10.0) var ball_max_units: float = 4.0
+## On release the water keeps its steering velocity times this (it moved in slow
+## motion, so without a boost a throw would look feeble).
+@export_range(0.5, 5.0) var throw_multiplier: float = 2.5
+## Under water, a ball with water in it moving INTO something SHOVES it once, the
+## way the ball moves, like a gust (after play-test 3): you, or a floating crate.
+## The shove is ball_push_speed (game px/s); yours is scaled by how much of you is
+## under water, and only from ball_push_min_share under (a floating crate, about
+## half under, takes it whenever it's wet). The ball gives its speed away:
+## it stops, and must leave the thing before it can shove it again.
+@export var ball_push_speed: float = 200.0
+@export_range(0.0, 1.0) var ball_push_min_share: float = 0.5
+
+@export_group("Water and projectiles")
+## Any water (a pool, loose drops, the held ball) puts a FIREBALL out, and SOAKS a
+## sentry orb (after play-test 3): it keeps orb_soaked_speed_keep of its speed and
+## from then on falls under orb_soaked_gravity (px/s²). Soaked, it no longer
+## bounces: the next solid pops it. It still kills.
+@export_range(0.0, 1.0) var orb_soaked_speed_keep: float = 0.3
+@export var orb_soaked_gravity: float = 300.0
+## Inside water a soaked orb sinks: gravity orb_sink_gravity (the water holds it up)
+## and a drag that takes orb_water_drag of its speed a second (like crates).
+@export var orb_sink_gravity: float = 60.0
+@export var orb_water_drag: float = 6.0
+
 @export_group("Swimming")
 ## The water holds you back in proportion to how much of you is in it (the
 ## submerged share of the hitbox, 0..1; Water_bending.md §5.4). Run speed is
@@ -222,6 +267,9 @@ extends Resource
 ## Jump with your head out of the water (not standing): a leap out, this share of a
 ## full jump.
 @export_range(0.0, 1.5) var surface_leap_scale: float = 1.0
+## No air gust under water (after play-test 3): with MORE than this share of you
+## under (0.5 = the water above your middle), the gust key only makes a little puff.
+@export_range(0.0, 1.0) var gust_max_submerged_share: float = 0.5
 
 @export_group("Player in water")
 ## The player wading or swimming drags the water along: the water around the body

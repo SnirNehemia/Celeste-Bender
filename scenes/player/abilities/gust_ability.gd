@@ -87,7 +87,7 @@ func _physics_process(delta: float) -> void:
 	# No charge left (or no breath): the press does nothing, but say so with a tiny
 	# puff (instead of silently ignoring the key, which feels like a dropped input).
 	if Input.is_action_just_pressed("gust") and cooldown_remaining <= 0.0 \
-			and not _can_afford() and not player.is_dead() \
+			and (not _can_afford() or is_under_water()) and not player.is_dead() \
 			and player.is_element_allowed(Player.ELEMENT_AIR):
 		_fizzle()
 	# Redraw every frame: the charge pips follow the player, and this node sits still
@@ -98,7 +98,13 @@ func _physics_process(delta: float) -> void:
 # --- Charges, cooldown and breath ----------------------------------------------
 
 func can_gust() -> bool:
-	return cooldown_remaining <= 0.0 and _can_afford()
+	return cooldown_remaining <= 0.0 and _can_afford() and not is_under_water()
+
+
+## No gusts under water (after play-test 3): more than gust_max_submerged_share of
+## the player is under (0.5: the water is above your middle). The press only puffs.
+func is_under_water() -> bool:
+	return player.swim.submerged_share > player.water_tuning.gust_max_submerged_share
 
 
 ## True if a gust can be paid for right now: a charge (or standing on the ground,

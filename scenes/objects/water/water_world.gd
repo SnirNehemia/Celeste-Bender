@@ -105,6 +105,9 @@ const SOAK_REACH: int = 2
 const CREST_HALF_WIDTH: int = 2
 ## A poke (key 8, poke()) pushes the water over this many px each side of the point.
 const POKE_RADIUS: float = 8.0
+## A loose drop (or a dot of the held ball) touches things this close, px
+## (is_water_near): about the size it's drawn.
+const DROP_TOUCH_RADIUS: float = 2.0
 
 ## preload() returns the same resource object the player holds, so F5 panel edits
 ## reach the water at once.
@@ -151,6 +154,16 @@ var solid_boxes: Array[Rect2] = []
 var crown_count: int = 0
 ## Particles thrown off breaking crests since the room started (tests, debug).
 var crest_break_count: int = 0
+## Water in the player's hands (Stage W3), px²: taken out of this room's water by
+## gather(), put back by release_held(). The books count it, so holding water
+## changes nothing in them.
+var held_area: float = 0.0
+## The held ball as dots (room-local), drawn with the particles: by the WaterRenderer
+## as metaballs, or as squares in the fallback. Set by WaterHandsAbility every frame
+## (set_held_dots); empty when nothing is held.
+var held_dots: PackedVector2Array = PackedVector2Array()
+## Where the last gather() took water from (room-local), for the hands' tendril.
+var last_gather_point: Vector2 = Vector2.ZERO
 ## How much water the painted tiles held when the room loaded, px².
 var initial_area: float = 0.0
 var last_step_usec: int = 0
@@ -370,7 +383,7 @@ func get_lost_units() -> float:
 ## Everything the books know about: what's here, plus what left (lost, soaked,
 ## drained), minus what sources added. Never changes (the smoke test checks).
 func get_books_units() -> float:
-	return (get_total_area() + lost_area + soaked_area + drained_area - sourced_area) / UNIT_AREA
+	return (get_total_area() + held_area + lost_area + soaked_area + drained_area - sourced_area) / UNIT_AREA
 
 
 func get_soaked_units() -> float:
@@ -414,6 +427,24 @@ func find_water_at(point: Vector2) -> Array:
 		if point.y >= top and point.y <= body.floor_y[column]:
 			return [body, column]
 	return []
+
+
+## Is there water within `radius` px of the WORLD point? A pool's water, a loose
+## drop, or the ball in the player's hands (its dots) all count: to a projectile,
+## water is water (after play-test 3). A fireball goes out in it, a sentry orb gets
+## soaked (SentryOrb). Spray doesn't count: it's only a look.
+func is_water_near(world_point: Vector2, radius: float) -> bool:
+	var point: Vector2 = to_local(world_point)
+	if not find_water_at(point).is_empty():
+		return true
+	var reach_squared: float = (radius + DROP_TOUCH_RADIUS) * (radius + DROP_TOUCH_RADIUS)
+	for drop_position: Vector2 in drop_positions:
+		if drop_position.distance_squared_to(point) <= reach_squared:
+			return true
+	for dot: Vector2 in held_dots:
+		if dot.distance_squared_to(point) <= reach_squared:
+			return true
+	return false
 
 
 ## The body lying under the room-local point (its floor is at or below the point, the
@@ -497,7 +528,8 @@ func add_loose_water(center: Vector2, units: float, velocity: Vector2 = Vector2.
 
 ## A ball of `units` of water centered on the room-local `center`, all moving at
 ## `velocity`: particles packed in a disc (their cohesion keeps it round in flight).
-## The debug throw (key 6) now; the water hands' release (W3) later.
+## The debug throw (key 6): it makes NEW water (the hands' release_held() gives back
+## water taken from the room instead).
 func throw_ball(center: Vector2, velocity: Vector2, units: float) -> void:
 	_spawn_ball(center, velocity, units * UNIT_AREA)
 
@@ -573,6 +605,70 @@ func get_flow_through(rect: Rect2, along: Vector2 = Vector2.DOWN) -> float:
 	return flow
 
 
+# --- The water hands (Stage W3, Water_bending.md §5.1) -------------------------------
+
+## Takes up to `max_area` px² of water within `reach` px of the room-local `point`
+## into the hands (held_area) and returns how much it got. Loose particles in reach
+## go first (whole particles: the ball eats drops, a waterfall's stream); then a body
+## whose water is within reach under the point: from the column under it and its
+## neighbours, so the surface dips under the ball and the dip runs out as waves
+## (Water_bending.md §5.1: "the pool loses exactly what the ball gains").
+## A source's water is particles (or pool water), so gathering from a waterfall or a
+## stream takes nothing that wouldn't be replaced: flows never run dry.
+func gather(point: Vector2, reach: float, max_area: float) -> float:
+	var taken: float = 0.0
+	var reach_squared: float = reach * reach
+	var index: int = 0
+	while index < drop_positions.size() and taken < max_area:
+		if drop_positions[index].distance_squared_to(point) <= reach_squared:
+			taken += drop_areas[index]
+			last_gather_point = drop_positions[index]
+			_remove_drop(index)  # the last particle takes this slot: look at it next
+		else:
+			index += 1
+	if taken < max_area:
+		for body: WaterBody in bodies:
+			var column: int = body.get_column_at(point.x)
+			if column < 0 or body.depth[column] <= WaterBody.DRY_DEPTH:
+				continue
+			var surface_y: float = maxf(body.get_surface_y(column), body.ceiling_y[column])
+			# In reach: from `reach` above the surface down to the floor.
+			if point.y < surface_y - reach or point.y > body.floor_y[column]:
+				continue
+			# Two tiles' worth of columns each side share the loss: a dip, not a hole.
+			taken += body.remove_water(column, max_area - taken, _radius_in_columns(TILE * 2.0))
+			last_gather_point = Vector2(point.x, surface_y)
+			if taken >= max_area:
+				break
+	held_area += taken
+	return taken
+
+
+## Gives `area` px² of the held water back as a ball of particles around the
+## room-local `center`, all moving at `velocity` (a throw; zero = it just drops).
+## The water hands' release. Like throw_ball(), but the water comes from the hands
+## (held_area), so the books don't change.
+func release_held(center: Vector2, velocity: Vector2, area: float) -> void:
+	area = minf(area, held_area)
+	held_area -= area
+	if area > 0.0:
+		_spawn_ball(center, velocity, area)
+
+
+## The held ball's dots for this frame (room-local); empty = nothing held.
+func set_held_dots(dots: PackedVector2Array) -> void:
+	held_dots = dots
+	queue_redraw()
+	renderer.refresh()
+
+
+## A few sparkling specks of spray at the room-local `point` (an empty ball let go,
+## an orb fizzling on the ball): only a look.
+func sparkle(point: Vector2, count: int = 4) -> void:
+	for index: int in count:
+		_spawn_spray(point, Vector2.from_angle(randf() * TAU) * randf_range(20.0, 50.0))
+
+
 ## Takes up to `units` of water from the water nearest the room-local `point`: from
 ## a few columns there first, then from the rest of that body, then from the next
 ## nearest body (a thin puddle may not hold a whole bucket). Returns the units taken.
@@ -645,6 +741,8 @@ func reset() -> void:
 	soaked_area = 0.0
 	sourced_area = 0.0
 	drained_area = 0.0
+	held_area = 0.0
+	held_dots.clear()
 	spray_positions.clear()
 	spray_velocities.clear()
 	spray_life.clear()
@@ -1386,6 +1484,9 @@ func _draw() -> void:
 		var size: float = 2.0 if drop_areas[index] <= water_tuning.drop_units * UNIT_AREA * 1.5 else 3.0
 		var drop_color: Color = Color(0.0, drop_foam[index], KIND_DROP)  # green = foam
 		_add_square(points, colors, indices, drop_positions[index], size, drop_color)
+	# The ball in the player's hands (Stage W3), the same way.
+	for dot: Vector2 in (held_dots if draw_particles else PackedVector2Array()):
+		_add_square(points, colors, indices, dot, 2.0, Color(0.0, 0.0, KIND_DROP))
 	var spray_color: Color = Color(0.0, 1.0, KIND_DROP)  # a drop with full foam: white
 	for index: int in spray_positions.size():
 		_add_square(points, colors, indices, spray_positions[index], 1.0, spray_color)

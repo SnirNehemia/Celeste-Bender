@@ -22,6 +22,14 @@ extends Area2D
 ##   - hits the Shell         -> bounces off its plates, reflected or not (group
 ##                              EnemyHit.REFLECTS_GROUP)
 ##   - meets a fireball      -> both burst (Stage F11, the fireball pops it)
+##   - touches any WATER      -> SOAKED (after W3 play-test 3): a pool, loose drops
+##                              or the ball in the player's hands
+##                              (WaterWorld.is_water_near). It keeps
+##                              orb_soaked_speed_keep of its speed and from then on
+##                              falls (orb_soaked_gravity); inside water it sinks
+##                              slowly (orb_sink_gravity, orb_water_drag). Soaked,
+##                              it doesn't bounce: the next solid pops it. It still
+##                              kills. Values in WaterTuning ("Water and projectiles")
 ##   - after max_lifetime     -> pops
 ##   - leaves its room         -> pops (after Stage E7: orbs never fly into the next room)
 ##
@@ -46,6 +54,8 @@ const ORB_COLOR: Color = Color(1.0, 0.55, 0.1)
 const ORB_CORE_COLOR: Color = Color(1.0, 0.85, 0.5)
 const REFLECTED_COLOR: Color = Color(1.0, 0.9, 0.55)
 const REFLECTED_CORE_COLOR: Color = Color(1.0, 1.0, 1.0)
+## Mixed into the colors once it's soaked by water.
+const SOAKED_TINT: Color = Color("#7FC8FF")
 ## Drawn radius, px. The hitbox is smaller (fair, like the spikes).
 const DRAW_RADIUS: float = 3.0
 const HITBOX_RADIUS: float = 2.0
@@ -68,6 +78,11 @@ var lifetime_remaining: float = 0.0
 var is_popped: bool = false
 var bounce_count: int = 0
 var hit_shape: CircleShape2D
+## Soaked by water (see the header): falls from then on, and pops on any solid.
+var is_soaked: bool = false
+## The room's water, looked up on the first frame (null: a room without water).
+var water_world: WaterWorld = null
+var has_looked_for_water: bool = false
 
 
 func _ready() -> void:
@@ -94,6 +109,7 @@ func _physics_process(delta: float) -> void:
 	if is_popped:
 		return
 	var previous_position: Vector2 = global_position
+	_update_water(delta)
 	global_position += velocity * delta
 	lifetime_remaining -= delta
 	if lifetime_remaining <= 0.0 or not _is_inside_room():
@@ -101,6 +117,31 @@ func _physics_process(delta: float) -> void:
 		return
 	_check_hits(previous_position)
 	queue_redraw()
+
+
+## Water (after W3 play-test 3): the first touch of any water soaks the orb (it
+## slows right down); soaked, it falls, and inside water it sinks slowly.
+func _update_water(delta: float) -> void:
+	if not has_looked_for_water:
+		has_looked_for_water = true
+		water_world = WaterWorld.find_at(get_tree(), global_position)
+	if water_world == null:
+		return
+	var tuning: WaterTuning = water_world.water_tuning
+	var in_water: bool = water_world.is_water_near(global_position, HITBOX_RADIUS)
+	if in_water and not is_soaked:
+		is_soaked = true
+		velocity *= tuning.orb_soaked_speed_keep
+		water_world.sparkle(water_world.to_local(global_position), 5)
+		queue_redraw()
+	if not is_soaked:
+		return
+	if in_water:
+		# Held up by the water and braked by it, like a crate (velocity *= 1 - drag dt).
+		velocity *= maxf(0.0, 1.0 - tuning.orb_water_drag * delta)
+		velocity.y += tuning.orb_sink_gravity * delta
+	else:
+		velocity.y += tuning.orb_soaked_gravity * delta
 
 
 ## What are we touching? Polled every frame instead of using the body_entered signal,
@@ -145,9 +186,9 @@ func _check_hits(previous_position: Vector2) -> void:
 
 ## Mirrors the flight off `body`'s surface (Ricochet: the move from
 ## `previous_position` swept against it gives the angle) and steps back out of it.
-## False once max_bounces is used up: it pops instead.
+## False once max_bounces is used up (or soaked: a wet orb doesn't bounce): it pops.
 func _try_bounce(body: Node2D, previous_position: Vector2) -> bool:
-	if bounce_count >= max_bounces:
+	if bounce_count >= max_bounces or is_soaked:
 		return false
 	var exclude: Array[RID] = []
 	if shooter != null and is_instance_valid(shooter):
@@ -254,5 +295,11 @@ func reset() -> void:
 
 
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, DRAW_RADIUS, REFLECTED_COLOR if is_reflected else ORB_COLOR)
-	draw_circle(Vector2.ZERO, 1.5, REFLECTED_CORE_COLOR if is_reflected else ORB_CORE_COLOR)
+	var outer: Color = REFLECTED_COLOR if is_reflected else ORB_COLOR
+	var core: Color = REFLECTED_CORE_COLOR if is_reflected else ORB_CORE_COLOR
+	if is_soaked:
+		# Doused: duller, with a blue sheen (still orange enough to read as danger).
+		outer = outer.lerp(SOAKED_TINT, 0.4)
+		core = core.lerp(SOAKED_TINT, 0.5)
+	draw_circle(Vector2.ZERO, DRAW_RADIUS, outer)
+	draw_circle(Vector2.ZERO, 1.5, core)

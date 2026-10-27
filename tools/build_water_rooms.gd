@@ -17,6 +17,10 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     an earth patch that soaks, a crate, a stream on
 ##                                     a stepped shelf spilling into a drained basin
 ##                                     (_build_room_water_b)
+##   - tests/rooms/room_water_c.tscn   Stage W3 water hands: two pools either side of
+##                                     a ledge to carry water between, and a sentry
+##                                     whose orbs the held ball can eat
+##                                     (_build_room_water_c)
 ##   - resources/tiles/water_tileset.tres  (Stage W1) the water tile: see-through blue,
 ##                                     NO collision (water isn't solid). The picture is
 ##                                     stored inside the .tres. Only written when missing.
@@ -32,7 +36,7 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_water_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- water_a` (names: water_a, water_b).
+## only those, e.g. `-- water_a` (names: water_a, water_b, water_c).
 
 const WATER_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/water_layer.gd")
 const WATER_SOURCE_SCENE: PackedScene = preload("res://scenes/objects/water/water_source.tscn")
@@ -55,6 +59,8 @@ func _ready() -> void:
 		_build_room_water_a()
 	if wanted.is_empty() or wanted.has("water_b"):
 		_build_room_water_b()
+	if wanted.is_empty() or wanted.has("water_c"):
+		_build_room_water_c()
 	print("[BuildWaterRooms] Done.")
 	get_tree().quit()
 
@@ -213,3 +219,39 @@ func _build_room_water_b() -> void:
 	_add(WATER_SINK_SCENE, "FloorDrain", Vector2(35 * TILE, 19 * TILE), {"sink_size": Vector2(32, 8)})
 
 	_finish_room(Vector2(14 * TILE, 20 * TILE), "res://tests/rooms/room_water_b.tscn")
+
+
+## Water test room C (Stage W3): the water hands. 40 x 23 tiles (one screen), ground
+## top at row 16 (y 128). You start on the LEDGE between two dug pools (cols 18-21,
+## 32 px wide), both well inside the ring's reach (56 px) from its middle:
+##   - the DEEP POOL on the left (cols 7-17, floor y 176, full: 66 units, 48 px deep):
+##     hold 1, steer the ball down into it and it fills (4 units at most). Deep enough
+##     to swim in: under water the ball pushes you (keep it leaning on you to swim fast)
+##   - the BASIN on the right (cols 22-28, floor y 160) with a little water in it
+##     (7 units, 8 px deep): carry water over and throw it in, and its level rises
+##     while the deep pool's drops
+##   - GROUND past the basin (cols 29-38, 80 px) and a SENTRY at its far end (col 37).
+##     It sees you only from there (sight 110 px; the ledge is out of sight) and fires
+##     every 1.5 s: stand at the basin's edge, hold a ball with water in it in front
+##     of you and its orbs fizzle on the water, each costing the ball 1 unit
+func _build_room_water_c() -> void:
+	_begin_room("RoomWaterC", "Water C: water hands (W3)",
+		"Stage W3 water hands: hold 1 for slow motion and a ball you steer with the arrows; touch water to gather (up to 4 units); let go of 1 to throw (push it out of the ring for a long throw); Jump drops it. Carry water from the deep pool to the basin. Under water the ball pushes you: keep it leaning on you to swim fast. Stand past the basin and the sentry fires: a full ball eats its orbs.")
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 40, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(39, 0, 1, 23)   # right wall
+	_gray(0, 16, 40, 7)   # the ground, top at y 128
+
+	# The deep pool (full) and the basin (a little water), either side of the ledge.
+	_open(7, 16, 11, 6)   # rows 16-21: floor at row 22 (y 176)
+	_water(7, 16, 11, 6)
+	_open(22, 16, 7, 4)   # rows 16-19: floor at row 20 (y 160)
+	_water(22, 19, 7, 1)
+
+	# The sentry, out of sight from the ledge, in sight from the ground past the basin.
+	_add(SENTRY_SCENE, "Sentry", Vector2(37 * TILE + 4, 16 * TILE), {"sight_range": 110.0, "fire_interval": 1.5})
+
+	_finish_room(Vector2(20 * TILE, 16 * TILE), "res://tests/rooms/room_water_c.tscn")

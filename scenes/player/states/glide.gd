@@ -30,6 +30,9 @@ func physics_update(delta: float) -> void:
 	if player.try_start_fireball():
 		transition_requested.emit(&"GustAim")
 		return
+	if player.try_start_water_hands():
+		transition_requested.emit(&"WaterHolding")
+		return
 	# Momentum is kept: speed above run speed (a gust shove) fades slowly
 	# instead of being snapped back by normal air control.
 	player.apply_horizontal_movement(delta, false, player.tuning.glide_overspeed_deceleration)

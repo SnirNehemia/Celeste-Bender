@@ -88,9 +88,14 @@ func _process(_delta: float) -> void:
 	var tuning: WaterTuning = world.water_tuning
 	blob_material.set_shader_parameter(&"threshold", tuning.blob_threshold)
 	blob_material.set_shader_parameter(&"foam_strength", tuning.particle_foam_strength)
-	if not world.drop_positions.is_empty():
+	if _has_dots():
 		dot_layer.queue_redraw()
 		queue_redraw()
+
+
+## Anything to draw: particles, or the ball in the player's hands (Stage W3).
+func _has_dots() -> bool:
+	return not world.drop_positions.is_empty() or not world.held_dots.is_empty()
 
 
 ## Pass 1, inside the SubViewport: one soft dot per particle. A fast one is
@@ -117,12 +122,17 @@ func _draw_dots() -> void:
 		# dot is drawn around (0, 0), long along x, turned to point along the velocity.
 		dot_layer.draw_set_transform(positions[index], velocity.angle(), Vector2(stretch, 1.0))
 		dot_layer.draw_texture_rect(dot_texture, dot_rect, false, Color(1.0, foam, 0.0, 1.0))
+	# The held ball (Stage W3): plain round dots, no foam. The same blobs as loose
+	# water, so the ball and the water it lets go of look like one thing.
+	for dot: Vector2 in world.held_dots:
+		dot_layer.draw_set_transform(dot, 0.0, Vector2.ONE)
+		dot_layer.draw_texture_rect(dot_texture, dot_rect, false, Color(1.0, 0.0, 0.0, 1.0))
 	dot_layer.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## Pass 2: the dot picture over the whole screen, through the threshold shader.
 func _draw() -> void:
-	if not is_drawing_particles() or world.drop_positions.is_empty():
+	if not is_drawing_particles() or not _has_dots():
 		return
 	# Where the screen's corners are in this node's own coordinates.
 	var screen_to_local: Transform2D = global_transform.affine_inverse() * get_viewport().canvas_transform.affine_inverse()

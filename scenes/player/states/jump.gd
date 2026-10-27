@@ -31,6 +31,9 @@ func physics_update(delta: float) -> void:
 	if player.try_start_fireball():
 		transition_requested.emit(&"GustAim")
 		return
+	if player.try_start_water_hands():
+		transition_requested.emit(&"WaterHolding")
+		return
 	player.apply_horizontal_movement(delta)
 
 	# Letting go of jump ends the hold early: this is the variable jump height.

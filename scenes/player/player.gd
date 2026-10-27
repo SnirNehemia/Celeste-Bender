@@ -33,9 +33,12 @@ extends CharacterBody2D
 ##   │                     (abilities/fire/fireball_ability.gd); aims in GustAim
 ##   ├─ SwimAbility        how much of us is under water: slower runs, lower jumps,
 ##   │                     strokes (abilities/water/swim_ability.gd, Water §5.4)
+##   ├─ WaterHandsAbility  Water move 1: the waterball, steered in slow motion,
+##   │                     gathering and throwing (abilities/water/water_hands_ability.gd);
+##   │                     held in WaterHolding
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
-##                         SnakeSteer, Jetting, Dead
+##                         SnakeSteer, Jetting, WaterHolding, Dead
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed /
 ## fire_allowed).
@@ -103,6 +106,7 @@ signal died
 @onready var flame_jet: FlameJetAbility = $FlameJetAbility
 @onready var fireball: FireballAbility = $FireballAbility
 @onready var swim: SwimAbility = $SwimAbility
+@onready var water_hands: WaterHandsAbility = $WaterHandsAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -440,6 +444,12 @@ func get_gust_start_state() -> StringName:
 
 
 # --- Elements ----------------------------------------------------------------
+
+## On the frame 1 (water_hands) is pressed where Water is allowed: true, and the
+## caller switches to WaterHolding (the ball in slow motion, Water_bending.md §5.1).
+func try_start_water_hands() -> bool:
+	return water_hands.try_start()
+
 
 ## True if the current room lets us use `element` (ELEMENT_AIR, _EARTH, _FIRE or _WATER).
 ## Rooms store the flags (Room.air_allowed / earth_allowed / fire_allowed); GameState knows which

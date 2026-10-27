@@ -121,7 +121,8 @@ func _process(_delta: float) -> void:
 	var water_world: WaterWorld = WaterWorld.find_at(get_tree(), player.global_position)
 	if water_world != null:
 		readout_label.text += "
-Water look: %s (7)  Swim: %.2f" % [water_world.get_look_name(), player.swim.submerged_share]
+Water look: %s (7)  Swim: %.2f  Hands: %s" % [water_world.get_look_name(), player.swim.submerged_share,
+			"%.2f u" % player.water_hands.ball_units if player.water_hands.is_holding() else "-"]
 	if save_message != "" and Time.get_ticks_msec() - save_message_shown_msec < SAVE_MESSAGE_TIME_MSEC:
 		readout_label.text += "
 " + save_message

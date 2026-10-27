@@ -19,6 +19,8 @@ extends Area2D
 ##   - a flammable: lit (Flammable.try_ignite)
 ##   - plus every flammable within fireball_splash px of the hit (Flammable.ignite_near)
 ##   - then it bursts: flash, a ring of sparks, smoke, 1-2 embers stuck to the wall
+## WATER (after W3 play-test 3): flying into any water (a pool, loose drops, the
+## held waterball) puts it out with a puff of steam: nothing lit, no burst.
 ## The player (layer 2) isn't watched, so it never hits you (not even bouncing back
 ## at you). It isn't a FireHazard either.
 ## HOSTILE fireballs (after the L10 play-test): a Sentry with fire_orbs on throws
@@ -89,6 +91,10 @@ var distance_flown: float = 0.0
 var flight_time: float = 0.0
 ## > 0 while guttering out (counts down); the fireball is harmless by then.
 var gutter_remaining: float = 0.0
+## The room's water (after W3 play-test 3): any water puts the fireball out.
+## Looked up on the first frame; null in a room without water.
+var water_world: WaterWorld = null
+var has_looked_for_water: bool = false
 var has_finished: bool = false
 var bounce_count: int = 0
 ## True for a sentry's fireball (make_hostile): it kills the player it touches.
@@ -220,11 +226,31 @@ func _physics_process(delta: float) -> void:
 		_on_solid_contact(contact["collider"], contact["normal"], contact["point"])
 		return
 	global_position += step
+	if _is_in_water():
+		_douse()
+		return
 	_light_leaves_passed()
 	distance_flown += step.length()
 	flight_time += delta
 	if distance_flown >= tuning.fireball_max_range:
 		_start_gutter()
+
+
+## Water puts it out (after W3 play-test 3): a pool, loose drops or the ball in the
+## player's hands (WaterWorld.is_water_near). The room's water is looked up once.
+func _is_in_water() -> bool:
+	if not has_looked_for_water:
+		has_looked_for_water = true
+		water_world = WaterWorld.find_at(get_tree(), global_position)
+	return water_world != null and water_world.is_water_near(global_position, HITBOX_SIZE.x / 2.0)
+
+
+## Put out by water: a hiss of steam and a few sparkles, nothing lit, no burst.
+func _douse() -> void:
+	SmokePuff.spawn(get_parent(), global_position, 4)
+	water_world.sparkle(water_world.to_local(global_position), 6)
+	FX.play_sfx(&"fireball_doused")
+	_finish(null)
 
 
 ## Flying through leaves lights the ones it passes WITHOUT stopping (F7 play-test):

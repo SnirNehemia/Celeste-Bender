@@ -1,4 +1,4 @@
-[gd_scene load_steps=36 format=3]
+[gd_scene load_steps=38 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -34,6 +34,8 @@
 [ext_resource type="Script" path="res://scenes/player/states/jetting.gd" id="32_jetting"]
 [ext_resource type="Script" path="res://scenes/player/abilities/fire/fireball_ability.gd" id="33_fireball"]
 [ext_resource type="Script" path="res://scenes/player/abilities/water/swim_ability.gd" id="91_swim"]
+[ext_resource type="Script" path="res://scenes/player/abilities/water/water_hands_ability.gd" id="92_water_hands"]
+[ext_resource type="Script" path="res://scenes/player/states/water_holding.gd" id="93_water_holding"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(7.6, 11)
@@ -117,6 +119,9 @@ script = ExtResource("33_fireball")
 [node name="SwimAbility" type="Node" parent="."]
 script = ExtResource("91_swim")
 
+[node name="WaterHandsAbility" type="Node2D" parent="."]
+script = ExtResource("92_water_hands")
+
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
 script = ExtResource("3_machine")
 initial_state = NodePath("Idle")
@@ -159,6 +164,9 @@ script = ExtResource("27_snake_steer")
 
 [node name="Jetting" type="Node" parent="StateMachine"]
 script = ExtResource("32_jetting")
+
+[node name="WaterHolding" type="Node" parent="StateMachine"]
+script = ExtResource("93_water_holding")
 
 [node name="Dead" type="Node" parent="StateMachine"]
 script = ExtResource("9_dead")

@@ -30,11 +30,21 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	await _check_w1_bodies(world, world.player)
-	await _check_swimming(world, world.player)
-	await _check_w2_loose_water(world, world.player)
+	# `-- W3` (any of W1 Swim W2 W3) runs only those sections: quicker while working on one.
+	var wanted: PackedStringArray = OS.get_cmdline_user_args()
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3"]
+	if not wanted.is_empty():
+		sections.assign(Array(wanted))
+	if sections.has("W1"):
+		await _check_w1_bodies(world, world.player)
+	if sections.has("Swim"):
+		await _check_swimming(world, world.player)
+	if sections.has("W2"):
+		await _check_w2_loose_water(world, world.player)
+	if sections.has("W3"):
+		await _check_w3_water_hands(world, world.player)
 
-	for section_name: String in ["W1", "Swim", "W2"]:
+	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[WaterSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -541,6 +551,258 @@ func _check_w2_loose_water(world: RoomManager, player: Player) -> void:
 	_check(average_usec < BUDGET_USEC, "loose water stays under the 2 ms budget: %.0f us average" % average_usec)
 	room.reset_objects()
 	finished_sections.append("W2")
+
+
+## Stage W3: the water hands (Water_bending.md §5.1), in room Water C. Drives the
+## real keys (Input.action_press), so it runs through the states like a player.
+func _check_w3_water_hands(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterC") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water C is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water C has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var hands: WaterHandsAbility = player.water_hands
+	_check(_action_has_key("water_hands", KEY_1) and _action_has_key("water_freeze", KEY_2),
+		"water_hands is on 1 and water_freeze on 2")
+	_check(hands != null and player.state_machine.has_node("WaterHolding"), "the player has WaterHandsAbility and a WaterHolding state")
+	await _wait_until_calm(water)
+	var books: float = water.get_books_units()
+	var pool_before: float = _units_in(water, 56, 144, 176)
+	var basin_before: float = _units_in(water, 176, 232, 160)
+
+	# Hold 1: slow motion, an empty ball at the hands.
+	await _start_hold(player)
+	_check(player.state_machine.current_state.name == &"WaterHolding" and hands.is_holding(),
+		"holding 1 enters WaterHolding with a ball (state %s)" % player.state_machine.current_state.name)
+	_check(is_equal_approx(Engine.time_scale, tuning.hold_time_scale),
+		"the world slows to %.2fx (got %.2f)" % [tuning.hold_time_scale, Engine.time_scale])
+	_check(hands.ball_units == 0.0, "the ball starts empty")
+
+	# Steer it down-left into the deep pool: it gathers up to 4 units, the pool loses
+	# exactly that, and the books (which count the held water) don't change.
+	await _steer_ball_until([&"move_left", &"move_down"],
+		func() -> bool: return hands.ball_position.y > room.global_position.y + 138.0, 2.0)
+	var filled: bool = await _steer_ball_until([],
+		func() -> bool: return hands.ball_units >= tuning.ball_max_units - 0.001, 2.0)
+	_check(filled, "steered into the pool, the ball gathers %.0f units (%.2f)" % [tuning.ball_max_units, hands.ball_units])
+	var pool_while_held: float = _units_in(water, 56, 144, 176)
+	_check(absf(pool_before - pool_while_held - hands.ball_units) < 0.05,
+		"the pool lost what the ball holds (%.2f -> %.2f, ball %.2f)" % [pool_before, pool_while_held, hands.ball_units])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books count the water in the hands")
+	_check(not water.held_dots.is_empty(), "the held ball is drawn with the loose water (%d dots)" % water.held_dots.size())
+
+	# Up out of the pool, then right over the basin; stop, and let go: it drops in.
+	await _steer_ball_until([&"move_up"], func() -> bool: return hands.ball_position.y < room.global_position.y + 112.0, 2.0)
+	await _steer_ball_until([&"move_right"], func() -> bool: return hands.ball_position.x > room.global_position.x + 190.0, 3.0)
+	await get_tree().create_timer(0.4, true, false, true).timeout  # drag to a stop (real time)
+	_check(hands.is_holding(), "the ball is still held over the basin, inside the ring")
+	Input.action_release(&"water_hands")
+	for frame: int in 4:
+		await get_tree().physics_frame
+	_check(not hands.is_holding() and player.state_machine.current_state.name != &"WaterHolding"
+		and is_equal_approx(Engine.time_scale, 1.0), "letting go of 1 releases the ball and ends the slow motion")
+	_check(hands.last_release_units >= tuning.ball_max_units - 0.01, "the release lets go of all %.2f units" % hands.last_release_units)
+	for frame: int in 240:
+		await get_tree().physics_frame
+	var pool_after: float = _units_in(water, 56, 144, 176)
+	var basin_after: float = _units_in(water, 176, 232, 160)
+	_check(pool_after < pool_before - 3.5 and basin_after > basin_before + 3.5,
+		"4 units carried from the pool to the basin: pool %.2f -> %.2f, basin %.2f -> %.2f" % [pool_before, pool_after, basin_before, basin_after])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the books balance after the carry (%.3f -> %.3f)" % [books, water.get_books_units()])
+
+	# A throw: moving when you let go, the water flies on at throw_multiplier x.
+	await _start_hold(player)
+	await _steer_ball_until([&"move_up"], func() -> bool: return hands.ball_velocity.length() > tuning.ball_move_speed * 0.9, 1.0)
+	var steer_speed: float = hands.ball_velocity.length()
+	Input.action_press(&"move_up")
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	Input.action_release(&"move_up")
+	_check(not hands.is_holding() and absf(hands.last_release_velocity.length() - steer_speed * tuning.throw_multiplier) < steer_speed * 0.3,
+		"a moving ball is thrown at %.1fx its speed (%.0f -> %.0f px/s)" % [tuning.throw_multiplier, steer_speed, hands.last_release_velocity.length()])
+
+	# Out of the ring: it lets go by itself.
+	await _start_hold(player)
+	var left_ring: bool = await _steer_ball_until([&"move_up"], func() -> bool: return not hands.is_holding(), 3.0)
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame  # the state leaves on its next physics frame
+	_check(left_ring and player.state_machine.current_state.name != &"WaterHolding",
+		"the ball leaving the ring is let go by itself (let go: %s, state %s, ball %.0f px from you)"
+			% [left_ring, player.state_machine.current_state.name, hands.ball_position.distance_to(player.get_center())])
+
+	# The time limit.
+	await _start_hold(player)
+	var held_msec: int = Time.get_ticks_msec()
+	while hands.is_holding() and Time.get_ticks_msec() - held_msec < int(tuning.max_hold_time * 1000.0) + 1500:
+		await get_tree().process_frame
+	var held_for: float = (Time.get_ticks_msec() - held_msec) / 1000.0
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	_check(not hands.is_holding() and absf(held_for - tuning.max_hold_time) < 0.5 and is_equal_approx(Engine.time_scale, 1.0),
+		"after %.1f real s the ball is let go by itself (held %.2f s)" % [tuning.max_hold_time, held_for])
+
+	# Jump cancels: the ball just drops (no boost) and the player jumps.
+	await _start_hold(player)
+	await _steer_ball_until([&"move_up"], func() -> bool: return hands.ball_velocity.length() > 40.0, 1.0)
+	await _press(&"jump")
+	Input.action_release(&"water_hands")
+	_check(not hands.is_holding() and hands.last_release_velocity == Vector2.ZERO and player.velocity.y < 0.0,
+		"Jump drops the ball (no throw) and jumps (state %s)" % player.state_machine.current_state.name)
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	# Orbs (after play-test 3): the held ball is water like any other, so an orb
+	# flying into it gets SOAKED: it slows right down and falls; the ball keeps its water.
+	await _start_hold(player)
+	await _steer_ball_until([&"move_left", &"move_down"],
+		func() -> bool: return hands.ball_position.y > room.global_position.y + 138.0, 2.0)
+	await _steer_ball_until([], func() -> bool: return hands.ball_units >= 2.0, 2.0)
+	# Well above the pool, so no stray drop from it is gathered during the check.
+	await _steer_ball_until([&"move_up"], func() -> bool: return hands.ball_position.y < room.global_position.y + 96.0, 2.0)
+	await get_tree().create_timer(0.4, true, false, true).timeout  # the ball drifts to a stop
+	var units_before_orb: float = hands.ball_units
+	var orb: SentryOrb = (load("res://scenes/enemies/sentry_orb.tscn") as PackedScene).instantiate() as SentryOrb
+	room.add_child(orb)
+	orb.launch(hands.ball_position + Vector2(hands.get_ball_radius() + 10.0, 0.0), Vector2(-60.0, 0.0), null)
+	# Slow motion scales each physics frame's delta: at 0.2x the orb moves 0.2 px a frame.
+	for frame: int in 150:
+		await get_tree().physics_frame
+		if not is_instance_valid(orb) or orb.is_soaked:
+			break
+	var soaked: bool = is_instance_valid(orb) and orb.is_soaked
+	_check(soaked and absf(orb.velocity.x) <= 60.0 * tuning.orb_soaked_speed_keep + 0.5
+		and absf(hands.ball_units - units_before_orb) < 0.01 and not player.is_dead(),
+		"an orb flying into the held ball is soaked: slowed to %.0f px/s, the ball keeps its %.2f units"
+			% [absf(orb.velocity.x) if is_instance_valid(orb) else -1.0, hands.ball_units])
+	Input.action_release(&"water_hands")
+	var orb_start_y: float = orb.global_position.y if is_instance_valid(orb) else 0.0
+	var orb_fell: bool = false
+	var orb_gone: bool = false
+	for frame: int in 400:
+		await get_tree().physics_frame
+		if not is_instance_valid(orb):
+			orb_gone = true
+			break
+		if orb.global_position.y > orb_start_y + 16.0:
+			orb_fell = true
+	_check(orb_fell and orb_gone, "the soaked orb falls (and sinks) and pops on the ground (fell: %s, popped: %s)" % [orb_fell, orb_gone])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the books balance after throws and orbs (%.3f -> %.3f)" % [books, water.get_books_units()])
+
+	# Fireballs (after play-test 3): any water puts them out. One thrown down into the
+	# deep pool is gone without bursting on the floor.
+	var fireball: Fireball = Fireball.launch(room, room.global_position + Vector2(100.0, 100.0), Vector2.DOWN,
+		Sentry.FIRE_TUNING, null, 0.0)
+	var fireball_hit: Array = []
+	fireball.finished.connect(func(hit_node: Node) -> void: fireball_hit.append(hit_node))
+	for frame: int in 60:
+		await get_tree().physics_frame
+		if not is_instance_valid(fireball):
+			break
+	_check(not is_instance_valid(fireball) and fireball_hit.size() == 1 and fireball_hit[0] == null,
+		"a fireball flying into the pool goes out (finished on: %s)" % [fireball_hit])
+
+	# Under water, the ball moving into you SHOVES you once (after play-test 3): at the
+	# bottom of the deep pool, the ball behind you (facing left), steered right.
+	await _stand_at(player, room.global_position + Vector2(72.0, 175.0))
+	for frame: int in 40:
+		await get_tree().physics_frame
+	_check(player.swim.submerged_share >= tuning.ball_push_min_share,
+		"standing in the deep pool, you're under water (share %.2f)" % player.swim.submerged_share)
+	# No air gust under water.
+	_check(player.gust.is_under_water() and not player.gust.can_gust(),
+		"no gust with the water above your middle (share %.2f)" % player.swim.submerged_share)
+	await _press(&"gust")
+	_check(player.state_machine.current_state.name not in [&"GustAim", &"GustRecoil"],
+		"pressing gust under water does nothing (state %s)" % player.state_machine.current_state.name)
+	for frame: int in 20:
+		await get_tree().physics_frame
+	player.facing_direction = -1.0  # the ball starts on your left, behind you
+	await _start_hold(player)
+	hands.last_shove_velocity = Vector2.ZERO
+	var push_start_x: float = player.global_position.x
+	var shoved: bool = await _steer_ball_until([&"move_right"],
+		func() -> bool: return hands.last_shove_velocity != Vector2.ZERO, 2.0)
+	var shove_speed: float = player.velocity.x
+	_check(shoved and hands.last_shove_velocity.x > tuning.ball_push_speed * tuning.ball_push_min_share
+		and hands.ball_velocity == Vector2.ZERO and hands.is_holding(),
+		"the ball steered into you under water shoves you once (%.0f px/s) and stops" % hands.last_shove_velocity.x)
+	# Once: holding the arrow on, the ball (still touching) doesn't shove again.
+	hands.last_shove_velocity = Vector2.ZERO
+	await _steer_ball_until([&"move_right"], func() -> bool: return false, 0.3)
+	_check(hands.last_shove_velocity == Vector2.ZERO and player.global_position.x > push_start_x + 1.0,
+		"one shove per touch, and you moved (%.1f px; started at %.0f px/s)"
+			% [player.global_position.x - push_start_x, shove_speed])
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	await _start_hold(player)
+	# A floating crate takes the same shove (Pushable.try_launch). Set up by hand: the
+	# ball just touching the crate's left side, moving right.
+	var crate: Node2D = (load("res://scenes/objects/crate.tscn") as PackedScene).instantiate() as Node2D
+	room.add_child(crate)
+	crate.global_position = room.global_position + Vector2(112.0, 150.0)
+	for frame: int in 90:
+		await get_tree().physics_frame  # it floats up to the surface
+	var crate_box: Rect2 = crate.call(&"get_water_box")
+	hands.ball_position = Vector2(crate_box.position.x - hands.get_ball_radius() + 0.5, crate_box.get_center().y)
+	hands.ball_velocity = Vector2(tuning.ball_move_speed, 0.0)
+	hands.last_shove_velocity = Vector2.ZERO
+	hands._shove_touched()
+	var crate_speed: float = (crate as CharacterBody2D).velocity.x
+	_check(hands.last_shove_velocity.x > 0.0 and crate_speed > 0.0,
+		"the ball shoves a floating crate too (%.0f px/s; the crate is %.2f under)" % [crate_speed, water.get_submerged_share(crate_box)])
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+	crate.queue_free()
+
+	room.reset_objects()
+	_check(water.held_area == 0.0, "a reset leaves nothing held")
+	finished_sections.append("W3")
+
+
+## Presses 1 once the player is back on the ledge and settled, and waits until the
+## hold has really started (a press is only seen by a state that checks for it).
+func _start_hold(player: Player) -> void:
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+		if player.is_on_floor() and player.state_machine.current_state.name in [&"Idle", &"Run"]:
+			break
+	Input.action_press(&"water_hands")
+	for frame: int in 10:
+		await get_tree().physics_frame
+		if player.water_hands.is_holding():
+			return
+
+
+## Holds `actions` (arrows) until `condition` is true or `timeout` REAL seconds pass
+## (the hold's slow motion makes physics frames rare), then lets go of them. True if
+## the condition came true.
+func _steer_ball_until(actions: Array[StringName], condition: Callable, timeout: float) -> bool:
+	for action: StringName in actions:
+		Input.action_press(action)
+	var start_msec: int = Time.get_ticks_msec()
+	var met: bool = false
+	while Time.get_ticks_msec() - start_msec < int(timeout * 1000.0):
+		await get_tree().process_frame
+		if condition.call():
+			met = true
+			break
+	for action: StringName in actions:
+		Input.action_release(action)
+	return met
 
 
 ## The farthest particle inside `area` from their average position, px (0 if none).
