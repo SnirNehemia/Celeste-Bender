@@ -14,6 +14,9 @@ extends Node2D
 ## everything it holds swings round), and for a crate or plank hanging on ONE vine,
 ## the arc its knot swings along when let go (from where it is to the same height
 ## on the other side).
+## Hidden chambers: wide diagonal purple stripes over every chamber cell (the room
+## shows the tunnel open while editing), a purple outline round each chamber, and
+## a thick RED edge where a chamber touches open air (RoomLook.get_exposed_chamber_edges).
 ##
 ## It draws in level coordinates (it's a Node2D in the same world as the rooms),
 ## so the editor camera moves and zooms it with everything else. Lines use width
@@ -67,8 +70,22 @@ const STAR_COLOR: Color = Color(1.0, 0.85, 0.2)
 const OPENING_SCREEN_WIDTH: float = 3.0
 const MAP_OUTLINE_SCREEN_WIDTH: float = 2.0
 const STAR_SCREEN_RADIUS: float = 6.0
+## Hidden chambers: purple, the tint tools/build_earth_rooms.gd gives them. The
+## stripes repeat every STRIPE_PERIOD_TILES tiles, STRIPE_WIDTH level pixels wide,
+## so neighbouring cells' stripes join into long diagonal bands.
+const CHAMBER_STRIPE_COLOR: Color = Color(0.72, 0.4, 1.0, 0.5)
+const CHAMBER_GAP_COLOR: Color = Color(0.72, 0.4, 1.0, 0.12)
+const CHAMBER_EDGE_COLOR: Color = Color(0.8, 0.5, 1.0, 0.9)
+const CHAMBER_EXPOSED_COLOR: Color = Color(1.0, 0.25, 0.2)
+const STRIPE_PERIOD_TILES: int = 2
+const STRIPE_PERIOD: int = STRIPE_PERIOD_TILES * LevelEditor.TILE
+const STRIPE_WIDTH: int = 7
+## The red edge, screen pixels thick.
+const EXPOSED_EDGE_SCREEN_WIDTH: float = 3.0
 
 var editor: LevelEditor
+## The stripe picture (one period square), made on first use (_get_stripe_texture).
+var stripe_texture: ImageTexture = null
 
 
 func _process(_delta: float) -> void:
@@ -84,6 +101,8 @@ func _draw() -> void:
 	for room: Room in editor.get_rooms():
 		# Rooms other than the one being edited are dimmed: you see what's next
 		# door, but the room you're working on stands out (Level_editor.md §5).
+		# Under the dimming: a neighbour's chambers are dimmed with it.
+		_draw_hidden_chambers(room)
 		if room != editor.current_room:
 			draw_rect(room.get_bounds(), NEIGHBOUR_DIM_COLOR)
 		var bounds: Rect2 = room.get_bounds()
@@ -244,6 +263,54 @@ func _draw_stand_ins(room: Room) -> void:
 		if entry.arrow_property != &"":
 			var direction: Vector2 = (child.get(entry.arrow_property) as Vector2).normalized()
 			_draw_arrow(outline.get_center(), direction)
+
+
+## The room's hidden chambers (see the header).
+func _draw_hidden_chambers(room: Room) -> void:
+	var hidden_layer: TileMapLayer = room.get_node_or_null(NodePath(RoomLook.HIDDEN_LAYER_NAME)) as TileMapLayer
+	if hidden_layer == null:
+		return
+	var tile: int = LevelEditor.TILE
+	var texture: ImageTexture = _get_stripe_texture()
+	for cell: Vector2i in hidden_layer.get_used_cells():
+		# The part of the stripe picture this cell shows: where it sits in the
+		# repeating pattern (posmod: also right for negative cells).
+		var source: Rect2 = Rect2(Vector2(posmod(cell.x, STRIPE_PERIOD_TILES), posmod(cell.y, STRIPE_PERIOD_TILES)) * tile,
+			Vector2.ONE * tile)
+		draw_texture_rect_region(texture, Rect2(room.global_position + Vector2(cell * tile), Vector2.ONE * tile), source)
+		# The chamber's outline: each side that doesn't lead into more chamber.
+		for step: Vector2i in RoomLook.NEIGHBOUR_STEPS:
+			if hidden_layer.get_cell_source_id(cell + step) == -1:
+				var side: Array[Vector2] = _cell_side(room, cell, step)
+				draw_line(side[0], side[1], CHAMBER_EDGE_COLOR, -1.0)
+	var red_width: float = EXPOSED_EDGE_SCREEN_WIDTH / editor.camera.get_zoom_factor()
+	for edge: Array in RoomLook.get_exposed_chamber_edges(room):
+		var side: Array[Vector2] = _cell_side(room, edge[0], edge[1])
+		draw_line(side[0], side[1], CHAMBER_EXPOSED_COLOR, red_width)
+
+
+## The two ends of `cell`'s side facing `step` (one of the 4 ways), in level pixels.
+func _cell_side(room: Room, cell: Vector2i, step: Vector2i) -> Array[Vector2]:
+	var tile: float = LevelEditor.TILE
+	var center: Vector2 = room.global_position + (Vector2(cell) + Vector2(0.5, 0.5)) * tile
+	var out: Vector2 = Vector2(step) * tile / 2.0
+	# Along the side: the step turned a quarter.
+	var along: Vector2 = Vector2(-step.y, step.x) * tile / 2.0
+	return [center + out - along, center + out + along]
+
+
+## One STRIPE_PERIOD square of diagonal stripes: a pixel is in a stripe when
+## (x + y) mod STRIPE_PERIOD < STRIPE_WIDTH, so the bands run corner to corner and
+## the square repeats seamlessly.
+func _get_stripe_texture() -> ImageTexture:
+	if stripe_texture == null:
+		var image: Image = Image.create(STRIPE_PERIOD, STRIPE_PERIOD, false, Image.FORMAT_RGBA8)
+		for y: int in STRIPE_PERIOD:
+			for x: int in STRIPE_PERIOD:
+				var in_stripe: bool = (x + y) % STRIPE_PERIOD < STRIPE_WIDTH
+				image.set_pixel(x, y, CHAMBER_STRIPE_COLOR if in_stripe else CHAMBER_GAP_COLOR)
+		stripe_texture = ImageTexture.create_from_image(image)
+	return stripe_texture
 
 
 ## The selected object's drag handles (EditorHandles): small squares, the same

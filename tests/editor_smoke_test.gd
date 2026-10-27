@@ -49,10 +49,11 @@ func _ready() -> void:
 	await _check_l10d_plank_on_block()
 	await _check_l11_story()
 	await _check_l12_palette_tools()
+	await _check_l13_hidden_chambers()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -2003,6 +2004,114 @@ func _check_l12_palette_tools() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("L12 palette tools")
+
+
+## The Hidden chamber brush (after Stage W2): in two tabs, carves the earth it's
+## painted into (one undo step), shows open and striped while editing, warns about
+## edges on open air, and is covered (with what's inside hidden) in play.
+func _check_l13_hidden_chambers() -> void:
+	var path: String = LevelStorage.create_level("Chamber Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var chamber_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"hidden_chamber")
+	_check(chamber_entry != null and chamber_entry.kind == PaletteCatalog.Kind.TERRAIN and chamber_entry.family == "Terrain"
+		and chamber_entry.extra_tabs == ["Breakable"] and chamber_entry.element == "Earth", "Hidden chamber is an Earth brush in Terrain and Breakable")
+	var extra_buttons: Array = editor.ui.extra_palette_buttons.get(&"hidden_chamber", [])
+	_check(extra_buttons.size() == 1 and (extra_buttons[0] as Button).get_parent() == editor.ui.family_lists["Breakable"]
+		and (editor.ui.palette_buttons[&"hidden_chamber"] as Button).get_parent() == editor.ui.family_lists["Terrain"],
+		"it has a button in each tab")
+	editor.ui.show_family("Breakable")
+	(extra_buttons[0] as Button).pressed.emit()
+	_check(editor.current_entry == chamber_entry and editor.ui.open_family == "Breakable"
+		and (editor.ui.palette_buttons[&"hidden_chamber"] as Button).button_pressed and (extra_buttons[0] as Button).button_pressed,
+		"picking it in Breakable keeps that tab open, and both buttons show it chosen")
+
+	# A wall of earth, then a chamber painted into it.
+	room.earth_allowed = false
+	var wall_cells: Array[Vector2i] = []
+	for y: int in range(10, 17):
+		for x: int in range(10, 21):
+			wall_cells.append(Vector2i(x, y))
+	editor.paint_cells(room, wall_cells, true, PaletteCatalog.get_entry(&"earth"))
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	var chamber_cells: Array[Vector2i] = []
+	for y: int in range(12, 14):
+		for x: int in range(12, 17):
+			chamber_cells.append(Vector2i(x, y))
+	editor.paint_cells(room, chamber_cells, true, chamber_entry)
+	var hidden: HiddenLayer = room.get_node_or_null("Hidden") as HiddenLayer
+	_check(hidden != null and hidden.get_used_cells().size() == 10 and hidden.owner == editor.level_root, "the brush paints a saved HiddenLayer")
+	_check(earth.get_used_cells().size() == 77 - 10 and chamber_cells.all(func(cell: Vector2i) -> bool: return earth.get_cell_source_id(cell) == -1),
+		"it carves the earth out where it paints")
+	_check(room.earth_allowed and room.painted_ground, "it turns Earth (and the painted ground) on")
+	editor.undo()
+	_check(hidden.get_used_cells().is_empty() and earth.get_used_cells().size() == 77, "one undo puts the earth back and the chamber away")
+	editor.redo()
+	_check(hidden.get_used_cells().size() == 10 and earth.get_used_cells().size() == 67, "redo carves it again")
+
+	# While editing: open, its own tiles unseen, the painter draws the tunnel.
+	var painter: GroundPainter = room.get_node("GroundPainter") as GroundPainter
+	_check(hidden.is_editing and not hidden.is_covered(Vector2i(14, 12)) and hidden.self_modulate.a == 0.0, "while editing the chamber is open")
+	_check(painter.get_pixel_color(Vector2i(14 * 8 + 4, 12 * 8 + 4)).a == 0.0 and painter.get_pixel_color(Vector2i(11 * 8 + 4, 12 * 8 + 4)).a > 0.0,
+		"the picture shows the tunnel inside the earth")
+	_check(RoomLook.get_exposed_chamber_edges(room).is_empty(), "walled in: no red edge")
+
+	# A chamber reaching open air: red edges and a warning.
+	editor.ui.show_message("")
+	editor.paint_cells(room, [Vector2i(14, 11), Vector2i(14, 10)], true, chamber_entry)
+	var exposed: Array[Array] = RoomLook.get_exposed_chamber_edges(room)
+	_check(exposed.size() == 1 and exposed[0][0] == Vector2i(14, 10) and exposed[0][1] == Vector2i.UP,
+		"a chamber up to the top of the wall touches the air above it, got %s" % [exposed])
+	_check(editor.ui.message_label.text.begins_with("Red edge"), "the status line says what the red edge means")
+	editor.undo()
+	_check(RoomLook.get_exposed_chamber_edges(room).is_empty() and earth.get_cell_source_id(Vector2i(14, 10)) != -1, "undo walls it in again")
+
+	# Something inside the chamber shows while editing, even after a reload.
+	var crate: Node2D = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(14, 13))
+	await get_tree().process_frame
+	_check(crate.visible and crate.process_mode != Node.PROCESS_MODE_DISABLED, "a crate placed in the chamber shows in the editor")
+	_check(editor.save() == OK, "the level saves")
+	editor.queue_free()
+	await get_tree().process_frame
+	LevelEditor.path_to_open = path
+	editor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	room = editor.get_rooms()[0]
+	hidden = room.get_node("Hidden") as HiddenLayer
+	var reloaded_crate: Crate = null
+	for child: Node in room.get_children():
+		if child is Crate:
+			reloaded_crate = child
+	_check(hidden.get_used_cells().size() == 10 and hidden.is_editing, "reopened: the chamber is there, open for editing")
+	_check(reloaded_crate != null and reloaded_crate.visible and not hidden.is_object_hidden(reloaded_crate), "and its crate still shows")
+
+	# In play: covered, drawn as earth, the crate hidden until dug out.
+	_check(editor.start_playtest(), "play")
+	await get_tree().create_timer(0.2).timeout
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var play_hidden: HiddenLayer = play_room.get_node("Hidden") as HiddenLayer
+	var play_crate: Crate = null
+	for child: Node in play_room.get_children():
+		if child is Crate:
+			play_crate = child
+	_check(not play_hidden.is_editing and play_hidden.is_covered(Vector2i(14, 12)), "in play the chamber is covered")
+	var play_painter: GroundPainter = play_room.get_node("GroundPainter") as GroundPainter
+	_check(play_painter.get_pixel_color(Vector2i(14 * 8 + 4, 12 * 8 + 4)).a > 0.0, "and drawn as earth")
+	_check(play_crate != null and play_hidden.is_object_hidden(play_crate) and not play_crate.visible, "the crate inside is hidden")
+	play_hidden.reveal_chamber(Vector2i(14, 12))
+	await get_tree().create_timer(1.5).timeout
+	_check(not play_hidden.is_covered(Vector2i(14, 12)) and play_crate.visible, "revealed, it opens and the crate comes back")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L13 hidden chambers")
 
 
 func _button_texts(page: Node) -> Array[String]:

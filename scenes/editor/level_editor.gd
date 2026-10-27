@@ -180,6 +180,12 @@ var stroke_room: Room = null
 ## one per terrain layer the room has.
 var stroke_brushes: Array[TileBrush] = []
 var stroke_painting: bool = true
+## Brushes of the stroke that erase while it paints: the layers a carving terrain
+## cuts its shape out of (catalog `carves_layers`, a hidden chamber).
+var stroke_carving_brushes: Array[TileBrush] = []
+## How many chamber edges touched open air before the stroke (RoomLook): more after
+## it, and the status line warns.
+var stroke_exposed_edges_before: int = 0
 ## Room settings the stroke's first paint of a new layer changes:
 ## {setting: [before, after]} (PaletteCatalog.Entry.room_settings_on_create).
 var stroke_room_settings: Dictionary = {}
@@ -506,7 +512,9 @@ func begin_stroke(room: Room, painting: bool, every_layer: bool = false, terrain
 	stroke_room = room
 	stroke_painting = painting
 	stroke_brushes = []
+	stroke_carving_brushes = []
 	stroke_room_settings = {}
+	stroke_exposed_edges_before = RoomLook.get_exposed_chamber_edges(room).size()
 	if every_layer:
 		# Two brushes can share a layer (the two Overgrown looks): one brush each.
 		var layer_names: Array[StringName] = []
@@ -534,6 +542,15 @@ func begin_stroke(room: Room, painting: bool, every_layer: bool = false, terrain
 	terrain_brush.begin_stroke(terrain_layer)
 	RoomLook.show_tiles_while_painting(room, terrain_layer)
 	stroke_brushes.append(terrain_brush)
+	# A carving terrain (a hidden chamber) erases the solid layers where it paints.
+	if painting:
+		for carved_name: StringName in terrain.carves_layers:
+			var carved_brush: TileBrush = _brush_for_layer(carved_name)
+			var carved_layer: TileMapLayer = carved_brush.get_layer(room, level_root, false) if carved_brush != null else null
+			if carved_layer != null:
+				carved_brush.begin_stroke(carved_layer)
+				stroke_brushes.append(carved_brush)
+				stroke_carving_brushes.append(carved_brush)
 
 
 ## Ends the stroke and records it as one undo step (if anything changed).
@@ -551,6 +568,14 @@ func end_stroke() -> void:
 	# true: run the "do" now. The cells are already painted (setting them again
 	# changes nothing), but the room settings and the room's look need it.
 	undo_redo.commit_action(true)
+	_warn_if_chamber_exposed(room)
+
+
+## After a change to `room`'s tiles: if more hidden-chamber edges touch open air
+## than before the stroke, the status line says what the red edges mean.
+func _warn_if_chamber_exposed(room: Room) -> void:
+	if RoomLook.get_exposed_chamber_edges(room).size() > stroke_exposed_edges_before:
+		ui.show_message("Red edge: this hidden chamber touches open air there, so its cover is a wall you can walk through before anyone digs. Wall it in, unless that's meant.")
 
 
 ## Ends the stroke's brushes. Returns [brush, layer, {"before", "after"}] for each
@@ -564,6 +589,7 @@ func _finish_stroke() -> Array[Array]:
 		if not change.is_empty():
 			changes.append([brush, layer, change])
 	stroke_brushes = []
+	stroke_carving_brushes = []
 	return changes
 
 
@@ -609,6 +635,7 @@ func erase_block(room: Room, corner_a: Vector2i, corner_b: Vector2i) -> void:
 	for node: Node2D in doomed:
 		_add_delete_steps(node)
 	undo_redo.commit_action(true)
+	_warn_if_chamber_exposed(room)
 
 
 ## The terrain the Fill tool uses: the last terrain brush chosen, else Ground.
@@ -626,6 +653,8 @@ func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
 	if not bounds.has_point(start_cell):
 		return 0
 	var terrain: PaletteCatalog.Entry = _get_fill_terrain()
+	# Counted now: begin_stroke() below counts again, halfway through the fill.
+	var exposed_edges_before: int = RoomLook.get_exposed_chamber_edges(room).size()
 	# The room's terrain layers, one per layer name (two brushes share Overgrown's).
 	var layers: Array[TileMapLayer] = []
 	var layer_brushes: Array[TileBrush] = []
@@ -679,6 +708,8 @@ func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
 	undo_redo.create_action("Fill" if painting else "Clear area")
 	_add_stroke_steps(room, changes)
 	undo_redo.commit_action(true)
+	stroke_exposed_edges_before = exposed_edges_before
+	_warn_if_chamber_exposed(room)
 	return area.size()
 
 
@@ -741,7 +772,7 @@ func _stroke_cell(cell: Vector2i) -> void:
 	if not room_cell_rect(stroke_room).has_point(cell):
 		return
 	for brush: TileBrush in stroke_brushes:
-		if stroke_painting:
+		if stroke_painting and not stroke_carving_brushes.has(brush):
 			brush.paint_cell(cell)
 		else:
 			brush.erase_cell(cell)
@@ -752,6 +783,15 @@ func _brush_for(entry: PaletteCatalog.Entry) -> TileBrush:
 		brushes[entry.id] = TileBrush.new(entry.layer_name, entry.tile_set, entry.layer_script,
 			entry.tile_plain, entry.tile_top_edge)
 	return brushes[entry.id]
+
+
+## The brush of the first terrain entry painting the layer named `layer_name` (only
+## erasing is asked of it, so which of two brushes sharing a layer doesn't matter).
+func _brush_for_layer(layer_name: StringName) -> TileBrush:
+	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+		if entry.kind == PaletteCatalog.Kind.TERRAIN and entry.layer_name == layer_name:
+			return _brush_for(entry)
+	return null
 
 
 # --- Objects (also what the smoke test calls) ---

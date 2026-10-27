@@ -77,6 +77,9 @@ var import_picker: RoomImportPicker
 var key_hints: String = TERRAIN_HINTS + "    " + COMMON_HINTS
 ## Palette button per entry id, to show which one is chosen.
 var palette_buttons: Dictionary = {}
+## The second buttons of entries shown in more than one tab (catalog `extra_tabs`):
+## entry id -> Array of Buttons. They're pressed together with the main one.
+var extra_palette_buttons: Dictionary = {}
 ## Tab button and entry list per family name; only the open family's list shows.
 var family_tabs: Dictionary = {}
 var family_lists: Dictionary = {}
@@ -190,14 +193,19 @@ func set_tool(text: String) -> void:
 ## key hints in the status line. `fill_terrain` (the Fill tool): the terrain it
 ## fills with, shown pressed too, and its tab opened.
 func show_chosen_entry(entry: PaletteCatalog.Entry, fill_terrain: PaletteCatalog.Entry = null) -> void:
+	# The tools keep whatever tab is open; so does an entry the open tab shows too
+	# (a hidden chamber picked in the Breakable tab stays there).
 	if entry.family != "":
-		show_family(entry.family)  # the tools keep whatever tab is open
-	elif fill_terrain != null:
+		if not entry.extra_tabs.has(open_family):
+			show_family(entry.family)
+	elif fill_terrain != null and fill_terrain.family != open_family and not fill_terrain.extra_tabs.has(open_family):
 		show_family(fill_terrain.family)
 	# set_pressed_no_signal() skips the ButtonGroup's "release the others", so set all.
 	for id: StringName in palette_buttons:
 		var pressed: bool = id == entry.id or (fill_terrain != null and id == fill_terrain.id)
 		(palette_buttons[id] as Button).set_pressed_no_signal(pressed)
+		for extra_button: Button in extra_palette_buttons.get(id, []):
+			extra_button.set_pressed_no_signal(pressed)
 	match entry.kind:
 		PaletteCatalog.Kind.TERRAIN:
 			set_tool("Brush: " + entry.display_name)
@@ -351,6 +359,17 @@ func _build_palette(column: VBoxContainer) -> void:
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 		if entry.family != "":
 			(family_lists[entry.family] as VBoxContainer).add_child(_make_entry_button(entry, entry_group))
+			# Its other tabs get a button of their own (made after the main one, so
+			# palette_buttons keeps the main one).
+			var main_button: Button = palette_buttons[entry.id]
+			var extra_buttons: Array[Button] = []
+			for tab: String in entry.extra_tabs:
+				var extra_button: Button = _make_entry_button(entry, entry_group)
+				(family_lists[tab] as VBoxContainer).add_child(extra_button)
+				extra_buttons.append(extra_button)
+			palette_buttons[entry.id] = main_button
+			if not extra_buttons.is_empty():
+				extra_palette_buttons[entry.id] = extra_buttons
 	show_family(PaletteCatalog.get_families()[0])
 
 

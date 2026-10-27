@@ -51,6 +51,11 @@ extends TileMapLayer
 ## (process_mode = DISABLED: it doesn't move, shoot, or collide, since a disabled
 ## physics body is taken out of the physics world). Each one comes back the moment
 ## the crumble reaches its cell. A reset hides them again.
+##
+## IN THE LEVEL EDITOR: RoomLook calls open_for_editing(): the chambers show open
+## (the painter draws the tunnel, the editor stripes it purple) and nothing inside
+## is hidden, so you can see and place what's in there. The play-test copy and the
+## saved level are fresh nodes, covered as usual.
 
 ## A chamber opened: `cells` (Array[Vector2i]) are open air from now on.
 signal chamber_revealed(cells: Array[Vector2i])
@@ -77,6 +82,8 @@ var earth_layer: EarthLayer = null
 ## True while _widen_breach() tears tiles itself, so those tears don't start another
 ## widening.
 var is_widening: bool = false
+## True in the level editor (open_for_editing): never covered, hides nothing.
+var is_editing: bool = false
 
 
 func _ready() -> void:
@@ -241,6 +248,8 @@ func _process(delta: float) -> void:
 
 ## Room reset (Room.reset_objects): every chamber covered again.
 func reset() -> void:
+	if is_editing:
+		return
 	var was_opened: bool = covered_cells.size() != get_used_cells().size()
 	crumble_clocks.clear()
 	set_process(false)
@@ -259,6 +268,8 @@ func reset() -> void:
 ## Hides every object of the room that stands in a covered cell (see the header).
 ## Public so a test (or an object added later) can ask for it again.
 func hide_objects_in_cover() -> void:
+	if is_editing:
+		return
 	# The first time (right after the room loads), note which objects were PLACED in
 	# the room. Only those can be hidden: rocks, pillars and snakes made during play
 	# are freed by a reset and must never be held on to.
@@ -316,6 +327,20 @@ func _show_objects_in(cell: Vector2i) -> void:
 ## True if `object` is hidden inside a covered chamber right now.
 func is_object_hidden(object: Node2D) -> bool:
 	return hidden_objects.has(object)
+
+
+## The level editor (RoomLook): every chamber open for good, everything hidden in
+## one shown again. Safe to call again after the cells change.
+func open_for_editing() -> void:
+	is_editing = true
+	covered_cells.clear()
+	crumble_clocks.clear()
+	set_process(false)
+	for object in hidden_objects.keys():  # untyped: it may hold a freed object
+		if is_instance_valid(object):
+			(object as Node2D).visible = true
+			(object as Node2D).process_mode = Node.PROCESS_MODE_INHERIT
+	hidden_objects.clear()
 
 
 func _cover_all() -> void:

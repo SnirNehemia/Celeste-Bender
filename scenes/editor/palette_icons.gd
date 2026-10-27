@@ -89,6 +89,13 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"earth":
 			_rect(image, 0, 2, 10, 8, EARTH_BROWN)
 			_rect(image, 0, 2, 10, 2, EARTH_TAN)
+		&"hidden_chamber":
+			# Earth with a purple-striped tunnel through it (the editor's chamber look).
+			_rect(image, 0, 2, 10, 8, EARTH_BROWN)
+			_rect(image, 0, 2, 10, 2, EARTH_TAN)
+			_rect(image, 2, 5, 6, 3, PURPLE.darkened(0.4))
+			for x: int in [2, 5]:
+				_rect(image, x, 5, 2, 3, PURPLE)
 		&"grass":
 			_rect(image, 0, 3, 10, 7, DARK_GREEN)
 			_rect(image, 0, 3, 10, 2, GRASS_GREEN)

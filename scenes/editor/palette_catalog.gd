@@ -151,6 +151,12 @@ class Entry:
 	## (the same cell when the tileset has one tile). See TileBrush.
 	var tile_plain: Vector2i = TileBrush.TILE_PLAIN
 	var tile_top_edge: Vector2i = TileBrush.TILE_TOP_EDGE
+	## Terrain kind: layers whose tiles a painted cell ERASES, so the brush carves
+	## its shape out of them (a hidden chamber dug into an earth wall). Same undo step.
+	var carves_layers: Array[StringName] = []
+	## More tabs the entry's button also shows in, besides `family` (a hidden chamber
+	## is terrain, and also something you break open). Both buttons pick this entry.
+	var extra_tabs: Array[String] = []
 	## Room settings that come with this thing ({setting: value}). Terrain: set the
 	## first time it's painted in a room (a room with Earth painted allows Earth,
 	## Stage L8). Objects: set when one is placed or copied there (a brazier turns
@@ -189,7 +195,7 @@ const TAB_OF: Dictionary = {
 }
 ## Elements of entries whose stage family doesn't say it (terrain, enemies).
 const ELEMENT_OF: Dictionary = {
-	&"earth": "Earth", &"water": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
+	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
 	&"wisp": "Air", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
 }
 
@@ -359,6 +365,24 @@ static func _build() -> void:
 	earth.tile_plain = Vector2i(0, 0)
 	earth.tile_top_edge = Vector2i(0, 0)
 	earth.room_settings_on_create = {&"earth_allowed": true}
+
+	# Hidden chambers (Stage E4c; in the editor after Stage W2): a "Hidden" layer
+	# (HiddenLayer) of open-air cells drawn as deep earth until a dig (or a burnt
+	# overgrown cover) reaches them. The brush CARVES: a painted cell loses its solid
+	# tiles, so you paint the tunnel's shape into a wall. While editing, a chamber
+	# shows open, striped purple (RoomLook, EditorOverlay); a red edge marks where it
+	# touches open air (a cover you could walk through). painted_ground: only the
+	# GroundPainter draws the cover, and hides it again once it crumbles.
+	var hidden_chamber: Entry = _add(&"hidden_chamber", "Hidden chamber", "Terrain", Kind.TERRAIN)
+	hidden_chamber.hint = "A secret tunnel: paint it into a wall (it carves the tiles out). In play it looks like deep earth until a dig or a burnt overgrown cover reaches it, then it crumbles open. Red edges: it touches open air there. Turns Earth on."
+	hidden_chamber.layer_name = &"Hidden"
+	hidden_chamber.tile_set = earth.tile_set
+	hidden_chamber.layer_script = preload("res://scenes/objects/earth/hidden_layer.gd")
+	hidden_chamber.tile_plain = earth.tile_plain
+	hidden_chamber.tile_top_edge = earth.tile_plain
+	hidden_chamber.carves_layers = [&"Tiles", &"Earth", &"Grass", &"Thicket", &"Overgrown"]
+	hidden_chamber.extra_tabs = ["Breakable"]
+	hidden_chamber.room_settings_on_create = {&"earth_allowed": true, &"painted_ground": true}
 
 	# Walls are placed by their top-left corner and sized in whole tiles.
 	var cracked_wall: Entry = _add_object(&"cracked_wall", "Cracked wall", "Earth", preload("res://scenes/objects/earth/cracked_wall.tscn"))

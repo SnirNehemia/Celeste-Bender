@@ -26,6 +26,11 @@ extends RefCounted
 ##
 ## The WaterWorld (Stage W1) goes the same way; the water tiles show again.
 ##
+## Hidden chambers (HiddenLayer): while editing they're OPEN (open_for_editing), so
+## the painter draws the tunnel and nothing inside is hidden; their own tiles never
+## show (EditorOverlay stripes them purple instead). get_exposed_chamber_edges()
+## finds where a chamber touches open air, for the overlay's red edges.
+##
 ## While a stroke is being painted the picture would lag behind the mouse, so
 ## show_tiles_while_painting() makes the painted layer's own tiles visible until
 ## refresh() hides them again.
@@ -42,11 +47,15 @@ const WATER_WORLD_NAME: StringName = &"WaterWorld"
 const WATER_LAYER_NAME: StringName = &"Water"
 ## The layer a room needs before it gets a painter (see Room._ready).
 const EARTH_LAYER_NAME: StringName = &"Earth"
+const HIDDEN_LAYER_NAME: StringName = &"Hidden"
+## The four ways out of a cell (the chamber edges' directions).
+const NEIGHBOUR_STEPS: Array[Vector2i] = [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 
 
 ## A room that just entered the editor (opened, or imported as a copy): its
 ## FireGrid goes, and its painter and plants are rebuilt without it.
 static func prepare_for_editing(room: Room) -> void:
+	_open_hidden_chambers(room)
 	var water_world: Node = room.get_node_or_null(NodePath(WATER_WORLD_NAME))
 	if water_world != null:
 		room.remove_child(water_world)
@@ -69,6 +78,8 @@ static func refresh(room: Room) -> void:
 	for child: Node in room.get_children():
 		if child is GrassLayer or child is ThicketLayer:
 			_regrow_plants(child as TileMapLayer)
+	# Before the painter is built: it reads which chamber cells are covered.
+	_open_hidden_chambers(room)
 	var has_earth: bool = room.get_node_or_null(NodePath(EARTH_LAYER_NAME)) is EarthLayer
 	var old_painter: Node = room.get_node_or_null(NodePath(PAINTER_NAME))
 	if old_painter != null:
@@ -76,9 +87,9 @@ static func refresh(room: Room) -> void:
 		room.remove_child(old_painter)
 		old_painter.queue_free()
 	if not has_earth and not room.painted_ground:
-		# No painter: the tiles draw themselves again.
+		# No painter: the tiles draw themselves again (a chamber's never: it's air).
 		for child: Node in room.get_children():
-			if child is TileMapLayer:
+			if child is TileMapLayer and not child is HiddenLayer:
 				(child as TileMapLayer).self_modulate = Color.WHITE
 		return
 	room._add_ground_painter()
@@ -87,9 +98,54 @@ static func refresh(room: Room) -> void:
 
 
 ## While painting `layer` in a room with a painter, its tiles show as they are.
+## Not a hidden chamber: its tiles are earth tiles, and the overlay's stripes
+## already show the stroke as it goes.
 static func show_tiles_while_painting(room: Room, layer: TileMapLayer) -> void:
-	if room.get_node_or_null(NodePath(PAINTER_NAME)) != null:
+	if room.get_node_or_null(NodePath(PAINTER_NAME)) != null and not layer is HiddenLayer:
 		layer.self_modulate = Color.WHITE
+
+
+## The room's hidden chambers, opened for editing (see the header), their tiles unseen.
+static func _open_hidden_chambers(room: Room) -> void:
+	var hidden_layer: HiddenLayer = room.get_node_or_null(NodePath(HIDDEN_LAYER_NAME)) as HiddenLayer
+	if hidden_layer != null:
+		hidden_layer.open_for_editing()
+		hidden_layer.self_modulate = Color.TRANSPARENT
+
+
+## Where `room`'s hidden chambers touch open air: [cell, step] pairs (room-local
+## cells; step = which way the air is). Open air: inside the room, not a chamber
+## cell, and no solid tile (a layer with collision) there. Outside the room counts
+## as closed: an exit through the room's edge is the next room's business.
+static func get_exposed_chamber_edges(room: Room) -> Array[Array]:
+	var edges: Array[Array] = []
+	var hidden_layer: TileMapLayer = room.get_node_or_null(NodePath(HIDDEN_LAYER_NAME)) as TileMapLayer
+	if hidden_layer == null:
+		return edges
+	var chamber_cells: Array[Vector2i] = hidden_layer.get_used_cells()
+	if chamber_cells.is_empty():
+		return edges
+	var solid_layers: Array[TileMapLayer] = []
+	for child: Node in room.get_children():
+		var layer: TileMapLayer = child as TileMapLayer
+		# Same test as MapView's openings: a layer that collides is solid.
+		if layer != null and layer.collision_enabled and layer.tile_set != null \
+				and layer.tile_set.get_physics_layers_count() > 0:
+			solid_layers.append(layer)
+	var room_cells: Rect2i = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / LevelEditor.TILE).ceil()))
+	for cell: Vector2i in chamber_cells:
+		for step: Vector2i in NEIGHBOUR_STEPS:
+			var neighbour: Vector2i = cell + step
+			if not room_cells.has_point(neighbour) or hidden_layer.get_cell_source_id(neighbour) != -1:
+				continue
+			var is_solid: bool = false
+			for layer: TileMapLayer in solid_layers:
+				if layer.get_cell_source_id(neighbour) != -1:
+					is_solid = true
+					break
+			if not is_solid:
+				edges.append([cell, step])
+	return edges
 
 
 ## A grass, thicket or cover layer: drops the children its _ready() built (blades,
