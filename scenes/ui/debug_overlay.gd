@@ -11,7 +11,7 @@ extends CanvasLayer
 ## `player` field in the Inspector. The overlay only READS from the player; it never
 ## changes anything, so it can be removed without breaking the game.
 ## (One exception, a dev tool: F4 `debug_save_tuning` writes the player's CURRENT
-## tuning values, PlayerTuning, EarthTuning and FireTuning, including anything
+## tuning values, PlayerTuning, EarthTuning, FireTuning and WaterTuning, including anything
 ## changed in the F5 tuning panel or the Remote tab, back to their .tres files, so a
 ## good tuning session survives closing the game.)
 ##
@@ -54,7 +54,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_save_tuning()
 
 
-## Writes the player's live tuning resources (Player, Earth, Fire) to their .tres
+## Writes the player's live tuning resources (Player, Earth, Fire, Water) to their .tres
 ## files. The panel and the Remote tab edit these same in-memory objects, so
 ## whatever you tuned is what gets saved.
 ## ResourceSaver.save() serializes a Resource to disk; with no path it uses the
@@ -66,7 +66,7 @@ func _save_tuning() -> void:
 		return
 	var saved_names: PackedStringArray = []
 	var failed_names: PackedStringArray = []
-	for resource: Resource in [player.tuning, player.earth_tuning, player.fire_tuning]:
+	for resource: Resource in [player.tuning, player.earth_tuning, player.fire_tuning, player.water_tuning]:
 		if resource == null:
 			continue
 		var file_name: String = resource.resource_path.get_file()
@@ -117,6 +117,11 @@ func _process(_delta: float) -> void:
 		GameState.get_formatted_time(),
 		room_name,
 	]
+	# In a room with water: which look the water shader draws (7 cycles it).
+	var water_world: WaterWorld = WaterWorld.find_at(get_tree(), player.global_position)
+	if water_world != null:
+		readout_label.text += "
+Water look: %s (7)  Swim: %.2f" % [water_world.get_look_name(), player.swim.submerged_share]
 	if save_message != "" and Time.get_ticks_msec() - save_message_shown_msec < SAVE_MESSAGE_TIME_MSEC:
 		readout_label.text += "
 " + save_message

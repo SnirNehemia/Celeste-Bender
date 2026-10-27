@@ -34,6 +34,9 @@ const OLIVE: Color = Color(0.5, 0.55, 0.25)
 const CREAM: Color = Color(0.95, 0.9, 0.75)
 const WHITE: Color = Color(1.0, 1.0, 1.0)
 const LEAF_GOLD: Color = Color(0.7, 0.63, 0.38)
+## Water_bending.md §12.1: the body and its light surface line.
+const WATER_BLUE: Color = Color("#2F7FD1")
+const FOAM_BLUE: Color = Color("#BFE4FF")
 
 ## Icons made so far, by entry id (each is drawn once).
 static var _icons: Dictionary = {}
@@ -49,7 +52,7 @@ static func get_icon(entry: PaletteCatalog.Entry) -> Texture2D:
 	return _icons[entry.id]
 
 
-## The element's color: Air cyan, Earth tan, Fire orange; gray for none.
+## The element's color: Air cyan, Earth tan, Fire orange, Water blue; gray for none.
 static func element_color(element: String) -> Color:
 	match element:
 		"Air":
@@ -58,6 +61,8 @@ static func element_color(element: String) -> Color:
 			return EARTH_TAN
 		"Fire":
 			return ORANGE
+		"Water":
+			return WATER_BLUE
 	return GRAY
 
 
@@ -89,6 +94,11 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 0, 3, 10, 2, GRASS_GREEN)
 			for x: int in [1, 4, 7]:
 				_rect(image, x, 1, 1, 2, GRASS_GREEN)
+		&"water":
+			# A pool in a dip of rock, with its light surface line.
+			_rect(image, 0, 3, 10, 7, DARK_GRAY)
+			_rect(image, 1, 4, 8, 5, WATER_BLUE)
+			_rect(image, 1, 4, 8, 1, FOAM_BLUE)
 		&"thicket":
 			_rect(image, 0, 0, 10, 10, DARK_GREEN)
 			for spot: Vector2i in [Vector2i(1, 1), Vector2i(5, 2), Vector2i(2, 5), Vector2i(7, 6), Vector2i(4, 8)]:

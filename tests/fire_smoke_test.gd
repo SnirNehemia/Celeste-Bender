@@ -159,7 +159,7 @@ func _check_f2_tuning_panel(player: Player) -> void:
 	f5_press.pressed = true
 	get_viewport().push_input(f5_press)
 	_check(panel.is_open() and get_tree().paused, "F5 opens the panel and pauses the game")
-	_check(panel.tab_names == ["Player", "Earth", "Fire"], "three tabs: Player, Earth, Fire, got %s" % [panel.tab_names])
+	_check(panel.tab_names == ["Player", "Earth", "Fire", "Water"], "four tabs: Player, Earth, Fire, Water (since W1), got %s" % [panel.tab_names])
 
 	# Rows come from the property list: groups, exported vars, no Resource internals.
 	var labels: Array[String] = []
@@ -206,8 +206,8 @@ func _check_f2_tuning_panel(player: Player) -> void:
 	_check(fire_tuning.max_pips == 10, "max_pips stops at its range max (10), got %d" % fire_tuning.max_pips)
 	panel.reset_selected()
 	_check(fire_tuning.max_pips == saved_pips, "R puts max_pips back")
-	panel.switch_tab(1)
-	_check(panel.tab_names[panel.current_tab] == "Player", "PageDown wraps from Fire to Player")
+	panel.switch_tab(2)
+	_check(panel.tab_names[panel.current_tab] == "Player", "PageDown from Fire goes to Water, then wraps to Player")
 
 	# Closing resumes the game and tells listeners through Resource.changed.
 	var heard_changed: Array[bool] = [false]

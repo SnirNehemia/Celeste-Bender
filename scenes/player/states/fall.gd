@@ -7,6 +7,7 @@ extends PlayerState
 ##   - wall jump, if a wall is within reach
 ##   - start a wall slide, if holding into a wall
 ##   - start a glide, by pressing jump again (when no jump uses the press)
+##   - in deep water: stroke upward, or leap out at the surface (Player.try_swim_move)
 
 func physics_update(delta: float) -> void:
 	if player.wants_to_gust():
@@ -22,6 +23,13 @@ func physics_update(delta: float) -> void:
 	player.apply_gravity(delta)
 	player.apply_horizontal_movement(delta)
 
+	# In deep water, jump strokes up or leaps out (Water_bending.md §5.4).
+	var swim_state: StringName = player.try_swim_move()
+	if swim_state == &"Jump":
+		transition_requested.emit(&"Jump")
+		return
+	elif swim_state == &"Fall":
+		return  # a stroke: we keep "falling", now upward, under weak water gravity
 	# Order matters: a ground jump (coyote / buffered landing) beats a wall jump.
 	if player.can_ground_jump():
 		player.start_ground_jump()

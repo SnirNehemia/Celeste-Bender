@@ -11,7 +11,7 @@ extends RefCounted
 ## plant terrain that rocks, elephants or fire open), Objects (crates, platforms,
 ## rocks, vines, leaves), Enemies. Entries are written below in the order their
 ## stages added them, with the stage's own family as their ELEMENT (Air, Earth,
-## Fire, or none): _assign_tabs() then puts each in its tab (TAB_OF). The element
+## Fire, Water, or none): _assign_tabs() then puts each in its tab (TAB_OF). The element
 ## colors the palette button (EditorUI) and picks the icon's palette.
 ## Tools (no tab, a row above the tabs): Select, Eraser, Fill.
 ## CROSS-TRACK RULE (CLAUDE.md): a stage that adds a placeable object adds its
@@ -188,7 +188,7 @@ const TAB_OF: Dictionary = {
 }
 ## Elements of entries whose stage family doesn't say it (terrain, enemies).
 const ELEMENT_OF: Dictionary = {
-	&"earth": "Earth", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
+	&"earth": "Earth", &"water": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
 	&"wisp": "Air", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
 }
 
@@ -430,6 +430,19 @@ static func _build() -> void:
 	overgrown_thicket.tile_plain = ThicketLayer.THICKET_TILE
 	overgrown_thicket.tile_top_edge = ThicketLayer.THICKET_TILE
 	overgrown_thicket.room_settings_on_create = {&"fire_allowed": true}
+
+	# --- Water (Stage W1; Water_bending.md §8.1) ---
+	# Painted water: where water stands when the room starts. In play the room's
+	# WaterWorld turns it into pools that slosh, flow and spill (Room._ready makes
+	# it; RoomLook takes it out of rooms being edited, so here the tiles show).
+	var water: Entry = _add(&"water", "Water", "Terrain", Kind.TERRAIN)
+	water.hint = "Water, one unit per tile. In play it settles onto the floor under it, makes waves, flows down steps and spills over edges. Not solid: you wade through it. Turns Water on."
+	water.layer_name = &"Water"
+	water.tile_set = preload("res://resources/tiles/water_tileset.tres")
+	water.layer_script = preload("res://scenes/objects/water/water_layer.gd")
+	water.tile_plain = WaterLayer.WATER_TILE
+	water.tile_top_edge = WaterLayer.WATER_TILE
+	water.room_settings_on_create = {&"water_allowed": true}
 
 	# Fire objects turn Fire on in their room. The player still needs pips: the
 	# room's Fire Start Pips, or a fire diamond (a play-test warning says so).

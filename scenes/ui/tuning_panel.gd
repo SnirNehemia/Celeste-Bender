@@ -2,7 +2,7 @@ class_name TuningPanel
 extends CanvasLayer
 ## In-game tuning panel (Fire_bending.md §10, PROMPTS.md Stage F2). F5
 ## (`debug_tuning_panel`) opens it over the paused game; it edits the player's tuning
-## resources (PlayerTuning, EarthTuning, FireTuning), one tab each.
+## resources (PlayerTuning, EarthTuning, FireTuning, WaterTuning), one tab each.
 ##
 ## It is GENERIC: it never names a tuning value. It asks each resource for its
 ## property list (get_property_list()) and shows every `@export` var under its
@@ -14,7 +14,7 @@ extends CanvasLayer
 ##   R (`debug_tuning_reset`)         put the value back to the one saved in the .tres
 ##   PageUp/PageDown, Tab             switch tabs
 ##   F5 or Esc                        close
-## F4 (`debug_save_tuning`, handled by DebugOverlay) writes all three to their .tres.
+## F4 (`debug_save_tuning`, handled by DebugOverlay) writes all four to their .tres.
 ##
 ## Who creates it: DebugOverlay adds one next to itself in _ready and hands it the
 ## player, so every world that has the overlay gets the panel without scene edits.
@@ -148,7 +148,7 @@ func saved_to_disk(message: String = "") -> void:
 
 # --- Tabs and rows -----------------------------------------------------------------
 
-## Reads the player's three tuning resources. Done on every open so a player that
+## Reads the player's four tuning resources. Done on every open so a player that
 ## got a different .tres (Inspector, test) is picked up.
 func _collect_resources() -> void:
 	tab_names.clear()
@@ -159,6 +159,7 @@ func _collect_resources() -> void:
 		"Player": player.tuning,
 		"Earth": player.earth_tuning,
 		"Fire": player.fire_tuning,
+		"Water": player.water_tuning,
 	}
 	for tab_name: String in candidates:
 		var resource: Resource = candidates[tab_name]

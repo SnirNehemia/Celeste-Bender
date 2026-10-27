@@ -53,6 +53,13 @@ extends CharacterBody2D
 ## don't burn (not in the flammable group, ignite() does nothing) and are heavier:
 ## gusts, a rising column's throw and swing pushes move them `metal_push_factor` as
 ## much. Gravity is the same (everything falls alike).
+##
+## WATER (Stage W1, Water_bending.md §8.5): wooden crates FLOAT. Each frame the
+## crate asks its room's WaterWorld how much of its box is under water (0..1). The
+## water lifts it with `buoyancy` (WaterTuning) times that share of gravity, so with
+## buoyancy 2 it settles half under. Water drag slows it (no bouncing out again),
+## and it slides down the slope of a passing wave, so it bobs and drifts on waves.
+## Falling in pushes a wave (WaterWorld.push_at). Metal crates sink: drag only.
 
 ## Brown, per the color key (GAME_DESIGN.md §2), with darker planks.
 const CRATE_COLOR: Color = Color(0.6, 0.38, 0.2)
@@ -137,6 +144,13 @@ var swing_vine: Vine = null
 var swing_angle: float = 0.0
 var swing_speed: float = 0.0
 
+## The WaterWorld of its room, looked up on the first physics frame (the room makes
+## it in its own _ready, which runs after ours), and how much of the crate was under
+## water last frame (a splash when it goes from 0 to more).
+var water_world: WaterWorld = null
+var has_looked_for_water: bool = false
+var submerged_share: float = 0.0
+
 ## Where it was placed, in world coordinates. reset() puts it back here.
 var start_position: Vector2
 var hitbox: CollisionShape2D
@@ -145,6 +159,12 @@ var hitbox: CollisionShape2D
 func _ready() -> void:
 	collision_layer = 1 | 8  # bit values of layer 1 "world" and layer 4 "pushable"
 	collision_mask = 1 | 2   # stops against the world and the player
+	# A CharacterBody2D standing on another body moves along with it (a moving
+	# platform carries what stands on it). It must never ride on the PLAYER, or
+	# jumping or swimming up under a crate picks it up and carries it (W1 play-test
+	# "I can grab the crate"): the player can't move crates, only the gust can. So
+	# every layer but the player's (layer 2, bit value 2) carries it.
+	platform_floor_layers = 0xFFFFFFFF & ~2
 	hitbox = CollisionShape2D.new()
 	hitbox.shape = RectangleShape2D.new()
 	add_child(hitbox)
@@ -260,8 +280,12 @@ func _physics_process(delta: float) -> void:
 	# Let go (or never hung): back upright while it falls.
 	rotation = move_toward(rotation, 0.0, upright_turn_speed * delta)
 	var was_on_floor: bool = is_on_floor()
-	if not was_on_floor:
-		velocity.y = minf(velocity.y + gravity * delta, max_fall_speed)
+	var lift: float = _float_in_water(delta)
+	# In water, gravity minus the water's lift; that can be negative (it rises, even
+	# off a pool's floor).
+	var net_gravity: float = gravity - lift
+	if not was_on_floor or net_gravity < 0.0:
+		velocity.y = minf(velocity.y + net_gravity * delta, max_fall_speed)
 	# Friction: slide toward a stop, faster on the ground than in the air.
 	var friction: float = ground_friction if was_on_floor else air_friction
 	velocity.x = move_toward(velocity.x, 0.0, friction * delta)
@@ -274,6 +298,32 @@ func _physics_process(delta: float) -> void:
 		velocity.x = -speed_before.x * air_wall_bounce
 	if global_position.y > start_position.y + fall_out_distance:
 		reset()
+
+
+## Water (see the header): how much of the crate is under water, the drag and the
+## drift down a wave's slope. Returns the water's upward push this frame, px/s².
+func _float_in_water(delta: float) -> float:
+	if not has_looked_for_water:
+		has_looked_for_water = true
+		var room: Room = Room.find_room_of(self)
+		if room != null:
+			water_world = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	if water_world == null:
+		return 0.0
+	var box: Rect2 = Rect2(global_position - Vector2(crate_size.x / 2.0, crate_size.y), crate_size)
+	var share: float = water_world.get_submerged_share(box)
+	var water_tuning: WaterTuning = water_world.water_tuning
+	if share > 0.0 and submerged_share <= 0.0:
+		water_world.push_at(Vector2(global_position.x, box.end.y), velocity * water_tuning.entry_splash_strength, crate_size.x)
+	submerged_share = share
+	if share <= 0.0:
+		return 0.0
+	velocity *= maxf(0.0, 1.0 - water_tuning.water_drag * share * delta)
+	if is_metal:
+		return 0.0  # steel sinks: the water only slows it
+	if not is_on_floor():
+		velocity.x += water_world.get_surface_slope_at(Vector2(global_position.x, box.position.y)) 			* water_tuning.wave_slope_push * delta
+	return gravity * water_tuning.buoyancy * share
 
 
 ## Starts swinging on `vine` (or stops, null). Starting: the angle comes from where

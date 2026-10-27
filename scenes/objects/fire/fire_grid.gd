@@ -230,8 +230,8 @@ func _ready() -> void:
 			geometry_layer = layer
 			break
 	for child: Node in room.get_children():
-		if child is TileMapLayer and not child is HiddenLayer:
-			solid_layers.append(child)
+		if child is TileMapLayer and not child is HiddenLayer and not child is WaterLayer:
+			solid_layers.append(child)  # water isn't solid (Stage W1)
 	tile_size = geometry_layer.tile_set.tile_size.x
 	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
 	add_to_group(GROUP)

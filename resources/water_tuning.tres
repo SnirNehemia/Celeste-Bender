@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="WaterTuning" format=3]
+
+[ext_resource type="Script" path="res://resources/water_tuning.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+look_style = 3
+band_px = 10.0
+deep_alpha = 0.9
+caustic_thickness = 0.11

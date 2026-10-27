@@ -24,6 +24,8 @@ extends RefCounted
 ## the burning), so prepare_for_editing() takes it out of rooms being edited; the
 ## play-test copy and the saved level get theirs from Room._ready() as always.
 ##
+## The WaterWorld (Stage W1) goes the same way; the water tiles show again.
+##
 ## While a stroke is being painted the picture would lag behind the mouse, so
 ## show_tiles_while_painting() makes the painted layer's own tiles visible until
 ## refresh() hides them again.
@@ -34,6 +36,10 @@ extends RefCounted
 const PAINTER_NAME: StringName = &"GroundPainter"
 const PEBBLE_FIELD_NAME: StringName = &"PebbleField"
 const FIRE_GRID_NAME: StringName = &"FireGrid"
+## The WaterWorld (Stage W1): like the FireGrid, play only. While editing, the
+## "Water" layer's own tiles show where the water is painted.
+const WATER_WORLD_NAME: StringName = &"WaterWorld"
+const WATER_LAYER_NAME: StringName = &"Water"
 ## The layer a room needs before it gets a painter (see Room._ready).
 const EARTH_LAYER_NAME: StringName = &"Earth"
 
@@ -41,6 +47,13 @@ const EARTH_LAYER_NAME: StringName = &"Earth"
 ## A room that just entered the editor (opened, or imported as a copy): its
 ## FireGrid goes, and its painter and plants are rebuilt without it.
 static func prepare_for_editing(room: Room) -> void:
+	var water_world: Node = room.get_node_or_null(NodePath(WATER_WORLD_NAME))
+	if water_world != null:
+		room.remove_child(water_world)
+		water_world.queue_free()
+		var water_layer: TileMapLayer = room.get_node_or_null(NodePath(WATER_LAYER_NAME)) as TileMapLayer
+		if water_layer != null:
+			water_layer.self_modulate = Color.WHITE  # the WaterWorld had hidden it
 	var fire_grid: Node = room.get_node_or_null(NodePath(FIRE_GRID_NAME))
 	if fire_grid == null:
 		return

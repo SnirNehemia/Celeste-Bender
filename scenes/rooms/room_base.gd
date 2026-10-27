@@ -29,6 +29,9 @@ extends Node2D
 ## F5): the grass there burns, spreads and turns to ash. So do rooms with a
 ## "Thicket" (ThicketLayer) or "Overgrown" (OvergrownLayer) layer (Stage F6): thicket
 ## burns away, covers flash over.
+## Rooms with a "Water" layer (WaterLayer, Stage W1) get a WaterWorld: the painted
+## water becomes pools that slosh, flow and spill (Water_bending.md §6). Water is
+## there whether or not Water bending is allowed in the room (`water_allowed`).
 ##
 ## Resetting: puzzle objects (crates, windmills, leaves, doors) join the group
 ## RESETTABLE_GROUP and have a reset() method. RoomManager calls reset_objects() on
@@ -70,6 +73,10 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## entering the room, dying or R sets the fire bar to this, and leftovers from the
 ## previous room are dropped. Clamped to FireTuning.max_pips.
 @export_range(0, 10) var fire_start_pips: int = 0
+## Water: the water hands and the freeze (Water_bending.md, Stage W3+). Off by
+## default like Fire. Painted water (the "Water" layer) is real water either way: it
+## sloshes and flows even where the player can't bend it.
+@export var water_allowed: bool = false
 
 @export_group("Look")
 ## Draw this room's ground with a GroundPainter (crust, hatching, lumpy edges) even
@@ -92,6 +99,8 @@ func _ready() -> void:
 		_add_pebble_field()
 	elif painted_ground:
 		_add_ground_painter()
+	if get_node_or_null("Water") is WaterLayer:
+		_add_water_world()
 
 
 ## Adds the GroundPainter right after the tile layers, so it draws where the tiles
@@ -130,6 +139,15 @@ func _add_fire_grid() -> void:
 	var grid: FireGrid = FireGrid.new()
 	grid.name = "FireGrid"
 	add_child(grid)
+
+
+## Adds the room's WaterWorld (Stage W1) at the room's origin: it turns the painted
+## water into pools and moves all the room's water. Like the FireGrid, it belongs to
+## play only: RoomLook takes it out of rooms being edited.
+func _add_water_world() -> void:
+	var water_world: WaterWorld = WaterWorld.new()
+	water_world.name = WaterWorld.NODE_NAME
+	add_child(water_world)
 
 
 ## The nearest Room above `node` in the tree (its own room), or null.

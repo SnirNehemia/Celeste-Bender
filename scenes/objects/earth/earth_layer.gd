@@ -81,7 +81,8 @@ var shiver_time_remaining: Dictionary = {}
 ## Real-time clock for the shiver's left/right flipping.
 var shiver_clock: float = 0.0
 ## Other TileMapLayers in the same room ("Tiles", "Grass"): their cells count as
-## solid when we decide which faces touch open air.
+## solid when we decide which faces touch open air. Not the "Water" layer (Stage W1):
+## water isn't solid.
 var neighbour_solid_layers: Array[TileMapLayer] = []
 ## The room's "Hidden" layer (Stage E4c), or null: its cells are open air, but count
 ## as solid while still covered (HiddenLayer.is_covered).
@@ -102,7 +103,7 @@ func _ready() -> void:
 		var sibling_layer: TileMapLayer = sibling as TileMapLayer
 		if sibling_layer is HiddenLayer:
 			hidden_layer = sibling_layer  # solid only while covered: see is_solid
-		elif sibling_layer != null and sibling_layer != self:
+		elif sibling_layer != null and sibling_layer != self and not sibling_layer is WaterLayer:
 			neighbour_solid_layers.append(sibling_layer)
 	# Nothing animates until a tile is used or shivers (see _process).
 	set_process(false)

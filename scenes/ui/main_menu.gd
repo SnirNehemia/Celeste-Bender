@@ -11,6 +11,7 @@ extends Control
 ##       - Earth tests: tests/earth_test_world.tscn   one test room per Earth stage
 ##       - Mixed: tests/mixed_test_world.tscn   Air and Earth together: movement room, enemy room
 ##       - Fire tests: tests/fire_test_world.tscn     one test room per Fire stage (F1+)
+##       - Water tests: tests/water_test_world.tscn   one test room per Water stage (W1+)
 ## Story Mode opens the Story screen (scenes/ui/story_screen.tscn, Stage L11).
 ## Level Editor opens the level library (scenes/ui/level_library.tscn). It's a dev
 ## tool: levels are saved into the project (res://levels/), which only works when
@@ -34,6 +35,7 @@ const CHAPTERS: Array = [
 	["Earth  -  test rooms (F2 to switch)", "res://tests/earth_test_world.tscn"],
 	["Air + Earth  -  mixed test rooms (F2 to switch)", "res://tests/mixed_test_world.tscn"],
 	["Fire  -  test rooms (F2 to switch)", "res://tests/fire_test_world.tscn"],
+	["Water  -  test rooms (F2 to switch)", "res://tests/water_test_world.tscn"],
 ]
 const LEVEL_LIBRARY_SCENE: String = "res://scenes/ui/level_library.tscn"
 const STORY_SCREEN_SCENE: String = "res://scenes/ui/story_screen.tscn"

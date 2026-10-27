@@ -31,6 +31,8 @@ extends CharacterBody2D
 ##   │                     (abilities/fire/flame_jet_ability.gd); Jetting moves the body
 ##   ├─ FireballAbility    Fire move Q: pip check, fizzle, aim preview, throw
 ##   │                     (abilities/fire/fireball_ability.gd); aims in GustAim
+##   ├─ SwimAbility        how much of us is under water: slower runs, lower jumps,
+##   │                     strokes (abilities/water/swim_ability.gd, Water §5.4)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
 ##                         SnakeSteer, Jetting, Dead
@@ -65,6 +67,9 @@ extends CharacterBody2D
 @export var earth_tuning: EarthTuning
 ## Fire bending feel values (Fire_bending.md), the third element's own resource.
 @export var fire_tuning: FireTuning
+## Water bending feel values (Water_bending.md), the fourth element's own resource.
+## Rooms' WaterWorlds read the same .tres, so the F5 "Water" tab reaches them too.
+@export var water_tuning: WaterTuning
 
 ## Floors with this method catch wind (duck typing, like the Pushable contract):
 ##   func absorb_gust_recoil(direction: Vector2, strength: float) -> void
@@ -77,6 +82,7 @@ const GROUP: StringName = &"player"
 const ELEMENT_AIR: StringName = &"air"
 const ELEMENT_EARTH: StringName = &"earth"
 const ELEMENT_FIRE: StringName = &"fire"
+const ELEMENT_WATER: StringName = &"water"
 
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
@@ -96,6 +102,7 @@ signal died
 @onready var fire_bar: FireBar = $FireBar
 @onready var flame_jet: FlameJetAbility = $FlameJetAbility
 @onready var fireball: FireballAbility = $FireballAbility
+@onready var swim: SwimAbility = $SwimAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -155,6 +162,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_timers(delta: float) -> void:
+	# How deep in water we are, for this frame's gravity, run speed and jumps.
+	swim.update_submersion()
 	# is_on_floor() reports the result of LAST frame's move_and_slide().
 	if is_on_floor():
 		coyote_time_remaining = tuning.coyote_time
@@ -297,7 +306,8 @@ func can_wall_jump() -> bool:
 ## Launches a normal jump. The Jump state then holds this upward speed while jump is held.
 func start_ground_jump() -> void:
 	consume_jump_press()
-	velocity.y = tuning.jump_velocity
+	# Standing in water, the jump is weaker the deeper we are (1 on dry land).
+	velocity.y = tuning.jump_velocity * swim.get_jump_multiplier()
 	movement_effects.on_jumped()
 
 
@@ -320,6 +330,22 @@ func consume_jump_press() -> void:
 	coyote_time_remaining = 0.0
 
 
+## Jump in deep water, not standing (Water_bending.md §5.4). Head under: a STROKE,
+## our upward speed becomes swim_stroke_speed, so tapping jump swims us up. Head out
+## (at the surface): a LEAP out, a full jump. Returns the state to switch to: &"Fall"
+## after a stroke, &"Jump" after a leap, &"" if there was no swim move.
+func try_swim_move() -> StringName:
+	if jump_buffer_remaining <= 0.0 or is_on_floor() or not swim.is_in_water():
+		return &""
+	consume_jump_press()
+	if swim.is_swimming():
+		velocity.y = minf(velocity.y, -water_tuning.swim_stroke_speed)
+		return &"Fall"
+	velocity.y = tuning.jump_velocity * water_tuning.surface_leap_scale
+	movement_effects.on_jumped()
+	return &"Jump"
+
+
 # --- Glide -------------------------------------------------------------------
 
 ## True when jump was pressed recently (buffered) and is still held, in the air,
@@ -330,6 +356,7 @@ func wants_to_glide() -> bool:
 	return jump_buffer_remaining > 0.0 \
 		and Input.is_action_pressed("jump") \
 		and not is_on_floor() \
+		and not swim.is_in_water() \
 		and is_element_allowed(ELEMENT_AIR) \
 		and glide.can_glide()
 
@@ -407,7 +434,7 @@ func get_gust_start_state() -> StringName:
 
 # --- Elements ----------------------------------------------------------------
 
-## True if the current room lets us use `element` (ELEMENT_AIR, _EARTH or _FIRE).
+## True if the current room lets us use `element` (ELEMENT_AIR, _EARTH, _FIRE or _WATER).
 ## Rooms store the flags (Room.air_allowed / earth_allowed / fire_allowed); GameState knows which
 ## room we're in. No room yet (a bare test scene) = everything allowed.
 func is_element_allowed(element: StringName) -> bool:
@@ -421,6 +448,8 @@ func is_element_allowed(element: StringName) -> bool:
 			return room.earth_allowed
 		ELEMENT_FIRE:
 			return room.fire_allowed
+		ELEMENT_WATER:
+			return room.water_allowed
 	return true
 
 
@@ -625,6 +654,19 @@ func apply_gravity(delta: float) -> void:
 	# Without gliding that only softens a fall; the Glide state is what rides it.
 	fall_speed_cap += get_wind_velocity().y
 
+	if swim.is_in_water():
+		# In water (Water_bending.md §5.4): gravity and the fastest fall blend toward
+		# the swimming values by how much of us is under, with no apex hang. Falling
+		# in faster than that, the water brakes us hard: a plunge, not a stop.
+		var share: float = swim.submerged_share
+		var water_gravity: float = lerpf(tuning.gravity, water_tuning.swim_gravity, share)
+		var water_sink_cap: float = lerpf(fall_speed_cap, water_tuning.swim_max_sink, share)
+		if velocity.y > water_sink_cap:
+			velocity.y = move_toward(velocity.y, water_sink_cap, water_tuning.swim_brake * share * delta)
+		else:
+			velocity.y = move_toward(velocity.y, water_sink_cap, water_gravity * delta)
+		return
+
 	velocity.y = move_toward(velocity.y, fall_speed_cap, tuning.gravity * gravity_scale * delta)
 
 
@@ -666,7 +708,8 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 	if input_direction != 0.0:
 		# Speed up toward full speed in the held direction. Reversing direction passes
 		# through zero, so turning around happens at the same acceleration rate.
-		var target_speed: float = input_direction * tuning.max_run_speed + wind_speed_x
+		# Water holds us back by how much of us is in it (1 on dry land).
+		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() + wind_speed_x
 		velocity.x = move_toward(velocity.x, target_speed, tuning.run_acceleration * air_multiplier * delta)
 	else:
 		# Nothing held: slow toward the wind's speed (zero when there's no wind).

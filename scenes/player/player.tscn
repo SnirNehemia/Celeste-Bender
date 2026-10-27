@@ -1,4 +1,4 @@
-[gd_scene load_steps=34 format=3]
+[gd_scene load_steps=36 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -27,11 +27,13 @@
 [ext_resource type="Script" path="res://scenes/player/abilities/earth/earth_snake_ability.gd" id="26_earth_snake"]
 [ext_resource type="Script" path="res://scenes/player/states/snake_steer.gd" id="27_snake_steer"]
 [ext_resource type="Resource" path="res://resources/fire_tuning.tres" id="28_fire_tuning"]
+[ext_resource type="Resource" path="res://resources/water_tuning.tres" id="90_water_tuning"]
 [ext_resource type="Script" path="res://scenes/player/abilities/fire/fire_bar.gd" id="29_fire_bar"]
 [ext_resource type="Script" path="res://scenes/player/abilities/fire/fire_pips_display.gd" id="30_fire_pips"]
 [ext_resource type="Script" path="res://scenes/player/abilities/fire/flame_jet_ability.gd" id="31_flame_jet"]
 [ext_resource type="Script" path="res://scenes/player/states/jetting.gd" id="32_jetting"]
 [ext_resource type="Script" path="res://scenes/player/abilities/fire/fireball_ability.gd" id="33_fireball"]
+[ext_resource type="Script" path="res://scenes/player/abilities/water/swim_ability.gd" id="91_swim"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(7.6, 11)
@@ -43,6 +45,7 @@ script = ExtResource("1_player")
 tuning = ExtResource("2_tuning")
 earth_tuning = ExtResource("19_earth_tuning")
 fire_tuning = ExtResource("28_fire_tuning")
+water_tuning = ExtResource("90_water_tuning")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, -5.5)
@@ -110,6 +113,9 @@ script = ExtResource("31_flame_jet")
 
 [node name="FireballAbility" type="Node2D" parent="."]
 script = ExtResource("33_fireball")
+
+[node name="SwimAbility" type="Node" parent="."]
+script = ExtResource("91_swim")
 
 [node name="StateMachine" type="Node" parent="." node_paths=PackedStringArray("initial_state")]
 script = ExtResource("3_machine")

@@ -139,7 +139,8 @@ The freeze picks its target in this order:
 - **Combat:** freeze the water on a wet wisp to trap it; ice blocks stop orbs.
 
 ### 5.4 Swimming
-- In water deeper than half your height you swim: 70 px/s, gravity 180 px/s², max sink 60 px/s **(tune)**. **Jump** strokes upward; at the surface, jump leaps out with a full jump. No breath meter. Under an ice sheet you can't surface: find an open edge or a hole.
+- **The water resists you, in proportion to how much of you is in it** (the submerged share of your hitbox, 0..1, the same number floating crates use). Run speed is multiplied by `1 − water_resistance × share` (start 0.4 **(tune)**: ankle-deep is nearly full speed, chest-deep about 70 %, fully under 60 %, about 54 px/s). A jump from the bottom is weaker the deeper you stand (`1 − water_jump_loss × share`, start 0.5 **(tune)**).
+- **Swimming:** once the water is over your head (share 1), you swim: gravity 240 px/s², max sink 50 px/s **(tune)**. Every **Jump** press is a stroke that sets your upward speed to `swim_stroke_speed` (80 px/s, about 13 px per stroke **(tune)**), so tapping jump again and again swims you up. At the surface, jump leaps out with a full jump. No breath meter. Under an ice sheet you can't surface: find an open edge or a hole.
 - Your body **pushes the water**: jumping in makes a splash and a wave, swimming leaves a wake. That's the simulation, not an effect.
 - You can **hold water while swimming**: the ball starts inside the water and fills at once.
 - **Currents:** real flow in a stream carries you along (its speed scaled by `current_push`, start 0.6 **(tune)**). Waterfalls push you down.
@@ -297,8 +298,16 @@ steam  --> lifts gliders; spins turbines
 
 **Mud** (wet earth)
 - **Sticky floor:** run ×0.5, jump height ×0.65 **(tune)**. Landing on mud **kills any momentum** at once: the brake at the end of an ice runway.
-- **Sticky walls:** on a mud wall you **cling without sliding** for as long as you hold toward it. Wall jumps still work.
+- **Sticky walls:** on a mud wall you **cling without sliding** for as long as you hold toward it. Wall jumps still work. You can't climb up or down on mud: you stay put, or let go and fall or jump off.
 - Frozen mud is ice (slippery). Heat dries it back to earth.
+
+**Mud as a way to change the level** (decided in the mud-walls refinement, 27 Oct 2026)
+- Water is how you make **earth walls passable**. Any smooth earth wall that would normally make you slide down becomes a **resting spot**: wet a patch of it and you can stop on it, catch your breath and wall-jump from it.
+- **Which tiles:** any dirt tile (fresh, used or hardened earth, §8.2). Gray rock, ashstone, crates and metal never become mud, so authors decide where mud is allowed by their choice of tile.
+- **How far it spreads:** only the tiles the water touches. A ball wets the wall tiles of its splash area and no others, so you **paint a path** with your aim: a ball too small to reach the next ledge leaves a gap you have to cover with a second throw. Mud does not spread along connected earth and does not trickle down a wall.
+- **Typical use:** a tall earth shaft with no ledges is climbed by wetting a few patches one above the other and wall-jumping between them. Wet only the floor of a pit and the mud slows you, so wet the wall and not the floor.
+- **How long it lasts:** until reset, like every wet tile (§8.2). A direct flame dries it back to earth (puff of steam). Freezing mud makes it ice, which is slippery and has no cling (§7.1). There is no timer: mud never dries on its own.
+- **Readable:** a mud tile is glossy brown and drips slowly (§12), and you leave hand prints where you cling, so you can tell at a glance which wall is climbable.
 
 **Mud rocks** (the boulder key S on a mud tile)
 - Brown, dripping. They **stick to anything** they hit: gray rock, walls, ceilings, ice, crates.
@@ -386,9 +395,9 @@ Placeholder rules still apply (shapes, lines, particles, one color family per ty
 
 | Use | Color |
 |---|---|
-| Deep water | `#1F4E8C` |
-| Water body, ball, drops | `#2F7FD1` at 85% alpha |
-| Surface line / foam / blob rim | `#BFE4FF` |
+| Deep water | `#1F4E8C` (88% cover at 48 px deep) |
+| Water body, ball, drops | `#2F7FD1`, 45% cover at the surface (what's behind shows through) |
+| Surface line / foam / blob rim | `#BFE4FF`; foam and spray near-white `#F2FAFF` |
 | Control ring | `#7FC8FF` at 25% alpha |
 | Ice | `#A9F0FF` with `#FFFFFF` streaks |
 | Freeze wipe | `#E8FBFF` crystal lines |
@@ -396,6 +405,8 @@ Placeholder rules still apply (shapes, lines, particles, one color family per ty
 | Wet ash / ashstone | `#2B2A2E` sludge / `#565359` stone with pale flecks |
 | Steam | `#F2F2F2` at 50–70% alpha |
 | Plants | the existing grass greens; tall grass slightly bluer while wet |
+
+**The water shader** (built after play-test 1, option B + foam and spray; `scenes/objects/water/water.gdshader`). Every pixel of water is colored on the graphics card, so the look costs nothing from the 2 ms simulation budget. It shows what's behind the water swaying by a pixel, tints it from see-through light blue at the surface to murky deep blue, draws a drifting net of thin caustic lines in shallow water, glints along the surface line, and adds white foam specks just under the surface where the water runs fast or is choppy (splashes, wakes, spills). Spray is white specks with no water in them, thrown up by splashes, fast drops landing and spilling lips. All of it is pixel-snapped and tunable in F5 → Water → Look. To compare, `look_style` switches the shader between three looks (key **7** cycles them, the F1 overlay names the one on, F4 saves the choice): **B** see-through (the above, default), **C** pixel-art bands (four flat blues by depth with dithered edges, sparkles, hardly see-through), **A** plain (B's tint without sway, caustics or glints), **B+C** (B with C's bands laid over it: `band_alpha` is how much the bands cover, `blend_band_alpha` how strongly they go over B; B keeps its own `shallow_alpha`/`deep_alpha`). The caustics' shapes have their own knobs: `caustic_size` (average cell size, px), `caustic_warp` (0 a regular grid, higher more uneven and random-looking) and `caustic_thickness`. Foam and spray in all three. **Picked after play-test 1: B+C** (the default `look_style`); the other looks stay on key 7 for now. The metaball renderer (W2) will draw loose water through the same shader.
 
 ### 12.2 Building blocks (one script each, reused everywhere)
 1. **`WaterWorld`**: the simulation (§6), one per room.
@@ -454,7 +465,7 @@ The first two stages build **only the water**, with no bending, and end with a p
 | **W4** | **Water snake:** rise-speed rule, rope, foot sliding along the surface, tear, draining while it rises, endless from flows, shoving, dousing, whip release | Raise a snake slowly and sweep a crate off a ledge; lift too fast and it tears and rains back |
 | **W5** | **Freeze and ice:** target order (held / last throw / touching / fizzle), ice blocks from compact water, static ice from long shapes, pool sheets, puddle and wet-tile ice, frozen streams and waterfalls, ice ground physics, ice cap, melting back to water | Freeze a thrown ball mid-air and land on the block; freeze a pool and long-jump off it; a melted pillar refills its pool |
 | **W6** | Ice slides: one-way polylines, `Sliding` state, slopes, ramps | Fling a snake arc over a spike pit, freeze it into a slide and ride it across |
-| **W7** | Swimming, currents, floating objects riding waves and streams, enemies in deep water | Swim through a pool, ride a stream on a floating crate |
+| **W7** | ~~Swimming~~ (built early, after play-test 1: §16 "Decided in Stage W1"), currents (they carry a swimmer), floating objects riding waves and streams, enemies in deep water | Swim through a pool, ride a stream on a floating crate |
 | **W8** | Wet layer: `SurfaceGrid` (from `FireGrid`), `Wettable`, soaking, mud, wet grass, wet ash → ashstone, heat dries, looks | Wet a floor three ways (ball, drop, waterfall); it looks wet; mud brakes an ice runway |
 | **W9** | Plants: tall grass (hiding, hidden objects, slow, big burn), vine growth, stalk and lily seeds, thicket branches; water scale, waterwheel, drain grate | Every row of §8.3 and §8.4 works in a test room |
 | **W10** | Combinations: mud rocks and gumming, douse table, steam burst / shot / jet-over-water, steam turbine, fire melts ice, gust on water | Every row of §9.1–9.3 works in a test room |
@@ -473,7 +484,7 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
 5. **Slide:** fling an arc over a spike pit and freeze it into a slide; spread a puddle into a runway, freeze it, and brake in mud at the end.
 6. **The Falls:** gather endlessly from a waterfall; spin a waterwheel with thrown water; freeze a waterfall and wall-jump up it; freeze a stream to dam it.
 7. **Green Thumb:** grow a vine down to a ledge, a stalk up to an exit, a thicket branch across a gap; hide in tall grass to sneak past a sentry.
-8. **Mud and Ash:** cling to mud walls on a long climb; a pre-burnt field of ash becomes ashstone where you wet it; douse a pre-lit bonfire for a steam burst that spins a turbine.
+8. **Mud and Ash:** wet a bare earth shaft in patches and cling to the mud walls on a long climb; a pre-burnt field of ash becomes ashstone where you wet it; douse a pre-lit bonfire for a steam burst that spins a turbine.
 9. **Cinders:** fence cinders with wet lines, kill them with water, and let one burn a thicket open before you put it out.
 10. **Glacier:** scrolling summit with everything together, the Goal.
 
@@ -492,6 +503,32 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
 - **Simulated water** (height-field bodies + capped particles + metaball drawing) with a hard 2 ms budget, built and play-tested before any bending (W1–W2).
 - **Dropped:** the blob carried between uses and its HUD row, the frost charge, propel and breach (the 1 key is the waterball even underwater), pipes and basin objects (real flow does it), the "Q in context" table.
 
+### Decided in the mud-walls refinement (27 Oct 2026, developer's idea)
+- **Throwing water at earth to make mud walls you can stay on** is the way Water changes the level to make it passable (§9.1).
+- On mud you **stay put and can wall-jump**; no up/down climbing and no stamina.
+- **Any dirt tile** (fresh, used, hardened) can become mud; gray rock and the others can't.
+- Mud covers **only the tiles the water touches** (you paint a path); no spreading, no trickling.
+- Mud lasts **until reset**; heat dries it, freeze makes it ice. No timer.
+
+### Decided in Stage W1 (water bodies, 27 Oct 2026)
+- **Built ahead of the rest of Fire** (developer's call): W1 touches no Fire code. Painted water lives on a non-solid "Water" tile layer (`WaterLayer`); a room that has one gets a `WaterWorld` whether or not Water bending is allowed there (`Room.water_allowed`, off by default, only gates the moves).
+- **Columns are 2 px** and line up with the tiles (`column_width` is rounded so whole columns fit in a tile).
+- **Pressure under ceilings:** a column under a low wall may hold more water than fits under it; the extra is its pressure and isn't drawn. That's what makes two pools joined by a passage settle at one level (communicating vessels), at the cost of a few px² hidden in the passage.
+- **Viscosity added** (`flow_viscosity`, 30/s): plain damping left a column-to-column flicker of tiny flows running for ages, so calm pools never slept. Viscosity evens each pipe out with its neighbours: long waves keep sloshing, the flicker dies in a few frames.
+- **Steps:** water can't climb onto a step its surface doesn't reach, and only the water above a step's edge can go over it. Without this, momentum carried a tank's water over its lip until the tank was far below the lip.
+- **A tank still ends ~2 px below its lip:** the water rushing to the outlet sloshes, the heap pours over, the backswing leaves the rest lower. That's a real dam-break effect (the painted water starts 16 px over the lip), so it was kept.
+- **A big wave can slop over a pool's rim** and leave a thin film on the ground (surface tension holds films up to `puddle_min_depth`). Kept: real.
+- **Pokes displace water** (a dip with the water heaped around it) instead of pushing flow: a flow push moved too little water to make a visible wave. Drops still push flow (small kicks).
+- **Ripples step once per frame**, not per sub-step (cosmetic only; that halved their cost). Keep sqrt(stiffness + 4 × spread) under ~90.
+- **Drops are simple points** (gravity + tile collision, merge on landing, one per 1/16 unit, cap 400): enough for spills and the debug bucket. W2 makes them real particles (cohesion, splashes, metaballs).
+- **Floating:** wooden crates float about half under (`buoyancy` 2) and bob on waves; metal crates sink (drag only). The player pushes waves (and swims, since play-test 1).
+- **The player's wake** (play-test 1): the first version pushed flow and was about 100× too weak to see. Now the body **drags** the water around it toward half its speed (`player_wake_strength`, `player_wake_grip`): a bow wave in front, a dip behind, about 2 px when wading at full speed. Ripples are kicked where the body cuts the surface. Falling in or leaping out faster than `splash_min_speed` (60 px/s) dips the water and throws a crown of drops **taken from the pool** (water stays conserved). Standing still leaves the water alone, so pools can fall asleep around you.
+- **Cost, measured** (headless, this machine): the stress test (every body sloshing, ~385 drops, 9 bodies) averages **1.4 ms** a frame (bodies 0.8, drops 0.4), under the 2 ms budget; single frames peak near 4 ms when many drops land at once. Calm rooms cost almost nothing (bodies sleep). The hot loops work on local copies of the packed arrays: a member lookup per element was the main cost.
+- **Swimming moved up from W7** (play-test 1, developer's call): the test rooms are all pools and walking on their floors felt wrong. Built as `SwimAbility` (scenes/player/abilities/water/swim_ability.gd), which reads the submerged share of the hitbox every frame; the Player's gravity, run and jump helpers and the Fall/Jump states use it (§5.4). Measured: run speed under water 54 px/s (dry 90), a held jump off the pool's floor rises ~18 px (dry ~30), each stroke rises ~13 px, sinking tops out at 50 px/s, a held jump at the surface leaps out like a normal jump. Falling in fast is braked (`swim_brake`): a plunge that can touch the floor of a shallow pool. W7 keeps currents, floating on streams and enemies in deep water.
+- **The look, option B + foam and spray** (play-test 1: "less uniform, more water-like"): the water shader of §12.1. Options weighed: A, better vertex colors only; B, a shader (see-through tint, wobble, caustics); C, pixel-art depth bands; D, foam and spray. B + D was picked: it reads as water, and it runs on the GPU, so it costs nothing from the 2 ms budget. The colors in each corner of the triangles now carry data for the shader (depth, foam, what it is).
+- **Crates never ride on the player** (play-test 1: swimming up under the floating crate picked it up and carried it). A CharacterBody2D moves along with the body it stands on, and the crate stood on the swimmer's head. Now `platform_floor_layers` leaves out the player's layer, so the crate stays where the water holds it and you swim out from under it. The same goes on land: a crate that lands on your head no longer rides along (only the gust moves crates).
+- **Debug keys** 8 (poke a 6 px dip at the player's feet), 9 (a 4-unit bucket over the player's head), 0 (drain 4 units from the nearest water), 7 (cycle the water's look), on the top-row digits. They stay until the water hands (W3) replace them. They were F6/F7/F8 at first, but in the Godot editor's embedded Game view F8 stops the game and F7 pauses it, even while the game has the focus (play-test 1: "F8 crashes the game").
+
 ### Open questions for play-test
 - **Reach:** is 1/2 comfortable with the index on C? If not, try jump on V, or rely on Space (§3.2).
 - **Moving while holding:** standing still on the ground, and keeping your arc in the air: right? Or should you walk slowly while holding?
@@ -502,6 +539,8 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
 - **Max hold 4 s:** enough to build a snake, short enough to stop slow-motion camping?
 - **Ice cap 6:** enough?
 - **Mud gum time:** 4 s, or until reset?
+- **Mud patch size:** is "only the tiles the water touches" big enough to paint a wall path with a 4-unit ball, or too fiddly?
+- **Slow climb on mud:** should up/down move you slowly after all (parked: see §17)?
 - **Douse a brazier** closing its door: good puzzle, or confusing?
 - **Jet over water** boiling pools down: fun, or a way to wreck a room by accident?
 - **Tall grass everywhere:** if all watered grass growing tall clutters rooms, only "sprout grass" tiles grow tall.
@@ -518,6 +557,7 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
 - **Bloom cap:** a seed that grows into a bouncy mushroom.
 - **Frost crystal:** a pickup that refreshes the freeze or the hold.
 - **Cinder on ice:** a cinder touching ice melts it and drowns in the puddle.
+- **Slow climb on mud:** holding up/down on mud moves you slowly, instead of only staying put.
 - **Wet vine monkey** grows bigger and slower.
 - **Gust dries:** wind slowly dries wet tiles.
 - **Rain:** a room where water falls from the ceiling all the time (cheap with sources; watch the particle cap).

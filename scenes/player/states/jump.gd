@@ -45,7 +45,11 @@ func physics_update(delta: float) -> void:
 		# apply_gravity also handles apex half-gravity near the top of the arc.
 		player.apply_gravity(delta)
 
-	if player.can_wall_jump():
+	# A fresh press in deep water: a stroke (on to Fall) or a leap out (Jump again).
+	var swim_state: StringName = player.try_swim_move()
+	if swim_state != &"":
+		transition_requested.emit(swim_state)
+	elif player.can_wall_jump():
 		# A fresh jump press next to a wall mid-rise: wall jump. Switching Jump -> Jump
 		# re-runs enter(), restarting the hold with the new launch speed.
 		player.start_wall_jump(player.get_wall_direction())
