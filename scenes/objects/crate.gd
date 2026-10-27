@@ -175,6 +175,7 @@ func _ready() -> void:
 	add_to_group(Pushable.GROUP)
 	add_to_group(PressurePlate.HEAVY_GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
+	add_to_group(WaterWorld.SOLID_GROUP)  # loose water bumps into it (get_water_box)
 	if not is_metal:
 		add_to_group(Flammable.GROUP)  # metal doesn't burn
 	_make_fire()
@@ -300,6 +301,14 @@ func _physics_process(delta: float) -> void:
 		reset()
 
 
+## The box loose water bumps into (WaterWorld.SOLID_GROUP), global. None once it
+## has burnt away.
+func get_water_box() -> Rect2:
+	if burn_state == BurnState.GONE:
+		return Rect2()
+	return Rect2(global_position - Vector2(crate_size.x / 2.0, crate_size.y), crate_size)
+
+
 ## Water (see the header): how much of the crate is under water, the drag and the
 ## drift down a wave's slope. Returns the water's upward push this frame, px/s².
 func _float_in_water(delta: float) -> float:
@@ -322,7 +331,8 @@ func _float_in_water(delta: float) -> float:
 	if is_metal:
 		return 0.0  # steel sinks: the water only slows it
 	if not is_on_floor():
-		velocity.x += water_world.get_surface_slope_at(Vector2(global_position.x, box.position.y)) 			* water_tuning.wave_slope_push * delta
+		velocity.x += water_world.get_surface_slope_at(Vector2(global_position.x, box.position.y)) \
+			* water_tuning.wave_slope_push * delta
 	return gravity * water_tuning.buoyancy * share
 
 

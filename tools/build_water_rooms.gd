@@ -11,6 +11,12 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     crate, a tank spilling into it, a staircase down
 ##                                     to a dry basin, two pools joined under a wall
 ##                                     (_build_room_water_a)
+##   - tests/rooms/room_water_b.tscn   Stage W2 loose water: a waterfall from a
+##                                     source over a waterwheel stub into a pool with
+##                                     an overflow drain, a floor to splash puddles on,
+##                                     an earth patch that soaks, a crate, a stream on
+##                                     a stepped shelf spilling into a drained basin
+##                                     (_build_room_water_b)
 ##   - resources/tiles/water_tileset.tres  (Stage W1) the water tile: see-through blue,
 ##                                     NO collision (water isn't solid). The picture is
 ##                                     stored inside the .tres. Only written when missing.
@@ -26,9 +32,12 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_water_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- water_a` (names: water_a).
+## only those, e.g. `-- water_a` (names: water_a, water_b).
 
 const WATER_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/water_layer.gd")
+const WATER_SOURCE_SCENE: PackedScene = preload("res://scenes/objects/water/water_source.tscn")
+const WATER_SINK_SCENE: PackedScene = preload("res://scenes/objects/water/water_sink.tscn")
+const WATER_WHEEL_SCENE: PackedScene = preload("res://scenes/objects/water/water_wheel.tscn")
 ## Water tile picture: the body color with a light top line (the surface), see-through
 ## so the editor shows what's behind it.
 const WATER_TILE_COLOR: Color = Color(0.18, 0.5, 0.82, 0.6)
@@ -44,6 +53,8 @@ func _ready() -> void:
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
 	if wanted.is_empty() or wanted.has("water_a"):
 		_build_room_water_a()
+	if wanted.is_empty() or wanted.has("water_b"):
+		_build_room_water_b()
 	print("[BuildWaterRooms] Done.")
 	get_tree().quit()
 
@@ -157,3 +168,48 @@ func _build_room_water_a() -> void:
 	_water(46, 15, 16, 3)  # the cells inside the wall are skipped (water in rock)
 
 	_finish_room(Vector2(3 * TILE, 14 * TILE), "res://tests/rooms/room_water_a.tscn")
+
+
+## Water test room B (Stage W2): loose water. 40 x 23 tiles (one screen), ground top
+## at row 20 (y 160). Left to right:
+##   - a WATERFALL: a source under the ceiling (x 44) pours 2 units/s down through
+##     a waterwheel stub (it turns) into a POOL (cols 1-11, walled at col 12). An
+##     overflow DRAIN on the pool's right side (col 11, y 120-128) keeps its level at
+##     y 128, so it never floods the room.
+##   - an open floor (cols 13-29): rock to splash puddles on (6 throws a ball), a
+##     crate to throw water at, and an EARTH patch (cols 21-26) that soaks water up
+##     (0.25 unit a tile) before it puddles.
+##   - a STREAM: a source over a two-step shelf (cols 27-37, y 72 and 80) whose water
+##     really flows right and spills off the end into a BASIN (cols 31-38) with a
+##     floor drain (cols 35-38).
+func _build_room_water_b() -> void:
+	_begin_room("RoomWaterB", "Water B: loose water (W2)",
+		"Stage W2 loose water: 6 throws a ball of water (arrows aim). A waterfall turns a wheel and fills a pool with an overflow drain; a floor and a crate to splash; an earth patch that soaks; a stream on a stepped shelf spilling into a drained basin.")
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 40, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(39, 0, 1, 23)   # right wall
+	_gray(0, 20, 40, 3)   # the ground, top at y 160
+
+	# The waterfall, the wheel and the pool.
+	_gray(12, 13, 1, 7)   # the pool's right wall, rows 13-19 (top y 104)
+	_water(1, 16, 11, 4)  # rows 16-19: the level starts at the overflow (y 128)
+	_add(WATER_SOURCE_SCENE, "WaterfallSource", Vector2(44, 13), {"rate": 2.0, "pour_width": 4.0})
+	_add(WATER_WHEEL_SCENE, "WaterWheel", Vector2(40, 64))
+	_add(WATER_SINK_SCENE, "OverflowDrain", Vector2(11 * TILE, 15 * TILE), {"sink_size": Vector2(8, 8)})
+
+	# The open floor: a crate and an earth patch.
+	_add(CRATE_SCENE, "Crate1", Vector2(17 * TILE, 20 * TILE))
+	_earth(21, 20, 6, 1)
+
+	# The stream: a two-step shelf, a source over its upper end, a drained basin.
+	_gray(27, 9, 6, 1)    # upper step, cols 27-32, top y 72
+	_gray(33, 10, 5, 1)   # lower step, cols 33-37, top y 80; its right end is the lip
+	_gray(27, 8, 1, 1)    # a back stop at the upper step's left end
+	_add(WATER_SOURCE_SCENE, "StreamSource", Vector2(29 * TILE, 6 * TILE), {"rate": 1.5, "pour_width": 6.0})
+	_gray(30, 17, 1, 3)   # the basin's left wall, rows 17-19
+	_add(WATER_SINK_SCENE, "FloorDrain", Vector2(35 * TILE, 19 * TILE), {"sink_size": Vector2(32, 8)})
+
+	_finish_room(Vector2(14 * TILE, 20 * TILE), "res://tests/rooms/room_water_b.tscn")

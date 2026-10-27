@@ -99,6 +99,16 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 0, 3, 10, 7, DARK_GRAY)
 			_rect(image, 1, 4, 8, 5, WATER_BLUE)
 			_rect(image, 1, 4, 8, 1, FOAM_BLUE)
+		&"water_source":
+			# A spout pouring a stream of water.
+			_rect(image, 2, 1, 6, 2, DARK_GRAY)
+			_rect(image, 4, 3, 2, 7, WATER_BLUE)
+			_rect(image, 4, 3, 2, 1, FOAM_BLUE)
+		&"water_sink":
+			# A dark grate with light bars.
+			_rect(image, 1, 3, 8, 5, DARK_GRAY)
+			for x: int in [2, 4, 6]:
+				_rect(image, x, 3, 1, 5, GRAY)
 		&"thicket":
 			_rect(image, 0, 0, 10, 10, DARK_GREEN)
 			for spot: Vector2i in [Vector2i(1, 1), Vector2i(5, 2), Vector2i(2, 5), Vector2i(7, 6), Vector2i(4, 8)]:

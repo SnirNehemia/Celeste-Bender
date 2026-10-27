@@ -217,6 +217,22 @@ func _check_f2_tuning_panel(player: Player) -> void:
 	fire_tuning.changed.disconnect(on_changed)
 	_check(not panel.is_open() and not get_tree().paused, "closing the panel resumes the game")
 	_check(heard_changed[0], "closing emits `changed` on an edited resource")
+
+	# Reopening lands where it was left: the same tab, the same value, the same scroll
+	# (and each tab keeps its own place).
+	panel.set_open(true)
+	panel.show_tab_named("Water")
+	panel.select_property("wave_break_throw")
+	var scroll_before: int = panel.first_visible_row
+	panel.set_open(false)
+	panel.set_open(true)
+	var reopened_row: Dictionary = panel.rows[panel.selected_row]
+	_check(panel.tab_names[panel.current_tab] == "Water" and reopened_row["property"] == "wave_break_throw"
+		and panel.first_visible_row == scroll_before,
+		"F5 reopens on the value it was left at (%s on %s)" % [reopened_row["property"], panel.tab_names[panel.current_tab]])
+	panel.show_tab_named("Fire")
+	_check(panel.rows[panel.selected_row]["property"] == "max_pips", "each tab keeps its own selection (Fire: max_pips)")
+	panel.set_open(false)
 	finished_sections.append("F2")
 
 

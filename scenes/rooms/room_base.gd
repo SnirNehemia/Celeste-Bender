@@ -99,7 +99,7 @@ func _ready() -> void:
 		_add_pebble_field()
 	elif painted_ground:
 		_add_ground_painter()
-	if get_node_or_null("Water") is WaterLayer:
+	if get_node_or_null("Water") is WaterLayer or _has_water_source(self):
 		_add_water_world()
 
 
@@ -148,6 +148,15 @@ func _add_water_world() -> void:
 	var water_world: WaterWorld = WaterWorld.new()
 	water_world.name = WaterWorld.NODE_NAME
 	add_child(water_world)
+
+
+## Is there a WaterSource (Stage W2) anywhere under `node`? A room with one needs a
+## WaterWorld even with no painted water.
+func _has_water_source(node: Node) -> bool:
+	for child: Node in node.get_children():
+		if child is WaterSource or _has_water_source(child):
+			return true
+	return false
 
 
 ## The nearest Room above `node` in the tree (its own room), or null.

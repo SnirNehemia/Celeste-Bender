@@ -12,11 +12,21 @@ extends Node2D
 ## THE TWO FORMS OF WATER IN W1 (the third, held water, comes with the bending):
 ##   - BODIES (WaterBody, water_body.gd): pools and puddles as height fields, stepped
 ##     with the pipe model. Read water_body.gd's header for the physics.
-##   - DROPS: falling water (a spill pouring over a lip, a debug bucket). Each is a
-##     point with a velocity and some water (px²). Gravity, tile collision, nothing
-##     else yet (W2 adds cohesion, splashes and the metaball look). A drop that falls
-##     into a body's water merges into it and kicks a wave; one that lands on bare
-##     ground starts a puddle there (or grows the puddle next to it).
+##   - PARTICLES ("drops" in the code): loose water (a spill pouring over a lip, a
+##     thrown ball, a waterfall, a splash crown). Each is a point with a velocity and
+##     some water (px², 1/16 unit). Stage W2 (§6.1 part 2): gravity, air drag,
+##     COHESION with their neighbours (WaterCohesion: a ball stays round, a pour
+##     beads), collision with the tiles (they run down walls a little slowly) and
+##     with moving solids (crates, the player: the "water_solid" group, boxes from
+##     get_water_box()). One that falls into a body's water merges into it and kicks
+##     a wave (or, fast, bounces back up as part of a splash CROWN); one that lands on
+##     bare ground soaks into it if it's absorbent (earth, grass: up to
+##     `soak_per_tile` a tile, the "wet" stub of W8), else starts a puddle there (or
+##     grows the puddle next to it). They're drawn by the WaterRenderer child as
+##     metaballs (soft dots merged by a threshold shader).
+##   - SOURCES and SINKS (WaterSource, WaterSink; §6.2): endless water poured in at
+##     a rate, and drains that take it away. Streams and waterfalls are just bodies
+##     and particles fed by a source.
 ##
 ## WHERE A BODY'S ENDS ARE (_update_end, every frame for awake bodies). Look just
 ## past the end column, at the height of the water's surface:
@@ -35,7 +45,10 @@ extends Node2D
 ##
 ## THE BOOKS: water is conserved (Water_bending.md §4.1). get_total_units() is all the
 ## water in the bodies and drops; water that falls out of the room or is trimmed as
-## crumbs goes into `lost_area`. The smoke test checks total + lost never changes.
+## crumbs goes into `lost_area`, soaked into tiles into `soaked_area`, down a sink
+## into `drained_area`, and a source's water is counted in `sourced_area`.
+## get_books_units() (total + lost + soaked + drained - sourced) never changes: the
+## smoke test checks it.
 ##
 ## COST: `last_step_usec` / `peak_step_usec` time the whole step; the smoke test's
 ## performance section holds them to the 2 ms budget of §6.5.
@@ -46,10 +59,14 @@ extends Node2D
 ## Debug keys (W1, while play-testing the simulation), on the top-row digits: 8
 ## `debug_water_wave` pokes the water under the player, 9 `debug_water_dump` drops a
 ## bucket over the player's head, 0 `debug_water_drain` takes a bucket from the water
-## nearest the player. 7 `debug_water_look` cycles the look (B, C, A, B+C). (Not F6-F10: the Godot editor's embedded Game view takes F7
+## nearest the player. 6 `debug_water_throw` throws a ball of water in the arrow
+## direction (W2). 7 `debug_water_look` cycles the look (B, C, A, B+C). (Not F6-F10: the Godot editor's embedded Game view takes F7
 ## as pause and F8 as stop, even while the game has the focus.)
 
 const GROUP: StringName = &"water_world"
+## Moving solids that particles bump into (crates, the player) join this group and
+## have get_water_box() -> Rect2 (global; size 0 = not solid right now).
+const SOLID_GROUP: StringName = &"water_solid"
 const NODE_NAME: StringName = &"WaterWorld"
 const TILE: int = 8
 ## One unit of water (Water_bending.md §4.1): one 8x8 tile full, px².
@@ -61,6 +78,7 @@ const WATER_SHADER: Shader = preload("res://scenes/objects/water/water.gdshader"
 ## What _draw() puts in a corner's blue channel, for the shader: a body, its surface
 ## line, or a drop / spray speck.
 const KIND_BODY: float = 0.0
+const KIND_WET: float = 0.25
 const KIND_SURFACE: float = 0.5
 const KIND_DROP: float = 1.0
 ## The depth in a corner's red channel is px / this (the shader multiplies it back).
@@ -79,6 +97,12 @@ const DROP_JITTER_SPEED: float = 20.0
 ## The surface of two neighbouring wet columns may differ this much, px, and the body
 ## still counts as level (one of the sleep conditions).
 const LEVEL_TOLERANCE: float = 0.1
+## Particle cohesion runs once every this many physics frames (see _physics_process).
+const COHESION_EVERY: int = 2
+## Soaking wicks into absorbent tiles up to this many tiles beside a full one.
+const SOAK_REACH: int = 2
+## A breaking crest's rise is averaged over this many columns each side (_break_crests).
+const CREST_HALF_WIDTH: int = 2
 ## A poke (key 8, poke()) pushes the water over this many px each side of the point.
 const POKE_RADIUS: float = 8.0
 
@@ -88,6 +112,9 @@ var water_tuning: WaterTuning = preload("res://resources/water_tuning.tres")
 var room: Room
 var water_layer: WaterLayer
 var earth_layer: EarthLayer
+var grass_layer: GrassLayer
+## Draws the particles as metaballs (a child, made in _ready).
+var renderer: WaterRenderer
 ## The room's tile layers that are solid ground (every TileMapLayer but the water and
 ## hidden chambers).
 var solid_layers: Array[TileMapLayer] = []
@@ -95,6 +122,8 @@ var solid_layers: Array[TileMapLayer] = []
 ## nothing in a water room changes its tiles yet; bending will call refresh_solid_cells).
 var grid_size: Vector2i = Vector2i.ZERO
 var solid_cells: PackedByteArray = PackedByteArray()
+## One byte per tile too: 1 = absorbent (earth, grass), it soaks water up (W2 stub).
+var absorbent_cells: PackedByteArray = PackedByteArray()
 ## Width of every column of every body, px: TILE divided into whole columns, so
 ## columns always line up with the tiles and with each other.
 var column_width: float = 2.0
@@ -103,8 +132,25 @@ var bodies: Array[WaterBody] = []
 var drop_positions: PackedVector2Array = PackedVector2Array()
 var drop_velocities: PackedVector2Array = PackedVector2Array()
 var drop_areas: PackedFloat32Array = PackedFloat32Array()
+## Each drop's foam from a hit, 0..1: set to 1 when it bounces off something or is
+## thrown off a splash or a breaking wave, fades over particle_foam_life. Only a
+## look (the WaterRenderer draws it white); its speed adds foam on top.
+var drop_foam: PackedFloat32Array = PackedFloat32Array()
 ## Water that left the room or was trimmed away as crumbs, px² (see THE BOOKS).
 var lost_area: float = 0.0
+## Water soaked into tiles, poured in by sources, taken by sinks, px² (THE BOOKS).
+var soaked_area: float = 0.0
+var sourced_area: float = 0.0
+var drained_area: float = 0.0
+## Soaking: water soaked into each absorbent tile so far, px² (cell -> area). A
+## tile holding soak_per_tile is WET (is_wet); the stub of W8's wet layer.
+var soaked_cells: Dictionary = {}
+## Moving solids the particles bump into this frame (crates, the player), room-local.
+var solid_boxes: Array[Rect2] = []
+## How many particles bounced up out of a pool this frame and in all (splash crowns).
+var crown_count: int = 0
+## Particles thrown off breaking crests since the room started (tests, debug).
+var crest_break_count: int = 0
 ## How much water the painted tiles held when the room loaded, px².
 var initial_area: float = 0.0
 var last_step_usec: int = 0
@@ -112,6 +158,10 @@ var peak_step_usec: int = 0
 ## The same, split: the bodies' pipes and ripples, and the drops (for tuning cost).
 var last_bodies_usec: int = 0
 var last_drops_usec: int = 0
+## Of last_drops_usec, the cohesion pass alone.
+var last_cohesion_usec: int = 0
+## Counts physics frames for the every-other-frame cohesion pass.
+var cohesion_frame: int = 0
 ## Spray: white specks with no water in them, only a look (Water_bending.md §12,
 ## play-test 1 "foam and spray"). Same layout as the drops: index i is one speck.
 var spray_positions: PackedVector2Array = PackedVector2Array()
@@ -125,6 +175,7 @@ func _ready() -> void:
 	room = get_parent() as Room
 	water_layer = room.get_node_or_null("Water") as WaterLayer
 	earth_layer = room.get_node_or_null("Earth") as EarthLayer
+	grass_layer = room.get_node_or_null("Grass") as GrassLayer
 	for child: Node in room.get_children():
 		if child is TileMapLayer and not child is HiddenLayer and not child is WaterLayer:
 			solid_layers.append(child)
@@ -137,6 +188,9 @@ func _ready() -> void:
 	water_material.shader = WATER_SHADER
 	material = water_material
 	_update_shader_parameters()
+	renderer = WaterRenderer.new()
+	renderer.name = "WaterRenderer"
+	add_child(renderer)
 	if water_layer != null:
 		# The tiles only said where the water starts; from now on we draw it.
 		water_layer.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
@@ -167,6 +221,12 @@ func refresh_solid_cells() -> void:
 			if _is_solid_cell_in_layers(Vector2i(x, y)):
 				solid_cells[y * grid_size.x + x] = 1
 	# Old-style test rooms list solid blocks as rectangles instead of tiles.
+	absorbent_cells.resize(grid_size.x * grid_size.y)
+	absorbent_cells.fill(0)
+	for y: int in grid_size.y:
+		for x: int in grid_size.x:
+			if solid_cells[y * grid_size.x + x] == 1 and is_absorbent(Vector2i(x, y)):
+				absorbent_cells[y * grid_size.x + x] = 1
 	for rect: Rect2 in room.solid_rects:
 		var first: Vector2i = Vector2i((rect.position / TILE).floor())
 		var last: Vector2i = Vector2i((rect.end / TILE).ceil()) - Vector2i.ONE
@@ -229,6 +289,7 @@ func _build_bodies_from_layer() -> void:
 	drop_positions.clear()
 	drop_velocities.clear()
 	drop_areas.clear()
+	drop_foam.clear()
 	lost_area = 0.0
 	if water_layer == null:
 		initial_area = 0.0
@@ -304,6 +365,28 @@ func get_initial_units() -> float:
 
 func get_lost_units() -> float:
 	return lost_area / UNIT_AREA
+
+
+## Everything the books know about: what's here, plus what left (lost, soaked,
+## drained), minus what sources added. Never changes (the smoke test checks).
+func get_books_units() -> float:
+	return (get_total_area() + lost_area + soaked_area + drained_area - sourced_area) / UNIT_AREA
+
+
+func get_soaked_units() -> float:
+	return soaked_area / UNIT_AREA
+
+
+## Is the tile `cell` soaked full (WET)? The stub of W8's wet layer.
+func is_wet(cell: Vector2i) -> bool:
+	return float(soaked_cells.get(cell, 0.0)) >= water_tuning.soak_per_tile * UNIT_AREA - 0.001
+
+
+## Can tile `cell` soak water up (earth or grass)?
+func is_absorbent(cell: Vector2i) -> bool:
+	if earth_layer != null and earth_layer.get_cell_source_id(cell) != -1:
+		return true
+	return grass_layer != null and grass_layer.get_cell_source_id(cell) != -1
 
 
 func get_awake_count() -> int:
@@ -412,6 +495,84 @@ func add_loose_water(center: Vector2, units: float, velocity: Vector2 = Vector2.
 		_spawn_drop(center + offset, velocity + jitter, area / drop_count)
 
 
+## A ball of `units` of water centered on the room-local `center`, all moving at
+## `velocity`: particles packed in a disc (their cohesion keeps it round in flight).
+## The debug throw (key 6) now; the water hands' release (W3) later.
+func throw_ball(center: Vector2, velocity: Vector2, units: float) -> void:
+	_spawn_ball(center, velocity, units * UNIT_AREA)
+
+
+## `area` px² of new particles packed in a disc around `center`, all at `velocity`.
+func _spawn_ball(center: Vector2, velocity: Vector2, area: float) -> void:
+	var drop_area: float = water_tuning.drop_units * UNIT_AREA
+	var room_left: int = maxi(1, water_tuning.max_drops - get_drop_count())
+	var count: int = mini(maxi(1, ceili(area / drop_area)), room_left)
+	var radius: float = sqrt(area / PI)
+	for index: int in count:
+		# Sunflower spiral: evenly spread over the disc, no clumps or gaps.
+		var along: float = sqrt((index + 0.5) / count)
+		var offset: Vector2 = Vector2.from_angle(index * 2.39996) * radius * along
+		_spawn_drop(center + offset, velocity, area / count)
+
+
+## Puts `area` px² of water in at the room-local `point` (a source, §6.2): straight
+## into the water if the point is in a body, else as one particle moving at
+## `velocity`. Counted as sourced (THE BOOKS). False when the particle cap is full
+## (nothing added).
+func pour(point: Vector2, area: float, velocity: Vector2) -> bool:
+	var found: Array = find_water_at(point)
+	if not found.is_empty():
+		(found[0] as WaterBody).add_water(found[1], area)
+	elif get_drop_count() < water_tuning.max_drops:
+		_spawn_drop(point, velocity, area)
+	else:
+		return false
+	sourced_area += area
+	return true
+
+
+## A sink (§6.2): takes the water inside the room-local `rect`, up to `max_area`
+## px²: every particle in it, and from each body column under it, the water above
+## the rect's bottom edge. Returns the area taken (counted as drained).
+func drain(rect: Rect2, max_area: float) -> float:
+	var taken: float = 0.0
+	var index: int = 0
+	while index < drop_positions.size() and taken < max_area:
+		if rect.has_point(drop_positions[index]):
+			taken += drop_areas[index]
+			_remove_drop(index)
+		else:
+			index += 1
+	for body: WaterBody in bodies:
+		if taken >= max_area:
+			break
+		var first: int = maxi(0, floori((rect.position.x - body.left_x) / column_width))
+		var last: int = mini(body.get_column_count() - 1, floori((rect.end.x - body.left_x) / column_width))
+		for column: int in range(first, last + 1):
+			var above_drain: float = rect.end.y - body.get_surface_y(column)
+			var top_of_rect: float = body.floor_y[column] - rect.position.y
+			if above_drain <= 0.0 or top_of_rect <= 0.0:
+				continue  # the water is all below the drain, or the drain under the floor
+			var wanted: float = minf(minf(above_drain, body.depth[column]), (max_area - taken) / column_width)
+			if wanted > 0.0:
+				body.depth[column] -= wanted
+				taken += wanted * column_width
+				body.is_asleep = false
+	drained_area += taken
+	return taken
+
+
+## Water moving through the room-local `rect` this frame, px²·px/s: each particle
+## in it counts its area times its speed. What a waterwheel feels (W2 stub; the
+## real wheel in W9). `along` picks the direction that counts (down by default).
+func get_flow_through(rect: Rect2, along: Vector2 = Vector2.DOWN) -> float:
+	var flow: float = 0.0
+	for index: int in drop_positions.size():
+		if rect.has_point(drop_positions[index]):
+			flow += drop_areas[index] * drop_velocities[index].dot(along)
+	return flow
+
+
 ## Takes up to `units` of water from the water nearest the room-local `point`: from
 ## a few columns there first, then from the rest of that body, then from the next
 ## nearest body (a thin puddle may not hold a whole bucket). Returns the units taken.
@@ -480,6 +641,10 @@ func wake_all() -> void:
 ## Death or R (Room.RESETTABLE_GROUP): the painted water comes back, drops vanish.
 func reset() -> void:
 	_build_bodies_from_layer()
+	soaked_cells.clear()
+	soaked_area = 0.0
+	sourced_area = 0.0
+	drained_area = 0.0
 	spray_positions.clear()
 	spray_velocities.clear()
 	spray_life.clear()
@@ -498,10 +663,28 @@ func _physics_process(delta: float) -> void:
 	var was_busy: bool = get_awake_count() > 0 or get_drop_count() > 0
 	_update_ends()
 	var bodies_started_usec: int = Time.get_ticks_usec()
+	# Each awake body's depths before the step: how fast each surface rises this frame
+	# is what _break_crests() needs (a packed array copy is cheap: one memcpy).
+	var depths_before: Array[PackedFloat32Array] = []
+	for body: WaterBody in bodies:
+		depths_before.append(PackedFloat32Array() if body.is_asleep else body.depth.duplicate())
 	_step_bodies(delta)
 	last_bodies_usec = Time.get_ticks_usec() - bodies_started_usec
+	_break_crests(delta, depths_before)
 	_release_spills()
 	var drops_started_usec: int = Time.get_ticks_usec()
+	_collect_solid_boxes()
+	var cohesion_started_usec: int = Time.get_ticks_usec()
+	# SPEED: cohesion runs every COHESION_EVERY frames with that many frames' worth of
+	# time (still stable at these spring strengths): it's the costliest part of loose
+	# water (§6.5), and every other frame halves it.
+	cohesion_frame = (cohesion_frame + 1) % COHESION_EVERY
+	if cohesion_frame == 0 and get_drop_count() >= 2 and water_tuning.cohesion_stiffness > 0.0:
+		WaterCohesion.apply(drop_positions, drop_velocities, delta * COHESION_EVERY, water_tuning.cohesion_radius,
+			water_tuning.cohesion_rest, water_tuning.cohesion_stiffness, water_tuning.cohesion_viscosity,
+			water_tuning.cohesion_repulsion,
+			int(room.room_size.x / water_tuning.cohesion_radius) + 3)
+	last_cohesion_usec = Time.get_ticks_usec() - cohesion_started_usec
 	_step_drops(delta)
 	last_drops_usec = Time.get_ticks_usec() - drops_started_usec
 	_stir_with_player(delta)
@@ -512,6 +695,7 @@ func _physics_process(delta: float) -> void:
 	peak_step_usec = maxi(peak_step_usec, last_step_usec)
 	if was_busy or had_spray or get_awake_count() > 0 or get_drop_count() > 0:
 		queue_redraw()
+	renderer.refresh()
 	_update_shader_parameters()
 
 
@@ -526,6 +710,14 @@ func _handle_debug_keys() -> void:
 		add_loose_water(feet + Vector2(0.0, -28.0), water_tuning.debug_bucket_units)
 	if Input.is_action_just_pressed("debug_water_drain"):
 		remove_water_near(feet, water_tuning.debug_bucket_units)
+	if Input.is_action_just_pressed("debug_water_throw"):
+		# A ball of water, thrown in the arrow direction (no arrow: ahead and up).
+		var aim: Vector2 = player.get_aim_input()
+		if aim == Vector2.ZERO:
+			aim = Vector2(player.facing_direction, -0.6)
+		var direction: Vector2 = aim.normalized()
+		throw_ball(to_local(player.get_center()) + direction * 12.0,
+			direction * water_tuning.debug_throw_speed, water_tuning.debug_throw_units)
 	if Input.is_action_just_pressed("debug_water_look"):
 		# Cycle the look; the tuning resource is shared, so every room switches.
 		water_tuning.look_style = (water_tuning.look_style + 1) % LOOK_NAMES.size()
@@ -658,10 +850,113 @@ func _release_spills() -> void:
 				body.spilled_right = pending
 
 
-func _spawn_drop(position_px: Vector2, velocity: Vector2, area: float) -> void:
+## Breaking waves (W2 play-test, WaterTuning "Breaking waves"): where a pool's surface
+## rises fast, the crest throws bits of itself off as particles, so a wave slaps,
+## sprays and foams like the loose water does instead of only swelling. The particles
+## are taken from the body (the books still add up) and land back in it, kicking new
+## waves of their own.
+## `depths_before`: each body's depths before this frame's step (empty = it was
+## asleep), so (depth now - depth before) / delta is how fast each surface rises.
+## Only a CREST breaks: a column at least as high as both neighbours (water filling a
+## basin rises everywhere at once and never breaks), on a WIDE rise: the rise is
+## averaged over CREST_HALF_WIDTH columns each side, so the narrow spike a single
+## landing particle makes doesn't count (or the thrown water, landing again, would
+## keep breaking forever). SPEED: one pass over the columns of awake bodies.
+func _break_crests(delta: float, depths_before: Array[PackedFloat32Array]) -> void:
+	var throw_scale: float = water_tuning.wave_break_throw
+	if throw_scale <= 0.0:
+		return
+	var break_speed: float = maxf(water_tuning.wave_break_speed, 1.0)
+	var drop_area: float = water_tuning.drop_units * UNIT_AREA
+	# Breaking crests are decoration: they only throw while the room holds under half
+	# the particle cap, leaving the rest (and the 2 ms budget) to splashes, spills and
+	# throws, which matter more. (The pass itself costs ~20-60 us a frame; the particles
+	# it adds cost more.)
+	var allowed: int = mini(water_tuning.wave_break_max_per_frame, int(water_tuning.max_drops * 0.5) - get_drop_count())
+	for body_index: int in mini(bodies.size(), depths_before.size()):
+		if allowed <= 0:
+			return
+		var body: WaterBody = bodies[body_index]
+		var before: PackedFloat32Array = depths_before[body_index]
+		var depths: PackedFloat32Array = body.depth
+		if body.is_asleep or before.size() != depths.size():
+			continue
+		var floors: PackedFloat32Array = body.floor_y
+		for column: int in range(CREST_HALF_WIDTH, depths.size() - CREST_HALF_WIDTH):
+			var depth_here: float = depths[column]
+			if depth_here < 2.0 or depth_here - before[column] <= break_speed * delta:
+				continue  # shallow, or this column alone doesn't rise fast enough
+			var risen: float = 0.0
+			for offset: int in range(-CREST_HALF_WIDTH, CREST_HALF_WIDTH + 1):
+				risen += depths[column + offset] - before[column + offset]
+			var rise_speed: float = risen / (CREST_HALF_WIDTH * 2 + 1) / delta
+			if rise_speed <= break_speed:
+				continue
+			# A crest: its surface (floor - depth; y grows down) is no lower than either
+			# neighbour's.
+			var surface_y: float = floors[column] - depth_here
+			if surface_y > floors[column - 1] - depths[column - 1] or surface_y > floors[column + 1] - depths[column + 1]:
+				continue
+			# Faster rise, likelier break: wave_break_rate a second at twice the threshold.
+			var chance: float = water_tuning.wave_break_rate * delta * (rise_speed / break_speed - 1.0)
+			if randf() >= chance:
+				continue
+			if body.ceiling_y[column] > surface_y - 4.0:
+				continue  # under a low wall: no room to throw anything
+			var center_x: float = body.get_column_left(column) + column_width * 0.5
+			if is_solid_px(center_x, surface_y - 2.0):
+				continue
+			# The water's own sideways speed there: flow = speed x depth / column_width
+			# (water_body.gd), so speed = flow x column_width / depth.
+			var sideways: float = (body.flow[column - 1] + body.flow[column]) * 0.5 * column_width / depth_here
+			var taken: float = body.remove_water(column, drop_area, 1)
+			if taken <= 0.0:
+				continue
+			var throw: Vector2 = Vector2(clampf(sideways, -120.0, 120.0) + randf_range(-15.0, 15.0),
+				-rise_speed * throw_scale * randf_range(0.6, 1.0))
+			_spawn_drop(Vector2(center_x, surface_y - 1.5), throw, taken, 1.0)
+			crest_break_count += 1
+			allowed -= 1
+			if allowed <= 0:
+				return
+
+
+## Removes particle `index` (the last one takes its slot).
+func _remove_drop(index: int) -> void:
+	var last: int = drop_positions.size() - 1
+	drop_positions[index] = drop_positions[last]
+	drop_velocities[index] = drop_velocities[last]
+	drop_areas[index] = drop_areas[last]
+	drop_foam[index] = drop_foam[last]
+	drop_positions.resize(last)
+	drop_velocities.resize(last)
+	drop_areas.resize(last)
+	drop_foam.resize(last)
+
+
+## The moving solids particles bump into this frame: everything in the
+## "water_solid" group in this room (crates, the player), as room-local boxes.
+func _collect_solid_boxes() -> void:
+	solid_boxes.clear()
+	if drop_positions.is_empty():
+		return
+	for member: Node in get_tree().get_nodes_in_group(SOLID_GROUP):
+		if not member.has_method(&"get_water_box"):
+			continue
+		var box: Rect2 = member.call(&"get_water_box")
+		if box.size.x <= 0.0:
+			continue
+		box.position = to_local(box.position)
+		if Rect2(Vector2.ZERO, room.room_size).intersects(box):
+			solid_boxes.append(box)
+
+
+## `foam` 0..1: how white it starts (1 for water thrown off a splash or a crest).
+func _spawn_drop(position_px: Vector2, velocity: Vector2, area: float, foam: float = 0.0) -> void:
 	drop_positions.append(position_px)
 	drop_velocities.append(velocity)
 	drop_areas.append(area)
+	drop_foam.append(foam)
 
 
 ## Moves every drop one frame. SPEED: this is the hottest loop in the water (up to
@@ -675,9 +970,18 @@ func _step_drops(delta: float) -> void:
 	var positions: PackedVector2Array = drop_positions
 	var velocities: PackedVector2Array = drop_velocities
 	var areas: PackedFloat32Array = drop_areas
+	var foams: PackedFloat32Array = drop_foam
+	var foam_fade: float = delta / maxf(water_tuning.particle_foam_life, 0.01)
 	var gravity_step: float = water_tuning.drop_gravity * delta
 	var max_fall: float = water_tuning.drop_max_fall_speed
 	var room_size: Vector2 = room.room_size
+	var drag_keep: float = maxf(0.0, 1.0 - water_tuning.particle_air_drag * delta)
+	var wall_keep: float = 1.0 - water_tuning.wall_stick
+	var crown_speed: float = water_tuning.crown_min_speed
+	var crown_chance: float = water_tuning.crown_chance
+	var crown_bounce: float = water_tuning.crown_bounce
+	var boxes: Array[Rect2] = solid_boxes
+	crown_count = 0
 	# Each body's x range, read once.
 	var body_count: int = bodies.size()
 	var body_lefts: PackedFloat32Array = PackedFloat32Array()
@@ -690,8 +994,35 @@ func _step_drops(delta: float) -> void:
 		var old_position: Vector2 = positions[index]
 		var velocity: Vector2 = velocities[index]
 		var area: float = areas[index]
+		var foam: float = maxf(0.0, foams[index] - foam_fade)
+		velocity = velocity * drag_keep
 		velocity.y = minf(velocity.y + gravity_step, max_fall)
 		var new_position: Vector2 = old_position + velocity * delta
+		# Moving solids (crates, the player): pushed out of the box by the shortest
+		# way, losing the speed that went into it. On a box's top it slides off
+		# toward the nearer edge (water doesn't sit on a crate).
+		for box: Rect2 in boxes:
+			if not box.has_point(new_position):
+				continue
+			foam = 1.0  # it hit something: white water
+			var out_left: float = new_position.x - box.position.x
+			var out_right: float = box.end.x - new_position.x
+			var out_up: float = new_position.y - box.position.y
+			var out_down: float = box.end.y - new_position.y
+			var shortest: float = minf(minf(out_left, out_right), minf(out_up, out_down))
+			if shortest == out_up:
+				new_position.y = box.position.y - 0.01
+				velocity.y = minf(velocity.y, 0.0) * 0.2
+				velocity.x += (1.0 if new_position.x > box.get_center().x else -1.0) * 40.0 * delta * 10.0
+			elif shortest == out_down:
+				new_position.y = box.end.y + 0.01
+				velocity.y = maxf(velocity.y, 0.0)
+			elif shortest == out_left:
+				new_position.x = box.position.x - 0.01
+				velocity.x = minf(velocity.x, 0.0) * 0.2
+			else:
+				new_position.x = box.end.x + 0.01
+				velocity.x = maxf(velocity.x, 0.0) * 0.2
 		var is_gone: bool = false
 		if new_position.y >= room_size.y or new_position.x < 0.0 or new_position.x >= room_size.x:
 			# Fell out of the room: that water is gone (counted as lost).
@@ -709,16 +1040,31 @@ func _step_drops(delta: float) -> void:
 				if column_depth <= WaterBody.DRY_DEPTH:
 					continue
 				var column_floor: float = body.floor_y[column]
-				if new_position.y <= column_floor \
-						and new_position.y >= maxf(column_floor - column_depth, body.ceiling_y[column]):
+				var column_top: float = maxf(column_floor - column_depth, body.ceiling_y[column])
+				if new_position.y <= column_floor and new_position.y >= column_top:
+					if velocity.y > crown_speed and randf() < crown_chance:
+						# Part of a splash crown: it bounces back up out of the pool
+						# (it stays a particle), and still kicks the surface.
+						body.push(column, 0.0, velocity.y * water_tuning.drop_splash_strength * area / UNIT_AREA, 0.0)
+						velocity = Vector2(velocity.x * 0.6 + randf_range(-30.0, 30.0), -velocity.y * crown_bounce)
+						new_position.y = column_top - 0.5
+						foam = 1.0
+						crown_count += 1
+						break
 					_land_in_body(body, column, area, velocity)
 					is_gone = true
 					break
 		if not is_gone and is_solid_px(new_position.x, new_position.y):
 			# Sideways into a wall: bounce back a little.
 			if is_solid_px(new_position.x, old_position.y):
+				# A hard hit foams; one just running down the wall doesn't.
+				if absf(velocity.x) > water_tuning.particle_foam_speed_start * 0.5:
+					foam = 1.0
 				velocity.x = -velocity.x * DROP_WALL_BOUNCE
 				new_position.x = old_position.x
+				# Water clings a little: it runs down a wall slower than it falls.
+				if velocity.y > 0.0:
+					velocity.y *= wall_keep
 			if is_solid_px(new_position.x, new_position.y):
 				if velocity.y > 0.0:
 					# Landed on the ground: a puddle starts (or grows) here.
@@ -726,22 +1072,27 @@ func _step_drops(delta: float) -> void:
 					is_gone = true
 				else:
 					velocity.y = 0.0  # hit a ceiling going up
+					velocity.x *= wall_keep
 					new_position.y = old_position.y
 		if is_gone:
 			count -= 1
 			positions[index] = positions[count]
 			velocities[index] = velocities[count]
 			areas[index] = areas[count]
+			foams[index] = foams[count]
 			continue  # the drop moved into this slot is stepped next
 		positions[index] = new_position
 		velocities[index] = velocity
+		foams[index] = foam
 		index += 1
 	positions.resize(count)
 	velocities.resize(count)
 	areas.resize(count)
+	foams.resize(count)
 	drop_positions = positions
 	drop_velocities = velocities
 	drop_areas = areas
+	drop_foam = foams
 
 
 func _land_in_body(body: WaterBody, column: int, area: float, velocity: Vector2) -> void:
@@ -758,6 +1109,10 @@ func _land_in_body(body: WaterBody, column: int, area: float, velocity: Vector2)
 ## A drop reached bare ground at room-local `x`, on the floor `floor_y`: it joins a
 ## body lying there, grows a body that ends right next to it, or starts a new one.
 func _land_on_ground(x: float, floor_y: float, area: float, velocity: Vector2) -> void:
+	# Absorbent ground (earth, grass) soaks it up first, up to soak_per_tile a tile.
+	area -= _soak_into(Vector2i(floori(x / TILE), floori((floor_y + 0.5) / TILE)), area)
+	if area <= 0.0:
+		return
 	var column_left: float = floorf(x / column_width) * column_width
 	var center_x: float = column_left + column_width * 0.5
 	var lying_there: WaterBody = _find_body_with_floor(center_x, floor_y, null)
@@ -848,7 +1203,7 @@ func _splash(body: WaterBody, column: int, speed: float, width: float) -> void:
 		var angle: float = deg_to_rad(randf_range(20.0, 60.0))
 		var throw_speed: float = speed * water_tuning.splash_throw_scale * randf_range(0.5, 1.0)
 		var throw: Vector2 = Vector2(side * sin(angle), -cos(angle)) * throw_speed
-		_spawn_drop(Vector2(center_x + side * width * 0.5, surface_y - 1.0), throw, taken)
+		_spawn_drop(Vector2(center_x + side * width * 0.5, surface_y - 1.0), throw, taken, 1.0)
 	# And twice as many specks of spray, faster and lighter than the drops.
 	for index: int in drop_count * 2:
 		var spray_angle: float = deg_to_rad(randf_range(-50.0, 50.0))
@@ -862,6 +1217,7 @@ func _tidy_bodies() -> void:
 	for body: WaterBody in bodies.duplicate():
 		if body.is_asleep:
 			continue
+		_soak_from_body(body)
 		lost_area += body.trim_dry_ends()
 		if body.get_area() < WaterBody.DRY_DEPTH * column_width:
 			lost_area += body.get_area()
@@ -870,6 +1226,55 @@ func _tidy_bodies() -> void:
 		if body.is_calm(water_tuning.sleep_flow, water_tuning.sleep_ripple) and _is_level(body) \
 				and body.spilled_left <= 0.0 and body.spilled_right <= 0.0:
 			body.fall_asleep()
+
+
+## Water standing on absorbent ground (earth, grass) soaks in, up to soak_per_tile a
+## tile: a small puddle on a lawn disappears, a big one wets it and stays (W2 stub
+## of W8's wet layer). Only awake bodies; columns over rock cost one byte lookup.
+func _soak_from_body(body: WaterBody) -> void:
+	if water_tuning.soak_per_tile <= 0.0:
+		return
+	for column: int in body.get_column_count():
+		if body.depth[column] <= WaterBody.DRY_DEPTH:
+			continue
+		var cell: Vector2i = Vector2i(floori((body.left_x + (column + 0.5) * column_width) / TILE),
+			floori((body.floor_y[column] + 0.5) / TILE))
+		if not _is_absorbent_cell(cell):
+			continue
+		var soaked: float = _soak_into(cell, body.depth[column] * column_width)
+		if soaked > 0.0:
+			body.depth[column] -= soaked / column_width
+			body.is_asleep = false
+
+
+## Soaks up to `area` px² into the absorbent tile `cell`; when that tile is full,
+## into the absorbent tiles beside it in its row, up to SOAK_REACH tiles away (wet
+## ground wicks water sideways). Returns the area soaked.
+func _soak_into(cell: Vector2i, area: float) -> float:
+	var capacity: float = water_tuning.soak_per_tile * UNIT_AREA
+	if area <= 0.0 or capacity <= 0.0 or not _is_absorbent_cell(cell):
+		return 0.0
+	var soaked: float = 0.0
+	for reach: int in SOAK_REACH + 1:
+		for side: int in ([0] if reach == 0 else [-reach, reach]):
+			var target: Vector2i = cell + Vector2i(side, 0)
+			if soaked >= area or not _is_absorbent_cell(target):
+				continue
+			var room_in_tile: float = capacity - float(soaked_cells.get(target, 0.0))
+			if room_in_tile <= 0.0:
+				continue
+			var taken: float = minf(area - soaked, room_in_tile)
+			soaked_cells[target] = float(soaked_cells.get(target, 0.0)) + taken
+			soaked += taken
+	if soaked > 0.0:
+		soaked_area += soaked
+		queue_redraw()
+	return soaked
+
+
+func _is_absorbent_cell(cell: Vector2i) -> bool:
+	return cell.x >= 0 and cell.y >= 0 and cell.x < grid_size.x and cell.y < grid_size.y \
+		and absorbent_cells[cell.y * grid_size.x + cell.x] == 1
 
 
 ## True if no water could still run anywhere in the body: every pair of neighbouring
@@ -967,9 +1372,19 @@ func _draw() -> void:
 	var indices: PackedInt32Array = PackedInt32Array()
 	for body: WaterBody in bodies:
 		_add_body_triangles(body, points, colors, indices)
-	var drop_color: Color = Color(0.0, 0.0, KIND_DROP)
-	for index: int in drop_positions.size():
+	# Soaked tiles: a damp darkening along their top, deeper as they fill (the stub
+	# of W8's wet look).
+	var full_soak: float = maxf(water_tuning.soak_per_tile * UNIT_AREA, 0.001)
+	for cell: Vector2i in soaked_cells:
+		var wet_color: Color = Color(0.0, clampf(float(soaked_cells[cell]) / full_soak, 0.0, 1.0), KIND_WET)
+		var top_left: Vector2 = Vector2(cell * TILE)
+		_add_quad(points, colors, indices, top_left, top_left + Vector2(TILE, 0.0),
+			top_left + Vector2(TILE, 3.0), top_left + Vector2(0.0, 3.0), wet_color, wet_color)
+	# Particles: drawn as metaballs by the WaterRenderer; squares only as the fallback.
+	var draw_particles: bool = not renderer.is_drawing_particles()
+	for index: int in (drop_positions.size() if draw_particles else 0):
 		var size: float = 2.0 if drop_areas[index] <= water_tuning.drop_units * UNIT_AREA * 1.5 else 3.0
+		var drop_color: Color = Color(0.0, drop_foam[index], KIND_DROP)  # green = foam
 		_add_square(points, colors, indices, drop_positions[index], size, drop_color)
 	var spray_color: Color = Color(0.0, 1.0, KIND_DROP)  # a drop with full foam: white
 	for index: int in spray_positions.size():

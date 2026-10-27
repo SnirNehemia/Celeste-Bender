@@ -185,6 +185,7 @@ const TAB_OF: Dictionary = {
 	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
 	&"crate": "Objects", &"leaf_platform": "Objects", &"sail_platform": "Objects", &"boulder": "Objects",
 	&"loose_rock": "Objects", &"vine": "Objects", &"hanging_platform": "Objects", &"leaf_pile": "Objects",
+	&"water_source": "Objects", &"water_sink": "Objects",
 }
 ## Elements of entries whose stage family doesn't say it (terrain, enemies).
 const ELEMENT_OF: Dictionary = {
@@ -444,6 +445,23 @@ static func _build() -> void:
 	water.tile_top_edge = WaterLayer.WATER_TILE
 	water.room_settings_on_create = {&"water_allowed": true}
 
+	# Sources and drains (Stage W2; Water_bending.md §6.2, §8.1). A room with a source
+	# gets a WaterWorld even without painted water.
+	var water_source: Entry = _add_object(&"water_source", "Water source", "Water", preload("res://scenes/objects/water/water_source.tscn"))
+	water_source.hint = "Endless water: pours Rate units a second, falling (a waterfall) or, under a pool's surface, into it. Put it over a channel for a stream. Pair it with a Drain, or the room slowly fills."
+	water_source.local_rect = Rect2(-4, -5, 8, 6)
+	water_source.placement = Placement.CENTERED
+	water_source.editable_properties = [&"rate", &"launch_velocity", &"pour_width"]
+	water_source.room_settings_on_create = {&"water_allowed": true}
+
+	var water_sink: Entry = _add_object(&"water_sink", "Drain", "Water", preload("res://scenes/objects/water/water_sink.tscn"))
+	water_sink.hint = "A drain grate: takes the water that reaches it (up to Max Rate units a second). On a pool's floor it empties the pool; on its side it's an overflow that holds the level at the drain's bottom edge."
+	water_sink.bounds = Bounds.SIZE_TOP_LEFT
+	water_sink.size_property = &"sink_size"
+	water_sink.placement = Placement.TOP_LEFT
+	water_sink.editable_properties = [&"sink_size", &"max_rate"]
+	water_sink.room_settings_on_create = {&"water_allowed": true}
+
 	# Fire objects turn Fire on in their room. The player still needs pips: the
 	# room's Fire Start Pips, or a fire diamond (a play-test warning says so).
 	var fire_room: Dictionary = {&"fire_allowed": true}
@@ -553,7 +571,7 @@ static func _assign_tabs() -> void:
 	for entry: Entry in _entries:
 		if entry.family == "":
 			continue  # a tool
-		if ["Air", "Earth", "Fire"].has(entry.family):
+		if ["Air", "Earth", "Fire", "Water"].has(entry.family):
 			entry.element = entry.family
 		if ELEMENT_OF.has(entry.id):
 			entry.element = ELEMENT_OF[entry.id]

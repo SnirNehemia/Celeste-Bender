@@ -36,6 +36,9 @@ func update_submersion() -> void:
 	var hitbox: Rect2 = player.get_hitbox_rect()
 	var water_world: WaterWorld = WaterWorld.find_at(get_tree(), hitbox.get_center())
 	submerged_share = 0.0 if water_world == null else water_world.get_submerged_share(hitbox)
+	# A puddle or a splash's thin film doesn't count: less than wade_min_depth px in.
+	if submerged_share * hitbox.size.y < player.water_tuning.wade_min_depth:
+		submerged_share = 0.0
 
 
 func is_in_water() -> bool:

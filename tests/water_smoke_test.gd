@@ -32,8 +32,9 @@ func _ready() -> void:
 	await get_tree().create_timer(0.3).timeout
 	await _check_w1_bodies(world, world.player)
 	await _check_swimming(world, world.player)
+	await _check_w2_loose_water(world, world.player)
 
-	for section_name: String in ["W1", "Swim"]:
+	for section_name: String in ["W1", "Swim", "W2"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[WaterSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -90,7 +91,9 @@ func _check_w1_bodies(world: RoomManager, player: Player) -> void:
 	var pool_surface: float = water.get_surface_y_at(Vector2(15 * 8, 125))
 	_check(pool_surface < 119.0 and pool_surface > 112.0, "the pool rose from y 120 with the tank's water, now %.1f" % pool_surface)
 	var pool: WaterBody = water.find_body_under(Vector2(15 * 8, 125))[0]
-	_check(_surface_spread(pool) < 0.3, "the pool is level once calm (spread %.2f px)" % _surface_spread(pool))
+	# Half a pixel over 170 px is level to the eye (a calm body may sleep with a tilt
+	# that small: each pair of columns is within LEVEL_TOLERANCE).
+	_check(_surface_spread(pool) < 0.5, "the pool is level once calm (spread %.2f px)" % _surface_spread(pool))
 
 	# The crate floats, about half under.
 	var crate: Crate = room.get_node("Crate1") as Crate
@@ -244,6 +247,10 @@ func _check_swimming(world: RoomManager, player: Player) -> void:
 	var room: Room = world.current_room
 	var water: WaterWorld = room.get_node(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
 	var tuning: WaterTuning = player.water_tuning
+	# Breaking waves are off while swimming is measured: the stroking churns the
+	# pool, and random crests made the heights depend on the random sequence.
+	var break_throw: float = tuning.wave_break_throw
+	tuning.wave_break_throw = 0.0
 	room.reset_objects()
 	await _wait_until_calm(water)
 	_check(player.swim != null, "the player has a SwimAbility")
@@ -292,8 +299,12 @@ func _check_swimming(world: RoomManager, player: Player) -> void:
 		await get_tree().physics_frame
 		highest_feet = minf(highest_feet, player.global_position.y)
 	Input.action_release(&"jump")
-	_check(highest_feet < surface_y - 12.0,
-		"a held jump at the surface leaps out of the water (feet reached %.1f, surface %.1f)" % [highest_feet, surface_y])
+	# A jump's height goes with its launch speed squared, so the 12 px a full leap
+	# clears shrinks with surface_leap_scale² (0.5 in play-test 2: a quarter).
+	var leap_clearance: float = 12.0 * tuning.surface_leap_scale * tuning.surface_leap_scale
+	_check(highest_feet < surface_y - leap_clearance,
+		"a held jump at the surface leaps out of the water (feet reached %.1f, surface %.1f, needs %.1f px clear)"
+			% [highest_feet, surface_y, leap_clearance])
 
 	# Left alone under water, you sink slowly down to the floor. (Started still, mid-
 	# water: falling in from a leap is a plunge, braked from full speed.)
@@ -332,7 +343,8 @@ func _check_swimming(world: RoomManager, player: Player) -> void:
 	Input.action_release(&"move_right")
 	Input.action_release(&"jump")
 	_check(player.global_position.x - crate_x > 15.0 and absf(crate.global_position.x - crate_x) < 3.0,
-		"swimming away from under the floating crate leaves it behind (crate moved %.1f px, player %.1f px)" 		% [crate.global_position.x - crate_x, player.global_position.x - crate_x])
+		"swimming away from under the floating crate leaves it behind (crate moved %.1f px, player %.1f px)" \
+		% [crate.global_position.x - crate_x, player.global_position.x - crate_x])
 
 	# The look toggle: 7 cycles B, C, A, B+C and back, and the shader gets it.
 	var look_before: int = tuning.look_style
@@ -351,6 +363,7 @@ func _check_swimming(world: RoomManager, player: Player) -> void:
 		"the shader draws the chosen look (%s)" % water.get_look_name())
 	tuning.look_style = look_before
 	room.reset_objects()
+	tuning.wave_break_throw = break_throw
 	finished_sections.append("Swim")
 
 
@@ -376,6 +389,176 @@ func _measure_held_jump(player: Player, feet: Vector2) -> float:
 	for frame: int in 60:
 		await get_tree().physics_frame
 	return start_y - highest
+
+
+## Stage W2: loose water (Water_bending.md §6.1 part 2, §6.2, §6.3), in room Water B.
+func _check_w2_loose_water(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterB") as Room
+	world.jump_to_room(room)
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water B is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water B has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	_check(_action_has_key("debug_water_throw", KEY_6), "debug_water_throw is on 6")
+	_check(water.renderer != null, "the WaterWorld has a WaterRenderer (metaballs; off in headless runs)")
+	# Debug throws make new water (in W3 the hands take it from pools): the books
+	# expect it, `thrown` units so far.
+	var books: float = water.get_books_units()
+	var thrown: float = 1.0
+
+	# Breaking waves are off for the soak and flight checks: the waterfall pool's
+	# crests throw foam sideways onto the earth and into the ball's area, which
+	# isn't what those check. (Waves get their own check below.)
+	var break_throw: float = tuning.wave_break_throw
+	tuning.wave_break_throw = 0.0
+	for frame: int in 40:
+		await get_tree().physics_frame  # the foam already in the air lands
+
+	# The dry earth patch soaks a small ball up entirely (wicking into the tiles
+	# beside where it lands): no puddle.
+	water.throw_ball(Vector2(196, 130), Vector2(0, 40), 1.0)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var soaked: float = water.get_soaked_units()
+	_check(soaked > 0.98 and soaked <= 1.01, "the earth patch soaks up a 1-unit ball (%.2f units)" % soaked)
+	_check(water.is_wet(Vector2i(24, 20)), "the earth under it is wet")
+	thrown += 4.0
+
+	# A thrown ball holds together in flight (cohesion), over the open floor.
+	var ball_area: Rect2 = Rect2(104, 0, 100, 150)
+	water.throw_ball(Vector2(150, 70), Vector2(0, -60), 4.0)
+	var start_spread: float = _particle_spread(water, ball_area)
+	for frame: int in 18:
+		await get_tree().physics_frame
+	var flight_spread: float = _particle_spread(water, ball_area)
+	tuning.wave_break_throw = break_throw
+	# Neither flying apart nor squeezed into a dot: about the size of its water.
+	_check(flight_spread > start_spread * 0.6 and flight_spread < start_spread * 1.4,
+		"a thrown ball holds together in flight, its own size (spread %.1f px, at the throw %.1f px)" % [flight_spread, start_spread])
+	# It splats on the rock floor and spreads into a thin puddle.
+	for frame: int in 150:
+		await get_tree().physics_frame
+	var puddle: WaterBody = null
+	for body: WaterBody in water.bodies:
+		if is_equal_approx(body.floor_y[0], 160.0) and body.left_x < 160.0 and body.get_right_x() > 140.0:
+			puddle = body
+	_check(puddle != null and puddle.get_max_depth() <= tuning.puddle_min_depth + 1.5 and puddle.get_right_x() - puddle.left_x >= 48.0,
+		"on the floor the ball spreads into a thin puddle (%s)" % ("none" if puddle == null else "%.0f px wide, %.1f px deep" % [puddle.get_right_x() - puddle.left_x, puddle.get_max_depth()]))
+	_check(absf(water.get_books_units() - books - thrown) < CONSERVATION_TOLERANCE,
+		"water is conserved through the throw and the splat (books %.3f + %.0f thrown -> %.3f)" % [books, thrown, water.get_books_units()])
+
+	# Particles bump into the crate (a moving solid): none ends up inside it.
+	var crate: Crate = room.get_node("Crate1") as Crate
+	var crate_box: Rect2 = crate.get_water_box().grow(-0.6)
+	crate_box.position = water.to_local(crate_box.position)
+	water.throw_ball(Vector2(112, 140), Vector2(140, -20), 2.0)
+	thrown += 2.0
+	var inside_seen: int = 0
+	for frame: int in 40:
+		await get_tree().physics_frame
+		for position_px: Vector2 in water.drop_positions:
+			if crate_box.has_point(position_px):
+				inside_seen += 1
+	_check(inside_seen == 0, "loose water splashes off the crate, never through it (%d inside)" % inside_seen)
+
+	# A ball into the pool throws up a crown of its own water.
+	var crowns_before: int = 0
+	for frame: int in 40:
+		await get_tree().physics_frame
+		crowns_before += water.crown_count
+	water.throw_ball(Vector2(72, 60), Vector2(0, 120), 4.0)
+	thrown += 4.0
+	var crowns_after: int = 0
+	for frame: int in 40:
+		await get_tree().physics_frame
+		crowns_after += water.crown_count
+	_check(crowns_after > crowns_before + 3,
+		"a ball dropped into the pool throws up a splash crown (%d crown drops, %d from the waterfall alone)" % [crowns_after, crowns_before])
+
+	# The waterfall turns the wheel; the overflow drain holds the pool's level.
+	var wheel: WaterWheel = room.get_node("WaterWheel") as WaterWheel
+	for frame: int in 120:
+		await get_tree().physics_frame
+	_check(wheel.angular_speed > 0.5, "the waterfall turns the waterwheel (%.2f rad/s)" % wheel.angular_speed)
+	var pool_surface: float = water.get_surface_y_at(Vector2(40, 140))
+	# Not exactly: the water must stand a little higher to flow over to the drain,
+	# and the waterfall keeps it rippling.
+	_check(pool_surface > 123.0 and pool_surface < 130.0, "the overflow drain holds the pool near y 128 (surface %.1f)" % pool_surface)
+	_check((room.get_node("OverflowDrain") as WaterSink).drained_units > 0.0, "the overflow drain takes the waterfall's water")
+
+	# The stream: water really flows right along the lower step and spills into the
+	# drained basin.
+	var stream: Array = water.find_body_under(Vector2(290, 76))
+	var stream_flow: float = 0.0
+	if not stream.is_empty():
+		var stream_body: WaterBody = stream[0]
+		for pipe: int in stream_body.flow.size():
+			stream_flow += stream_body.flow[pipe]
+	_check(not stream.is_empty() and stream_flow > 0.0, "the stream on the shelf flows toward its lip (total flow %.1f)" % stream_flow)
+	_check((room.get_node("FloorDrain") as WaterSink).drained_units > 0.0, "the basin's floor drain takes the stream's water")
+	_check(absf(water.get_books_units() - books - thrown) < CONSERVATION_TOLERANCE,
+		"the books balance with sources and drains running (%.3f + %.0f thrown -> %.3f units)" % [books, thrown, water.get_books_units()])
+
+	# Reset clears the loose water and the soaking.
+	room.reset_objects()
+	_check(water.get_drop_count() == 0 and water.get_soaked_units() == 0.0 and not water.is_wet(Vector2i(24, 20)),
+		"a reset clears the particles and dries the earth")
+
+	# Breaking waves (play-test 2): a big poke into the waterfall's pool makes crests
+	# that throw off particles, and the thrown water doesn't keep re-breaking forever.
+	var breaks_before: int = water.crest_break_count
+	water.poke(Vector2(56, 130), 12.0)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var breaks: int = water.crest_break_count - breaks_before
+	_check(breaks > 0, "a poked pool's crests break into particles (%d thrown)" % breaks)
+	_check(breaks < 120, "breaking waves die down instead of feeding themselves (%d in 1 s)" % breaks)
+	room.reset_objects()
+
+	# Performance (§6.5): the particle cap full in one clump (cohesion's worst case),
+	# with both sources running.
+	water.throw_ball(Vector2(170, 60), Vector2(0, -30), 30.0)
+	var total_usec: int = 0
+	var drops_usec: int = 0
+	var cohesion_usec: int = 0
+	var peak_usec: int = 0
+	var most_particles: int = 0
+	for frame: int in 120:
+		await get_tree().physics_frame
+		total_usec += water.last_step_usec
+		drops_usec += water.last_drops_usec
+		cohesion_usec += water.last_cohesion_usec
+		peak_usec = maxi(peak_usec, water.last_step_usec)
+		most_particles = maxi(most_particles, water.get_drop_count())
+	var average_usec: float = total_usec / 120.0
+	print("[WaterSmokeTest] W2 loose water under stress: %.0f us average (particles %.0f, of it cohesion %.0f), %d us peak, up to %d particles" \
+		% [average_usec, drops_usec / 120.0, cohesion_usec / 120.0, peak_usec, most_particles])
+	_check(most_particles >= tuning.max_drops - 20, "the stress test fills the particle cap (%d of %d)" % [most_particles, tuning.max_drops])
+	_check(average_usec < BUDGET_USEC, "loose water stays under the 2 ms budget: %.0f us average" % average_usec)
+	room.reset_objects()
+	finished_sections.append("W2")
+
+
+## The farthest particle inside `area` from their average position, px (0 if none).
+func _particle_spread(water: WaterWorld, area: Rect2) -> float:
+	var inside: PackedVector2Array = PackedVector2Array()
+	for position_px: Vector2 in water.drop_positions:
+		if area.has_point(position_px):
+			inside.append(position_px)
+	if inside.is_empty():
+		return 0.0
+	var center: Vector2 = Vector2.ZERO
+	for position_px: Vector2 in inside:
+		center += position_px
+	center /= inside.size()
+	var farthest: float = 0.0
+	for position_px: Vector2 in inside:
+		farthest = maxf(farthest, position_px.distance_to(center))
+	return farthest
 
 
 # --- Helpers ----------------------------------------------------------------------

@@ -75,6 +75,78 @@ extends Resource
 ## Spilling water leaves its lip at the flow's speed times this, px/s per px/s.
 @export var spill_launch_scale: float = 1.0
 
+@export_group("Loose water")
+## Stage W2 (Water_bending.md §6.1 part 2): the drops are PARTICLES. Each pulls on
+## its neighbours within `cohesion_radius` px toward `cohesion_rest` px apart (a
+## spring, `cohesion_stiffness`, 1/s² per px), and matches their speed a little
+## (`cohesion_viscosity`, 1/s). That's what keeps a thrown ball round, beads a pour
+## into drops and lets a stretched stream pinch off. No pressure solve: water that
+## lands stops being particles.
+@export_range(2.0, 10.0) var cohesion_radius: float = 4.5
+@export_range(0.5, 5.0) var cohesion_rest: float = 2.2
+@export var cohesion_stiffness: float = 260.0
+@export var cohesion_viscosity: float = 6.0
+## Closer than cohesion_rest, the spring pushes this many times harder: it keeps a
+## ball the size of its water (higher = puffier, lower = it squeezes smaller).
+@export_range(1.0, 20.0) var cohesion_repulsion: float = 6.0
+## Air drag on particles, share of their speed lost per second.
+@export_range(0.0, 2.0) var particle_air_drag: float = 0.15
+## A particle touching a wall loses this share of its fall speed per hit: water
+## runs down walls a little slower, and clings at edges before it drips.
+@export_range(0.0, 1.0) var wall_stick: float = 0.35
+## Splash crown: a particle landing in a pool faster than this, px/s, bounces back
+## up out of it with this chance (it stays a particle), at `crown_bounce` of its
+## speed. A ball hitting a pool throws up a crown of its own water.
+@export var crown_min_speed: float = 130.0
+@export_range(0.0, 1.0) var crown_chance: float = 0.3
+@export_range(0.0, 1.0) var crown_bounce: float = 0.4
+## Sources (pipes, waterfalls): each particle leaves with a random nudge of up to
+## this many px/s, sideways (x) and up/down (y). Low = a smooth, glassy waterfall;
+## high = a scattered spray. (Before the W2 play-test: 6 and 4.)
+@export_range(0.0, 30.0) var pour_jitter_x: float = 1.5
+@export_range(0.0, 30.0) var pour_jitter_y: float = 1.0
+## Soaking (stub of W8's wet layer): an absorbent tile (earth, grass) under water
+## that lands takes up to this many units before it's wet; then water puddles on it.
+@export var soak_per_tile: float = 0.25
+## Debug key 6: throw a ball of this many units at this speed, in the arrow direction.
+@export var debug_throw_units: float = 4.0
+@export var debug_throw_speed: float = 200.0
+
+@export_group("Metaballs")
+## Particles are drawn as soft dots into their own picture, then a threshold
+## shader turns overlapping dots into smooth blobs (Water_bending.md §6.3). Off:
+## plain 2 px squares (the fallback).
+@export var use_metaballs: bool = true
+## Radius of each particle's soft dot, px: bigger = rounder, fatter blobs.
+@export_range(1.0, 8.0) var blob_dot_radius: float = 3.2
+## The blob's edge: where the summed dots reach this, 0..1 (lower = fatter).
+@export_range(0.05, 0.95) var blob_threshold: float = 0.45
+## Fast particles are drawn stretched along their velocity: this much longer per
+## px/s (a waterfall becomes a ribbon, §6.2 `waterfall_particle_scale`). 0 = round.
+@export_range(0.0, 0.05) var blob_stretch: float = 0.012
+## White water on loose water: a particle foams when it moves faster than
+## `particle_foam_speed_start` px/s (fully at `particle_foam_speed_full`: the bottom of
+## a tall waterfall), and for `particle_foam_life` s after it hits something (bouncing
+## out of a pool as a crown, a wall, a crate) or is thrown off a splash or a breaking
+## wave. `particle_foam_strength`: how white full foam is (0 = never).
+@export var particle_foam_speed_start: float = 240.0
+@export var particle_foam_speed_full: float = 350.0
+@export_range(0.0, 2.0) var particle_foam_life: float = 0.35
+@export_range(0.0, 1.0) var particle_foam_strength: float = 0.8
+
+@export_group("Breaking waves")
+## Waves behave more like the loose water (W2 play-test): where a pool's surface
+## rises faster than `wave_break_speed` px/s, the crest BREAKS: bits of it leave the
+## pool as foaming particles, thrown up at `wave_break_throw` x the rise speed (plus
+## the water's own sideways speed), and fall back in, kicking new waves. The water is
+## only borrowed: it all lands again. wave_break_throw 0 = off.
+@export var wave_break_speed: float = 20.0
+@export_range(0.0, 8.0) var wave_break_throw: float = 3.5
+## How often a breaking column throws a particle, per second, when it rises at twice
+## wave_break_speed (slower = rarer). At most `wave_break_max_per_frame` a frame in a room.
+@export var wave_break_rate: float = 60.0
+@export_range(0, 32) var wave_break_max_per_frame: int = 8
+
 @export_group("Floating")
 ## How strongly water lifts a floating thing: 2 = it floats half under water.
 @export var buoyancy: float = 2.0
@@ -133,6 +205,9 @@ extends Resource
 @export_range(0.0, 0.9) var water_resistance: float = 0.4
 ## A jump from the bottom is multiplied by 1 - water_jump_loss x share.
 @export_range(0.0, 0.9) var water_jump_loss: float = 0.5
+## Water shallower than this around you, px, doesn't count (puddles and the thin
+## films splashes leave on the ground don't slow you down).
+@export_range(0.0, 8.0) var wade_min_depth: float = 3.0
 ## At least this share under water and you swim: jump becomes a stroke.
 @export_range(0.5, 1.0) var swim_share: float = 0.9
 ## In water, gravity and the fastest sink blend toward these, by the share.

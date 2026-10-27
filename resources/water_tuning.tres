@@ -4,7 +4,10 @@
 
 [resource]
 script = ExtResource("1_script")
-look_style = 3
+cohesion_repulsion = 3.0
+crown_min_speed = 100.0
+wave_break_throw = 1.5
 band_px = 10.0
 deep_alpha = 0.9
 caustic_thickness = 0.11
+surface_leap_scale = 0.5

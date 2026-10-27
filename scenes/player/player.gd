@@ -128,6 +128,8 @@ var aim_source: Node = null
 
 func _ready() -> void:
 	add_to_group(GROUP)
+	# Loose water bumps into us (Water_bending.md §6.1): see get_water_box().
+	add_to_group(WaterWorld.SOLID_GROUP)
 	# _ready() runs after all children are ready, so the states exist now.
 	state_machine.setup(self)
 	# Earth moves: each one tells the shared bend which key starts it. (Done here,
@@ -212,6 +214,11 @@ func get_center() -> Vector2:
 func get_hitbox_rect() -> Rect2:
 	var hitbox_size: Vector2 = (hitbox.shape as RectangleShape2D).size
 	return Rect2(get_center() - hitbox_size / 2.0, hitbox_size)
+
+
+## The box loose water bumps into (WaterWorld.SOLID_GROUP): our hitbox, global.
+func get_water_box() -> Rect2:
+	return Rect2() if is_dead() else get_hitbox_rect()
 
 
 func is_dead() -> bool:

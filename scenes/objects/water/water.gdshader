@@ -5,7 +5,8 @@ shader_type canvas_item;
 //   COLOR.r  how far under the surface this corner is, px / 64 (0 at the surface).
 //            Corners in between are interpolated, so every pixel knows its depth.
 //   COLOR.g  foam, 0..1: how churned the water is here (fast flow, splashes).
-//   COLOR.b  what is drawn: 0 = the body, 0.5 = the 1 px surface line, 1 = a drop
+//   COLOR.b  what is drawn: 0 = the body, 0.25 = a soaked tile's damp top (its
+//            foam channel says how soaked), 0.5 = the 1 px surface line, 1 = a drop
 //            (a drop with foam 1 is a white spray speck).
 // It runs on the graphics card, once per pixel at 320x180, so it costs the CPU
 // nothing: the 2 ms water budget (§6.5) only pays for the simulation.
@@ -96,7 +97,7 @@ void fragment() {
 	if (kind > 0.75) {
 		// A drop (light blue) or a spray speck (white).
 		COLOR = vec4(mix(mix(shallow_color.rgb, surface_color.rgb, 0.35), foam_color.rgb, foam), 0.9);
-	} else if (kind > 0.25) {
+	} else if (kind > 0.375) {
 		// The surface line: light, white where the water is churned. B glints (a new
 		// random few pixels ~6 times a second); C sparkles more, A not at all.
 		float glint = 0.0;
@@ -106,6 +107,9 @@ void fragment() {
 			glint = step(0.85, hash(vec2(pixel.x, floor(TIME * 4.0))));
 		}
 		COLOR = vec4(mix(surface_color.rgb, foam_color.rgb, max(glint, foam)), 0.95);
+	} else if (kind > 0.125) {
+		// A soaked tile: darker and bluish where water went in (W8 makes the real look).
+		COLOR = vec4(0.06, 0.12, 0.24, 0.2 + 0.35 * foam);
 	} else {
 		// B, A and B+C share the see-through tint; C and B+C share the bands.
 		bool use_tint = look_style != 1;

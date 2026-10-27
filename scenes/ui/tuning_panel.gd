@@ -60,6 +60,10 @@ var selected_row: int = 0
 var first_visible_row: int = 0
 ## Tabs whose values were changed since the panel opened (they get emit_changed()).
 var edited_tabs: Dictionary = {}
+## Where each tab was left, so closing and reopening (or coming back to a tab)
+## lands on the same value: tab name -> {"property", "component", "first_visible"}.
+## By property name, not row number, so it survives new @export vars being added.
+var remembered_selection: Dictionary = {}
 
 var background: PanelContainer
 var tabs_label: RichTextLabel
@@ -196,7 +200,29 @@ func _show_tab(tab_index: int) -> void:
 	rows = _build_rows(tab_resources[tab_index]) if tab_index < tab_resources.size() else []
 	first_visible_row = 0
 	selected_row = -1
+	# Back where this tab was left, if that value still exists.
+	var remembered: Dictionary = remembered_selection.get(_current_tab_name(), {})
+	if not remembered.is_empty() and select_property(remembered["property"], remembered["component"]):
+		first_visible_row = clampi(remembered["first_visible"], maxi(0, selected_row - VISIBLE_ROWS + 1), selected_row)
+		_remember_selection()  # select_property() noted a scroll from the top: fix it
+		_redraw()
+		return
 	move_selection(1)  # lands on the first value row (row 0 is usually a group header)
+
+
+func _current_tab_name() -> String:
+	return tab_names[current_tab] if current_tab < tab_names.size() else ""
+
+
+## Notes where the current tab is, for _show_tab() next time.
+func _remember_selection() -> void:
+	if selected_row < 0 or selected_row >= rows.size():
+		return
+	remembered_selection[_current_tab_name()] = {
+		"property": rows[selected_row]["property"],
+		"component": rows[selected_row]["component"],
+		"first_visible": first_visible_row,
+	}
 
 
 ## Turns a resource's property list into display rows. Each row is a Dictionary:
@@ -265,6 +291,7 @@ func move_selection(direction: int) -> void:
 		first_visible_row = top_wanted
 	elif selected_row >= first_visible_row + VISIBLE_ROWS:
 		first_visible_row = selected_row - VISIBLE_ROWS + 1
+	_remember_selection()
 	_redraw()
 
 
