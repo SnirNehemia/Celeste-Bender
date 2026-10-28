@@ -280,6 +280,26 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 @export var snake_shove_strength: float = 160.0
 ## GENTLE, lifting too fast: this much of the pool (units) jumps up and rains back.
 @export var snake_tear_splash_units: float = 0.25
+## The snake's SHAPE (re-planned ice, Water_bending.md §16 "Re-planned: predictable
+## ice"):
+##   TRAIL (the default): its body lies exactly along the path the ball took since it
+##     left the pool, each straight run snapped to a multiple of
+##     snake_trail_angle_step, the corners rounded. Steering back over it rewinds it.
+##     Frozen, it's that exact shape: you DRAW slides and bridges.
+##   ROPE: the W4 verlet rope, sagging and swinging behind the ball.
+enum SnakeShape { TRAIL, ROPE }
+@export var snake_shape: SnakeShape = SnakeShape.TRAIL
+## TRAIL: the angles a straight run snaps to, degrees (22.5: 0, 22.5, 45, 67.5, 90...;
+## 45 = only the arrows' 8 directions).
+@export_range(5.0, 90.0) var snake_trail_angle_step: float = 22.5
+## TRAIL: a run's direction is judged once the ball is this far (px) from its start
+## (the AVERAGE direction over that stretch, which is how 22.5° comes out of mixed
+## arrows)...
+@export_range(2.0, 32.0) var snake_trail_min_segment: float = 10.0
+## ...and a corner is made where the ball strays more than this (px) off the run's line.
+@export_range(1.0, 12.0) var snake_trail_tolerance: float = 3.0
+## TRAIL: corners are rounded over this many px each side (at most half of each run).
+@export_range(0.0, 16.0) var snake_trail_corner_radius: float = 6.0
 
 @export_group("Freeze")
 ## Stage W5 (Water_bending.md §5.3, as refined before W5): tap 2. Holding water: the
@@ -289,8 +309,13 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## the fireball. It freezes the first water it touches.
 ## Seconds (game time) between two freezes.
 @export_range(0.0, 2.0) var freeze_cooldown: float = 0.25
+## Frozen water HANGS where it froze (re-planned ice, Water_bending.md §16): no
+## momentum, no fall, one piece per freeze. A compact block comes loose only when
+## something pushes it (gust, the ball's shove, Earth) and is then a PUCK. Off: the
+## W5 rule (free ice flies on with the water's momentum, splats split into pieces).
+@export var ice_hangs: bool = true
 ## The last throw is LIVE (2 freezes it) for this many game seconds after release...
-@export_range(0.2, 5.0) var freeze_live_time: float = 1.5
+@export_range(0.2, 10.0) var freeze_live_time: float = 1.5
 ## ...and only while at least this share of its water is still loose (in the air or
 ## running: not merged into a pool or soaked in). Stray drops left after a splash
 ## never take the key from the crystal.
@@ -348,6 +373,40 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## the spec's 4 tiles broke blocks frozen at the top of an ordinary throw).
 @export var ice_block_friction: float = 40.0
 @export var ice_block_shatter_fall: float = 48.0
+## PUCKS (with ice_hangs): a block that something pushed loose slides on ICE with this
+## friction (px/s², 0: it keeps going in a straight line until something stops it)
+## and on anything else with puck_ground_friction (it stops at once). Knocked off its
+## spot in the air, it falls straight down (its sideways push is dropped) until it lands.
+@export var puck_ice_friction: float = 0.0
+@export var puck_ground_friction: float = 2000.0
+
+@export_group("Slides")
+## Ice slides (Stage W6, Water_bending.md §7.2 and §16 "Planned in Stage W6"). Long
+## ice whose main direction is flatter than this, degrees, is a SLIDE (one-way: you
+## jump up through it); steeper long ice is a PILLAR (solid). 45 = the steepest
+## floor the player can stand on (Player.MIN_FLOOR_NORMAL_UP).
+@export_range(10.0, 80.0) var slide_pillar_angle: float = 45.0
+## On ice at least this steep, degrees, you SLIDE (the Sliding state): you can't
+## walk up it, gravity pulls you down it. Flatter ice is ice ground (§7.1).
+@export_range(2.0, 40.0) var slide_min_angle: float = 15.0
+## Gravity along the slope is g x sin(angle) x this (the player's own gravity, 900).
+@export_range(0.1, 2.0) var slide_gravity_scale: float = 1.0
+## The arrows lean you up or down the slope this much, px/s² (gravity wins on
+## anything steeper than about 3°: you can't climb a slide).
+@export var slide_lean_accel: float = 40.0
+## Top speed along a slide, px/s (a belly slide reaches belly_slide_scale x this).
+@export var slide_max_speed: float = 260.0
+## While sliding, the floor pulls you down onto it from this far, px (normally 1),
+## so you don't hop off small bumps going down. Never off an upward lip: a ramp
+## still launches you.
+@export var slide_snap_length: float = 4.0
+## BELLY SLIDE (Claude's addition, picked by the developer): hold down while
+## sliding: no lean, gravity along the slope and top speed x this, and a hitbox
+## half as tall.
+@export_range(1.0, 2.0) var belly_slide_scale: float = 1.25
+## Crates, ice blocks and shells on an ice slope: they slow down along it this
+## much, px/s² (gravity along the slope still pulls them down it).
+@export var slope_object_friction: float = 30.0
 
 @export_group("Water and projectiles")
 ## Any water (a pool, loose drops, the held ball) puts a FIREBALL out, and SOAKS a

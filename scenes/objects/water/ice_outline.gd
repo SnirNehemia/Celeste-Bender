@@ -274,3 +274,47 @@ static func moved(polygons: Array[PackedVector2Array], offset: Vector2) -> Array
 			shifted.append(point + offset)
 		result.append(shifted)
 	return result
+
+
+## The TOP of some polygons at `x` (the smallest y where a vertical line at x crosses
+## one of their edges), or INF if the line misses them all. Stage W6: a one-way slide
+## asks this to know whether the player's feet are above it.
+static func top_y_at(polygons: Array[PackedVector2Array], x: float) -> float:
+	var top: float = INF
+	for polygon: PackedVector2Array in polygons:
+		for index: int in polygon.size():
+			var from: Vector2 = polygon[index]
+			var to: Vector2 = polygon[(index + 1) % polygon.size()]
+			if x < minf(from.x, to.x) or x > maxf(from.x, to.x):
+				continue
+			# A vertical edge: its higher end. Otherwise the point on the edge at x.
+			var y: float = minf(from.y, to.y) if from.x == to.x else lerpf(from.y, to.y, (x - from.x) / (to.x - from.x))
+			top = minf(top, y)
+	return top
+
+
+## How steep some polygons lie, degrees from horizontal (0 = flat, 90 = upright):
+## the angle of the longest direction through their points (the principal axis of
+## their spread, the same 2x2 covariance WaterWorld._is_long_spread uses). Stage W6:
+## long ice flatter than WaterTuning.slide_pillar_angle is a slide.
+static func lying_angle_degrees(polygons: Array[PackedVector2Array]) -> float:
+	var center: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for polygon: PackedVector2Array in polygons:
+		for point: Vector2 in polygon:
+			center += point
+			count += 1
+	if count == 0:
+		return 0.0
+	center /= count
+	var spread_xx: float = 0.0
+	var spread_yy: float = 0.0
+	var spread_xy: float = 0.0
+	for polygon: PackedVector2Array in polygons:
+		for point: Vector2 in polygon:
+			var offset: Vector2 = point - center
+			spread_xx += offset.x * offset.x
+			spread_yy += offset.y * offset.y
+			spread_xy += offset.x * offset.y
+	var axis_angle: float = 0.5 * atan2(2.0 * spread_xy, spread_xx - spread_yy)
+	return absf(rad_to_deg(axis_angle))

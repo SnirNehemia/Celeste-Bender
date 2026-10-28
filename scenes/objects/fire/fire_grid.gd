@@ -67,7 +67,8 @@ extends Node2D
 ##     harmless), then its flames break out and kill on touch like grass, then it
 ##     CRUMBLES (GONE): the ThicketLayer erases the tile and it's open air. A burnt
 ##     floor drops whatever stood on it; the grass under a crumbled cell catches.
-##     No smolder, no ash crust: it falls away as a shower of flakes.
+##     No smolder, no ash crust: it falls away as a shower of flakes. A crumbled
+##     (or elephant-smashed) cell next to a covered HiddenLayer chamber opens it.
 ##   - Overgrown covers: fire reaching any cell starts a FLASH-OVER of the whole
 ##     connected cover (flood fill): a bright front races across it in the first half
 ##     of overgrown_flashover_time, the cover burns as one deadly sheet, then it
@@ -165,7 +166,7 @@ var room: Room
 var grass_layer: TileMapLayer
 var thicket_layer: ThicketLayer
 var overgrown_layer: OvergrownLayer
-## The room's HiddenLayer, or null: an overgrown cover's collapse opens the chambers
+## The room's HiddenLayer, or null: a collapsing cover or crumbling thicket opens the chambers
 ## it touches.
 var hidden_layer: HiddenLayer
 ## Any one of the burnable layers: they all sit at the room's origin with the same
@@ -687,12 +688,15 @@ func _crumble_thicket(cells: Array[Vector2i], spread: bool = true) -> void:
 		AshFall.spawn(room, to_global(rect.get_center()), fire_tuning.thicket_ash_flakes, rect.size, 0.8)
 		if randf() < 0.5:
 			SmokePuff.spawn(room, to_global(rect.get_center()), 1)
+	# A burnt-through thicket opens the hidden chambers behind it, like a cover.
+	var chamber_cells: Array[Vector2i] = _covered_chamber_cells_next_to(cells)
 	thicket_layer.remove_cells(cells)
 	# After the tiles are gone, so the flakes start in open air.
 	for cell: Vector2i in cells:
 		var rect: Rect2 = get_cell_rect(cell)
 		PebbleField.leave_ash(get_tree(), to_global(rect.get_center()), fire_tuning.ash_flakes_per_thicket_cell,
 			rect.size - Vector2(2.0, 2.0), ASH_FLAKE_COLORS)
+	_reveal_chambers_at(chamber_cells)
 	_after_cells_gone(cells, spread)
 
 
@@ -722,7 +726,9 @@ func crush_thicket_in(world_rect: Rect2) -> bool:
 		pending_origin.erase(cell)
 		var rect: Rect2 = get_cell_rect(cell)
 		AshFall.spawn(room, to_global(rect.get_center()), fire_tuning.thicket_ash_flakes / 2, rect.size, 0.4)
+	var chamber_cells: Array[Vector2i] = _covered_chamber_cells_next_to(cells)
 	thicket_layer.remove_cells(cells)
+	_reveal_chambers_at(chamber_cells)
 	_after_cells_gone(cells, false)
 	return true
 
@@ -738,19 +744,33 @@ func _collapse_cover(cells: Array[Vector2i]) -> void:
 		if randf() < 0.35:
 			EmberEmitter.burst(room, to_global(rect.get_center()), 3, Vector2.UP, 90.0, 50.0)
 	# Covered chambers next to the cover, found BEFORE its tiles go.
-	var chamber_cells: Array[Vector2i] = []
-	if hidden_layer != null:
-		for cell: Vector2i in cells:
-			for normal: Vector2i in EarthLayer.FACE_NORMALS:
-				if hidden_layer.is_covered(cell + normal) and not chamber_cells.has(cell + normal):
-					chamber_cells.append(cell + normal)
+	var chamber_cells: Array[Vector2i] = _covered_chamber_cells_next_to(cells)
 	overgrown_layer.remove_cells(cells)
-	for chamber_cell: Vector2i in chamber_cells:
-		hidden_layer.reveal_chamber(chamber_cell)  # does nothing if already revealed
+	_reveal_chambers_at(chamber_cells)
 	_after_cells_gone(cells)
 	FX.shake(fire_tuning.overgrown_shake_strength, fire_tuning.overgrown_shake_time)
 	FX.freeze(fire_tuning.overgrown_freeze_time)
 	FX.play_sfx(&"overgrown_flashover")
+
+
+## Covered hidden-chamber cells beside `cells` (thicket or cover about to go): found
+## BEFORE the tiles go, then opened by _reveal_chambers_at() once they're gone.
+func _covered_chamber_cells_next_to(cells: Array[Vector2i]) -> Array[Vector2i]:
+	var chamber_cells: Array[Vector2i] = []
+	if hidden_layer == null:
+		return chamber_cells
+	for cell: Vector2i in cells:
+		for normal: Vector2i in EarthLayer.FACE_NORMALS:
+			if hidden_layer.is_covered(cell + normal) and not chamber_cells.has(cell + normal):
+				chamber_cells.append(cell + normal)
+	return chamber_cells
+
+
+## Opens the chambers holding `chamber_cells` (each one once: reveal_chamber does
+## nothing for a chamber already open).
+func _reveal_chambers_at(chamber_cells: Array[Vector2i]) -> void:
+	for chamber_cell: Vector2i in chamber_cells:
+		hidden_layer.reveal_chamber(chamber_cell)
 
 
 ## A burning thicket or cover cell stops burning: it's GONE (open air).

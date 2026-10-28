@@ -7,8 +7,13 @@ extends StaticBody2D
 ## puts it back.
 ##
 ## Place the node at the wall's TOP-LEFT corner, on the tile grid, and set its size in
-## tiles (wall_size_tiles). It's not part of any TileMapLayer, so the bend shadow and
-## the GroundPainter treat its cells as open air; it draws itself (_draw).
+## tiles (wall_size_tiles). Or give it any connected shape of cells (`wall_cells`,
+## tiles relative to its origin): the level editor paints walls as terrain, and its
+## WallLayer makes one CrackedWall per connected group of painted cells. It's not
+## part of any solid TileMapLayer, so the bend shadow and the GroundPainter treat its
+## cells as open air; it draws itself (_draw). Shape code: WallShape.
+##
+## Breaking it opens the hidden chambers it touched (HiddenLayer), with a quake.
 ##
 ## Who breaks it: Boulder._on_impact() calls break_open() when a FLYING BIG rock (hold
 ## S) hits it. Nothing else does: a small rock shatters on it, and a hopping rock, a
@@ -47,11 +52,20 @@ const PEBBLE_COLORS: Array[Color] = [BODY_COLOR, BODY_COLOR, CHIP_COLOR, OUTLINE
 		wall_size_tiles = Vector2i(maxi(value.x, 1), maxi(value.y, 1))
 		_resize_hitbox()
 		queue_redraw()
+## Any shape: the wall's cells, in tiles from its origin. Empty = the
+## wall_size_tiles rectangle.
+@export var wall_cells: Array[Vector2i] = []:
+	set(value):
+		wall_cells = value
+		_resize_hitbox()
+		queue_redraw()
 
 var is_broken: bool = false
+## The first hitbox (one per rectangle of the shape, WallShape.make_hitboxes).
 var hitbox: CollisionShape2D
-## The cracks, made once (seeded from the size, so the wall looks the same every time
-## and in the editor): each crack is a zigzag polyline in local pixels.
+var has_hitboxes: bool = false
+## The cracks, made once (seeded from each rectangle's size, so the wall looks the
+## same every time and in the editor): each crack is a zigzag polyline in local pixels.
 var crack_lines: Array[PackedVector2Array] = []
 ## Light chip pixels next to the cracks.
 var chip_points: PackedVector2Array = PackedVector2Array()
@@ -60,9 +74,7 @@ var chip_points: PackedVector2Array = PackedVector2Array()
 func _ready() -> void:
 	collision_layer = 1  # bit value of layer 1, "world": solid like the tiles
 	collision_mask = 0   # a static body never needs to detect anything
-	hitbox = CollisionShape2D.new()
-	hitbox.shape = RectangleShape2D.new()
-	add_child(hitbox)
+	has_hitboxes = true
 	_resize_hitbox()
 	if Engine.is_editor_hint():
 		return
@@ -70,14 +82,20 @@ func _ready() -> void:
 	add_to_group(Room.RESETTABLE_GROUP)
 
 
-## The wall's size in pixels.
+## The wall's cells, in tiles from its origin (WallShape.get_cells).
+func get_cells() -> Array[Vector2i]:
+	return WallShape.get_cells(wall_cells, wall_size_tiles)
+
+
+## The size in pixels of the wall's bounding box (its rectangle, for a rectangle wall).
 func get_size_px() -> Vector2:
-	return Vector2(wall_size_tiles) * TILE_SIZE
+	return Vector2(WallShape.get_bounds(get_cells()).end) * TILE_SIZE
 
 
-## The wall's rectangle in world coordinates.
+## The wall's bounding box in world coordinates.
 func get_global_rect() -> Rect2:
-	return Rect2(global_position, get_size_px())
+	var bounds: Rect2i = WallShape.get_bounds(get_cells())
+	return Rect2(global_position + Vector2(bounds.position) * TILE_SIZE, Vector2(bounds.size) * TILE_SIZE)
 
 
 ## A thrown rock hit it (Boulder calls this): it breaks open, all at once.
@@ -92,16 +110,19 @@ func break_open(hit_direction: Vector2, tuning: EarthTuning) -> void:
 	collision_layer = 0
 	# Rubble from every tile, flying the way the rock was going (a wide spread, so it
 	# reads as the wall bursting rather than a jet).
-	for column: int in wall_size_tiles.x:
-		for row: int in wall_size_tiles.y:
-			var tile_center: Vector2 = global_position + (Vector2(column, row) + Vector2.ONE * 0.5) * TILE_SIZE
-			_spawn_rubble(tile_center, tuning.cracked_wall_gravel_per_tile, hit_direction)
-			# Pebbles that STAY (PebbleField, Stage E4d), in the wall's own colors, a
-			# few per tile: a bigger wall leaves a bigger heap.
-			PebbleField.leave_colored_pebbles(get_tree(), tile_center, tuning.cracked_wall_pebbles_per_tile,
-				hit_direction, PEBBLE_COLORS)
+	var cells: Array[Vector2i] = get_cells()
+	for cell: Vector2i in cells:
+		var tile_center: Vector2 = to_global((Vector2(cell) + Vector2.ONE * 0.5) * TILE_SIZE)
+		_spawn_rubble(tile_center, tuning.cracked_wall_gravel_per_tile, hit_direction)
+		# Pebbles that STAY (PebbleField, Stage E4d), in the wall's own colors, a
+		# few per tile: a bigger wall leaves a bigger heap.
+		PebbleField.leave_colored_pebbles(get_tree(), tile_center, tuning.cracked_wall_pebbles_per_tile,
+			hit_direction, PEBBLE_COLORS)
 	FX.shake(tuning.cracked_wall_shake_strength, tuning.cracked_wall_shake_time)
 	FX.play_sfx(&"cracked_wall_break")
+	# Hidden chambers behind it open, with a quake (after the wall is gone, so the
+	# way in is already open air).
+	WallShape.reveal_chambers_next_to(self, cells)
 	broken.emit()
 
 
@@ -112,13 +133,12 @@ func reset() -> void:
 	collision_layer = 1
 
 
+## One hitbox per rectangle of the shape, and the cracks.
 func _resize_hitbox() -> void:
-	if hitbox == null:
+	if not has_hitboxes:
 		return  # setter ran while the scene was loading; _ready() calls us again
-	var size_px: Vector2 = get_size_px()
-	(hitbox.shape as RectangleShape2D).size = size_px
-	# Origin is the top-left corner, and a shape is positioned by its center.
-	hitbox.position = size_px / 2.0
+	var hitboxes: Array[CollisionShape2D] = WallShape.make_hitboxes(self, WallShape.get_rectangles(get_cells()))
+	hitbox = hitboxes[0] if not hitboxes.is_empty() else null
 	_build_cracks()
 
 
@@ -152,14 +172,21 @@ func _spawn_rubble(world_position: Vector2, amount: int, direction: Vector2) -> 
 ## Makes the crack pattern: one zigzag crack per tile of height, each starting on a
 ## random side edge and running across the wall, plus a chip pixel at each bend.
 func _build_cracks() -> void:
-	var size_px: Vector2 = get_size_px()
+	crack_lines.clear()
+	chip_points = PackedVector2Array()
+	for rectangle: Rect2i in WallShape.get_rectangles(get_cells()):
+		_build_cracks_in(rectangle)
+
+
+## The cracks of one rectangle of the shape (all of a rectangle wall).
+func _build_cracks_in(rectangle: Rect2i) -> void:
+	var size_px: Vector2 = Vector2(rectangle.size) * TILE_SIZE
+	var offset: Vector2 = Vector2(rectangle.position) * TILE_SIZE
 	# A seeded random generator: same size = same cracks, so it never flickers when
 	# the editor redraws it.
 	var crack_random: RandomNumberGenerator = RandomNumberGenerator.new()
-	crack_random.seed = hash(wall_size_tiles)
-	crack_lines.clear()
-	chip_points = PackedVector2Array()
-	for row: int in wall_size_tiles.y:
+	crack_random.seed = hash(rectangle.size)
+	for row: int in rectangle.size.y:
 		# Start on the left or right edge, somewhere in this tile row (not its edges).
 		var from_left: bool = crack_random.randf() < 0.5
 		var y: float = row * TILE_SIZE + crack_random.randi_range(2, int(TILE_SIZE) - 2)
@@ -174,17 +201,36 @@ func _build_cracks() -> void:
 			y = clampf(y + crack_random.randi_range(-1, 1) * 2.0, 1.0, size_px.y - 1.0)
 			line.append(Vector2(x, y))
 			if crack_random.randf() < 0.4:
-				chip_points.append(Vector2(x, y - 1.0))
+				chip_points.append(offset + Vector2(x, y - 1.0))
+		for point_index: int in line.size():
+			line[point_index] += offset
 		crack_lines.append(line)
 
 
 func _draw() -> void:
-	var size_px: Vector2 = get_size_px()
-	draw_rect(Rect2(Vector2.ZERO, size_px), BODY_COLOR)
+	var cells: Array[Vector2i] = get_cells()
+	for cell: Vector2i in cells:
+		draw_rect(Rect2(Vector2(cell) * TILE_SIZE, Vector2.ONE * TILE_SIZE), BODY_COLOR)
 	for line: PackedVector2Array in crack_lines:
 		draw_polyline(line, CRACK_COLOR, 1.0)
 	for chip: Vector2 in chip_points:
 		draw_rect(Rect2(chip.floor(), Vector2.ONE), CHIP_COLOR)
-	# The outline, 1 px inside the edge (draw_rect with filled = false draws on the
-	# rectangle's border, so it's inset by half a pixel to land on whole pixels).
-	draw_rect(Rect2(Vector2.ONE * 0.5, size_px - Vector2.ONE), OUTLINE_COLOR, false, 1.0)
+	# The outline, 1 px inside the edge, only where the wall meets something else.
+	_draw_outline(cells)
+
+
+## A 1 px line just inside each side of a cell that's on the wall's edge.
+func _draw_outline(cells: Array[Vector2i]) -> void:
+	var cell_set: Dictionary = {}
+	for cell: Vector2i in cells:
+		cell_set[cell] = true
+	for cell: Vector2i in cells:
+		var corner: Vector2 = Vector2(cell) * TILE_SIZE
+		if WallShape.is_open_side(cell_set, cell, Vector2i.UP):
+			draw_rect(Rect2(corner, Vector2(TILE_SIZE, 1.0)), OUTLINE_COLOR)
+		if WallShape.is_open_side(cell_set, cell, Vector2i.DOWN):
+			draw_rect(Rect2(corner + Vector2(0.0, TILE_SIZE - 1.0), Vector2(TILE_SIZE, 1.0)), OUTLINE_COLOR)
+		if WallShape.is_open_side(cell_set, cell, Vector2i.LEFT):
+			draw_rect(Rect2(corner, Vector2(1.0, TILE_SIZE)), OUTLINE_COLOR)
+		if WallShape.is_open_side(cell_set, cell, Vector2i.RIGHT):
+			draw_rect(Rect2(corner + Vector2(TILE_SIZE - 1.0, 0.0), Vector2(1.0, TILE_SIZE)), OUTLINE_COLOR)

@@ -226,6 +226,9 @@ These rules were agreed when planning the build. Where they differ from the sect
   - **Tap S to shatter a creation:** touching (standing on, or within 6 px of your sides) a stuck or loose rock, a hardened snake or a risen pillar, a tap of S breaks it into pebbles instead of tearing new earth; a whole snake crumbles outward from where you touch it. The earth it used stays spent. A loose rock beside you waits ~0.15 s to tell a tap (shatter) from a hold (lift it, as before).
   - **The breach widens itself** (`hidden_widen_breach`): when a dig opens a chamber through a gap only one tile wide, the fresh earth beside it crumbles too (beside the breach and up the dug hole), so the way in is always 2 tiles wide. Grass, gray rock, spent and hardened earth never crumble.
   - **Hidden chambers hide what's inside:** objects in a covered chamber are invisible and switched off until the crumble reaches them.
+- **Hidden chambers, after Stage W2:**
+  - **Walls and thicket open them too:** a cracked or stone wall breaking beside a covered cell opens the chamber with an *earthquake* (`hidden_quake_shake_*`, a bigger shake) and pebbles raining onto its floor (`hidden_quake_pebbles_per_cell`). Burnt-through (or elephant-smashed) thicket opens it like an overgrown cover does.
+  - **Peeking:** a chamber that opens straight onto the air can be walked into while covered. While the player is inside, it opens like a revealed chamber, but softly: the ground cross-fades from the covered look to the open one (`hidden_peek_fade_time`, eased), including the edges round it, and the things inside wake up and fade in; when the player leaves it fades back to covered and they're hidden again but keep running. A dig still opens it for good.
 - **Creation bases:** snakes and columns grow out of the ground they came from: no outline on the ground side, a ragged root into the ground tile, and a small fillet where they meet the surface.
 
 ---

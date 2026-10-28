@@ -65,6 +65,10 @@ extends Node2D
 ##     feeding it (flying_snake, _update_flying) after the hold ends. Jump drops it
 ##   - its head (the ball) SHOVES what it moves into once per touch, like a gust
 ##     (Pushable.try_push: crates, leaf piles, wisps; _shove_with_head)
+##   - a TRAIL snake (WaterTuning.snake_shape, the default since the re-planned ice)
+##     lies along the ball's own path in snapped runs; its leash is its length along
+##     that path (snake_max_length): at full length the ball stops unless it comes
+##     back. Frozen (2), its dots are taken without the ripple: the exact shape
 ## Water DOUSES (Stage W4): the ball (with water in it) and every point of a snake
 ## put out what burns where they are (Flammable.douse_near).
 ##
@@ -241,7 +245,8 @@ func release(throw: bool) -> void:
 
 ## 2 while holding (Stage W5, the freeze's first rule): the water in your hands
 ## freezes where it is, in the shape it's drawn with. With a snake it all becomes one
-## pillar standing in its pool; a ball alone becomes a block that falls from there. The hold
+## pillar standing in its pool; a ball alone becomes a block that hangs there (ice_hangs;
+## off: it falls). The hold
 ## ends (WaterHolding leaves when is_holding() turns false). Returns the ice, or
 ## null with empty hands (nothing happens, the hold goes on).
 func freeze_held() -> Node:
@@ -252,7 +257,7 @@ func freeze_held() -> Node:
 	var snake_area: float = 0.0
 	var has_snake: bool = snake != null
 	if has_snake:
-		dots.append_array(snake.get_dots(get_ball_radius() if ball_units > 0.0 else 0.0, hold_real_time))
+		dots.append_array(snake.get_dots(get_ball_radius() if ball_units > 0.0 else 0.0, hold_real_time, false))
 		snake_area = snake.area
 		snake.area = 0.0
 		snake = null
@@ -495,7 +500,14 @@ func _update_ball(real_delta: float) -> void:
 	var push_velocity: Vector2 = ball_velocity
 	# Not GENTLE, a snake never tears: it's a leash instead. The ball can't get
 	# farther from the foot than the snake can stretch.
-	if snake != null and tuning.snake_trigger != WaterTuning.SnakeTrigger.GENTLE:
+	if snake != null and snake.is_trail:
+		# A TRAIL: the leash runs along the trail. At full length the ball can only
+		# come back along it (or turn: a new run starts shorter).
+		var next_on_trail: Vector2 = ball_position + ball_velocity * real_delta
+		var next_length: float = snake.get_trail_length_to(next_on_trail)
+		if next_length > tuning.snake_max_length - 2.0 and next_length > snake.get_trail_length_to(ball_position):
+			ball_velocity = Vector2.ZERO
+	elif snake != null and tuning.snake_trigger != WaterTuning.SnakeTrigger.GENTLE:
 		var reach: float = tuning.snake_max_length / WaterSnake.ROPE_SLACK - 2.0
 		var foot: Vector2 = snake.get_foot()
 		var next: Vector2 = ball_position + ball_velocity * real_delta
@@ -581,11 +593,13 @@ func _make_ball_dots() -> PackedVector2Array:
 
 
 ## Solid for the ball: anything on physics layer 1 ("world": walls, floors, crates,
-## doors) at that world point.
+## doors) at that world point. With a snake hanging from it (Stage W6), pin tips too
+## (IcePins' layer "ice_catch"): the snake's head rests on a pin bed as its rope
+## does, so a snake laid along the pins freezes into a slide on them.
 func _is_solid(world_point: Vector2) -> bool:
 	var query: PhysicsPointQueryParameters2D = PhysicsPointQueryParameters2D.new()
 	query.position = world_point
-	query.collision_mask = 1
+	query.collision_mask = 1 | (IcePins.CATCH_LAYER_BIT if snake != null else 0)
 	return not get_world_2d().direct_space_state.intersect_point(query, 1).is_empty()
 
 

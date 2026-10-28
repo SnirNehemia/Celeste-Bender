@@ -756,7 +756,7 @@ func _check_f6_thicket(world: RoomManager, player: Player) -> void:
 		thicket_redness /= thicket_leaves.leaf_colors.size()
 	_check(cover_leaves != null and cover_leaves.leaf_anchors.size() > 20 and cover_redness > thicket_redness + 0.1,
 		"it grows the thicket's bush, its leaves browner (red/green %.2f vs %.2f)" % [cover_redness, thicket_redness])
-	_check(hidden.is_object_hidden(diamond) and not diamond.visible, "the diamond in the chamber is hidden")
+	_check(hidden.is_object_hidden(diamond) and diamond.modulate.a == 0.0, "the diamond in the chamber is hidden")
 	_check(painter.kinds.get(Vector2i(45, 17)) == GroundPainter.Kind.THICKET, "the covered chamber looks like the cover, not earth")
 	grid.ignite_at(room_e.global_position + Vector2(37 * 8, 20 * 8), 1.0, null)
 	await _wait_until(func() -> bool: return grid.get_state(Vector2i(41, 19)) == FireGrid.State.BURNING, 6.0)
@@ -773,7 +773,7 @@ func _check_f6_thicket(world: RoomManager, player: Player) -> void:
 	_check(all_gone, "it collapses all at once, within overgrown_flashover_time")
 	_check(not hidden.is_covered(Vector2i(45, 17)), "and the chamber behind it opens")
 	await get_tree().create_timer(1.0).timeout
-	_check(not hidden.is_object_hidden(diamond) and diamond.visible, "the fire diamond inside appears")
+	_check(not hidden.is_object_hidden(diamond) and diamond.modulate.a == 1.0, "the fire diamond inside appears")
 
 	# R: thicket, cover, chamber and diamond all back.
 	room_e.reset_objects()

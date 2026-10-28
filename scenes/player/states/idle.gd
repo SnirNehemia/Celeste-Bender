@@ -26,6 +26,10 @@ func physics_update(delta: float) -> void:
 	if player.wants_to_bend():
 		transition_requested.emit(&"EarthBend")
 		return
+	if player.wants_to_slide():
+		# Steep ice (Stage W6): no walking on it, it slides you down.
+		transition_requested.emit(&"Sliding")
+		return
 	player.apply_gravity(delta)
 	player.apply_horizontal_movement(delta)
 

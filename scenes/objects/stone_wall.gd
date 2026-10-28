@@ -8,9 +8,11 @@ extends StaticBody2D
 ## (death or R) puts it back.
 ##
 ## Place the node at the wall's TOP-LEFT corner, on the tile grid, and set its size in
-## tiles (wall_size_tiles). Like the cracked wall it's not part of any TileMapLayer:
-## the bend shadow and the GroundPainter treat its cells as open air, and it draws
-## itself (_draw).
+## tiles (wall_size_tiles), or give it any connected shape of cells (`wall_cells`;
+## the level editor's WallLayer does, one wall per painted group). Like the cracked
+## wall it's not part of any solid TileMapLayer: the bend shadow and the
+## GroundPainter treat its cells as open air, and it draws itself (_draw). Shape
+## code: WallShape. Breaking it opens the hidden chambers it touched, with a quake.
 ##
 ## Look: a heap of hardened boulders packed into the wall's box, like the Earth
 ## chapter's boulders but darker and harder: rows of rounded rocks (corners cut, a
@@ -57,17 +59,24 @@ const PEBBLES_PER_TILE: int = 2
 		wall_size_tiles = Vector2i(maxi(value.x, 1), maxi(value.y, 1))
 		_resize_hitbox()
 		queue_redraw()
+## Any shape: the wall's cells, in tiles from its origin. Empty = the
+## wall_size_tiles rectangle.
+@export var wall_cells: Array[Vector2i] = []:
+	set(value):
+		wall_cells = value
+		_resize_hitbox()
+		queue_redraw()
 
 var is_broken: bool = false
+## The first hitbox (one per rectangle of the shape, WallShape.make_hitboxes).
 var hitbox: CollisionShape2D
+var has_hitboxes: bool = false
 
 
 func _ready() -> void:
 	collision_layer = 1  # bit value of layer 1, "world": solid like the tiles
 	collision_mask = 0
-	hitbox = CollisionShape2D.new()
-	hitbox.shape = RectangleShape2D.new()
-	add_child(hitbox)
+	has_hitboxes = true
 	_resize_hitbox()
 	if Engine.is_editor_hint():
 		return
@@ -75,12 +84,20 @@ func _ready() -> void:
 	add_to_group(Room.RESETTABLE_GROUP)
 
 
+## The wall's cells, in tiles from its origin (WallShape.get_cells).
+func get_cells() -> Array[Vector2i]:
+	return WallShape.get_cells(wall_cells, wall_size_tiles)
+
+
+## The size in pixels of the wall's bounding box.
 func get_size_px() -> Vector2:
-	return Vector2(wall_size_tiles) * TILE_SIZE
+	return Vector2(WallShape.get_bounds(get_cells()).end) * TILE_SIZE
 
 
+## The wall's bounding box in world coordinates.
 func get_global_rect() -> Rect2:
-	return Rect2(global_position, get_size_px())
+	var bounds: Rect2i = WallShape.get_bounds(get_cells())
+	return Rect2(global_position + Vector2(bounds.position) * TILE_SIZE, Vector2(bounds.size) * TILE_SIZE)
 
 
 ## A charging elephant rammed it: it bursts, all at once. `hit_direction` = the
@@ -91,14 +108,15 @@ func break_open(hit_direction: Vector2) -> void:
 	is_broken = true
 	visible = false
 	collision_layer = 0
-	for column: int in wall_size_tiles.x:
-		for row: int in wall_size_tiles.y:
-			var tile_center: Vector2 = global_position + (Vector2(column, row) + Vector2.ONE * 0.5) * TILE_SIZE
-			_spawn_rubble(tile_center, hit_direction)
-			PebbleField.leave_colored_pebbles(get_tree(), tile_center, PEBBLES_PER_TILE, hit_direction, PEBBLE_COLORS)
+	var cells: Array[Vector2i] = get_cells()
+	for cell: Vector2i in cells:
+		var tile_center: Vector2 = to_global((Vector2(cell) + Vector2.ONE * 0.5) * TILE_SIZE)
+		_spawn_rubble(tile_center, hit_direction)
+		PebbleField.leave_colored_pebbles(get_tree(), tile_center, PEBBLES_PER_TILE, hit_direction, PEBBLE_COLORS)
 	FX.shake(4.0, 0.3)
 	FX.freeze(0.08)
 	FX.play_sfx(&"stone_wall_break")
+	WallShape.reveal_chambers_next_to(self, cells)
 	broken.emit()
 
 
@@ -109,12 +127,12 @@ func reset() -> void:
 	collision_layer = 1
 
 
+## One hitbox per rectangle of the shape.
 func _resize_hitbox() -> void:
-	if hitbox == null:
+	if not has_hitboxes:
 		return  # setter ran while the scene was loading; _ready() calls us again
-	var size_px: Vector2 = get_size_px()
-	(hitbox.shape as RectangleShape2D).size = size_px
-	hitbox.position = size_px / 2.0
+	var hitboxes: Array[CollisionShape2D] = WallShape.make_hitboxes(self, WallShape.get_rectangles(get_cells()))
+	hitbox = hitboxes[0] if not hitboxes.is_empty() else null
 
 
 ## Stone rubble: a one-shot burst of 1-3 px squares under gravity.
@@ -143,11 +161,18 @@ func _spawn_rubble(world_position: Vector2, direction: Vector2) -> void:
 
 
 func _draw() -> void:
-	var size_px: Vector2 = get_size_px()
-	draw_rect(Rect2(Vector2.ZERO, size_px), CREVICE_COLOR)
+	for rectangle: Rect2i in WallShape.get_rectangles(get_cells()):
+		_draw_rocks_in(rectangle)
+
+
+## The rocks of one rectangle of the shape (all of a rectangle wall).
+func _draw_rocks_in(rectangle: Rect2i) -> void:
+	var size_px: Vector2 = Vector2(rectangle.size) * TILE_SIZE
+	var offset: Vector2 = Vector2(rectangle.position) * TILE_SIZE
+	draw_rect(Rect2(offset, size_px), CREVICE_COLOR)
 	# A seeded random generator: the same wall looks the same every time.
 	var rock_random: RandomNumberGenerator = RandomNumberGenerator.new()
-	rock_random.seed = hash(wall_size_tiles)
+	rock_random.seed = hash(rectangle.size)
 	var y: int = 0
 	while y < int(size_px.y):
 		var row_height: int = mini(rock_random.randi_range(ROW_HEIGHT_MIN, ROW_HEIGHT_MAX), int(size_px.y) - y)
@@ -159,7 +184,7 @@ func _draw() -> void:
 			var rock_width: int = mini(rock_random.randi_range(ROCK_WIDTH_MIN, ROCK_WIDTH_MAX), int(size_px.x) - x)
 			if int(size_px.x) - x - rock_width < ROCK_WIDTH_MIN:
 				rock_width = int(size_px.x) - x
-			_draw_rock(Rect2(x, y, rock_width, row_height), rock_random)
+			_draw_rock(Rect2(offset.x + x, offset.y + y, rock_width, row_height), rock_random)
 			x += rock_width
 		y += row_height
 

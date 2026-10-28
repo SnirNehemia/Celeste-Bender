@@ -1032,6 +1032,8 @@ func take_loose_near(point: Vector2, reach: float, join: float) -> Array:
 ## blob); each drop belongs to the loop around it, or the nearest one. All the pieces
 ## of one freeze count as ONE toward the ice cap. Returns the biggest piece, or null
 ## for no water (every piece is in `last_freeze_pieces`).
+## With ice_hangs (the default since the re-planned ice) none of that: it's ONE piece
+## that stays where it froze (_freeze_hanging).
 func freeze_particles(points: PackedVector2Array, areas: PackedFloat32Array,
 		velocities: PackedVector2Array) -> Node:
 	last_freeze_pieces.clear()
@@ -1039,6 +1041,11 @@ func freeze_particles(points: PackedVector2Array, areas: PackedFloat32Array,
 		return null
 	var loops: Array[PackedVector2Array] = IceOutline.trace(points, velocities, water_tuning.blob_dot_radius,
 		water_tuning.blob_stretch, water_tuning.blob_threshold)
+	if water_tuning.ice_hangs:
+		var piece: Node = _freeze_hanging(points, areas, loops)
+		if piece != null:
+			last_freeze_pieces.append(piece)
+		return piece
 	# Per loop, the indices of its drops. Plain Arrays, not PackedInt32Arrays: a
 	# packed array taken out of an Array is a COPY, so appending to it would be lost.
 	var members: Array[Array] = []
@@ -1075,6 +1082,34 @@ func freeze_particles(points: PackedVector2Array, areas: PackedFloat32Array,
 			biggest = piece
 	current_freeze_id = -1
 	return biggest
+
+
+## ice_hangs (re-planned ice): ALL the frozen water is ONE piece that stays where it
+## froze, with no momentum. Its outline is every loop of the water as drawn (a splat
+## of separate blobs is one body with several parts). COMPACT: an IceBlock frozen in
+## place (a push makes it a puck); LONG: a static IcePiece (a frozen ribbon or
+## waterfall stands where it froze). Returns the piece, or null for no water.
+func _freeze_hanging(points: PackedVector2Array, areas: PackedFloat32Array,
+		loops: Array[PackedVector2Array]) -> Node:
+	var area: float = 0.0
+	var center: Vector2 = Vector2.ZERO
+	for index: int in points.size():
+		area += areas[index]
+		center += points[index] * areas[index]
+	if area <= 0.0:
+		return null
+	center /= area
+	if _is_long_spread(points, center) and not loops.is_empty():
+		var piece: IcePiece = IcePiece.make_pillar(self, loops, area)
+		_register_ice(piece, area)
+		return piece
+	# Compact: traced again with round drops (in flight its stretched dots would
+	# freeze its motion blur), unless that loses it.
+	var outlines: Array[PackedVector2Array] = IceOutline.trace(points, PackedVector2Array(),
+		water_tuning.blob_dot_radius, 0.0, water_tuning.blob_threshold)
+	if outlines.is_empty():
+		outlines = loops
+	return _make_free_ice(outlines, center, area, Vector2.ZERO, false)
 
 
 ## Which of `loops` the point is in (or nearest to: a drop on the outline's very

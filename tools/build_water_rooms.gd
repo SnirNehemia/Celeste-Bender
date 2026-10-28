@@ -33,6 +33,17 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     frozen into a pillar), a waterfall from a
 ##                                     source over a stream, a painted ice floor
 ##                                     (_build_room_water_e)
+##   - tests/rooms/room_water_f.tscn   Stage W6 ice slides and pins: a snake laid
+##                                     over a pin bed and frozen into a slide to ride
+##                                     over a spike pit, a pin bed to cross on a frozen
+##                                     ball, a crate to send down a slide onto a
+##                                     pressure plate that opens a door
+##                                     (_build_room_water_f)
+##   - tests/rooms/room_water_g.tscn   the re-planned ice: a trail snake drawn over
+##                                     a spike pit and frozen into a slide, a thrown
+##                                     ball frozen in the air as a step, a puck
+##                                     gusted along a frozen pool onto a plate
+##                                     (_build_room_water_g)
 ##   - resources/tiles/ice_tileset.tres  (Stage W5) the painted ice tile: pale cyan,
 ##                                     solid. Only written when missing.
 ##   - resources/tiles/water_tileset.tres  (Stage W1) the water tile: see-through blue,
@@ -50,7 +61,8 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_water_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- water_a` (names: water_a, water_b, water_c, water_d, water_e).
+## only those, e.g. `-- water_a` (names: water_a, water_b, water_c, water_d, water_e,
+## water_f, water_g).
 
 const WATER_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/water_layer.gd")
 const WATER_SOURCE_SCENE: PackedScene = preload("res://scenes/objects/water/water_source.tscn")
@@ -60,6 +72,9 @@ const WATER_WHEEL_SCENE: PackedScene = preload("res://scenes/objects/water/water
 ## so the editor shows what's behind it.
 const WATER_TILE_COLOR: Color = Color(0.18, 0.5, 0.82, 0.6)
 const WATER_TILE_LINE_COLOR: Color = Color(0.75, 0.89, 1.0, 0.8)
+const ICE_PINS_SCENE: PackedScene = preload("res://scenes/objects/water/ice_pins.tscn")
+const DOOR_SCENE: PackedScene = preload("res://scenes/objects/door.tscn")
+const PLATE_SCENE: PackedScene = preload("res://scenes/objects/pressure_plate.tscn")
 const ICE_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/ice_layer.gd")
 ## Painted ice: pale cyan, a white top line and a white streak (Water_bending.md §7.3).
 const ICE_TILE_COLOR: Color = Color("#BFEFFF")
@@ -86,6 +101,10 @@ func _ready() -> void:
 		_build_room_water_d()
 	if wanted.is_empty() or wanted.has("water_e"):
 		_build_room_water_e()
+	if wanted.is_empty() or wanted.has("water_f"):
+		_build_room_water_f()
+	if wanted.is_empty() or wanted.has("water_g"):
+		_build_room_water_g()
 	print("[BuildWaterRooms] Done.")
 	get_tree().quit()
 
@@ -428,3 +447,119 @@ func _build_room_water_e() -> void:
 	_add(WATER_SINK_SCENE, "ChannelDrain", Vector2(76 * TILE, 16 * TILE), {"sink_size": Vector2(16, 8)})
 
 	_finish_room(Vector2(3 * TILE, 16 * TILE), "res://tests/rooms/room_water_e.tscn")
+
+
+## A bed of ice pins (Stage W6) on the floor of tile row `row` + 1: the node at the
+## top-left of the cells in row `row`, `count` tiles long.
+func _pins(node_name: String, column: int, row: int, count: int) -> void:
+	_add(ICE_PINS_SCENE, node_name, Vector2(column * TILE, row * TILE), {"tile_count": count})
+
+
+## Water test room F (Stage W6): ice slides and pins. 60 x 23 tiles (480 px: it
+## scrolls), ground top at row 16 (y 128). Left to right:
+##   1. A PLATEAU (cols 1-6, top y 96) with a narrow deep POOL (cols 7-8, surface
+##      y 96) and a wall (col 9) beside it, then a PIN BED on the floor (cols 10-15,
+##      tips y 121) and a SPIKE PIT (cols 16-23, 64 px). Far too far to jump. Stand
+##      on the wall, raise a snake from the pool (1, then 3 and up), lay it down the
+##      pins to the right (its rope drapes over the tips), freeze it (2): a slide
+##      from the pool down to the pins. Ride it and jump off its end over the pit.
+##   2. A small POOL (cols 27-28) and a PIN BED (cols 30-37, 64 px): throw a ball
+##      over the pins and freeze it: it falls, the pins catch it, and it's a step.
+##   3. A low SHELF (cols 40-45, top y 104) with a CRATE on it and a one-tile pool
+##      (col 43) in it, a PIN BED below its right edge (cols 46-49), then a PRESSURE
+##      PLATE (x 416) wired to a DOOR (col 56). Lay a snake from the little pool down
+##      over the pins and freeze it; gust the crate (Z) onto the slide: it slides
+##      down, off the end and onto the plate, and the door opens.
+func _build_room_water_f() -> void:
+	_begin_room("RoomWaterF", "Water F: ice slides and pins (W6)",
+		"Stage W6 ice slides: pins kill you but catch ice. Lay a snake over a pin bed and freeze it (2) into a slide; on ice steeper than 15 degrees you slide (hold down: belly slide, faster). Slides are one-way (jump up through them). Jump off the slide's end over the pit. Freeze a thrown ball over the second pin bed: it sticks as a step. Gust the crate down a slide onto the plate to open the door.",
+		Vector2(480, 180))
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 60, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(59, 0, 1, 23)   # right wall
+	_gray(0, 16, 60, 7)   # the ground, top at y 128
+
+	# 1. Plateau, pool, wall, pins, spike pit.
+	_gray(1, 12, 6, 4)    # the plateau, rows 12-15: top at y 96
+	_open(7, 16, 2, 3)    # the pool goes on down into the ground: floor at y 152
+	_water(7, 12, 2, 7)   # rows 12-18: surface at y 96
+	_gray(9, 12, 1, 4)    # the wall beside it, top at y 96
+	_pins("SlidePins", 10, 15, 6)
+	_open(16, 16, 8, 2)   # the pit, rows 16-17
+	_spikes("PitSpikes", 16, 17, 8)
+
+	# 2. A pool to throw from and a pin bed to cross on a frozen ball.
+	_open(27, 16, 2, 3)
+	_water(27, 16, 2, 3)
+	_pins("StepPins", 30, 15, 8)
+
+	# 3. The shelf with the crate and its one-tile pool, pins, the plate and its door.
+	_gray(40, 13, 6, 3)   # rows 13-15: top at y 104
+	_open(43, 13, 1, 5)   # the one-tile pool, into the ground: floor at y 144
+	_water(43, 13, 1, 5)
+	_add(CRATE_SCENE, "SlideCrate", Vector2(41 * TILE, 13 * TILE))
+	_pins("ShelfPins", 46, 15, 4)
+	var plate: Node2D = _add(PLATE_SCENE, "SlidePlate", Vector2(52 * TILE, 16 * TILE), {"plate_width": 24.0})
+	var door: Node2D = _add(DOOR_SCENE, "SlideDoor", Vector2(56 * TILE, 1 * TILE), {"door_size": Vector2(TILE, 15 * TILE)})
+	var door_switches: Array[Switch] = [plate as Switch]
+	door.set("switches", door_switches)
+
+	_finish_room(Vector2(3 * TILE, 12 * TILE), "res://tests/rooms/room_water_f.tscn")
+
+
+## Water test room G (the re-planned ice, Water_bending.md §16 "Re-planned:
+## predictable ice"): ice HANGS where it froze, the snake is a TRAIL snapped to
+## 22.5° steps, pushed blocks are PUCKS. No pins. 60 x 23 tiles (480 px: it
+## scrolls), ground top at row 16 (y 128). Left to right:
+##   1. A PLATEAU (cols 1-8, top y 96) with a deep POOL in it (cols 5-7, surface
+##      y 96; col 8 is its wall), then a SPIKE PIT (cols 9-18, 80 px) too wide to jump. Stand by the
+##      pool, raise a snake (1 into the water, then hold 3 and lift), draw it out to
+##      the right and down at 22.5° (→ and ↘ mixed, or tap ↓ while holding →) over
+##      the pit, freeze it (2): a slide. Ride it, jump off its end.
+##   2. A small POOL (cols 23-24) and a LEDGE (cols 27-31) 40 px over the floor:
+##      throw a ball up toward it and freeze it (2) while it glints: it hangs there
+##      as a step.
+##   3. A small POOL (cols 33-34) and a POOL (cols 36-45, full to the ground's
+##      level) to freeze into a SHEET with the crystal (2 aimed down at it); a
+##      PRESSURE PLATE just past its right end (x 376) wired to a DOOR (col 54).
+##      Gather a ball from the small pool, set it down on the sheet's left end and
+##      freeze it (2), then gust it (Z) to the right: a puck, it slides along the ice
+##      and stops on the rock, on the plate. The door opens.
+func _build_room_water_g() -> void:
+	_begin_room("RoomWaterG", "Water G: predictable ice",
+		"Re-planned ice: frozen water HANGS where it froze (no momentum). The snake is a TRAIL (1 in water, hold 3 and lift): it lies exactly along the ball's path, snapped to 22.5 degree runs; steer back over it to rewind it. Draw a slide over the spike pit and freeze it (2). Freeze a thrown ball by the ledge as a step. Freeze the pool (crystal: 2 aimed at it), freeze a ball on it and gust it (Z): pucks slide on ice until something stops them; open the door with the plate.",
+		Vector2(480, 180))
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 60, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(59, 0, 1, 23)   # right wall
+	_gray(0, 16, 60, 7)   # the ground, top at y 128
+
+	# 1. Plateau with its pool, then the wide spike pit.
+	_gray(1, 12, 8, 4)    # the plateau, rows 12-15: top at y 96
+	_open(5, 12, 3, 7)    # the pool, rows 12-18: floor at y 152 (col 8 is its wall)
+	_water(5, 12, 3, 7)
+	_open(9, 16, 10, 2)   # the pit, rows 16-17
+	_spikes("PitSpikes", 9, 17, 10)
+
+	# 2. A pool to throw from and a ledge too high to jump.
+	_open(23, 16, 2, 3)
+	_water(23, 16, 2, 3)
+	_gray(27, 11, 5, 5)   # rows 11-15: top at y 88
+
+	# 3. A small pool for the puck's water, the pool to freeze, the plate, the door.
+	_open(33, 16, 2, 3)
+	_water(33, 16, 2, 3)
+	_open(36, 16, 10, 3)  # rows 16-18: floor y 152, surface at the ground's level
+	_water(36, 16, 10, 3)
+	var plate: Node2D = _add(PLATE_SCENE, "PuckPlate", Vector2(47 * TILE, 16 * TILE), {"plate_width": 24.0})
+	var door: Node2D = _add(DOOR_SCENE, "PuckDoor", Vector2(54 * TILE, 1 * TILE), {"door_size": Vector2(TILE, 15 * TILE)})
+	var door_switches: Array[Switch] = [plate as Switch]
+	door.set("switches", door_switches)
+
+	_finish_room(Vector2(3 * TILE, 12 * TILE), "res://tests/rooms/room_water_g.tscn")

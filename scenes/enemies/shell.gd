@@ -13,7 +13,8 @@ extends CharacterBody2D
 ##   WALK      a slow patrol at shell_walk_speed, turning at walls, ledges and spikes
 ##             (it never walks off or onto them by itself). Gravity: when the floor
 ##             under it goes (a thicket floor burns away) it FALLS, and walks on
-##             wherever it lands. Deadly to touch.
+##             wherever it lands. Deadly to touch. On an ice slope (Stage W6) it
+##             can't walk or stop: it slides down it (IceSlope.slide_object).
 ##   STAGGER   a small rock clonked it: it stops for shell_stagger_time, knocked back
 ##             shell_stagger_knockback px. Still deadly (it's armored, not stunned).
 ##   DEFEATED  a big rock cracked it open, or it was CRUSHED: slate and ochre pebbles,
@@ -184,7 +185,11 @@ func _physics_process(delta: float) -> void:
 		shove_speed = shove_direction * shove_step_speed
 		shove_remaining -= shove_step_speed * delta
 	push_speed = move_toward(push_speed, 0.0, fire_tuning.shell_push_decel * delta)
-	velocity.x = walk_speed + shove_speed + push_speed
+	if IceSlope.slide_object(self, GRAVITY, delta):
+		# On an ice slope (Stage W6) it can't walk or stop: it slides down it.
+		walk_speed = 0.0
+	else:
+		velocity.x = walk_speed + shove_speed + push_speed
 	move_and_slide()
 	if is_on_wall():
 		# Shoved into the wall (the snake, a small rock's knockback): crushed.

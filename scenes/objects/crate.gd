@@ -59,6 +59,10 @@ extends CharacterBody2D
 ## water lifts it with `buoyancy` (WaterTuning) times that share of gravity, so with
 ## buoyancy 2 it settles half under. Water drag slows it (no bouncing out again),
 ## and it slides down the slope of a passing wave, so it bobs and drifts on waves.
+##
+## ICE SLOPES (Stage W6, Water_bending.md §7.2): standing on ice steep enough to slide
+## on, it slides down (IceSlope.slide_object), so a slide can deliver a crate or an
+## ice block onto a pressure plate.
 ## Falling in pushes a wave (WaterWorld.push_at). Metal crates sink: drag only.
 
 ## Brown, per the color key (GAME_DESIGN.md §2), with darker planks.
@@ -285,11 +289,15 @@ func _physics_process(delta: float) -> void:
 	# In water, gravity minus the water's lift; that can be negative (it rises, even
 	# off a pool's floor).
 	var net_gravity: float = gravity - lift
-	if not was_on_floor or net_gravity < 0.0:
-		velocity.y = minf(velocity.y + net_gravity * delta, max_fall_speed)
-	# Friction: slide toward a stop, faster on the ground than in the air.
-	var friction: float = ground_friction if was_on_floor else air_friction
-	velocity.x = move_toward(velocity.x, 0.0, friction * delta)
+	# On an ice slope (Stage W6) it slides down it instead (IceSlope.slide_object
+	# sets the velocity along the slope).
+	var is_sliding_on_ice: bool = lift <= 0.0 and can_slide_on_ice() and IceSlope.slide_object(self, gravity, delta)
+	if not is_sliding_on_ice:
+		if not was_on_floor or net_gravity < 0.0:
+			velocity.y = minf(velocity.y + net_gravity * delta, max_fall_speed)
+		# Friction: slide toward a stop, faster on the ground than in the air.
+		var friction: float = ground_friction if was_on_floor else air_friction
+		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
 	var speed_before: Vector2 = velocity
 	# move_and_slide() also zeroes the part of velocity that runs into a wall,
 	# so a crate shoved into a wall just stops...
@@ -299,6 +307,12 @@ func _physics_process(delta: float) -> void:
 		velocity.x = -speed_before.x * air_wall_bounce
 	if global_position.y > start_position.y + fall_out_distance:
 		reset()
+
+
+## Does it slide down ice slopes (Stage W6)? Crates do; IceBlock says no for long
+## pieces (they lie where they land).
+func can_slide_on_ice() -> bool:
+	return true
 
 
 ## The box loose water bumps into (WaterWorld.SOLID_GROUP), global. None once it

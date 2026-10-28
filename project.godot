@@ -306,6 +306,7 @@ story_move_down={
 2d_physics/layer_4="pushable"
 2d_physics/layer_5="enemies"
 2d_physics/layer_6="flammable"
+2d_physics/layer_7="ice_catch"
 
 [rendering]
 

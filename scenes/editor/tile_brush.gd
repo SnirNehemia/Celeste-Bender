@@ -80,8 +80,10 @@ func begin_stroke(layer: TileMapLayer) -> void:
 
 
 func paint_cell(cell: Vector2i) -> void:
-	if _read(stroke_layer, cell) != EMPTY:
-		return  # already ground: nothing to do (its edge is already right)
+	var old_value: Vector3i = _read(stroke_layer, cell)
+	if old_value.x == SOURCE_ID and (Vector2i(old_value.y, old_value.z) == tile_plain or Vector2i(old_value.y, old_value.z) == tile_top_edge):
+		return  # already this terrain: nothing to do (its edge is already right)
+	# Another brush's tile on the same layer (the other cover look) is replaced.
 	_write(cell, Vector3i(SOURCE_ID, tile_plain.x, tile_plain.y))
 	_refresh_edge(cell)
 	_refresh_edge(cell + Vector2i.DOWN)  # it just got covered

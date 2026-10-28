@@ -1921,17 +1921,17 @@ func _check_hidden_objects(world: RoomManager, player: Player) -> void:
 	hidden.track_object(wisp)
 	await _wait_physics_frames(5)
 	var start_x: float = wisp.global_position.x
-	_check(hidden.is_object_hidden(wisp) and not wisp.visible and wisp.process_mode == Node.PROCESS_MODE_DISABLED,
+	_check(hidden.is_object_hidden(wisp) and wisp.modulate.a == 0.0 and wisp.process_mode == Node.PROCESS_MODE_DISABLED,
 		"a wisp inside a covered chamber is hidden and switched off")
 	await _wait_physics_frames(20)
 	_check(wisp.global_position.x == start_x, "...so it doesn't patrol")
 	hidden.reveal_chamber(Vector2i(13, 16))
 	await _wait_real(2.0)
-	_check(not hidden.is_object_hidden(wisp) and wisp.visible and wisp.process_mode == Node.PROCESS_MODE_INHERIT,
+	_check(not hidden.is_object_hidden(wisp) and wisp.modulate.a == 1.0 and wisp.process_mode == Node.PROCESS_MODE_INHERIT,
 		"the crumble reaching it brings the wisp back")
 	room.reset_objects()
 	await _wait_physics_frames(3)
-	_check(hidden.is_object_hidden(wisp) and not wisp.visible, "a room reset hides it again")
+	_check(hidden.is_object_hidden(wisp) and wisp.modulate.a == 0.0, "a room reset hides it again")
 	wisp.queue_free()
 	await _wait_physics_frames(2)
 	finished_sections.append("hidden-objects")

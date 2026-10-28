@@ -41,13 +41,19 @@ extends CharacterBody2D
 ##   │                     the crystal aims in GustAim
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
-##                         SnakeSteer, Jetting, WaterHolding, Dead
+##                         SnakeSteer, Jetting, WaterHolding, Sliding, Dead
 ##
 ## Ice (Stage W5, Water_bending.md §7.1): on an ice floor (IceBlock.ICE_GROUP: ice
 ## blocks, frozen shapes and sheets, painted ice tiles) you speed up and slow down
 ## slowly, can reach ice_max_run_scale x run speed, and a jump off ice keeps your
 ## speed (it fades gently in the air): long jumps. Ice walls give no grip (you slide
 ## down them faster). See apply_horizontal_movement and get_wall_slide_max_speed.
+##
+## Ice slides (Stage W6, Water_bending.md §7.2): on ice steeper than slide_min_angle
+## you can't walk: the Sliding state pulls you down the slope (states/sliding.gd).
+## Holding down there is a BELLY SLIDE: faster, and the hitbox is half as tall
+## (set_tucked). Slides are ONE-WAY: you land on them from above but pass through
+## them from below and the sides (_update_one_way_slides).
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed /
 ## fire_allowed).
@@ -144,6 +150,16 @@ var is_on_ice: bool = false
 ## gently instead of at air control's rate. Cleared on landing anywhere else, or
 ## once we're back down to run speed.
 var carries_ice_speed: bool = false
+## Belly-sliding (Stage W6): the hitbox is the low TUCK one (see set_tucked).
+var is_tucked: bool = false
+## The standing hitbox's shape and its tucked twin (half as tall), and where each sits.
+var standing_shape: RectangleShape2D
+var tucked_shape: RectangleShape2D
+var standing_hitbox_position: Vector2
+## The slides we pass through this frame (one-way, Stage W6): the bodies we hold a
+## collision exception with. Kept here because the engine's own list
+## (get_collision_exceptions) errors once one of them has been freed.
+var ignored_slides: Array[PhysicsBody2D] = []
 
 
 func _ready() -> void:
@@ -158,6 +174,11 @@ func _ready() -> void:
 	earth_bend.register_move(earth_column)
 	# The snake has no key of its own (D is free): a long A bend brings it out.
 	earth_bend.snake_move = earth_snake
+	# The belly slide's low hitbox (Stage W6): the same width, half the height.
+	standing_shape = hitbox.shape as RectangleShape2D
+	standing_hitbox_position = hitbox.position
+	tucked_shape = RectangleShape2D.new()
+	tucked_shape.size = Vector2(standing_shape.size.x, standing_shape.size.y / 2.0)
 
 
 ## _physics_process runs at a fixed rate (60 times/s by default), independent of the
@@ -170,6 +191,8 @@ func _physics_process(delta: float) -> void:
 	state_machine.physics_update(delta)
 	# 3) If we're about to clip a ceiling corner, shift sideways to slip past it.
 	_apply_ceiling_corner_correction(delta)
+	# 3b) One-way ice slides: solid only for feet above them (Stage W6).
+	_update_one_way_slides(delta)
 	# 4) Godot moves the body by velocity * delta, sliding along any solids it hits
 	#    and refreshing is_on_floor() / is_on_ceiling() / is_on_wall().
 	#    Remember the state BEFORE moving: after a landing, move_and_slide() has
@@ -193,6 +216,9 @@ func _update_timers(delta: float) -> void:
 		coyote_time_remaining = maxf(coyote_time_remaining - delta, 0.0)
 	# Ice: what we stand on, and whether a long jump off it is still carrying us.
 	is_on_ice = is_on_floor() and is_ice(get_floor_body())
+	# Out of the Sliding state, a belly slide stands back up (once there's room).
+	if is_tucked and state_machine.current_state.name != &"Sliding":
+		set_tucked(false)
 	if is_on_ice:
 		carries_ice_speed = true
 	elif is_on_floor() or absf(velocity.x) <= tuning.max_run_speed:
@@ -485,6 +511,105 @@ func is_ice(thing: Object) -> bool:
 	return node != null and node.is_in_group(IceBlock.ICE_GROUP)
 
 
+## Standing on ice steep enough to slide on (Stage W6)? Idle and Run then switch to
+## Sliding: you can't walk on a slope of ice.
+func wants_to_slide() -> bool:
+	return is_on_ice and IceSlope.is_slide_steep(get_slide_normal())
+
+
+## The slope of the ice we stand on, as its normal (IceSlope: from the ice's own
+## surface where it knows it), or ZERO off ice.
+func get_slide_normal() -> Vector2:
+	return IceSlope.get_ice_floor_normal(self)
+
+
+## A jump off a slide (Stage W6): the velocity along the slope is kept, and the jump
+## is added on top (a downhill slide's downward speed doesn't eat into it).
+func start_slide_jump() -> void:
+	consume_jump_press()
+	velocity.y = minf(velocity.y, 0.0) + tuning.jump_velocity * swim.get_jump_multiplier()
+	movement_effects.on_jumped()
+
+
+## Belly slide on or off (Stage W6): the hitbox becomes half as tall (its bottom stays
+## at the feet), and the white body is drawn low. Standing back up waits until the
+## full hitbox fits (a low ceiling over the end of a slide): returns false then.
+func set_tucked(tucked: bool) -> bool:
+	if tucked == is_tucked:
+		return true
+	if not tucked and not _has_room_to_stand():
+		return false
+	is_tucked = tucked
+	var shape: RectangleShape2D = tucked_shape if tucked else standing_shape
+	hitbox.shape = shape
+	hitbox.position = Vector2(0.0, -shape.size.y / 2.0)
+	visual.offset_top = -shape.size.y
+	return true
+
+
+## Would the standing hitbox fit where we are? (Asked before un-tucking.)
+func _has_room_to_stand() -> bool:
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = standing_shape
+	query.transform = Transform2D(0.0, global_position + standing_hitbox_position)
+	query.collision_mask = collision_mask
+	var excluded: Array[RID] = [get_rid()]
+	for body: PhysicsBody2D in ignored_slides:
+		excluded.append(body.get_rid())
+	query.exclude = excluded
+	return get_world_2d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+
+## ONE-WAY SLIDES (Stage W6): ice in IceBlock.SLIDE_GROUP holds us up only when our
+## feet are above it. Each frame, for every slide near us, we look at the ice's top
+## under our feet (left edge, middle, right edge): if the feet are above it
+## everywhere (within a little tolerance), we collide with it as usual; if not
+## (we're under it, or inside it coming up through it or from the side), we ignore
+## it for this frame. add_collision_exception_with() tells the physics engine "this
+## body and that one pass through each other", for move_and_slide AND test_move.
+## The tolerance grows with our sideways speed: running up a 45° slide, the ice
+## under the front foot rises by up to that much in one frame.
+func _update_one_way_slides(delta: float) -> void:
+	var feet_y: float = global_position.y
+	var hitbox_rect: Rect2 = get_hitbox_rect()
+	var tolerance: float = 2.0 + absf(velocity.x) * delta
+	var near: Rect2 = hitbox_rect.grow(8.0 + velocity.length() * delta)
+	for slide: Node in get_tree().get_nodes_in_group(IceBlock.SLIDE_GROUP):
+		var body: PhysicsBody2D = slide as PhysicsBody2D
+		if body == null:
+			continue
+		var bounds: Rect2 = slide.call(&"get_slide_bounds")
+		var solid: bool = true
+		if near.intersects(bounds):
+			var has_surface: bool = false
+			for x: float in [hitbox_rect.position.x + 0.5, hitbox_rect.get_center().x, hitbox_rect.end.x - 0.5]:
+				var top_y: float = slide.call(&"get_slide_top_y", x)
+				if top_y == INF:
+					continue
+				has_surface = true
+				if feet_y > top_y + tolerance:
+					solid = false
+			# Beside it (no ice under any foot): we may walk into its side, so pass.
+			solid = solid and has_surface
+		if solid:
+			if ignored_slides.has(body):
+				ignored_slides.erase(body)
+				remove_collision_exception_with(body)
+		elif not ignored_slides.has(body):
+			ignored_slides.append(body)
+			add_collision_exception_with(body)
+			# When it melts (or a reset frees it), forget it before it's gone.
+			body.tree_exiting.connect(_forget_slide.bind(body), CONNECT_ONE_SHOT)
+
+
+## A slide we were passing through leaves the tree: drop its exception while it
+## still exists.
+func _forget_slide(body: PhysicsBody2D) -> void:
+	if ignored_slides.has(body):
+		ignored_slides.erase(body)
+		remove_collision_exception_with(body)
+
+
 ## On the frame 1 (water_hands) is pressed where Water is allowed: true, and the
 ## caller switches to WaterHolding (the ball in slow motion, Water_bending.md §5.1).
 func try_start_water_hands() -> bool:
@@ -640,14 +765,11 @@ func _move_without_wall_floor_snap() -> void:
 ## The body we're standing on (a floor, crate, platform...), or null in the air.
 ## move_and_slide() records every contact it made last frame as a "slide collision";
 ## the floor is the one whose normal points up (the surface faces up_direction).
+## Held on the floor only by snapping (sliding down a slope, Stage W6) there's no such
+## contact: IceSlope.get_floor_contact then probes a little way down.
 func get_floor_body() -> Object:
-	if not is_on_floor():
-		return null
-	for collision_index: int in get_slide_collision_count():
-		var collision: KinematicCollision2D = get_slide_collision(collision_index)
-		if collision.get_normal().dot(up_direction) > MIN_FLOOR_NORMAL_UP:
-			return collision.get_collider()
-	return null
+	var collision: KinematicCollision2D = IceSlope.get_floor_contact(self)
+	return collision.get_collider() if collision != null else null
 
 
 ## The floor we stand on if it CATCHES WIND (has WIND_CATCHER_METHOD), else null.

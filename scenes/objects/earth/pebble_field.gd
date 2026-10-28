@@ -26,6 +26,10 @@ extends Node2D
 ## world "is this point solid?") and drawing them all in one _draw().
 ## Only the room the player is in simulates; the others keep their pebbles frozen.
 ## Capped per room (oldest go first); a room reset (death / R) clears them all.
+## COST (measured after Stage W2, per frame, current room): checking resting pebbles
+## (point queries) is most of it, about 0.5 us per pebble with REST_CHECK_FRAMES = 8;
+## each moving body's kick pass about 0.2 us per pebble; moving pebbles about 0.5 us
+## each; a redraw (only when something moved) about 0.2 us per pebble.
 ##
 ## Physics: a sensor Area2D covering the whole room, on layer 4 ("pushable") so gusts
 ## find it, looking at layers 1, 2 and 5 to notice crates, the player and wisps.
@@ -47,6 +51,9 @@ const MAX_UNBURY_DISTANCE: int = 16
 const UNBURY_DIRECTIONS: Array[Vector2] = [Vector2.UP, Vector2.LEFT, Vector2.RIGHT]
 ## Below this speed (px/s) a pebble on the ground stops simulating: it's resting.
 const REST_SPEED: float = 3.0
+## Resting pebbles are checked once every this many physics frames (each on its own
+## frame): those point queries are most of the field's cost.
+const REST_CHECK_FRAMES: int = 8
 ## Bumping a wall sideways, a pebble bounces back with this share of its speed.
 const WALL_BOUNCE: float = 0.3
 ## Kicks only reach pebbles this far above (negative) / below a body's feet, px.
@@ -411,14 +418,14 @@ func _apply_ash_forces(velocity: Vector2, wind: Vector2, is_on_ground: bool, del
 	return velocity
 
 
-## Resting pebbles are checked every 4th frame (each on a different frame, so the
-## work is spread out): did the ground go from under it, did something solid move
+## Resting pebbles are checked every REST_CHECK_FRAMES frames (each on a different
+## frame, so the work is spread out): did the ground go from under it, did something solid move
 ## onto it, did it end up in a sideways wind? Returns true if any woke up.
 func _check_resting_pebbles() -> bool:
 	var any_woke: bool = false
-	var check_slot: int = Engine.get_physics_frames() % 4
+	var check_slot: int = Engine.get_physics_frames() % REST_CHECK_FRAMES
 	for pebble_index: int in pebble_positions.size():
-		if pebble_is_moving[pebble_index] == 1 or pebble_index % 4 != check_slot:
+		if pebble_is_moving[pebble_index] == 1 or pebble_index % REST_CHECK_FRAMES != check_slot:
 			continue
 		var resting_position: Vector2 = pebble_positions[pebble_index]
 		# Buried (a rock stuck into the wall over it) or nothing underneath (a torn

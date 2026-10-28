@@ -237,6 +237,16 @@ extends Resource
 @export var hidden_widen_breach: bool = true
 ## Gravel bits per tile that crumbles to widen the breach.
 @export var hidden_breach_gravel_count: int = 4
+## A breaking wall (cracked or stone) that opens a chamber shakes the ground like an
+## EARTHQUAKE: a stronger, longer shake than a dig...
+@export var hidden_quake_shake_strength: float = 3.5
+@export var hidden_quake_shake_time: float = 0.5
+## ...and pebbles rain from the chamber's ceiling: this many per open-floored cell.
+@export var hidden_quake_pebbles_per_cell: int = 2
+## A chamber open to the air opens up while the player is in it (a PEEK): the ground
+## cross-fades from covered to open over this many seconds (eased), and back as long
+## when the player leaves.
+@export var hidden_peek_fade_time: float = 0.45
 
 @export_group("Pebbles")
 ## Earth effects leave pebbles that STAY on the ground (Stage E4d, PebbleField).
@@ -251,8 +261,10 @@ extends Resource
 ## long crawl doesn't carpet the floor.
 @export var shadow_path_pebble_fraction: float = 0.4
 ## At most this many pebbles lie in one room: when a new one would go over, the
-## oldest disappears.
-@export var pebble_max_per_room: int = 120
+## oldest disappears. Measured after Stage W2 (PebbleField header): the cost grows
+## with the count, about 0.25 ms a frame at 400 in the current room (only that room
+## simulates), so 400 is cheap; much past 1000 starts to show.
+@export var pebble_max_per_room: int = 400
 ## Gravity on a pebble, px/s². Close to the gravel's 420: pebbles are stones.
 @export var pebble_gravity: float = 400.0
 ## Speed a fresh pebble flies out at (min, max), px/s, along the gravel's direction.

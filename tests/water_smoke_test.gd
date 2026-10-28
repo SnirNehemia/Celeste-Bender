@@ -37,9 +37,9 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	# `-- W3` (any of W1 Swim W2 W3 W4 W5) runs only those sections: quicker while working on one.
+	# `-- W3` (any of W1 Swim W2 W3 W4 W5 W6 Ice) runs only those sections: quicker while working on one.
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
-	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "W5"]
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "W5", "W6", "Ice"]
 	if not wanted.is_empty():
 		sections.assign(Array(wanted))
 	if sections.has("W1"):
@@ -50,10 +50,19 @@ func _ready() -> void:
 		await _check_w2_loose_water(world, world.player)
 	if sections.has("W3"):
 		await _check_w3_water_hands(world, world.player)
+	# W4-W6 were built for the W4 rope and the W5 ice that keeps its momentum; the
+	# re-planned ice (section Ice) made a trail snake and hanging ice the defaults, so
+	# those sections switch the old behaviour back on (both are still F5 options).
+	_use_w5_ice(world.player, true)
 	if sections.has("W4"):
 		await _check_w4_water_snake(world, world.player)
 	if sections.has("W5"):
 		await _check_w5_freeze(world, world.player)
+	if sections.has("W6"):
+		await _check_w6_slides(world, world.player)
+	_use_w5_ice(world.player, false)
+	if sections.has("Ice"):
+		await _check_predictable_ice(world, world.player)
 
 	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
@@ -1398,6 +1407,455 @@ func _check_w5_freeze(world: RoomManager, player: Player) -> void:
 	_check(water.player_ice.is_empty() and water.ice_area == 0.0 and ice_left == 0,
 		"a reset clears all ice (%d pieces left)" % ice_left)
 	finished_sections.append("W5")
+
+
+## Stage W6: ice slides and pins (Water_bending.md §7.2, §16 "Planned in Stage W6"),
+## in room Water F. Room-local layout: ground top y 128; the plateau x 8-56 (top y 96),
+## its pool x 56-72 (surface y 96), the wall x 72-80 (top y 96), the slide pins x 80-128
+## (tips y 121), the spike pit x 128-192; a pool x 216-232, the step pins x 240-304;
+## the shelf x 320-368 (top y 104) with the crate (x 328) and a one-tile pool x 344-352,
+## the shelf pins x 368-400, the plate and the door further right.
+func _check_w6_slides(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterF") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water F is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water F has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var origin: Vector2 = room.global_position
+	_check(room.get_node("SlidePins") is IcePins and room.get_node("StepPins") is IcePins,
+		"Water F has its pin beds")
+	_check(ProjectSettings.get_setting("layer_names/2d_physics/layer_7") == "ice_catch",
+		"physics layer 7 is named ice_catch")
+	_check(player.state_machine.has_node("Sliding"), "the player has a Sliding state")
+
+	# Pins kill: dropped onto them, the player dies (then respawns on the plateau).
+	player.global_position = origin + Vector2(100.0, 110.0)
+	player.velocity = Vector2.ZERO
+	var died_on_pins: bool = false
+	for frame: int in 40:
+		await get_tree().physics_frame
+		if player.is_dead():
+			died_on_pins = true
+			break
+	_check(died_on_pins, "touching ice pins kills the player")
+	await _wait_for_respawn(player)
+	await _wait_until_calm(water)
+
+	# A compact block (a frozen ball) dropped on pins is IMPALED: it stops on the
+	# tips and stays there, a step.
+	var block: IceBlock = water.make_ice_block(Vector2(272.0, 70.0), 4.0 * WaterWorld.UNIT_AREA, Vector2.ZERO) as IceBlock
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var block_bottom: float = block.global_position.y - origin.y if is_instance_valid(block) else -1.0
+	_check(is_instance_valid(block) and block.is_impaled and absf(block_bottom - 121.0) < 1.5
+		and not block.is_in_group(Pushable.GROUP),
+		"a frozen ball dropped on pins sticks on their tips (bottom y %.1f, impaled %s)"
+			% [block_bottom, is_instance_valid(block) and block.is_impaled])
+	if is_instance_valid(block):
+		var block_position: Vector2 = block.global_position
+		block.velocity = Vector2(200.0, -100.0)  # as a gust would push it: nothing moves it now
+		for frame: int in 20:
+			await get_tree().physics_frame
+		_check(block.global_position == block_position, "an impaled block doesn't move")
+		var block_top: float = block.get_slide_top_y(block.global_position.x)
+		await _stand_at(player, Vector2(block.global_position.x, block_top - 0.5))
+		_check(player.is_on_floor() and not player.is_dead()
+			and absf(player.global_position.y - block_top) < 2.0,
+			"you can stand on the impaled block over the pins (feet y %.1f, top y %.1f)"
+				% [player.global_position.y - origin.y, block_top - origin.y])
+
+	# A falling frozen RIBBON lying at an angle: the pins catch it at that angle, and
+	# a long piece that flat is a SLIDE.
+	var ribbon_outline: PackedVector2Array = PackedVector2Array([Vector2(84.0, 40.0), Vector2(124.0, 60.0),
+		Vector2(124.0, 66.0), Vector2(84.0, 46.0)])
+	var ribbon_outlines: Array[PackedVector2Array] = [ribbon_outline]
+	var ribbon: IceBlock = water._make_free_ice(ribbon_outlines, Vector2(104.0, 53.0),
+		240.0, Vector2.ZERO, true) as IceBlock
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(is_instance_valid(ribbon) and ribbon.is_impaled and ribbon.is_slide
+		and absf(ribbon.global_position.y - origin.y - 121.0) < 1.5
+		and ribbon.is_in_group(IceBlock.SLIDE_GROUP),
+		"a falling frozen ribbon is caught by the pins at its angle, and it's a slide (%.1f deg, bottom y %.1f)"
+			% [IceOutline.lying_angle_degrees(ribbon.outlines), ribbon.global_position.y - origin.y])
+	var upright: IcePiece = water.make_ice_shape(PackedVector2Array([Vector2(204.0, 126.0), Vector2(206.0, 90.0)]),
+		1.5 * WaterWorld.UNIT_AREA) as IcePiece
+	_check(upright != null and not upright.is_slide, "a standing pillar is solid, not a slide")
+	room.reset_objects()
+	for frame: int in 3:
+		await get_tree().physics_frame
+
+	# The snake DRAPES over pins: stand on the wall, raise a snake from the pool, lay
+	# it down to the right over the pins and freeze it there.
+	var saved_trigger: WaterTuning.SnakeTrigger = tuning.snake_trigger
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.KEY
+	var hands: WaterHandsAbility = player.water_hands
+	await _stand_at(player, origin + Vector2(76.0, 96.0))
+	await _wait_until_calm(water)
+	player.facing_direction = -1.0
+	await _start_hold(player)
+	await _steer_ball_until([&"move_left", &"move_down"], func() -> bool: return hands.ball_position.y > origin.y + 110.0, 1.5)
+	await _steer_ball_until([], func() -> bool: return hands.ball_units >= tuning.ball_max_units - 0.001, 2.0)
+	Input.action_press(&"water_snake")
+	var raised: bool = await _steer_ball_until([&"move_up"],
+		func() -> bool: return hands.snake != null and hands.ball_position.y < origin.y + 84.0, 2.0)
+	Input.action_release(&"water_snake")
+	await _steer_ball_until([&"move_right"], func() -> bool: return hands.ball_position.x > origin.x + 100.0 or hands.snake == null, 1.5)
+
+	await _steer_ball_until([&"move_down"],
+		func() -> bool: return hands.ball_position.y > origin.y + 118.0 or hands.snake == null, 1.5)
+
+	# Let the rope settle on the tips.
+	await _steer_ball_until([], func() -> bool: return false, 0.4)
+	var snake: WaterSnake = hands.snake
+	var lowest_rope: float = -INF
+	if snake != null:
+		for point: Vector2 in snake.points:
+			var local: Vector2 = point - origin
+			if local.x > 82.0 and local.x < 126.0:
+				lowest_rope = maxf(lowest_rope, local.y)
+	print("[WaterSmokeTest] drape: raised %s, snake %s, ball %s, rope lowest y over the pins %.1f, last tear '%s'"
+		% [raised, snake != null, hands.ball_position - origin, lowest_rope, hands.last_tear_reason])
+	_check(lowest_rope > 112.0 and lowest_rope < 121.5,
+		"the held snake's rope drapes over the pin tips (lowest y %.1f over the pins, tips at 121)" % lowest_rope)
+	player.freeze.cooldown_remaining = 0.0
+	Input.action_press(&"water_freeze")
+	for frame: int in 20:
+		await get_tree().physics_frame
+		if not hands.is_holding():
+			break
+	Input.action_release(&"water_freeze")
+	Input.action_release(&"water_hands")
+	tuning.snake_trigger = saved_trigger
+	var draped: IcePiece = water.last_ice as IcePiece
+	# Its top over the pins, just above the tips (its head's round ball reaches a
+	# little below them, as the held ball overlaps a wall it rests against).
+	var draped_top: float = draped.get_slide_top_y(origin.x + 100.0) - origin.y if draped != null else -1.0
+	_check(draped != null and draped.is_slide and draped_top > 100.0 and draped_top < 121.0,
+		"frozen, the draped snake is a slide resting on the pins (%s, %.1f deg, its top over the pins y %.1f)"
+			% [water.last_ice, IceOutline.lying_angle_degrees(draped.outlines) if draped != null else -1.0, draped_top])
+	room.reset_objects()
+	for frame: int in 3:
+		await get_tree().physics_frame
+
+	# SLIDING down a slide from the pool over the pins: faster and faster, can't climb.
+	var slide: IcePiece = water.make_ice_shape(PackedVector2Array([Vector2(60.0, 86.0), Vector2(124.0, 116.0)]),
+		7.0 * WaterWorld.UNIT_AREA) as IcePiece
+	_check(slide != null and slide.is_slide, "a snake shape lying at 25 degrees is a slide")
+	if slide == null:
+		return
+	var speed_normal: float = await _slide_speed_at(player, slide, origin, false)
+	var speed_belly: float = await _slide_speed_at(player, slide, origin, true)
+	print("[WaterSmokeTest] slide speed at x 104: %.0f px/s, belly slide %.0f px/s" % [speed_normal, speed_belly])
+	_check(speed_normal > tuning.slide_lean_accel and speed_normal < tuning.slide_max_speed + 1.0,
+		"on the slide you slide down by yourself (%.0f px/s 40 px further down)" % speed_normal)
+	_check(speed_belly > speed_normal + 5.0, "holding down (the belly slide) is faster (%.0f vs %.0f px/s)" % [speed_belly, speed_normal])
+	_check(not player.is_tucked and absf(player.get_hitbox_rect().size.y - 11.0) < 0.01, "standing again after the belly slide")
+	# Pressing up the slope (left) doesn't climb it.
+	_place_on_slide(player, slide, origin, 96.0)
+	Input.action_press(&"move_left")
+	var sliding_seen: bool = false
+	for frame: int in 20:
+		await get_tree().physics_frame
+		sliding_seen = sliding_seen or player.state_machine.current_state.name == &"Sliding"
+	Input.action_release(&"move_left")
+	_check(sliding_seen and player.velocity.x > 0.0, "you can't walk up a slide: it slides you down (%.0f px/s)" % player.velocity.x)
+	await _wait_for_respawn(player)
+
+	# Ride it and jump off its end: the slide's speed carries you over the spike pit,
+	# which a jump from standing can't clear.
+	_place_on_slide(player, slide, origin, 64.0)
+	var jumped_at: float = -1.0
+	var landed_x: float = -1.0
+	for frame: int in 180:
+		await get_tree().physics_frame
+		if jumped_at < 0.0 and player.global_position.x > origin.x + 112.0 and player.state_machine.current_state.name == &"Sliding":
+			jumped_at = player.global_position.x - origin.x
+			Input.action_press(&"jump")
+		if player.is_dead():
+			break
+		if jumped_at >= 0.0 and player.global_position.x > origin.x + 140.0 and (player.is_on_floor() or player.swim.is_in_water()):
+			landed_x = player.global_position.x - origin.x
+			break
+	Input.action_release(&"jump")
+	_check(jumped_at >= 0.0 and not player.is_dead() and landed_x >= 192.0,
+		"a jump off the slide's end clears the spike pit (jumped at x %.0f, landed at x %.0f, dead %s)"
+			% [jumped_at, landed_x, player.is_dead()])
+	# Stop there (the speed would carry on into the next pin bed).
+	player.global_position = origin + Vector2(200.0, 128.0)
+	player.velocity = Vector2.ZERO
+	await _wait_for_respawn(player)
+
+	# ONE-WAY: from under a slide you jump up through it and land on top.
+	room.reset_objects()
+	await get_tree().physics_frame
+	var low_slide: IcePiece = water.make_ice_shape(PackedVector2Array([Vector2(192.0, 108.0), Vector2(220.0, 112.0)]),
+		2.5 * WaterWorld.UNIT_AREA) as IcePiece
+	await _stand_at(player, origin + Vector2(205.0, 128.0))
+	Input.action_press(&"jump")
+	var stood_on_top: bool = false
+	for frame: int in 60:
+		await get_tree().physics_frame
+		if player.is_on_floor() and player.global_position.y < origin.y + 112.0:
+			stood_on_top = true
+			break
+	Input.action_release(&"jump")
+	_check(low_slide != null and low_slide.is_slide and stood_on_top,
+		"slides are one-way: you jump up through one from below and land on top (feet y %.1f)"
+			% (player.global_position.y - origin.y))
+
+	# A RAMP: a slide that curves up at its end launches you.
+	room.reset_objects()
+	await get_tree().physics_frame
+	var ramp: IcePiece = water.make_ice_shape(PackedVector2Array([Vector2(240.0, 70.0), Vector2(284.0, 100.0),
+		Vector2(296.0, 98.0), Vector2(304.0, 92.0)]), 7.0 * WaterWorld.UNIT_AREA) as IcePiece
+	var launched: bool = false
+	if ramp != null:
+		_place_on_slide(player, ramp, origin, 246.0)
+		var was_sliding: bool = false
+		for frame: int in 90:
+			await get_tree().physics_frame
+			was_sliding = was_sliding or player.state_machine.current_state.name == &"Sliding"
+			if was_sliding and not player.is_on_floor() and player.velocity.y < -20.0 and player.global_position.x > origin.x + 285.0:
+				launched = true
+				break
+	_check(ramp != null and launched, "a slide curving up at its end launches you off its lip (vy %.0f)" % player.velocity.y)
+	await _wait_for_respawn(player)
+
+	# Things slide too: a crate set on a slide over the shelf pins slides down, off its
+	# end and onto the plate: the door opens.
+	room.reset_objects()
+	await get_tree().physics_frame
+	await _stand_at(player, origin + Vector2(24.0, 96.0))
+	var crate: Crate = room.get_node("SlideCrate") as Crate
+	var plate: PressurePlate = room.get_node("SlidePlate") as PressurePlate
+	var crate_slide: IcePiece = water.make_ice_shape(PackedVector2Array([Vector2(350.0, 100.0), Vector2(398.0, 117.0)]),
+		4.0 * WaterWorld.UNIT_AREA) as IcePiece
+	if crate_slide != null:
+		crate.global_position = Vector2(origin.x + 360.0, crate_slide.get_slide_top_y(origin.x + 360.0) - 1.0)
+		crate.velocity = Vector2.ZERO
+	var crate_max_speed: float = 0.0
+	for frame: int in 180:
+		await get_tree().physics_frame
+		crate_max_speed = maxf(crate_max_speed, crate.velocity.length())
+		if plate.is_on():
+			break
+	print("[WaterSmokeTest] crate down the slide: at x %.0f, top speed %.0f px/s" % [crate.global_position.x - origin.x, crate_max_speed])
+	_check(crate_slide != null and crate_max_speed > 60.0 and plate.is_on(),
+		"a crate on a slide slides down it and onto the plate, which opens the door (crate x %.0f)"
+			% (crate.global_position.x - origin.x))
+
+	room.reset_objects()
+	for frame: int in 3:
+		await get_tree().physics_frame
+	finished_sections.append("W6")
+
+
+## The re-planned ice (Water_bending.md §16 "Re-planned: predictable ice"), in room
+## Water G: frozen water hangs where it froze as one piece, a push makes a compact
+## block a puck (it drops straight in the air, glides on ice, stops on rock), and the
+## snake is a TRAIL snapped to 22.5° runs that rewinds and freezes in its exact shape.
+func _check_predictable_ice(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterG") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water G is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water G has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var freeze: FreezeAbility = player.freeze
+	var origin: Vector2 = room.global_position
+	_check(tuning.ice_hangs and tuning.snake_shape == WaterTuning.SnakeShape.TRAIL
+		and is_equal_approx(tuning.snake_trail_angle_step, 22.5),
+		"the defaults: ice hangs, the snake is a trail, runs snap to 22.5 degrees")
+	await _stand_at(player, origin + Vector2(24.0, 96.0))
+	await _wait_until_calm(water)
+
+	# A live throw frozen in flight HANGS: no momentum, no fall, one piece.
+	water.throw_ball(Vector2(208.0, 70.0), Vector2(60.0, -80.0), 4.0)
+	var books: float = water.get_books_units()
+	for frame: int in 6:
+		await get_tree().physics_frame
+	freeze.cooldown_remaining = 0.0
+	var thrown_ice: Node = freeze.freeze_last_throw()
+	var block: IceBlock = thrown_ice as IceBlock
+	_check(block != null and block.is_frozen_in_place and water.last_freeze_pieces.size() == 1,
+		"the live throw freezes into ONE block frozen in place (%s, %d piece(s))" % [thrown_ice, water.last_freeze_pieces.size()])
+	if block == null:
+		return
+	var hang_position: Vector2 = block.global_position
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(is_instance_valid(block) and block.global_position == hang_position,
+		"it hangs where it froze (moved %.2f px in 1 s)" % (block.global_position.distance_to(hang_position) if is_instance_valid(block) else -1.0))
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books count the hanging ice")
+	var block_top: float = block.get_slide_top_y(block.global_position.x)
+	await _stand_at(player, Vector2(block.global_position.x, block_top - 0.5))
+	_check(player.is_on_floor() and absf(player.global_position.y - block_top) < 2.0
+		and block.global_position == hang_position,
+		"you can stand on it in the air and it stays put (feet y %.1f, top y %.1f)"
+			% [player.global_position.y - origin.y, block_top - origin.y])
+	# Knocked loose in the air: it drops straight down, its sideways push dropped.
+	await _stand_at(player, origin + Vector2(24.0, 96.0))
+	block.receive_gust(Vector2.RIGHT, 160.0)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(is_instance_valid(block) and not block.is_frozen_in_place and block.is_on_floor()
+		and absf(block.global_position.x - hang_position.x) < 0.5,
+		"a gust knocks it loose: it falls straight down and lands (x moved %.2f px)"
+			% (block.global_position.x - hang_position.x if is_instance_valid(block) else -1.0))
+
+	# PUCKS: freeze the big pool into a sheet, freeze a ball resting on its left end,
+	# gust it: it glides along the ice without slowing and stops on the rock past it,
+	# on the plate.
+	var crystal: IceCrystal = IceCrystal.launch(room, origin + Vector2(328.0, 104.0), Vector2(0.0, 1.0), tuning)
+	var crystal_ice: Array[Node] = []
+	crystal.froze.connect(func(ice: Node) -> void: crystal_ice.append(ice))
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var sheet: IcePiece = null if crystal_ice.is_empty() else crystal_ice[0] as IcePiece
+	_check(sheet != null and sheet.is_sheet and sheet.sheet_rect.position.x <= 296.0 and sheet.sheet_rect.end.x >= 364.0,
+		"a crystal freezes the big pool into a sheet (%s)" % (sheet.sheet_rect if sheet != null else Rect2()))
+	if sheet == null or not sheet.is_sheet:
+		return
+	var sheet_top: float = sheet.get_slide_top_y(origin.x + 300.0) - origin.y
+	var puck: IceBlock = water.make_ice_block(Vector2(300.0, sheet_top - 9.5), 4.0 * WaterWorld.UNIT_AREA, Vector2.ZERO) as IceBlock
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(puck != null and puck.is_frozen_in_place, "a ball frozen on the sheet is frozen in place too")
+	puck.receive_gust(Vector2.RIGHT, 120.0)
+	for frame: int in 15:
+		await get_tree().physics_frame
+	var glide_speed: float = puck.velocity.x
+	_check(not puck.is_frozen_in_place and glide_speed > 115.0,
+		"gusted, it's a puck: it glides on the ice without slowing (%.0f px/s after 0.25 s, pushed at 120)" % glide_speed)
+	for frame: int in 120:
+		await get_tree().physics_frame
+	var plate: PressurePlate = room.get_node("PuckPlate") as PressurePlate
+	var puck_x: float = puck.global_position.x - origin.x
+	_check(absf(puck.velocity.x) < 1.0 and puck_x > sheet.sheet_rect.end.x and puck_x < sheet.sheet_rect.end.x + 24.0,
+		"off the ice it stops at once, just past the sheet's end (x %.0f, sheet ends at %.0f)" % [puck_x, sheet.sheet_rect.end.x])
+	_check(plate.is_on(), "the puck stopped on the plate: it's pressed")
+
+	# The TRAIL snake, driven directly (WaterSnake.update with chosen ball positions):
+	# straight up out of the plateau pool, then out to the right at 22.5 degrees.
+	var surface_local_y: float = water.get_surface_y_at(water.to_local(origin + Vector2(52.0, 100.0)))
+	var foot: Vector2 = Vector2(origin.x + 52.0, water.to_global(Vector2(0.0, surface_local_y)).y)
+	var snake: WaterSnake = WaterSnake.new(water, foot, foot + Vector2(0.0, -2.0))
+	_check(snake.is_trail, "a new snake is a trail")
+	var head: Vector2 = foot + Vector2(0.0, -2.0)
+	for step: int in 20:
+		head += Vector2(0.0, -1.0)
+		snake.update(1.0 / 60.0, head, Vector2(0.0, -60.0))
+	var rise_corners: int = snake.trail_corners.size()
+	var slope: Vector2 = Vector2.from_angle(deg_to_rad(22.5))
+	for step: int in 50:
+		# A wobbly hand: the ball wanders a little either side of the line.
+		head += slope + slope.orthogonal() * sin(step * 0.7) * 0.3
+		snake.update(1.0 / 60.0, head, slope * 60.0)
+	var run_angle: float = rad_to_deg(snake.run_direction.angle())
+	print("[WaterSmokeTest] trail: %d corners %s, run %.2f deg, length %.1f" % [snake.trail_corners.size(), snake.trail_corners, run_angle, snake.length])
+	_check(rise_corners == 1 and snake.trail_corners.size() == 2 and absf(run_angle - 22.5) < 0.01,
+		"the trail is one rise and one run snapped to exactly 22.5 degrees (%d corners, %.3f deg)" % [snake.trail_corners.size(), run_angle])
+	_check(snake.trail_corners.size() >= 2 and absf(snake.trail_corners[1].x - foot.x) < 0.01,
+		"the rise is snapped straight up from the foot")
+	if snake.trail_corners.size() < 2:
+		return
+	var off_line: float = 0.0
+	for point: Vector2 in snake.points:
+		if point.x > snake.trail_corners[1].x + 8.0:
+			off_line = maxf(off_line, absf(snake.run_direction.cross(point - snake.trail_corners[1])))
+	_check(off_line < 0.01, "past the rounded corner, the trail is a straight line (%.3f px off)" % off_line)
+	# Rewind: steered back down the run to the corner, then down the rise.
+	var corner: Vector2 = snake.trail_corners[1]
+	var length_before_rewind: float = snake.length
+	while head.distance_to(corner) > 1.0:
+		head = head.move_toward(corner, 1.0)
+		snake.update(1.0 / 60.0, head, -slope * 60.0)
+	head += Vector2(0.0, 3.0)
+	snake.update(1.0 / 60.0, head, Vector2(0.0, 60.0))
+	_check(snake.trail_corners.size() == 1 and snake.length < length_before_rewind * 0.6,
+		"steered back along it, the trail rewinds (%d corner(s), %.1f px)" % [snake.trail_corners.size(), snake.length])
+	# Out again at 22.5 degrees, then FREEZE it: the ice has the trail's exact slope.
+	for step: int in 50:
+		head += slope
+		snake.update(1.0 / 60.0, head, slope * 60.0)
+	var trail_area: float = snake.area
+	var trail_dots: PackedVector2Array = snake.get_dots(0.0, 0.0, false)
+	snake.area = 0.0
+	var books_before_freeze: float = water.get_books_units()
+	var slide: IcePiece = water.freeze_held(water.to_local(head), 0.0, true, trail_area, trail_dots) as IcePiece
+	_check(slide != null and slide.is_slide and slide.is_in_group(IceBlock.SLIDE_GROUP),
+		"the frozen trail is static ice, and a slide (%s)" % slide)
+	if slide == null:
+		return
+	var run_start_x: float = snake.trail_corners[snake.trail_corners.size() - 1].x + 12.0
+	var top_a: float = slide.get_slide_top_y(run_start_x)
+	var top_b: float = slide.get_slide_top_y(run_start_x + 24.0)
+	var ice_slope_degrees: float = rad_to_deg(atan2(top_b - top_a, 24.0))
+	_check(absf(ice_slope_degrees - 22.5) < 3.0,
+		"the slide's top runs at the trail's angle (%.1f degrees)" % ice_slope_degrees)
+	_check(absf(water.get_books_units() - books_before_freeze) < CONSERVATION_TOLERANCE,
+		"the trail's water is all in the ice (books %.3f -> %.3f)" % [books_before_freeze, water.get_books_units()])
+	# You slide down it.
+	_place_on_slide(player, slide, origin, run_start_x - origin.x)
+	var fastest: float = 0.0
+	var slid: bool = false
+	for frame: int in 40:
+		await get_tree().physics_frame
+		slid = slid or player.state_machine.current_state.name == &"Sliding"
+		fastest = maxf(fastest, player.velocity.length())
+	_check(slid and fastest > 80.0, "you slide down the frozen trail (%.0f px/s)" % fastest)
+	await _wait_for_respawn(player)
+	finished_sections.append("Ice")
+
+
+## W4-W6's behaviour (`on`): the W4 rope and the W5 ice that keeps its momentum; off:
+## the re-planned defaults (a trail, hanging ice).
+func _use_w5_ice(player: Player, on: bool) -> void:
+	player.water_tuning.snake_shape = WaterTuning.SnakeShape.ROPE if on else WaterTuning.SnakeShape.TRAIL
+	player.water_tuning.ice_hangs = not on
+
+
+## Waits (up to 2 s) until the player is alive and standing again, after a death.
+func _wait_for_respawn(player: Player) -> void:
+	for frame: int in 120:
+		await get_tree().physics_frame
+		if not player.is_dead() and player.is_on_floor():
+			return
+
+
+## Puts the player on `slide` at room-local x `local_x`, standing still.
+func _place_on_slide(player: Player, slide: IcePiece, origin: Vector2, local_x: float) -> void:
+	player.state_machine.transition_to(&"Fall")
+	player.global_position = Vector2(origin.x + local_x, slide.get_slide_top_y(origin.x + local_x) - 0.5)
+	player.velocity = Vector2.ZERO
+
+
+## Starts the player still on `slide` near its top (x 64) and returns its speed as it
+## passes room-local x 104, belly-sliding (down held) or not. Off the end it falls on
+## the pins: waits for the respawn.
+func _slide_speed_at(player: Player, slide: IcePiece, origin: Vector2, belly: bool) -> float:
+	_place_on_slide(player, slide, origin, 64.0)
+	if belly:
+		Input.action_press(&"move_down")
+	var speed: float = 0.0
+	for frame: int in 120:
+		await get_tree().physics_frame
+		if player.global_position.x > origin.x + 104.0:
+			speed = player.velocity.length()
+			break
+	Input.action_release(&"move_down")
+	await _wait_for_respawn(player)
+	return speed
 
 
 ## Steers the held ball into the narrow pool of Water D, right then down past

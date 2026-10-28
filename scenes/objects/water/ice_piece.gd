@@ -13,6 +13,9 @@ extends StaticBody2D
 ##     old ceiling and frozen water, to give them back when it melts
 ##     (WaterWorld._unfreeze_sheet).
 ## (Free ice, which flies on with its momentum, is IceBlock.)
+## SLIDES (Stage W6): a pillar lying flatter than slide_pillar_angle (a snake laid
+## along a pin bed and frozen) is a SLIDE, one-way for the player (IceBlock.SLIDE_GROUP:
+## you stand on it from above, jump up through it). Steeper pillars and sheets are solid.
 ##
 ## A child of the room at the room's origin, so its local coordinates are the room's
 ## (the WaterWorld's). Its collision is its outline split into convex parts. Drawn by
@@ -41,6 +44,8 @@ var sheet_old_ceilings: PackedFloat32Array = PackedFloat32Array()
 var sheet_areas: PackedFloat32Array = PackedFloat32Array()
 ## Each convex part's box (global), for loose water: worked out once (it never moves).
 var water_boxes: Array[Rect2] = []
+## A slide (Stage W6): see the header.
+var is_slide: bool = false
 
 
 ## A pillar with the outlines `room_outlines` (room-local), holding `area` px² of
@@ -89,6 +94,21 @@ func _ready() -> void:
 		water_boxes.append(Rect2(to_global(box.position), box.size))
 	look = IceLook.build(outlines, true)
 	material = IceLook.get_material()
+	is_slide = not is_sheet and IceOutline.lying_angle_degrees(outlines) < world.water_tuning.slide_pillar_angle
+	if is_slide:
+		add_to_group(IceBlock.SLIDE_GROUP)
+
+
+## The top of the ice at `global_x` (global y), or INF where there's none (one-way
+## slides: Player._update_one_way_slides).
+func get_slide_top_y(global_x: float) -> float:
+	var top: float = IceOutline.top_y_at(outlines, to_local(Vector2(global_x, 0.0)).x)
+	return to_global(Vector2(0.0, top)).y if top < INF else INF
+
+
+## The box around it (global).
+func get_slide_bounds() -> Rect2:
+	return get_bounds()
 
 
 ## Loose water bumps off each part's box (WaterWorld._collect_solid_boxes).

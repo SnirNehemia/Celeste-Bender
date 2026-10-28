@@ -42,6 +42,12 @@ extends Node2D
 ## earth. When a dug hole reaches one, we copy the picture first (_on_chamber_revealed),
 ## redraw the ground with the chamber open, and draw the copied cover on a second
 ## child, the COVER, fading and sinking cell by cell (HiddenLayer.get_cover_alpha).
+## A third child, the LID (z_index LID_Z_INDEX, in front of every object, spark and
+## gravel), draws the still-covered cells once more, so anything that flies or walks
+## into a covered chamber (a fireball, an orb, a rock, an enemy from outside) is
+## hidden by the ground itself, clipped exactly at the chamber's edge. The player
+## never stands in a lid cell: walking in starts a peek, which takes the chamber off
+## the lid (HiddenLayer.is_peeked).
 ##
 ## BURNT GRASS (Stage F5): in rooms with a FireGrid, grass cells that caught fire are
 ## painted with other palettes (FIRE_PALETTES): scorched while burning, charred while
@@ -81,6 +87,10 @@ extends Node2D
 
 enum Kind { AIR, GRAY, GRASS, EARTH, THICKET }
 
+## The lid's z_index (see HIDDEN CHAMBERS): in front of every object, spark, gravel
+## and bend shadow, so what's in a covered chamber stays hidden. High: z_index adds up
+## down the tree (a fireball is 5 and its ember trail 5 more, so 10).
+const LID_Z_INDEX: int = 100
 ## Crust thickness, px (from open air to where the edge line starts)...
 const CRUST_WIDTH: float = 5.0
 ## ...wobbling by up to this much either way, px...
@@ -207,6 +217,9 @@ var overlay: Node2D
 var cover: Node2D
 var cover_image: Image
 var cover_texture: ImageTexture
+## Child node drawing the covered (not peeked) chamber cells again, over every object
+## (see the header). Null in rooms without a Hidden layer.
+var lid: Node2D = null
 
 
 func _ready() -> void:
@@ -239,11 +252,22 @@ func _ready() -> void:
 	cover.name = "ChamberCover"
 	add_child(cover)
 	cover.draw.connect(_draw_cover)
+	# The lid over the covered chambers, in front of everything but the HUD (see the
+	# header: it hides whatever flies into a chamber, not just what was placed there).
+	if hidden_layer != null:
+		lid = Node2D.new()
+		lid.name = "ChamberLid"
+		lid.z_index = LID_Z_INDEX
+		add_child(lid)
+		lid.draw.connect(_draw_lid)
 	if earth_layer != null:
 		earth_layer.shape_changed.connect(rebuild)
 		earth_layer.look_changed.connect(overlay.queue_redraw)
+		if lid != null:
+			earth_layer.look_changed.connect(lid.queue_redraw)  # it skips cells with a state
 	if hidden_layer != null:
 		hidden_layer.chamber_revealed.connect(_on_chamber_revealed)
+		hidden_layer.peek_started.connect(_on_chamber_revealed)
 		hidden_layer.shape_changed.connect(rebuild)
 		hidden_layer.crumble_changed.connect(cover.queue_redraw)
 	if fire_grid != null:
@@ -256,6 +280,13 @@ func _ready() -> void:
 
 
 # --- Questions (tests, debugging) ----------------------------------------------------
+
+## True if the lid covers `cell` (a covered chamber cell nobody is peeking into):
+## anything there is hidden.
+func is_under_lid(cell: Vector2i) -> bool:
+	return lid != null and not hidden_layer.is_editing and hidden_layer.is_covered(cell) \
+		and not hidden_layer.is_peeked(cell)
+
 
 ## The ground's color at a pixel of the room (local px), or transparent for air.
 func get_pixel_color(pixel: Vector2i) -> Color:
@@ -317,6 +348,8 @@ func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RAD
 			texture.update(image)
 	queue_redraw()
 	overlay.queue_redraw()
+	if lid != null:
+		lid.queue_redraw()  # the covered cells changed, or the texture was remade
 
 
 ## Thicket burnt away or a cover collapsed or came back: redraw once at the end of
@@ -404,11 +437,17 @@ func _find_kinds() -> void:
 			elif overgrown_layer != null and overgrown_layer.has_cover(cell):
 				kind = Kind.THICKET if overgrown_layer.is_thicket_look(cell) else Kind.GRASS
 				overgrown_cells[cell] = true
-			elif hidden_layer != null and hidden_layer.is_covered(cell):
+			elif hidden_layer != null and _is_drawn_covered(cell):
 				kind = Kind.EARTH
 			if kind != Kind.AIR:
 				kinds[cell] = kind
 	_give_chambers_their_cover_look()
+
+
+## A covered hidden-chamber cell drawn as earth: not one being peeked into (that's
+## drawn open, its cover comes from the copy at a mist's opacity).
+func _is_drawn_covered(cell: Vector2i) -> bool:
+	return hidden_layer.is_covered(cell) and not hidden_layer.is_peeked(cell)
 
 
 ## Covered hidden chambers behind an overgrown cover take the cover's kind (a flood
@@ -422,14 +461,14 @@ func _give_chambers_their_cover_look() -> void:
 	for cover_cell: Vector2i in overgrown_cells:
 		for direction: Vector2i in EarthLayer.FACE_NORMALS:
 			var neighbour: Vector2i = cover_cell + direction
-			if hidden_layer.is_covered(neighbour) and not looks.has(neighbour):
+			if _is_drawn_covered(neighbour) and not looks.has(neighbour):
 				looks[neighbour] = kinds[cover_cell]
 				queue.append(neighbour)
 	while not queue.is_empty():
 		var cell: Vector2i = queue.pop_front()
 		for direction: Vector2i in EarthLayer.FACE_NORMALS:
 			var neighbour: Vector2i = cell + direction
-			if hidden_layer.is_covered(neighbour) and not looks.has(neighbour):
+			if _is_drawn_covered(neighbour) and not looks.has(neighbour):
 				looks[neighbour] = looks[cell]
 				queue.append(neighbour)
 	for cell: Vector2i in looks:
@@ -804,6 +843,8 @@ func _upload_picture() -> void:
 	is_upload_queued = false
 	texture.update(image)
 	queue_redraw()
+	if lid != null:
+		lid.queue_redraw()
 
 
 ## The fire state that colors pixel (x, y): the state of the cell under a point
@@ -896,14 +937,14 @@ func _draw_cracks(cell: Vector2i) -> void:
 			overlay.draw_rect(Rect2(origin + Vector2(start + Vector2i(step_x * step, step)), Vector2.ONE), CRACK_COLOR)
 
 
-## A hidden chamber is about to open (the picture still shows it covered): keep a copy
-## of the picture to draw the crumbling cover from. A chamber still crumbling from an
-## earlier reveal is already open in the picture, so its cells are copied over from
-## the previous cover copy.
+## A hidden chamber is about to open, or to be peeked into (the picture still shows it
+## covered): keep a copy of the picture to draw the cover from. A chamber still
+## crumbling or peeked from before is already open in the picture, so its cells are
+## copied over from the previous cover copy.
 func _on_chamber_revealed(_cells: Array[Vector2i]) -> void:
 	var snapshot: Image = image.duplicate() as Image
 	if cover_image != null:
-		for cell: Vector2i in hidden_layer.get_crumbling_cells():
+		for cell: Vector2i in hidden_layer.get_cover_cells():
 			var rect: Rect2i = Rect2i(cell * tile_size, Vector2i.ONE * tile_size)
 			snapshot.blit_rect(cover_image, rect, rect.position)
 	cover_image = snapshot
@@ -911,15 +952,53 @@ func _on_chamber_revealed(_cells: Array[Vector2i]) -> void:
 
 
 ## The cover: each crumbling chamber cell's piece of the copied picture, fading out
-## and sinking up to 2 px as it goes (whole pixels, so it stays crisp).
+## and sinking up to 2 px as it goes (whole pixels, so it stays crisp). A peek's
+## cells (the chamber and the ground round it) stay put, cross-fading to the new
+## picture under them.
 func _draw_cover() -> void:
 	if hidden_layer == null or cover_texture == null:
 		return
-	for cell: Vector2i in hidden_layer.get_crumbling_cells():
+	for cell: Vector2i in hidden_layer.get_cover_cells():
 		var alpha: float = hidden_layer.get_cover_alpha(cell)
 		if alpha <= 0.0:
 			continue
 		var source: Rect2 = Rect2(Vector2(cell * tile_size), Vector2.ONE * tile_size)
+		if not hidden_layer.crumble_clocks.has(cell):
+			# A peek's cross-fade: the old picture, in place, fading.
+			cover.draw_texture_rect_region(cover_texture, source, source, Color(1.0, 1.0, 1.0, alpha))
+			continue
 		var sink: float = roundf((1.0 - alpha) * 2.0)
 		cover.draw_texture_rect_region(cover_texture, Rect2(source.position + Vector2(0.0, sink), source.size),
 			source, Color(1.0, 1.0, 1.0, alpha))
+
+
+## The lid: each covered chamber cell that isn't being peeked into, its piece of the
+## picture again (it already shows the cover there), over everything in the room.
+## Crumbling cells are no longer covered, so they're left to the COVER.
+## Also the solid ground right round such a chamber: a fireball hitting the chamber's
+## inside wall bursts ON that ground (its sparks and stuck embers sit on the wall's
+## surface, outside the chamber's cells), and would show through it. Only the ground's
+## own pixels are drawn (air in the picture is see-through), so a hit on the OUTSIDE
+## of that ground still shows its sparks in the air. Cells with an earth state (used,
+## hardened: tinted by the EarthStates overlay) are skipped, not to undo their tint.
+func _draw_lid() -> void:
+	if texture == null or hidden_layer.is_editing:
+		return
+	var state_cells: Dictionary = {}
+	if earth_layer != null:
+		for cell: Vector2i in earth_layer.get_state_cells():
+			state_cells[cell] = true
+	var lid_cells: Dictionary = {}  # a set
+	for cell: Vector2i in hidden_layer.covered_cells:
+		if not is_under_lid(cell):
+			continue
+		lid_cells[cell] = true
+		for x: int in range(-1, 2):
+			for y: int in range(-1, 2):
+				var neighbour: Vector2i = cell + Vector2i(x, y)
+				if kinds.has(neighbour) and not hidden_layer.is_covered(neighbour) \
+						and not state_cells.has(neighbour):
+					lid_cells[neighbour] = true
+	for cell: Vector2i in lid_cells:
+		var rect: Rect2 = Rect2(Vector2(cell * tile_size), Vector2.ONE * tile_size)
+		lid.draw_texture_rect_region(texture, rect, rect)

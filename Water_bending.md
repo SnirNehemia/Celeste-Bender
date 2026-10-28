@@ -206,6 +206,8 @@ Water moves between three forms. Each form uses the cheapest model that still lo
 
 ## 7. Ice
 
+> **Re-planned (§16 "Re-planned: predictable ice", 28 Oct 2026):** ice hangs exactly where it froze; the snake is a trail snapped to 0/45/90°; slides come from trails and painted slope tiles; pins are gone; rafts carry you over black water. That entry overrides §5.3's shape table, §7.2's "frozen snakes and flung arcs are curved" and §7.3's block behaviour where they disagree.
+
 ### 7.1 Ice surfaces
 Starting values, all **(tune)**:
 
@@ -466,8 +468,8 @@ The first two stages build **only the water**, with no bending, and end with a p
 | **W3** | **Water hands:** `water_hands` / `water_freeze` actions on 1 / 2, `WaterHoldingState`, slow motion, the ring, ball steering, gathering (bodies, puddles, loose drops, flows), release with the boost, auto-release at the ring edge and after `max_hold_time`, jump cancel, orbs vs the held ball | Gather 4 units from one pool and throw them into another: the first is lower, the second higher |
 | **W4** | **Water snake:** rise-speed rule, rope, foot sliding along the surface, tear, draining while it rises, endless from flows, shoving, dousing, whip release | Raise a snake slowly and sweep a crate off a ledge; lift too fast and it tears and rains back |
 | **W5** | **Freeze and ice:** target order (held / last throw / touching / fizzle), ice blocks from compact water, static ice from long shapes, pool sheets, puddle and wet-tile ice, frozen streams and waterfalls, ice ground physics, ice cap, melting back to water | Freeze a thrown ball mid-air and land on the block; freeze a pool and long-jump off it; a melted pillar refills its pool |
-| **W6** | Ice slides: one-way polylines, `Sliding` state, slopes, ramps | Fling a snake arc over a spike pit, freeze it into a slide and ride it across |
-| **W7** | ~~Swimming~~ (built early, after play-test 1: §16 "Decided in Stage W1"), currents (they carry a swimmer), floating objects riding waves and streams, enemies in deep water | Swim through a pool, ride a stream on a floating crate |
+| **W6** | Predictable ice (re-scoped, §16 "Re-planned: predictable ice"): freeze hangs in place, one piece per freeze, pushed blocks become pucks, the trail snake snapped to 0/45/90° with retraction, frozen trails as ground/slide/pillar, painted ice slope tiles, pins removed; one-way slides, `Sliding` with belly slide, ramps, objects sliding down slopes kept | Draw a 45° trail from a pool, freeze it, slide down it and launch off its lip over a spike pit; freeze a thrown ball mid-air as a step to a high ledge; gust a puck along a frozen sheet onto a pressure plate |
+| **W7** | ~~Swimming~~ (built early, after play-test 1: §16 "Decided in Stage W1"), **black water** (kills, can't be gathered or frozen) and **ice rafts** (a ball frozen on a water surface), currents (they carry a swimmer and rafts), floating objects riding waves and streams, enemies in deep water | Carry clean water to a black-water channel, freeze a raft on it, gust it across; ride a stream on a floating crate |
 | **W8** | Wet layer: `SurfaceGrid` (from `FireGrid`), `Wettable`, soaking, mud, wet grass, wet ash → ashstone, heat dries, looks | Wet a floor three ways (ball, drop, waterfall); it looks wet; mud brakes an ice runway |
 | **W9** | Plants: tall grass (hiding, hidden objects, slow, big burn), vine growth, stalk and lily seeds, thicket branches; water scale, waterwheel, drain grate | Every row of §8.3 and §8.4 works in a test room |
 | **W10** | Combinations: mud rocks and gumming, douse table, steam burst / shot / jet-over-water, steam turbine, fire melts ice, gust on water | Every row of §9.1–9.3 works in a test room |
@@ -631,7 +633,7 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
     - A thrown ribbon or a waterfall is traced with its drops stretched as they're drawn (that's what joins a waterfall's beads into a column); a compact ball is traced round, so it doesn't freeze its motion blur.
     - Sheets follow the surface as it was (frozen waves).
     - `IceLook` draws all ice the same way: a see-through pale body, a darker underside band, a light top band, a 1 px rim, a small shine, and icicles under long pieces and sheets. `ice.gdshader` adds a glint band that slides with the player.
-  - *A frozen snake stayed in the air*: every free piece now keeps its momentum (`IceBlock` for all of them; its collision is its outline split into convex parts, and it never turns). COMPACT pieces are pushable blocks that slide and shatter; LONG pieces fly, then **lie still** where they land (not pushable, no shatter). Only a snake frozen in the hands, its foot in its pool, stays a standing pillar (`IcePiece`). A frozen waterfall falls too and stands where it lands. **W6 must re-plan slides**: they'll be pieces that landed as ramps, not arcs hanging in the air.
+  - *A frozen snake stayed in the air*: every free piece now keeps its momentum (`IceBlock` for all of them; its collision is its outline split into convex parts, and it never turns). COMPACT pieces are pushable blocks that slide and shatter; LONG pieces fly, then **lie still** where they land (not pushable, no shatter). Only a snake frozen in the hands, its foot in its pool, stays a standing pillar (`IcePiece`). A frozen waterfall falls too and stands where it lands. **W6 must re-plan slides**: they'll be pieces that landed as ramps, not arcs hanging in the air (done: §16 "Planned in Stage W6").
   - *Too quick to speed up on ice*: `ice_accel_scale` 0.15 → 0.03 (about 3 s to run speed), so speed on ice comes from gusts, jumps and launches, which the ice keeps. The x1.4 runway stays (developer's call): a long enough run still builds past run speed.
   - *A block under water turned back to water*: it shattered on the pool's floor (the fall was measured from above the water). Water now breaks a fall.
   - *Splats froze into one piece* (second look): a throw that had split into separate blobs became one IceBlock with several parts, so splats hung in the air together. Now each blob of the drawn outline is its own piece, with its own water and velocity (`freeze_particles` → `_freeze_blob`). All the pieces of one freeze share a freeze id, and the ice cap counts FREEZES, not pieces (`get_ice_freeze_count`), so a frozen splash can't melt your other ice; melting the oldest freeze melts all its pieces.
@@ -643,6 +645,86 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
   - jet and fireball melt combos beyond the Flammable hook (W10);
   - frozen wisps (W11);
   - the ice collar at a pillar's foot and skid sparks on ice (W12 look pass).
+
+### Planned in Stage W6 (ice slides, 28 Oct 2026)
+Play-test 5 made free ice fall and lie still where it lands, so the old W6 ("fling an arc over a spike pit and freeze it into a slide") no longer works: nothing holds ice up in the air. The developer's idea fixes that: **pins**.
+- **Ice pins** (developer's idea, refined; `IcePins`, placeable like spikes, floor-facing only):
+  - tall, thin pale needles, 2 per tile, 7 px tall **(tune)**. **Deadly to the player** with the same fairness as spikes (smaller hitbox than drawn; no kill while moving up), so you can't walk across a pin bed;
+  - **they impale ice** (developer's pick): any free ice (`IceBlock`, compact or long) whose shape touches a pin tip stops dead and stays there, static, at the angle it had (free ice never turns). A frozen ball dropped on pins becomes a fixed step; a falling frozen ribbon becomes a fixed slide;
+  - the held **snake's rope drapes over the pin tips** like it drapes over walls (W4), so you can lay a snake along a pin bed as a slope, press 2, and it freezes in place as a slide (developer's pick, "drape and freeze");
+  - loose water falls **through** pins (they're too thin to hold it): a pin bed never fills up;
+  - physics: the pins' tips are a thin static body on a new layer 7 "ice_catch" that only ice and the snake's rope queries look at; the deadly part is an Area2D on layer 3 "hazards", like spikes.
+- **Slides vs pillars:** long ice whose spine is flatter than 45° (the player's floor limit, `MIN_FLOOR_NORMAL_UP` 0.7) is a **SLIDE**; steeper is a **PILLAR**. Sheets and compact blocks are neither (solid, flat).
+- **Slides are one-way** (developer's pick, as §7.2 said): solid from above, you jump up through them from below and the sides, so a slide never traps you. Pillars, blocks and sheets stay fully solid.
+- **`Sliding` state** (§7.2, kept):
+  - on ice steeper than `slide_min_angle` 15° **(tune)** you slide: gravity along the slope `g · sinθ · slide_gravity_scale` (1.0), ice friction, arrows lean ±`slide_lean_accel` 40 px/s², capped at `slide_max_speed` (260 px/s, tune); you can't walk up it;
+  - flatter ice is W5's ice ground (slow to start, keeps speed);
+  - jumping off keeps your velocity (the whole vector along the slope) plus the normal jump; leaving a slide that curves up is a **ramp launch**: you fly on with your speed and it fades like a long jump off ice (`ice_air_overspeed_fade`);
+  - floor snap is longer while sliding (`slide_snap_length` 4 px) so you don't hop off small bumps going down; it never pulls you down off an upward lip.
+- **Claude's additions, picked by the developer:**
+  - **Things slide too:** crates, ice blocks and shells on an ice slope slide down it (same formula, their own friction), so a slide can deliver a block onto a pressure plate or slide a Shell off into a pit.
+  - **Belly slide:** holding down while Sliding tucks you in: no lean, gravity along the slope ×`belly_slide_scale` (1.25) and a higher cap, and a hitbox half as tall (with a stand-up check under low ceilings). The skill ceiling of slides.
+- **Not picked (parked):** pins in other facings (wall pins catching a thrown ribbon as a ledge, ceiling pins holding a frozen ball up); fire melting a pin's grip so a slide drops (W10 at the earliest).
+- **Room Water F:** a pool at the left edge of a pin bed (snake source), the bed sloping down toward a 64 px spike pit that's too wide for a run-speed jump; a high ledge to drop a frozen ball onto pins as a step; a slope down to a pressure plate that opens a door, with an ice block to send down it.
+
+### Decided in Stage W6 (ice slides and pins, 28 Oct 2026)
+- **Built as planned** ("Planned in Stage W6" above): `IcePins` (extends Spikes, floor only), impaling in `IceBlock`, the rope and the snake's head resting on pin tips, slides vs pillars, one-way slides, the `Sliding` state with the belly slide, crates / ice blocks / shells sliding down ice slopes, room Water F, the palette entry (Basics tab), the W6 smoke test section.
+- **Slide or pillar** is measured once, when the ice is made, along the principal axis of its outline (`IceOutline.lying_angle_degrees`), against `slide_pillar_angle` (45°). It's the overall lie: a snake laid over pins measured about 9° in the test because its foot stands in the pool. Whether you SLIDE on a spot depends only on the local slope there (`slide_min_angle`, 15°).
+- **One-way, done by hand:** Godot's one-way collision only checks a direction within about 45° of "up" and misbehaves on curved, multi-part shapes. So each frame the player compares its feet with the slide's top under its left edge, middle and right edge (`get_slide_top_y`): feet above everywhere (tolerance 2 px plus a frame of sideways movement), it collides; otherwise it gets a collision exception for that slide (`Player._update_one_way_slides`).
+- **Two Godot details** (both in `IceSlope`):
+  - after a move that ends on the floor, `move_and_slide()` drops the velocity's vertical part, so going down a slope the speed along it is read back from the horizontal speed (`velocity.x / tangent.x`). A dot product lost about 10 % a frame;
+  - a body held on the floor only by snapping has no slide collision, so `get_floor_contact` probes 2 px down (`Player.get_floor_body` uses it too).
+- **The slope comes from the ice's own surface** (its top 3 px either side of the body), not the contact's normal. A box resting on the rounded end of a frozen snake touches it at one corner, gets a flat normal, and would stand on the peak.
+- **Pins:** the tip strip is 4 px thick (its top is the tips), so a rope point sagging a few px in one step can't skip through it. Only the snake's rope and head rest on pins: a plain held ball and loose water go through.
+- **Measured in Water F:** from the top of a 25° slide, 40 px further down you're at 161 px/s (179 px/s belly-sliding); a jump off the end clears the 64 px spike pit. A crate set on a slide reaches 216 px/s and ends on the plate.
+- **Not built:** pins in other facings, fire melting a pin's grip (parked); skid sparks on slides (W12 look pass).
+
+### Re-planned: predictable ice (28 Oct 2026, developer's call mid-W6)
+**Why:** the W5/W6 ice looks great but plays too randomly for a skill game. Free ice flew on with the throw's momentum, its shape was whatever the metaballs happened to be (splats split into several pieces), the snake was a swinging rope, and pins caught all of it at random angles. The new rule: **you decide where ice goes, and it stays there.** The glass look (`IceOutline`, `IceLook`, `ice.gdshader`) stays as it is.
+
+- **Freeze = hang in place** (overrides §5.3 "Which shape", the W5 "keep their momentum" decision and the play-test 5 "every free piece keeps its momentum"):
+  - water that freezes stops dead and stays exactly where and how it froze: static, with no momentum, no falling and no turning. A ball frozen mid-air is a floating step, and the skill is freezing it at the right moment;
+  - **one freeze makes one piece** (splats no longer split into separate blobs): the drawn outline's blobs are joined into one body. The ice cap stays 6 freezes;
+  - the live window (1.5 s, half still loose) and the frost-ring indicator stay: they're what makes a mid-air step a timing skill and not a free platform.
+- **Hanging ice only moves when you push it:** a gust, the ball's shove or an Earth snake hitting a **compact** block knocks it loose. From then on it's a **puck**: it falls straight down (no sideways carry), and on flat ice it slides with no friction in a straight line until a wall, a crate or a drop stops it. Off ice it stops at once (ground friction). Pucks still shatter on a 48 px fall. Long ice (trails, waterfall columns, sheets) never moves.
+- **The snake is a trail, snapped to the arrow angles** (replaces the W4 verlet rope):
+  - its body lies **exactly along the path the ball took** since it left the water, with no sag and no swing. Each segment snaps to 0°, 45° or 90° (the arrows' 8 directions), and the corners between segments are rounded (a short arc, about 6 px radius **(tune)**), so a 45° run into a flat one makes a smooth ramp lip;
+  - steering the ball back over its own trail **retracts** it (rewinds the path), so mistakes can be undone while you're still holding;
+  - length is still paid for in water from the pool (1 unit per ~11 px) and capped by `snake_max_length`; the foot stays where the ball left the pool;
+  - frozen (rule 1, while holding) it becomes that exact shape as static ice: **flat segments are ice ground, 45° segments are slides, 90° segments are pillars** (wall-jumpable, no cling). Released, it flows out as today's ribbon;
+  - which trigger raises a snake (KEY / DOUBLE_TAP / GENTLE / REST) is still open: play-test it on the new trail.
+- **Slides:** one-way (solid from above), the `Sliding` state, belly slide, ramp launches and things sliding down slopes are all **kept** from W6. Only where slides come from changes: trails and painted slopes, not landed pieces.
+- **Designer-placed ice slopes:** the Ice tile layer gets 45° slope tiles (both facings, plus half-tile 22.5° pairs if a room needs a gentler slide) in the editor palette, drawn in the same glass look. Those are the fixed, learnable slides levels are built around; player ice is added on top.
+- **Ice pins are removed:** `IcePins`, physics layer 7 "ice_catch", impaling in `IceBlock` and the rope resting on pin tips. Their only job was catching flying ice. Spikes already cover "deadly floor".
+- **Ice rafts on black water** (new; a W7 item, since it needs currents):
+  - **Black water**: dark, inky water (a new color in §12.1) that **kills on touch**, can't be gathered and can't be frozen. Painted as its own tile type on the Water layer; it's still a height-field body (waves, floating), so rafts bob on it;
+  - **a raft** is a ball frozen while resting on any water surface: a flat floating slab, its width set by its water (4 units ≈ 3 tiles **(tune)**), about 6 px thick. It floats, bobs on waves, drifts with currents, and you push it with a gust, the ball's shove or the recoil of jumping off it. Its deck is ice ground (slippery: running on it is slow to start and slow to stop);
+  - so crossing black water means bringing clean water from elsewhere, setting it down on the black surface and freezing it there.
+- **Kept as core uses** (already in the spec; now the chapter's main ice verbs, next to trails, rafts and pucks): frozen waterfalls (a slick column to wall-jump, standing where it froze) and frozen streams as dams (§5.3); puddle runways frozen for the ×1.4 top speed, with mud at the end as the brake (§9.1, W8).
+- **What this changes in the build:**
+  - **W6 (re-scoped):** hang-in-place freezing, one piece per freeze, pucks, the trail snake with snapped angles and retraction, freezing a trail into ground/slide/pillar segments, painted ice slope tiles (+ palette), pins removed; Sliding, belly slide, ramps and sliding objects kept. Room Water F rebuilt without pins: draw a 45° trail from a pool down to a ramp lip over the spike pit; a mid-air ball frozen as a step to a high ledge; a puck gusted along a frozen sheet onto a pressure plate.
+  - **W7:** black water, rafts, then currents (as planned), with rafts riding them.
+
+### Built for play-test: predictable ice (28 Oct 2026)
+The developer's follow-ups: **start with 22.5°** (not 0/45/90), **the live window stays a tuning value** (`freeze_live_time`, F5 → Water → Freeze, now up to 10 s), and **W6 is parked**: the pins, the rope draping over them and room Water F stay as they are, untouched, and the re-planned ice is built next to them for play-testing.
+- **Two switches, so old and new can be compared in F5 → Water:**
+  - `snake_shape` (Water snake): **TRAIL** (the default) or ROPE (W4);
+  - `ice_hangs` (Freeze): on (the default) or off (W5: momentum, splats in pieces).
+  The W4-W6 smoke test sections switch both back to the old behaviour; the new section **Ice** checks the defaults.
+- **Hanging:** a freeze makes ONE piece (`WaterWorld._freeze_hanging`). Compact water becomes an `IceBlock` frozen in place (`is_frozen_in_place`); long water becomes a static `IcePiece`. A block frozen in water floats instead (water can't hold ice still).
+- **Pucks:** a gust or a launch (`receive_gust` / `receive_launch`) frees a block. Resting on something, it takes the push. In the air it drops straight (its sideways speed is zeroed until it lands). On ice its friction is `puck_ice_friction` (0); anywhere else it's `puck_ground_friction` (2000 px/s²: it stops within a few px). Measured: gusted at 120 px/s along a frozen pool, it was still at 119 px/s after 0.25 s, and it stopped 6 px onto the rock past the sheet.
+- **The trail** (`WaterSnake`, TRAIL):
+  - corners plus a current run. The run's direction is snapped to `snake_trail_angle_step` (22.5°), judged once the ball is `snake_trail_min_segment` (10 px) away from the run's start (the average direction, which is how 22.5° comes out of mixed arrows);
+  - straying more than `snake_trail_tolerance` (3 px) off the line makes a corner;
+  - coming back within 10 px of a run's start re-judges it, and on the run before it, rewinds;
+  - corners are rounded over `snake_trail_corner_radius` (6 px);
+  - the foot stays at the x where the ball left the pool;
+  - the leash is the length along the trail (`snake_max_length`);
+  - it sinks back only once it's been rewound to a stub;
+  - it's frozen without the drawn ripple.
+  - Measured: a wobbly 22.5° lift gave a run at exactly 22.50°, straight to 0.000 px past the corner. The frozen slide's top runs at 22.5°, and you slide down it at up to 240 px/s.
+- **Room Water G** (`-- water_g`, after F in the test world): a plateau pool by an 80 px spike pit (draw a slide), a small pool by a 40 px ledge (freeze a throw as a step), a small pool and a big one with a plate past its end and a door (freeze the pool, freeze a ball on it, gust the puck onto the plate).
+- **Not built yet:** painted ice slope tiles, black water and rafts (W7). The round ball at the end of a trail freezes with it as a bulb at the slide's end: watch for it in play-test.
 
 ### Open questions for play-test
 - **Reach:** is 1/2 comfortable with the index on C? If not, try jump on V, or rely on Space (§3.2).

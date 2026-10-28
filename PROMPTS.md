@@ -401,6 +401,13 @@ Spec v2 in `Water_bending.md`; stages W1–W13 are listed in its §14. W1 and W2
 
 *Decided while building (W5):* see Water_bending.md §16 "Decided in Stage W5".
 
+## Stage W6 — Ice slides and pins
+> Read Water_bending.md §7.1, §7.2, §14 and §16 "Decided in Stage W5" and "Planned in Stage W6" (the W6 planning replaced the old "fling an arc over a pit"). ICE PINS (`IcePins`, placeable like spikes along a floor row, palette Basics tab): needles 2 per tile, deadly to the player with the spikes' fairness (Area2D on "hazards"), and a thin static tip body on a new physics layer 7 "ice_catch". Free ice (`IceBlock`, compact or long) that touches a pin tip is IMPALED: it stops dead, static, at its angle, no longer pushable. The held snake's rope drapes over pin tips (its solid queries include ice_catch); loose water falls through pins. SLIDES vs PILLARS: long ice flatter than 45° is a slide, one-way (solid from above only); steeper long ice is a solid pillar; sheets and compact blocks stay solid. `Sliding` player state on ice steeper than `slide_min_angle` (15°): gravity along the slope × `slide_gravity_scale`, ice friction, arrows lean ±`slide_lean_accel`, cap `slide_max_speed`, can't walk up; longer floor snap while sliding (`slide_snap_length`), never off an upward lip; a jump keeps the velocity, a ramp lip launches you and the speed fades like a long jump off ice. BELLY SLIDE: hold down while sliding: no lean, × `belly_slide_scale`, half-height hitbox with a stand-up check. Crates, ice blocks and shells slide down ice slopes too. Every value in WaterTuning ("Slides"). Room Water F (§16). Smoke test W6 section: impaling (a ball dropped on pins sticks, a falling ribbon sticks at its angle), a draped snake frozen into a slide, one-way (jump up through it), sliding speed vs angle, the belly slide is faster, a ramp launch clears the pit, a block slides onto the plate, the player dies on pins, reset.
+
+**You should see:** in Water F, raise a snake from the pool and lay it along the pins; press 2: it freezes into a sloped glass slide resting on them. Step on: you slide down by yourself, faster holding down, and fly off the lip over the spike pit. Drop a frozen ball on the pins from the ledge: it sticks as a step. Push the ice block onto the slide: it slides down onto the plate and the door opens. Touch the pins: you die.
+
+*Decided while building (W6):* see Water_bending.md §16 "Decided in Stage W6".
+
 ---
 
 ## Tips for vibe coding with Claude Code

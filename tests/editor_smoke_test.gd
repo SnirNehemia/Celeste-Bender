@@ -50,10 +50,11 @@ func _ready() -> void:
 	await _check_l11_story()
 	await _check_l12_palette_tools()
 	await _check_l13_hidden_chambers()
+	await _check_l14_walls_and_peeks()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -1126,17 +1127,20 @@ func _check_l8_earth() -> void:
 	painter = room.get_node_or_null("GroundPainter") as GroundPainter
 	_check(painter.get_pixel_color(Vector2i(30 * 8 + 4, 10 * 8 + 4)).a > 0.0, "ground painted in an earth room shows in the picture")
 
-	# Walls: placed by the top-left corner, sized in tiles.
-	var wall: CrackedWall = editor.place_object(PaletteCatalog.get_entry(&"cracked_wall"), room, Vector2i(5, 10)) as CrackedWall
-	_check(wall.position == Vector2(40, 80) and PaletteCatalog.get_bounds(wall).size == Vector2(wall.wall_size_tiles) * 8.0,
-		"a cracked wall sits on the tile, outline from its size in tiles")
-	var handle: Dictionary = EditorHandles.get_handles(wall)[0]
-	var dragged_size: Variant = EditorHandles.value_for_drag(wall, handle, wall.global_position + Vector2(21, 30), false)
-	_check(dragged_size is Vector2i and dragged_size == Vector2i(3, 4), "its size handle works in whole tiles, got %s" % [dragged_size])
-	editor.set_property(wall, &"wall_size_tiles", dragged_size)
-	_check(PaletteCatalog.get_bounds(wall).size == Vector2(24, 32), "the outline follows")
-	var stone: StoneWall = editor.place_object(PaletteCatalog.get_entry(&"stone_wall"), room, Vector2i(30, 15)) as StoneWall
-	_check(stone != null and PaletteCatalog.get_bounds(stone).size == Vector2(stone.wall_size_tiles) * 8.0, "a stone wall too")
+	# Walls: painted as terrain (after Stage W2); each connected patch is one wall.
+	var wall_cells: Array[Vector2i] = []
+	for y: int in range(10, 14):
+		for x: int in range(5, 8):
+			wall_cells.append(Vector2i(x, y))
+	editor.paint_cells(room, wall_cells, true, PaletteCatalog.get_entry(&"cracked_wall"))
+	var wall_layer: CrackedWallLayer = room.get_node_or_null("CrackedWalls") as CrackedWallLayer
+	var wall: CrackedWall = wall_layer.get_wall_at(Vector2i(6, 11)) as CrackedWall if wall_layer != null else null
+	_check(wall != null and wall.global_position == room.global_position + Vector2(40, 80) and wall.get_size_px() == Vector2(24, 32),
+		"a painted 3x4 patch is one cracked wall there")
+	var stone_cells: Array[Vector2i] = [Vector2i(30, 15), Vector2i(31, 15), Vector2i(30, 16), Vector2i(31, 16)]
+	editor.paint_cells(room, stone_cells, true, PaletteCatalog.get_entry(&"stone_wall"))
+	var stone_layer: StoneWallLayer = room.get_node_or_null("StoneWalls") as StoneWallLayer
+	_check(stone_layer != null and stone_layer.get_wall_at(Vector2i(31, 16)) is StoneWall, "a stone wall too")
 
 	# Rock spots: nothing runs in the editor; in play a loose rock lies there.
 	var boulder_spot: RockSpot = editor.place_object(PaletteCatalog.get_entry(&"boulder"), room, Vector2i(20, 20)) as RockSpot
@@ -2102,16 +2106,155 @@ func _check_l13_hidden_chambers() -> void:
 	_check(not play_hidden.is_editing and play_hidden.is_covered(Vector2i(14, 12)), "in play the chamber is covered")
 	var play_painter: GroundPainter = play_room.get_node("GroundPainter") as GroundPainter
 	_check(play_painter.get_pixel_color(Vector2i(14 * 8 + 4, 12 * 8 + 4)).a > 0.0, "and drawn as earth")
-	_check(play_crate != null and play_hidden.is_object_hidden(play_crate) and not play_crate.visible, "the crate inside is hidden")
+	_check(play_crate != null and play_hidden.is_object_hidden(play_crate) and play_crate.modulate.a == 0.0, "the crate inside is hidden")
 	play_hidden.reveal_chamber(Vector2i(14, 12))
 	await get_tree().create_timer(1.5).timeout
-	_check(not play_hidden.is_covered(Vector2i(14, 12)) and play_crate.visible, "revealed, it opens and the crate comes back")
+	_check(not play_hidden.is_covered(Vector2i(14, 12)) and play_crate.modulate.a == 1.0, "revealed, it opens and the crate comes back")
 	editor.stop_playtest()
 	await get_tree().process_frame
 
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("L13 hidden chambers")
+
+
+## After the L13 play-test: walls are terrain brushes, every brush overwrites, and in
+## play a breaking wall or burnt thicket opens a chamber, while a chamber open to the
+## air shows its inside through a mist while the player is in it.
+func _check_l14_walls_and_peeks() -> void:
+	var path: String = LevelStorage.create_level("Walls Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var earth_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"earth")
+	var chamber_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"hidden_chamber")
+	_check(PaletteCatalog.get_entry(&"cracked_wall").kind == PaletteCatalog.Kind.TERRAIN and PaletteCatalog.get_entry(&"stone_wall").kind == PaletteCatalog.Kind.TERRAIN,
+		"cracked and stone walls are terrain brushes")
+	_check(PaletteCatalog.get_entry(&"thicket").display_name.contains("slowly") and PaletteCatalog.get_entry(&"overgrown_thicket").display_name.contains("at once"),
+		"thicket and the thicket cover are named by how they burn")
+
+	# A block of earth to carve into.
+	var block: Array[Vector2i] = []
+	for y: int in range(8, 19):
+		for x: int in range(10, 31):
+			block.append(Vector2i(x, y))
+	editor.paint_cells(room, block, true, earth_entry)
+	var earth: EarthLayer = room.get_node("Earth") as EarthLayer
+	# Chamber A behind a cracked wall; B open to the air (with a crate); C behind thicket.
+	var chamber_a: Array[Vector2i] = []
+	var chamber_b: Array[Vector2i] = []
+	var chamber_c: Array[Vector2i] = []
+	var entrance_b: Array[Vector2i] = []
+	for y: int in [12, 13]:
+		for x: int in range(12, 17):
+			chamber_a.append(Vector2i(x, y))
+			chamber_c.append(Vector2i(x, y + 4))
+		for x: int in range(22, 27):
+			chamber_b.append(Vector2i(x, y))
+		for x: int in range(27, 31):
+			entrance_b.append(Vector2i(x, y))
+	editor.paint_cells(room, chamber_a + chamber_b + chamber_c, true, chamber_entry)
+	editor.paint_cells(room, [Vector2i(17, 12), Vector2i(18, 12), Vector2i(17, 13), Vector2i(18, 13)], true, PaletteCatalog.get_entry(&"cracked_wall"))
+	_check(earth.get_cell_source_id(Vector2i(17, 12)) == -1, "painting a wall over earth replaces the earth")
+	editor.paint_cells(room, [Vector2i(17, 16), Vector2i(17, 17)], true, PaletteCatalog.get_entry(&"thicket"))
+	_check(earth.get_cell_source_id(Vector2i(17, 16)) == -1 and room.fire_allowed, "so does thicket (and it turns Fire on)")
+	editor.paint_cells(room, entrance_b, false, earth_entry)
+	var crate: Node2D = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(24, 13))
+	# Covers: one look replaces the other on their shared layer.
+	editor.paint_cells(room, [Vector2i(2, 2)], true, PaletteCatalog.get_entry(&"overgrown_thicket"))
+	editor.paint_cells(room, [Vector2i(2, 2)], true, PaletteCatalog.get_entry(&"overgrown_grass"))
+	var covers: TileMapLayer = room.get_node("Overgrown") as TileMapLayer
+	_check(covers.get_cell_atlas_coords(Vector2i(2, 2)) == ThicketLayer.GRASS_LOOK_TILE, "a grass cover painted over a thicket cover replaces it")
+	_check(RoomLook.get_exposed_chamber_edges(room).size() == 2, "chamber B's two cells by its entrance get red edges")
+
+	# An old wall OBJECT becomes tiles when the room is prepared for editing.
+	var old_wall: CrackedWall = (load("res://scenes/objects/earth/cracked_wall.tscn") as PackedScene).instantiate() as CrackedWall
+	old_wall.wall_size_tiles = Vector2i(1, 2)
+	old_wall.position = Vector2(40, 40)
+	room.add_child(old_wall)
+	old_wall.owner = editor.level_root
+	RoomLook.prepare_for_editing(room)
+	var wall_layer: CrackedWallLayer = room.get_node("CrackedWalls") as CrackedWallLayer
+	_check(old_wall.get_parent() == null and wall_layer.get_cell_source_id(Vector2i(5, 6)) != -1 and wall_layer.get_wall_at(Vector2i(5, 5)) != null,
+		"an old cracked wall object turns into painted wall tiles")
+
+	# In play.
+	_check(editor.start_playtest(), "play")
+	await get_tree().create_timer(0.3).timeout
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var hidden: HiddenLayer = play_room.get_node("Hidden") as HiddenLayer
+	var play_walls: CrackedWallLayer = play_room.get_node("CrackedWalls") as CrackedWallLayer
+	var wall: CrackedWall = play_walls.get_wall_at(Vector2i(17, 12)) as CrackedWall
+	_check(wall != null and wall.get_cells().size() == 4 and hidden.is_covered(Vector2i(14, 12)), "in play the 2x2 wall stands and chamber A is covered")
+	wall.break_open(Vector2.LEFT, preload("res://resources/earth_tuning.tres"))
+	_check(not hidden.is_covered(Vector2i(14, 12)) and hidden.is_covered(Vector2i(24, 12)), "breaking the wall opens chamber A (only)")
+	var fire_grid: FireGrid = play_room.get_node("FireGrid") as FireGrid
+	var thicket_cells: Array[Vector2i] = [Vector2i(17, 16), Vector2i(17, 17)]
+	fire_grid._crumble_thicket(thicket_cells)
+	_check(not hidden.is_covered(Vector2i(14, 16)), "burnt-through thicket opens chamber C")
+
+	# Peeking into chamber B.
+	var play_crate: Crate = null
+	for child: Node in play_room.get_children():
+		if child is Crate:
+			play_crate = child
+	var player: Player = get_tree().get_first_node_in_group(Player.GROUP) as Player
+	_check(play_crate != null and hidden.is_object_hidden(play_crate) and play_crate.modulate.a == 0.0, "the crate in chamber B starts hidden")
+	# The lid: covered cells drawn again over everything, so a fireball flying in hides.
+	var painter: GroundPainter = play_room.get_node("GroundPainter") as GroundPainter
+	_check(painter.lid != null and painter.lid.z_index > 6 and painter.is_under_lid(Vector2i(24, 12))
+		and not painter.is_under_lid(Vector2i(28, 12)), "the lid covers chamber B (in front of fireballs, z 5), not its open entrance")
+	# Something from outside flying in (here a bare Area2D, like a fireball) wakes the
+	# crate, still hidden under the lid.
+	var intruder: Area2D = Area2D.new()
+	var intruder_shape: CollisionShape2D = CollisionShape2D.new()
+	intruder_shape.shape = RectangleShape2D.new()
+	intruder.add_child(intruder_shape)
+	play_room.add_child(intruder)
+	intruder.global_position = play_room.global_position + Vector2(23 * 8 + 4, 12 * 8 + 4)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(not hidden.is_object_hidden(play_crate) and play_crate.process_mode != Node.PROCESS_MODE_DISABLED
+		and painter.is_under_lid(Vector2i(24, 12)), "a fireball flying in wakes what's inside (still under the lid)")
+	intruder.queue_free()
+	player.global_position = play_room.global_position + Vector2(25 * 8 + 4, 14 * 8)
+	player.velocity = Vector2.ZERO
+	await get_tree().create_timer(0.2).timeout
+	var edge_alpha: float = hidden.get_cover_alpha(Vector2i(21, 12))  # the earth beside chamber B
+	_check(edge_alpha > 0.0 and edge_alpha < 1.0 and play_crate.modulate.a > 0.0 and play_crate.modulate.a < 1.0,
+		"halfway in, the chamber's edges and the crate are cross-fading (edge cover %.2f, crate %.2f)" % [edge_alpha, play_crate.modulate.a])
+	await get_tree().create_timer(0.4).timeout
+	_check(hidden.is_peeked(Vector2i(24, 12)) and hidden.get_cover_alpha(Vector2i(24, 12)) == 0.0 and hidden.is_covered(Vector2i(24, 12)),
+		"walking into chamber B opens it fully, like a room (it stays covered for digging)")
+	_check(play_crate.visible and play_crate.modulate.a == 1.0 and play_crate.process_mode != Node.PROCESS_MODE_DISABLED, "and the crate inside shows and wakes up")
+	_check(not painter.is_under_lid(Vector2i(24, 12)), "a peeked chamber is off the lid")
+	player.global_position = play_room.global_position + Vector2(36 * 8, 4 * 8)
+	player.velocity = Vector2.ZERO
+	await get_tree().create_timer(0.6).timeout
+	_check(not hidden.is_peeked(Vector2i(24, 12)), "leaving, the cover comes back")
+	_check(painter.is_under_lid(Vector2i(24, 12)) and play_crate.process_mode != Node.PROCESS_MODE_DISABLED,
+		"the crate is under the lid again but keeps running")
+	# Something inside hides ITSELF while unseen (a wisp a fireball defeated): peeking
+	# again must not bring it back.
+	play_crate.visible = false
+	player.global_position = play_room.global_position + Vector2(25 * 8 + 4, 14 * 8)
+	player.velocity = Vector2.ZERO
+	await get_tree().create_timer(0.6).timeout
+	_check(hidden.is_peeked(Vector2i(24, 12)) and not play_crate.visible, "peeking again doesn't show what hid itself (a defeated wisp stays gone)")
+	play_crate.visible = true
+	play_room.reset_objects()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(hidden.is_covered(Vector2i(14, 12)) and play_walls.get_wall_at(Vector2i(17, 12)).visible, "a reset covers the chambers and puts the wall back")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L14 walls and peeks")
 
 
 func _button_texts(page: Node) -> Array[String]:
