@@ -26,6 +26,15 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     sweep off with a snake, and a wide pool on the
 ##                                     right to practise rising, tearing and whips
 ##                                     (_build_room_water_d)
+##   - tests/rooms/room_water_e.tscn   Stage W5 freeze and ice: a ledge too high to
+##                                     jump (freeze a thrown ball into a step), a
+##                                     pool beside spikes (freeze it, long-jump off
+##                                     it), a narrow pool under a high shelf (a snake
+##                                     frozen into a pillar), a waterfall from a
+##                                     source over a stream, a painted ice floor
+##                                     (_build_room_water_e)
+##   - resources/tiles/ice_tileset.tres  (Stage W5) the painted ice tile: pale cyan,
+##                                     solid. Only written when missing.
 ##   - resources/tiles/water_tileset.tres  (Stage W1) the water tile: see-through blue,
 ##                                     NO collision (water isn't solid). The picture is
 ##                                     stored inside the .tres. Only written when missing.
@@ -41,7 +50,7 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_water_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- water_a` (names: water_a, water_b, water_c, water_d).
+## only those, e.g. `-- water_a` (names: water_a, water_b, water_c, water_d, water_e).
 
 const WATER_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/water_layer.gd")
 const WATER_SOURCE_SCENE: PackedScene = preload("res://scenes/objects/water/water_source.tscn")
@@ -51,14 +60,21 @@ const WATER_WHEEL_SCENE: PackedScene = preload("res://scenes/objects/water/water
 ## so the editor shows what's behind it.
 const WATER_TILE_COLOR: Color = Color(0.18, 0.5, 0.82, 0.6)
 const WATER_TILE_LINE_COLOR: Color = Color(0.75, 0.89, 1.0, 0.8)
+const ICE_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/ice_layer.gd")
+## Painted ice: pale cyan, a white top line and a white streak (Water_bending.md §7.3).
+const ICE_TILE_COLOR: Color = Color("#BFEFFF")
+const ICE_TILE_EDGE_COLOR: Color = Color("#7FD0EC")
 
 ## Water cells of the room being built (a set: Vector2i -> true).
 var water_cells: Dictionary = {}
+## Painted ice cells of the room being built (a set), Stage W5.
+var ice_cells: Dictionary = {}
 
 
 func _ready() -> void:
 	log_prefix = "[BuildWaterRooms]"
 	_load_or_create_water_tileset()
+	_load_or_create_ice_tileset()
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
 	if wanted.is_empty() or wanted.has("water_a"):
 		_build_room_water_a()
@@ -68,6 +84,8 @@ func _ready() -> void:
 		_build_room_water_c()
 	if wanted.is_empty() or wanted.has("water_d"):
 		_build_room_water_d()
+	if wanted.is_empty() or wanted.has("water_e"):
+		_build_room_water_e()
 	print("[BuildWaterRooms] Done.")
 	get_tree().quit()
 
@@ -97,6 +115,50 @@ func _load_or_create_water_tileset() -> void:
 	print("[BuildWaterRooms] Wrote %s" % WaterLayer.TILESET_PATH)
 
 
+# --- Ice (Stage W5) -------------------------------------------------------------------
+
+func _make_ice_image() -> Image:
+	var image: Image = Image.create(TILE, TILE, false, Image.FORMAT_RGBA8)
+	image.fill(ICE_TILE_COLOR)
+	for x: int in TILE:
+		image.set_pixel(x, 0, Color.WHITE)
+		image.set_pixel(x, TILE - 1, ICE_TILE_EDGE_COLOR)
+	for step: int in 3:
+		image.set_pixel(2 + step, 5 - step, Color.WHITE)
+	return image
+
+
+func _load_or_create_ice_tileset() -> void:
+	if ResourceLoader.exists(IceLayer.TILESET_PATH):
+		return
+	var new_tile_set: TileSet = TileSet.new()
+	new_tile_set.tile_size = Vector2i(TILE, TILE)
+	new_tile_set.add_physics_layer()
+	new_tile_set.set_physics_layer_collision_layer(0, 1)  # layer 1, "world": solid ground
+	new_tile_set.set_physics_layer_collision_mask(0, 0)
+	var source: TileSetAtlasSource = TileSetAtlasSource.new()
+	source.texture = ImageTexture.create_from_image(_make_ice_image())
+	source.texture_region_size = Vector2i(TILE, TILE)
+	new_tile_set.add_source(source, 0)
+	source.create_tile(IceLayer.ICE_TILE)
+	var half: float = TILE / 2.0
+	var tile_data: TileData = source.get_tile_data(IceLayer.ICE_TILE, 0)
+	tile_data.add_collision_polygon(0)
+	tile_data.set_collision_polygon_points(0, 0, PackedVector2Array([
+		Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half),
+	]))
+	ResourceSaver.save(new_tile_set, IceLayer.TILESET_PATH)
+	print("[BuildWaterRooms] Wrote %s" % IceLayer.TILESET_PATH)
+
+
+## Paints ice into a rectangle of tiles (erases whatever ground was there).
+func _ice(column: int, row: int, width: int, height: int) -> void:
+	_open(column, row, width, height)
+	for x: int in range(column, column + width):
+		for y: int in range(row, row + height):
+			ice_cells[Vector2i(x, y)] = true
+
+
 ## Paints water into a rectangle of tiles (column, row, width, height).
 func _water(column: int, row: int, width: int, height: int) -> void:
 	for x: int in range(column, column + width):
@@ -108,12 +170,22 @@ func _begin_room(node_name: String, title: String, description: String,
 		size_px: Vector2 = Vector2(320, 180)) -> void:
 	super(node_name, title, description, size_px)
 	water_cells.clear()
+	ice_cells.clear()
 
 
-## The Earth generator's hook: our extra layer is the "Water" layer, only in rooms
-## with water painted.
+## The Earth generator's hook: our extra layers are "Ice" (Stage W5) and "Water",
+## only in rooms with those painted.
 func _make_extra_layers() -> Array[TileMapLayer]:
 	var layers: Array[TileMapLayer] = []
+	if not ice_cells.is_empty():
+		var ice: TileMapLayer = TileMapLayer.new()
+		ice.name = "Ice"
+		ice.set_script(ICE_LAYER_SCRIPT)
+		ice.tile_set = load(IceLayer.TILESET_PATH) as TileSet
+		for cell: Vector2i in ice_cells:
+			if not cell_kinds.has(cell):  # _open() elsewhere may have reused the cell
+				ice.set_cell(cell, 0, IceLayer.ICE_TILE)
+		layers.append(ice)
 	if water_cells.is_empty():
 		return layers
 	var water: TileMapLayer = TileMapLayer.new()
@@ -298,3 +370,61 @@ func _build_room_water_d() -> void:
 	_water(22, 17, 14, 5)
 
 	_finish_room(Vector2(7 * TILE, 16 * TILE), "res://tests/rooms/room_water_d.tscn")
+
+
+## Water test room E (Stage W5): freeze and ice. 80 x 23 tiles (640 px: it
+## scrolls), ground top at row 16 (y 128). Left to right:
+##   - a small pool (cols 5-8, 12 units) and a LEDGE (cols 13-19) 40 px over the
+##     floor, too high to jump: throw a ball and freeze it (2), stand on the 16 px
+##     block and jump up.
+##   - a POOL (cols 24-32, full to the ground's level) behind a rim of painted ice
+##     (col 33) and a SPIKE PIT (cols 34-41, 64 px) right after it: freeze the pool
+##     with the crystal (2 aimed down at it), run along the ice (it builds up to
+##     more than run speed) and long-jump the pit (too wide at run speed).
+##   - a NARROW DEEP POOL (cols 44-47) by a high SHELF (cols 48-55, 64 px up): raise
+##     a snake (1, then 3 and up), freeze it in your hands (2) into a pillar, climb
+##     it. Melted (a fireball, or the ice cap: a 7th piece melts the oldest), the
+##     pillar rains back and refills its pool.
+##   - a PAINTED ICE floor (cols 57-64): slide on it.
+##   - a WATERFALL from a source (x 572) into a shallow CHANNEL (cols 66-77, 8 px
+##     deep) drained at its right end: a stream. A crystal into the fall freezes it
+##     into an ice column (the source stops while ice blocks its mouth); one into the
+##     channel freezes it through: a dam, the water backs up behind it.
+func _build_room_water_e() -> void:
+	_begin_room("RoomWaterE", "Water E: freeze and ice (W5)",
+		"Stage W5 freeze and ice: 2 freezes the water you hold, else your last throw while it glints (a ring over your head runs down), else throws an ice crystal (tap: at once in the arrow direction; hold: aim in slow motion). Freeze a thrown ball into a step to the ledge; freeze the pool and long-jump the spikes off the ice; freeze a snake into a pillar to climb the shelf; freeze the waterfall and the stream.",
+		Vector2(640, 180))
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 80, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(79, 0, 1, 23)   # right wall
+	_gray(0, 16, 80, 7)   # the ground, top at y 128
+
+	# The small pool and the ledge.
+	_open(5, 16, 4, 3)    # rows 16-18: floor y 152
+	_water(5, 16, 4, 3)
+	_gray(13, 11, 7, 5)   # rows 11-15: top at y 88, 40 px over the floor
+
+	# The pool and the spike pit after it.
+	_open(24, 16, 9, 3)   # rows 16-18: floor y 152, surface at the ground's level
+	_water(24, 16, 9, 3)
+	_ice(33, 16, 1, 3)    # an ice rim holds the pool in (rock would brake the run-up)
+	_open(34, 16, 8, 2)   # the pit, rows 16-17
+	_spikes("PitSpikes", 34, 17, 8)
+
+	# The narrow deep pool and the high shelf.
+	_open(44, 16, 4, 5)   # rows 16-20: floor y 168
+	_water(44, 16, 4, 5)
+	_gray(48, 8, 8, 8)    # rows 8-15: top at y 64
+
+	# Painted ice.
+	_ice(57, 16, 8, 1)
+
+	# The waterfall and the stream channel.
+	_open(66, 16, 12, 1)  # row 16: the channel's floor at y 136
+	_add(WATER_SOURCE_SCENE, "WaterfallSource", Vector2(71 * TILE + 4, 2 * TILE), {"rate": 2.0, "pour_width": 4.0})
+	_add(WATER_SINK_SCENE, "ChannelDrain", Vector2(76 * TILE, 16 * TILE), {"sink_size": Vector2(16, 8)})
+
+	_finish_room(Vector2(3 * TILE, 16 * TILE), "res://tests/rooms/room_water_e.tscn")

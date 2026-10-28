@@ -11,7 +11,9 @@ extends RefCounted
 ## the room's local pixels. Each column stores:
 ##   floor_y  the top of the solid ground under it (y grows DOWNWARD, as in Godot)
 ##   ceiling_y the bottom of the solid above it (or NO_CEILING: open sky). Only a
-##            column under a low wall (a passage joining two pools) has one.
+##            column under a low wall (a passage joining two pools) has one, or
+##            one under an ice sheet (Stage W5: the sheet's bottom). A ceiling at
+##            the floor means FROZEN THROUGH: no pipe runs into it (a dam).
 ##   depth    how much water stands on it, px. The surface is at floor_y - depth.
 ##
 ## THE PIPE MODEL (the "virtual pipes" of shallow-water games). Each pair of
@@ -47,6 +49,9 @@ extends RefCounted
 const NO_CEILING: float = -1.0e9
 ## Water shallower than this, px, counts as a dry column (drawing, trimming).
 const DRY_DEPTH: float = 0.01
+## A column whose ceiling is within this many px of its floor is FROZEN THROUGH (an
+## ice sheet down to the floor, Stage W5): no water flows into or out of it.
+const FROZEN_GAP: float = 0.05
 
 ## What lies past one end of the body, decided by WaterWorld every frame.
 enum EndKind {
@@ -323,6 +328,7 @@ func step_flow(delta: float, gravity: float, max_wave_depth: float, damping: flo
 	var depths: PackedFloat32Array = depth
 	var flows: PackedFloat32Array = flow
 	var floors: PackedFloat32Array = floor_y
+	var ceilings: PackedFloat32Array = ceiling_y
 	var damp: float = maxf(0.0, 1.0 - damping * delta)
 	var stiffness_per_depth: float = gravity / (column_width * column_width) * delta
 	# 0. Viscosity: each pipe's flow moves a little toward its neighbours' average.
@@ -343,6 +349,11 @@ func step_flow(delta: float, gravity: float, max_wave_depth: float, damping: flo
 		var right_surface: float = floors[i + 1] - right_depth
 		# A wave's speed depends on how deep the water is: the deeper side of the pipe
 		# sets it (a dry column next to a full one must still fill up).
+		# A column frozen to its floor (an ice sheet, Stage W5: its ceiling at or below
+		# the floor) has no room for water: no pipe goes through it (a dam).
+		if ceilings[i] >= floors[i] - FROZEN_GAP or ceilings[i + 1] >= floors[i + 1] - FROZEN_GAP:
+			flows[i] = 0.0
+			continue
 		var wave_depth: float = minf(maxf(left_depth, right_depth), max_wave_depth)
 		# Surface y grows downward: a LOWER surface on the right (bigger y) means
 		# water runs right (positive flow).

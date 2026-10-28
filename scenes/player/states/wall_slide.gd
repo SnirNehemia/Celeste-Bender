@@ -18,6 +18,9 @@ func physics_update(delta: float) -> void:
 	if player.try_start_water_hands():
 		transition_requested.emit(&"WaterHolding")
 		return
+	if player.try_start_freeze():
+		transition_requested.emit(&"GustAim")
+		return
 	if player.try_tear_rock():
 		transition_requested.emit(&"BoulderHold")
 		return
@@ -28,10 +31,11 @@ func physics_update(delta: float) -> void:
 	# and move_and_slide() stops us at the wall each frame.
 	player.apply_horizontal_movement(delta)
 
-	# Same gravity as normal, but approaching the much lower slide cap. Arriving fast,
+	# Same gravity as normal, but approaching the much lower slide cap (higher on an
+	# ice wall: no grip, Stage W5). Arriving fast,
 	# you decelerate to the slide speed over a few frames instead of stopping dead.
 	player.velocity.y = move_toward(
-		player.velocity.y, player.tuning.wall_slide_max_speed, player.tuning.gravity * delta)
+		player.velocity.y, player.get_wall_slide_max_speed(), player.tuning.gravity * delta)
 
 	if player.can_wall_jump():
 		player.start_wall_jump(player.get_wall_direction())

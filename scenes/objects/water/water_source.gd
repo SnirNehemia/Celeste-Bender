@@ -11,11 +11,14 @@ extends Node2D
 ## Placed in the editor (palette: Objects tab, "Water source"); the room it's in
 ## gets a WaterWorld even without painted water (Room._has_water_source). Only the
 ## room on screen pours. Its water counts as "sourced" in the WaterWorld's books.
+## Ice at its mouth (a waterfall frozen up to the spout, Stage W5) stops it.
 ##
 ## @tool: the script also runs in the Godot editor, so the spout is drawn there.
 
 const SPOUT_COLOR: Color = Color("#3E4A5C")
 const SPOUT_RIM_COLOR: Color = Color("#BFE4FF")
+## Ice this many px under the mouth stops the pour (a frozen waterfall, Stage W5).
+const FROZEN_CHECK_BELOW: float = 4.0
 
 ## Units of water a second (1 unit = one 8x8 tile of water).
 @export_range(0.0, 20.0) var rate: float = 2.0
@@ -39,8 +42,13 @@ func _physics_process(delta: float) -> void:
 	if GameState.current_room != world.room:
 		return  # only the room on screen pours
 	var drop_area: float = world.water_tuning.drop_units * WaterWorld.UNIT_AREA
-	owed_area += rate * WaterWorld.UNIT_AREA * delta
 	var here: Vector2 = world.to_local(global_position)
+	# Frozen at the mouth (Stage W5: the crystal froze the waterfall up to here): no
+	# water gets out until the ice melts.
+	if world.is_point_in_ice(here + Vector2(0.0, FROZEN_CHECK_BELOW)):
+		owed_area = 0.0
+		return
+	owed_area += rate * WaterWorld.UNIT_AREA * delta
 	while owed_area >= drop_area:
 		var point: Vector2 = here + Vector2(randf_range(-0.5, 0.5) * pour_width, 0.0)
 		# A small random nudge per particle (WaterTuning.pour_jitter_x/_y): enough to

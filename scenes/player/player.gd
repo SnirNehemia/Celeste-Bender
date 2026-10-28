@@ -36,9 +36,18 @@ extends CharacterBody2D
 ##   ├─ WaterHandsAbility  Water move 1: the waterball, steered in slow motion,
 ##   │                     gathering and throwing (abilities/water/water_hands_ability.gd);
 ##   │                     held in WaterHolding
+##   ├─ FreezeAbility      Water move 2: freezes what you hold, your last throw, or
+##   │                     throws an ice crystal (abilities/water/freeze_ability.gd);
+##   │                     the crystal aims in GustAim
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
 ##                         SnakeSteer, Jetting, WaterHolding, Dead
+##
+## Ice (Stage W5, Water_bending.md §7.1): on an ice floor (IceBlock.ICE_GROUP: ice
+## blocks, frozen shapes and sheets, painted ice tiles) you speed up and slow down
+## slowly, can reach ice_max_run_scale x run speed, and a jump off ice keeps your
+## speed (it fades gently in the air): long jumps. Ice walls give no grip (you slide
+## down them faster). See apply_horizontal_movement and get_wall_slide_max_speed.
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed /
 ## fire_allowed).
@@ -107,6 +116,7 @@ signal died
 @onready var fireball: FireballAbility = $FireballAbility
 @onready var swim: SwimAbility = $SwimAbility
 @onready var water_hands: WaterHandsAbility = $WaterHandsAbility
+@onready var freeze: FreezeAbility = $FreezeAbility
 
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
@@ -128,6 +138,12 @@ var last_diagonal_msec: int = -100000
 ## Which ability the GustAim state aims for (GustAbility or FireballAbility), set just
 ## before switching to it. GustAim clears it on exit. See states/gust_aim.gd.
 var aim_source: Node = null
+## Standing on ice last frame (Stage W5): set in _update_timers from the floor body.
+var is_on_ice: bool = false
+## Left ice faster than run speed (a long jump off ice): in the air that speed fades
+## gently instead of at air control's rate. Cleared on landing anywhere else, or
+## once we're back down to run speed.
+var carries_ice_speed: bool = false
 
 
 func _ready() -> void:
@@ -175,6 +191,12 @@ func _update_timers(delta: float) -> void:
 		coyote_time_remaining = tuning.coyote_time
 	else:
 		coyote_time_remaining = maxf(coyote_time_remaining - delta, 0.0)
+	# Ice: what we stand on, and whether a long jump off it is still carrying us.
+	is_on_ice = is_on_floor() and is_ice(get_floor_body())
+	if is_on_ice:
+		carries_ice_speed = true
+	elif is_on_floor() or absf(velocity.x) <= tuning.max_run_speed:
+		carries_ice_speed = false
 
 	# is_action_just_pressed is true only on the one physics frame the key went down.
 	if Input.is_action_just_pressed("jump"):
@@ -445,6 +467,24 @@ func get_gust_start_state() -> StringName:
 
 # --- Elements ----------------------------------------------------------------
 
+## On the frame 2 (water_freeze) is pressed where Water is allowed (Stage W5): your
+## last throw, if still live, freezes at once (false: nothing else changes); else
+## the freeze makes itself the aim source and returns true, and the caller switches
+## to GustAim (a tap throws the ice crystal at once, a hold aims it in slow motion).
+func try_start_freeze() -> bool:
+	if not freeze.try_start():
+		return false
+	aim_source = freeze
+	return true
+
+
+## Is `thing` ice (Stage W5)? Ice blocks, frozen shapes and sheets, painted ice tiles:
+## everything in IceBlock.ICE_GROUP.
+func is_ice(thing: Object) -> bool:
+	var node: Node = thing as Node
+	return node != null and node.is_in_group(IceBlock.ICE_GROUP)
+
+
 ## On the frame 1 (water_hands) is pressed where Water is allowed: true, and the
 ## caller switches to WaterHolding (the ball in slow motion, Water_bending.md §5.1).
 func try_start_water_hands() -> bool:
@@ -635,6 +675,16 @@ func get_wall_direction() -> float:
 	return 0.0
 
 
+## How fast a wall slide may fall: an ice wall has no grip (Stage W5), so on one
+## it's ice_wall_slide_scale times faster.
+func get_wall_slide_max_speed() -> float:
+	var collision: KinematicCollision2D = KinematicCollision2D.new()
+	var side: float = get_wall_direction()
+	if side != 0.0 and test_move(global_transform, Vector2(side * tuning.wall_jump_check_distance, 0.0), collision) 			and is_ice(collision.get_collider()):
+		return tuning.wall_slide_max_speed * water_tuning.ice_wall_slide_scale
+	return tuning.wall_slide_max_speed
+
+
 ## True if moving `wall_jump_check_distance` px toward `side` would hit something.
 ## test_move() asks the physics engine "would this motion collide?" without moving.
 func is_wall_on_side(side: float) -> bool:
@@ -703,6 +753,9 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 
 	var input_direction: float = 0.0 if ignore_input else get_move_input()
 	var wind_x: float = get_wind_velocity().x
+	# A long jump off ice (Stage W5): the speed above run speed fades gently.
+	if carries_ice_speed and not is_on_floor() and overspeed_deceleration < 0.0:
+		overspeed_deceleration = water_tuning.ice_air_overspeed_fade
 	if overspeed_deceleration >= 0.0 and not is_on_floor():
 		# Speed relative to the wind, so a current isn't counted as "extra" speed.
 		var own_speed: float = velocity.x - wind_x
@@ -715,6 +768,15 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 			velocity.x = move_toward(velocity.x, cruise_speed, overspeed_deceleration * delta)
 			return
 	var air_multiplier: float = 1.0 if is_on_floor() else tuning.air_acceleration_multiplier
+	# Ice (Stage W5): slow to start and slow to stop, and a higher top speed you only
+	# reach after a long run. Speed above it (a jet, a launch) isn't braked by running.
+	var acceleration_scale: float = 1.0
+	var friction_scale: float = 1.0
+	var top_speed_scale: float = 1.0
+	if is_on_ice and is_on_floor():
+		acceleration_scale = water_tuning.ice_accel_scale
+		friction_scale = water_tuning.ice_friction_scale
+		top_speed_scale = water_tuning.ice_max_run_scale
 
 	# Wind shifts the speed we settle at instead of adding a raw force. Standing
 	# still in a 50 px/s current you drift at 50 px/s; running against it you make
@@ -726,11 +788,18 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 		# Speed up toward full speed in the held direction. Reversing direction passes
 		# through zero, so turning around happens at the same acceleration rate.
 		# Water holds us back by how much of us is in it (1 on dry land).
-		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() + wind_speed_x
-		velocity.x = move_toward(velocity.x, target_speed, tuning.run_acceleration * air_multiplier * delta)
+		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() * top_speed_scale 			+ wind_speed_x
+		var is_beyond_target: bool = signf(velocity.x - wind_speed_x) == input_direction 			and absf(velocity.x - wind_speed_x) > absf(target_speed - wind_speed_x)
+		if is_on_ice and is_on_floor() and is_beyond_target:
+			# On ice, running the way you slide doesn't slow you to run speed: only
+			# the ice's little friction does.
+			velocity.x = move_toward(velocity.x, target_speed, tuning.run_deceleration_ground * friction_scale * delta)
+		else:
+			velocity.x = move_toward(velocity.x, target_speed, tuning.run_acceleration * acceleration_scale * air_multiplier * delta)
 	else:
 		# Nothing held: slow toward the wind's speed (zero when there's no wind).
-		velocity.x = move_toward(velocity.x, wind_speed_x, tuning.run_deceleration_ground * air_multiplier * delta)
+		velocity.x = move_toward(velocity.x, wind_speed_x,
+			tuning.run_deceleration_ground * friction_scale * air_multiplier * delta)
 
 
 ## Ceiling corner correction: if we're moving up and this frame's motion would hit a

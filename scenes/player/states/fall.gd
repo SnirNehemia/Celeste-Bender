@@ -22,6 +22,9 @@ func physics_update(delta: float) -> void:
 	if player.try_start_water_hands():
 		transition_requested.emit(&"WaterHolding")
 		return
+	if player.try_start_freeze():
+		transition_requested.emit(&"GustAim")
+		return
 	# apply_gravity handles apex half-gravity and fast-fall (holding Down).
 	player.apply_gravity(delta)
 	player.apply_horizontal_movement(delta)

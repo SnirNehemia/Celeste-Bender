@@ -37,9 +37,9 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	# `-- W3` (any of W1 Swim W2 W3 W4) runs only those sections: quicker while working on one.
+	# `-- W3` (any of W1 Swim W2 W3 W4 W5) runs only those sections: quicker while working on one.
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
-	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4"]
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "W5"]
 	if not wanted.is_empty():
 		sections.assign(Array(wanted))
 	if sections.has("W1"):
@@ -52,6 +52,8 @@ func _ready() -> void:
 		await _check_w3_water_hands(world, world.player)
 	if sections.has("W4"):
 		await _check_w4_water_snake(world, world.player)
+	if sections.has("W5"):
+		await _check_w5_freeze(world, world.player)
 
 	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
@@ -1062,6 +1064,340 @@ func _check_w4_water_snake(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 	_check(water.held_area == 0.0 and hands.snake == null, "a reset leaves no snake")
 	finished_sections.append("W4")
+
+
+## Stage W5: freeze and ice (Water_bending.md §5.3, §7, refined in the W5 planning),
+## in room Water E. Room-local layout: ground top y 128; the small pool x 40-72
+## (floor 152); the pool x 192-264 (floor 152, surface 128), an ice rim x 264-272 and
+## the spike pit x 272-336; the narrow pool x 352-384 (floor 168) by the shelf (top y 64); painted
+## ice x 456-520; the channel x 528-624 (floor 136) under the source (x 572, y 16),
+## drained at x 608-624.
+func _check_w5_freeze(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterE") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water E is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water E has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var freeze: FreezeAbility = player.freeze
+	var hands: WaterHandsAbility = player.water_hands
+	var origin: Vector2 = room.global_position
+	_check(_action_has_key("water_freeze", KEY_2), "water_freeze is on 2")
+	await _stand_at(player, origin + Vector2(24.0, 128.0))
+	await _wait_until_calm(water)
+
+	# Rule 2: the last throw, while live, freezes at once, keeping its momentum. (The
+	# debug throw makes NEW water: the books are read after it.) Thrown left over the
+	# ledge, it lands on the ledge's top.
+	var throw_velocity: Vector2 = Vector2(-90.0, -60.0)
+	water.throw_ball(Vector2(186.0, 64.0), throw_velocity, 4.0)
+	var books: float = water.get_books_units()
+	await get_tree().physics_frame
+	_check(freeze.is_last_throw_live(), "a ball just thrown is live (2 would freeze it)")
+	var freezes_before: int = water.freeze_count
+	await _press(&"water_freeze")
+	var block: IceBlock = water.last_ice as IceBlock
+	_check(water.freeze_count == freezes_before + 1 and block != null,
+		"2 freezes the live throw into an ice block (%s)" % water.last_ice)
+	if block != null:
+		_check(absf(block.water_area / WaterWorld.UNIT_AREA - 4.0) < 0.01 and not block.is_long
+			and block.crate_size.x > 12.0 and block.crate_size.x < 26.0
+			and absf(block.crate_size.x - block.crate_size.y) < 5.0 and block.outlines.size() == 1,
+			"the block holds the ball's 4 units in the ball's round shape (%.2f units, %s px, %d outline)"
+				% [block.water_area / WaterWorld.UNIT_AREA, block.crate_size, block.outlines.size()])
+		_check(block.velocity.x < throw_velocity.x * 0.6,
+			"the block flies on with the ball's momentum (%.0f px/s)" % block.velocity.x)
+	_check(water.get_group_loose_area(water.last_group_id) == 0.0 and not freeze.is_last_throw_live(),
+		"nothing of the frozen throw is loose or live any more")
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the books count the ice (%.3f -> %.3f, ice %.2f units)" % [books, water.get_books_units(), water.ice_area / WaterWorld.UNIT_AREA])
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(is_instance_valid(block) and block.is_on_floor(), "the block lands and stays a block")
+
+	# The live window closes: freeze_live_time later, 2 throws a crystal instead.
+	water.throw_ball(Vector2(60.0, 60.0), Vector2(0.0, -40.0), 1.0)
+	_check(freeze.is_last_throw_live(), "a second throw is live")
+	books += 1.0  # that throw's new water
+	var waited: float = 0.0
+	while waited < tuning.freeze_live_time + 0.1:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+	_check(not freeze.is_last_throw_live(), "after %.1f s it isn't live any more" % tuning.freeze_live_time)
+	freeze.last_crystal = null
+	freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	for frame: int in 10:
+		await get_tree().physics_frame
+		if freeze.last_crystal != null:
+			break
+	_check(freeze.last_crystal != null, "with nothing live, a tap of 2 throws an ice crystal")
+
+	# Rule 1, with the real keys: a ball in the hands freezes where it is.
+	await _stand_at(player, origin + Vector2(36.0, 128.0))
+	player.facing_direction = 1.0
+	await _start_hold(player)
+	await _steer_ball_until([&"move_down"], func() -> bool: return hands.ball_units >= 1.0, 2.0)
+	var held_units: float = hands.ball_units  # it may still gather a little before 2 lands
+	freeze.cooldown_remaining = 0.0
+	Input.action_press(&"water_freeze")
+	for frame: int in 20:
+		await get_tree().physics_frame
+		if not hands.is_holding():
+			break
+	Input.action_release(&"water_freeze")
+	Input.action_release(&"water_hands")
+	_check(not hands.is_holding() and water.last_ice is IceBlock
+		and (water.last_ice as IceBlock).water_area / WaterWorld.UNIT_AREA >= held_units - 0.001,
+		"2 while holding freezes the ball into a block and ends the hold (%.2f units held, %s)" % [held_units, water.last_ice])
+	_check(water.held_area < 0.01 and absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the frozen ball's water left the hands, the books balance")
+
+	# The crystal freezes a stretch of the big pool into a sheet.
+	water.wake_all()
+	await _wait_until_calm(water)
+	var crystal: IceCrystal = IceCrystal.launch(room, origin + Vector2(184.0, 112.0), Vector2(1.0, 0.5).normalized(), tuning)
+	var sheet_ice: Array[Node] = []
+	crystal.froze.connect(func(ice: Node) -> void: sheet_ice.append(ice))
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var sheet: IcePiece = null if sheet_ice.is_empty() else sheet_ice[0] as IcePiece
+	_check(sheet != null and sheet.is_sheet, "a crystal into the pool freezes a sheet on it (%s)" % [sheet_ice])
+	if sheet == null or not sheet.is_sheet:
+		return
+	print("[WaterSmokeTest] sheet: %s, %.2f units" % [sheet.sheet_rect, sheet.water_area / WaterWorld.UNIT_AREA])
+	_check(sheet.sheet_rect.size.x >= 64.0 and sheet.sheet_rect.end.x <= 264.5
+		and absf(sheet.sheet_rect.position.y - 128.0) < 2.0,
+		"the sheet covers the pool's surface (x %.0f-%.0f, top y %.1f)"
+			% [sheet.sheet_rect.position.x, sheet.sheet_rect.end.x, sheet.sheet_rect.position.y])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the sheet's water is in the books")
+	var under: Array = water.find_body_under(Vector2(230.0, 140.0))
+	_check(not under.is_empty() and (under[0] as WaterBody).ceiling_y[under[1]] >= sheet.sheet_rect.end.y - 0.5,
+		"the water under the sheet has the sheet as its ceiling")
+
+	# Ice ground: speeding up is slow (about 3 s to run speed, after the first W5
+	# play-test), so the speed for the long jump comes from elsewhere: here a shove
+	# like a gust's, which the ice keeps. Then jump the spike pit off its end.
+	await _stand_at(player, origin + Vector2(200.0, 128.0))
+	var on_ice_seen: bool = false
+	Input.action_press(&"move_right")
+	for frame: int in 60:
+		await get_tree().physics_frame
+		on_ice_seen = on_ice_seen or player.is_on_ice
+		if player.global_position.x > origin.x + 250.0:
+			break
+	Input.action_release(&"move_right")
+	var speed_after_second: float = player.velocity.x
+	_check(on_ice_seen and speed_after_second < 45.0,
+		"speeding up on ice is slow (%.0f px/s after a second, run speed %.0f)" % [speed_after_second, player.tuning.max_run_speed])
+	await _stand_at(player, origin + Vector2(196.0, 128.0))
+	player.velocity.x = 140.0  # as a gust shove would leave it
+	var fastest: float = 0.0
+	var jumped: bool = false
+	var landed_x: float = -1.0
+	Input.action_press(&"move_right")
+	for frame: int in 180:
+		await get_tree().physics_frame
+		fastest = maxf(fastest, player.velocity.x)
+		if not jumped and player.global_position.x > origin.x + 268.0:
+			jumped = true
+			Input.action_press(&"jump")
+		if jumped and player.is_on_floor() and player.global_position.x > origin.x + 272.0:
+			landed_x = player.global_position.x - origin.x
+			break
+		if player.is_dead():
+			break
+	Input.action_release(&"jump")
+	Input.action_release(&"move_right")
+	print("[WaterSmokeTest] ice run: fastest %.1f px/s, landed at x %.1f, dead %s" % [fastest, landed_x, player.is_dead()])
+	_check(on_ice_seen, "standing on the sheet counts as ice")
+	_check(fastest > player.tuning.max_run_speed + 15.0,
+		"the ice keeps speed past run speed (%.0f px/s, run speed %.0f)" % [fastest, player.tuning.max_run_speed])
+	_check(landed_x > 332.0 and not player.is_dead(),
+		"a long jump off the ice clears the spike pit (landed at x %.0f)" % landed_x)
+	if player.is_dead():
+		for frame: int in 90:
+			await get_tree().physics_frame
+
+	# Painted ice is ice too.
+	await _stand_at(player, origin + Vector2(488.0, 128.0))
+	_check(player.is_on_ice, "the painted Ice layer counts as ice")
+
+	# A snake frozen in the hands becomes a pillar in its pool; melting it refills
+	# the pool. (Driven through the WaterWorld: W4 checks raising snakes by keys.)
+	var pool_before: float = _units_in(water, 352, 384, 168)
+	var snake_area: float = water.draw_from_body_at(Vector2(368.0, 140.0), 4.0 * WaterWorld.UNIT_AREA)
+	var ball_area: float = water.draw_from_body_at(Vector2(368.0, 140.0), 2.0 * WaterWorld.UNIT_AREA)
+	var dots: PackedVector2Array = PackedVector2Array()
+	for index: int in 32:
+		dots.append(Vector2(368.0 + randf_range(-1.5, 1.5), 130.0 - index * 2.0))
+	var pillar: IcePiece = water.freeze_held(Vector2(368.0, 66.0), ball_area, true, snake_area, dots) as IcePiece
+	_check(pillar != null and not pillar.is_sheet and water.held_area < 0.01,
+		"a snake frozen in the hands is a static pillar (%s)" % pillar)
+	await get_tree().physics_frame
+	var query: PhysicsPointQueryParameters2D = PhysicsPointQueryParameters2D.new()
+	query.collision_mask = 1
+	query.position = origin + Vector2(368.0, 100.0)
+	_check(not water.get_world_2d().direct_space_state.intersect_point(query, 1).is_empty(),
+		"the pillar is solid")
+	await get_tree().physics_frame
+	var pool_frozen: float = _units_in(water, 352, 384, 168)
+	water.melt_ice(pillar)
+	for frame: int in 150:
+		await get_tree().physics_frame
+	var pool_after: float = _units_in(water, 352, 384, 168)
+	_check(pool_after > pool_before - 0.3 and pool_frozen < pool_before - 5.0,
+		"a melted pillar refills its pool (%.2f -> %.2f frozen -> %.2f)" % [pool_before, pool_frozen, pool_after])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books balance after the melt")
+
+	# A block dropped hard into the pool hits its floor but doesn't shatter: water
+	# breaks the fall (first W5 play-test: blocks under water turned to water).
+	var sunk_block: IceBlock = water.make_ice_block(Vector2(368.0, 60.0), WaterWorld.UNIT_AREA, Vector2(0.0, 250.0)) as IceBlock
+	books += 1.0  # made from nothing
+	for frame: int in 90:
+		await get_tree().physics_frame
+	_check(is_instance_valid(sunk_block) and water.player_ice.has(sunk_block),
+		"a block dropped into a pool stays ice")
+	if is_instance_valid(sunk_block):
+		water.melt_ice(sunk_block)
+
+	# A long piece (a frozen ribbon) keeps the water's momentum, then lies still where
+	# it lands.
+	var ribbon_points: PackedVector2Array = PackedVector2Array()
+	var ribbon_areas: PackedFloat32Array = PackedFloat32Array()
+	var ribbon_velocities: PackedVector2Array = PackedVector2Array()
+	for index: int in 24:
+		ribbon_points.append(Vector2(470.0 + index * 1.5, 60.0 - index * 0.8))
+		ribbon_areas.append(4.0)
+		ribbon_velocities.append(Vector2(80.0, -40.0))
+	var ribbon: IceBlock = water.freeze_particles(ribbon_points, ribbon_areas, ribbon_velocities) as IceBlock
+	books += 96.0 / WaterWorld.UNIT_AREA
+	_check(ribbon != null and ribbon.is_long and ribbon.velocity.x > 60.0,
+		"a frozen ribbon is long ice that flies on (%s, %.0f px/s)" % [ribbon, ribbon.velocity.x if ribbon != null else 0.0])
+	for frame: int in 120:
+		await get_tree().physics_frame
+	_check(is_instance_valid(ribbon) and ribbon.is_on_floor() and absf(ribbon.velocity.x) < 1.0,
+		"it lands and lies still")
+	if is_instance_valid(ribbon):
+		water.melt_ice(ribbon)
+
+	# A throw that has split into two blobs freezes into two pieces, each moving with
+	# its own water, counted as one freeze for the ice cap (play-test 5).
+	var split_points: PackedVector2Array = PackedVector2Array()
+	var split_areas: PackedFloat32Array = PackedFloat32Array()
+	var split_velocities: PackedVector2Array = PackedVector2Array()
+	for index: int in 16:
+		var offset: Vector2 = Vector2.from_angle(index * 2.39996) * 4.0 * sqrt((index + 0.5) / 16.0)
+		split_points.append(Vector2(470.0, 40.0) + offset)
+		split_velocities.append(Vector2(-60.0, 0.0))
+		split_points.append(Vector2(500.0, 40.0) + offset)
+		split_velocities.append(Vector2(60.0, 0.0))
+		split_areas.append(4.0)
+		split_areas.append(4.0)
+	var freezes_before_split: int = water.get_ice_freeze_count()
+	water.freeze_particles(split_points, split_areas, split_velocities)
+	books += 128.0 / WaterWorld.UNIT_AREA
+	var split_pieces: Array[Node] = water.last_freeze_pieces.duplicate()
+	_check(split_pieces.size() == 2 and water.get_ice_freeze_count() == freezes_before_split + 1
+		and (split_pieces[0] as IceBlock).velocity.x * (split_pieces[1] as IceBlock).velocity.x < 0.0,
+		"two separate blobs freeze into two pieces moving their own ways, one freeze (%d pieces)" % split_pieces.size())
+	for piece: Node in split_pieces:
+		water.melt_ice(piece)
+
+	# Painted ice is drawn as glass: one outline for the strip of painted tiles.
+	var ice_layer: IceLayer = room.get_node("Ice") as IceLayer
+	_check(ice_layer.look != null and ice_layer.look.bodies.size() >= 1 and ice_layer.self_modulate.a == 0.0,
+		"painted ice draws in the glass look (%d outlines)" % (ice_layer.look.bodies.size() if ice_layer.look != null else 0))
+
+	# Fire melts ice (the Flammable contract): a block lit by a fire melts into water.
+	var fire_block: IceBlock = water.make_ice_block(Vector2(420.0, 40.0), 0.0, Vector2.ZERO) as IceBlock
+	# (0 water: only the contract is tested here; the books are checked elsewhere.)
+	Flammable.try_ignite(fire_block, null)
+	_check(not is_instance_valid(fire_block) or not water.player_ice.has(fire_block),
+		"fire melts an ice block (Flammable.ignite)")
+
+	# A block that falls far shatters into loose water.
+	var high_block: IceBlock = water.make_ice_block(Vector2(488.0, 20.0), WaterWorld.UNIT_AREA, Vector2.ZERO) as IceBlock
+	books += 1.0  # that block was made from nothing (no water was frozen for it)
+	for frame: int in 90:
+		await get_tree().physics_frame
+	_check(not is_instance_valid(high_block) or not water.player_ice.has(high_block),
+		"a block dropped %.0f px shatters" % (128.0 - 20.0))
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books balance after it shatters")
+
+	# The waterfall fills the channel first: a stream runs to the drain.
+	for frame: int in 240:
+		await get_tree().physics_frame
+	# The waterfall: a crystal into the falling water freezes a column of it.
+	var fall_crystal: IceCrystal = IceCrystal.launch(room, origin + Vector2(540.0, 70.0), Vector2.RIGHT, tuning)
+	var fall_ice: Array[Node] = []
+	var fall_kind: Array[String] = []
+	fall_crystal.froze.connect(func(ice: Node) -> void:
+		fall_ice.append(ice)
+		fall_kind.append("%s %s" % [ice.get_class(), ice.get_script().get_global_name()]))
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var column: IceBlock = null
+	if not fall_ice.is_empty() and is_instance_valid(fall_ice[0]):
+		column = fall_ice[0] as IceBlock
+	_check(column != null and column.is_long and column.crate_size.y > column.crate_size.x * 2.0,
+		"a crystal into the waterfall freezes an ice column (%s, %s px)" % [fall_kind, column.crate_size if column != null else Vector2.ZERO])
+	# Melted again (it reaches the spout and would stop the pour), for the stream.
+	if column != null:
+		water.melt_ice(column)
+	for frame: int in 120:
+		await get_tree().physics_frame
+
+	# The stream: freeze a stretch of the channel through: the water backs up behind
+	# the dam.
+	books = water.get_books_units()  # the source has poured since (sourced water is in the books' formula)
+	var dam: IcePiece = water.freeze_body_at(Vector2(592.0, 134.0)) as IcePiece
+	_check(dam != null and dam.is_sheet, "the channel freezes (%s)" % dam)
+	var frozen_through: bool = false
+	if dam != null:
+		var dam_found: Array = water.find_body_under(Vector2(592.0, 130.0))
+		frozen_through = not dam_found.is_empty() \
+			and (dam_found[0] as WaterBody).ceiling_y[dam_found[1]] >= (dam_found[0] as WaterBody).floor_y[dam_found[1]] - WaterBody.FROZEN_GAP
+	_check(frozen_through, "the shallow stream freezes to its floor: a dam")
+	var upstream_before: float = _units_in(water, 528, 576, 136)
+	for frame: int in 120:
+		await get_tree().physics_frame
+	var upstream_after: float = _units_in(water, 528, 576, 136)
+	var downstream: float = _units_in(water, 612, 624, 136)
+	_check(upstream_after > upstream_before + 0.5 and downstream < 0.2,
+		"the water backs up behind the dam (upstream %.2f -> %.2f, below it %.2f)" % [upstream_before, upstream_after, downstream])
+
+	# Ice over the spout's mouth stops the pour.
+	var cap_spine: PackedVector2Array = PackedVector2Array([Vector2(572.0, 18.0), Vector2(572.0, 40.0)])
+	water.held_area += WaterWorld.UNIT_AREA  # the plug's water, from nowhere: taken back below
+	water.make_ice_shape(cap_spine, WaterWorld.UNIT_AREA)
+	water.held_area -= WaterWorld.UNIT_AREA
+	var sourced_before: float = water.sourced_area
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(water.sourced_area == sourced_before, "ice at the spout's mouth stops the waterfall")
+
+	# The ice cap: making more than max_player_ice pieces melts the oldest.
+	# (The room already holds several pieces, so max_player_ice more must melt it.)
+	var oldest: Node = water.player_ice[0]
+	for piece: int in tuning.max_player_ice:
+		water.make_ice_block(Vector2(100.0, 40.0 - piece * 10.0), 0.0, Vector2.ZERO)
+	_check(water.get_ice_freeze_count() == tuning.max_player_ice and not water.player_ice.has(oldest),
+		"the ice cap holds %d freezes: a new one melted the oldest" % tuning.max_player_ice)
+
+	# Reset: every piece of ice goes.
+	room.reset_objects()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var ice_left: int = get_tree().get_nodes_in_group(IceBlock.ICE_GROUP).filter(
+		func(node: Node) -> bool: return node is IceBlock or node is IcePiece).size()
+	_check(water.player_ice.is_empty() and water.ice_area == 0.0 and ice_left == 0,
+		"a reset clears all ice (%d pieces left)" % ice_left)
+	finished_sections.append("W5")
 
 
 ## Steers the held ball into the narrow pool of Water D, right then down past

@@ -44,7 +44,8 @@ extends Node2D
 ## room are calm most of the time, so they cost nothing.
 ##
 ## THE BOOKS: water is conserved (Water_bending.md §4.1). get_total_units() is all the
-## water in the bodies and drops; water that falls out of the room or is trimmed as
+## water in the bodies and drops; water in the hands is `held_area`, frozen into ice
+## `ice_area` (Stage W5); water that falls out of the room or is trimmed as
 ## crumbs goes into `lost_area`, soaked into tiles into `soaked_area`, down a sink
 ## into `drained_area`, and a source's water is counted in `sourced_area`.
 ## get_books_units() (total + lost + soaked + drained - sourced) never changes: the
@@ -111,6 +112,12 @@ const POKE_RADIUS: float = 8.0
 ## A loose drop (or a dot of the held ball) touches things this close, px
 ## (is_water_near): about the size it's drawn.
 const DROP_TOUCH_RADIUS: float = 2.0
+## Two drops of one stream are joined (take_loose_near) up to the distance the faster
+## moves in this many seconds, on top of freeze_join_distance (W5).
+const STREAM_JOIN_TIME: float = 0.06
+## The crystal finds the pool under its hit this much higher, px: a surface can sit a
+## hair under the point where it touched the water (W5).
+const SHEET_PROBE_LIFT: float = 2.0
 
 ## preload() returns the same resource object the player holds, so F5 panel edits
 ## reach the water at once.
@@ -142,6 +149,19 @@ var drop_areas: PackedFloat32Array = PackedFloat32Array()
 ## thrown off a splash or a breaking wave, fades over particle_foam_life. Only a
 ## look (the WaterRenderer draws it white); its speed adds foam on top.
 var drop_foam: PackedFloat32Array = PackedFloat32Array()
+## Each drop's THROW GROUP (Stage W5): the id of the release that let it go (the
+## hands' throws, the debug throw), 0 for any other water (spills, sources, splashes
+## of a pool). The freeze finds "the water you last threw" by it (see THROW GROUPS).
+var drop_groups: PackedInt32Array = PackedInt32Array()
+## The group new drops get (_spawn_drop): set around a release, else 0.
+var spawn_group: int = 0
+## The newest throw group: its id, how much water it let go, px² (a snake's ribbon
+## adds to it while it feeds out), and the game time it was let go (s, `game_time`).
+var last_group_id: int = 0
+var last_group_area: float = 0.0
+var last_group_time: float = -1000.0
+## Game seconds since the room started (scaled by slow motion like the water).
+var game_time: float = 0.0
 ## Water that left the room or was trimmed away as crumbs, px² (see THE BOOKS).
 var lost_area: float = 0.0
 ## Water soaked into tiles, poured in by sources, taken by sinks, px² (THE BOOKS).
@@ -200,6 +220,19 @@ var spray_velocities: PackedVector2Array = PackedVector2Array()
 var spray_life: PackedFloat32Array = PackedFloat32Array()
 ## Was any of the player in water last frame (crossing the surface makes a splash)?
 var player_was_in_water: bool = false
+## Ice made by freezing (Stage W5): IceBlock and IcePiece nodes, oldest first (the
+## ice cap melts the oldest), and the water frozen in them, px² (THE BOOKS).
+var player_ice: Array[Node] = []
+var ice_area: float = 0.0
+## For tests and the overlay: freezes so far, and the last ice made.
+var freeze_count: int = 0
+var last_ice: Node = null
+## Every piece the last freeze_particles() made (a splash freezes into several), and
+## the id the next freeze gets (the ice cap counts freezes: _register_ice).
+var last_freeze_pieces: Array[Node] = []
+var freeze_id_counter: int = 0
+## While freeze_particles() makes its pieces, the freeze id they share; else -1.
+var current_freeze_id: int = -1
 
 
 func _ready() -> void:
@@ -325,6 +358,7 @@ func _build_bodies_from_layer() -> void:
 	drop_velocities.clear()
 	drop_areas.clear()
 	drop_foam.clear()
+	drop_groups.clear()
 	lost_area = 0.0
 	if water_layer == null:
 		initial_area = 0.0
@@ -405,7 +439,7 @@ func get_lost_units() -> float:
 ## Everything the books know about: what's here, plus what left (lost, soaked,
 ## drained), minus what sources added. Never changes (the smoke test checks).
 func get_books_units() -> float:
-	return (get_total_area() + held_area + lost_area + soaked_area + drained_area - sourced_area) / UNIT_AREA
+	return (get_total_area() + held_area + ice_area + lost_area + soaked_area + drained_area - sourced_area) / UNIT_AREA
 
 
 func get_soaked_units() -> float:
@@ -500,7 +534,9 @@ func get_submerged_share(world_rect: Rect2) -> float:
 		var column: int = found[1]
 		if body.depth[column] <= WaterBody.DRY_DEPTH:
 			continue
-		var water_top: float = maxf(body.get_surface_y(column), rect.position.y)
+		# Never above a ceiling (a low wall, an ice sheet): the hidden pressure water
+		# there isn't water you're in.
+		var water_top: float = maxf(maxf(body.get_surface_y(column), body.ceiling_y[column]), rect.position.y)
 		var water_bottom: float = minf(body.floor_y[column], rect.end.y)
 		share += clampf((water_bottom - water_top) / rect.size.y, 0.0, 1.0)
 	return share / samples.size()
@@ -552,8 +588,11 @@ func add_loose_water(center: Vector2, units: float, velocity: Vector2 = Vector2.
 ## `velocity`: particles packed in a disc (their cohesion keeps it round in flight).
 ## The debug throw (key 6): it makes NEW water (the hands' release_held() gives back
 ## water taken from the room instead).
+## It's a throw group of its own (Stage W5), so 2 can freeze it like a real throw.
 func throw_ball(center: Vector2, velocity: Vector2, units: float) -> void:
+	spawn_group = begin_throw_group(units * UNIT_AREA)
 	_spawn_ball(center, velocity, units * UNIT_AREA)
+	spawn_group = 0
 
 
 ## `area` px² of new particles packed in a disc around `center`, all at `velocity`.
@@ -654,8 +693,11 @@ func gather(point: Vector2, reach: float, max_area: float) -> float:
 			if column < 0 or body.depth[column] <= WaterBody.DRY_DEPTH:
 				continue
 			var surface_y: float = maxf(body.get_surface_y(column), body.ceiling_y[column])
-			# In reach: from `reach` above the surface down to the floor.
+			# In reach: from `reach` above the surface down to the floor. Not through a
+			# ceiling: a ball resting on an ice sheet (Stage W5) gathers nothing below it.
 			if point.y < surface_y - reach or point.y > body.floor_y[column]:
+				continue
+			if body.ceiling_y[column] != WaterBody.NO_CEILING and point.y < body.ceiling_y[column]:
 				continue
 			# Two tiles' worth of columns each side share the loss: a dip, not a hole.
 			taken += body.remove_water(column, max_area - taken, _radius_in_columns(TILE * 2.0))
@@ -670,11 +712,13 @@ func gather(point: Vector2, reach: float, max_area: float) -> float:
 ## room-local `center`, all moving at `velocity` (a throw; zero = it just drops).
 ## The water hands' release. Like throw_ball(), but the water comes from the hands
 ## (held_area), so the books don't change.
-func release_held(center: Vector2, velocity: Vector2, area: float) -> void:
+func release_held(center: Vector2, velocity: Vector2, area: float, group: int = 0) -> void:
 	area = minf(area, held_area)
 	held_area -= area
 	if area > 0.0:
+		spawn_group = group
 		_spawn_ball(center, velocity, area)
+		spawn_group = 0
 
 
 ## Water for a snake (Stage W4): takes up to `area` px² from the body under the
@@ -709,8 +753,10 @@ func return_held_to_body_at(point: Vector2, area: float) -> void:
 ## Lets go of held water along a line (a snake released like a whip, or torn):
 ## `areas[i]` px² as particles around the room-local `points[i]`, moving at
 ## `velocities[i]`, spread `width` px across the line. The books don't change.
+## `group`: the throw group the particles join (a snake's ribbon, Stage W5), or 0.
 func release_held_along(points: PackedVector2Array, velocities: PackedVector2Array,
-		areas: PackedFloat32Array, width: float) -> void:
+		areas: PackedFloat32Array, width: float, group: int = 0) -> void:
+	spawn_group = group
 	var drop_area: float = water_tuning.drop_units * UNIT_AREA
 	for index: int in points.size():
 		var area: float = minf(areas[index], held_area)
@@ -722,6 +768,7 @@ func release_held_along(points: PackedVector2Array, velocities: PackedVector2Arr
 		for drop_index: int in count:
 			var offset: Vector2 = Vector2(randf_range(-0.5, 0.5), randf_range(-0.5, 0.5)) * width
 			_spawn_drop(points[index] + offset, velocities[index], area / count)
+	spawn_group = 0
 
 
 ## The held ball's dots for this frame (room-local); empty = nothing held.
@@ -805,6 +852,17 @@ func wake_all() -> void:
 
 ## Death or R (Room.RESETTABLE_GROUP): the painted water comes back, drops vanish.
 func reset() -> void:
+	# Ice goes first (the bodies are rebuilt below, so a sheet's water isn't given
+	# back: the painted water comes back instead).
+	for ice: Node in player_ice:
+		if is_instance_valid(ice):
+			ice.queue_free()
+	player_ice.clear()
+	ice_area = 0.0
+	last_ice = null
+	last_group_id += 1  # nothing thrown before the reset is "the last throw"
+	last_group_area = 0.0
+	last_group_time = -1000.0
 	_build_bodies_from_layer()
 	soaked_cells.clear()
 	soaked_per_cell.fill(0.0)
@@ -823,13 +881,568 @@ func reset() -> void:
 	queue_redraw()
 
 
+# --- Throw groups and freezing (Stage W5, Water_bending.md §5.3, §7) ------------------
+#
+# THROW GROUPS: each release from the hands (and the debug throw) is a group: its
+# particles carry its id in drop_groups until they merge into a pool or soak in.
+# "The water you last threw" is the newest group. FreezeAbility asks whether it is
+# still LIVE (young enough and mostly still loose) and, if so, freezes all of it.
+#
+# WHAT FROZEN WATER BECOMES (freeze_particles): the particles' spread is measured
+# along its longest direction (the principal axis of the points, like PCA):
+#   - COMPACT (no longer than compact_max_size, or not twice as long as it is wide):
+#     a block you can push around.
+#   - LONG (a ribbon, a waterfall): a piece that lies still where it lands.
+# Both are IceBlocks in EXACTLY the shape the water was drawn with (IceOutline traces
+# the metaballs' outline; after the first W5 play-test), moving on at the water's
+# average velocity (they keep their momentum). Only a snake frozen in the hands,
+# its foot still in its pool, stays put: a static PILLAR (IcePiece).
+# A pool hit by the crystal gets an ice SHEET over a stretch (freeze_body_at): the
+# water above the sheet's bottom becomes ice, and the columns under it get the
+# sheet's bottom as their CEILING, so the water below stays water you can't
+# surface through, and a column frozen to its floor dams the flow (WaterBody).
+# Every piece of ice holds exactly the water it was made of (ice_area in THE BOOKS)
+# and gives it back when it melts (melt_ice): fire, the ice cap, a shattered block.
+
+## A new throw group of `area` px² (released now). Returns its id.
+func begin_throw_group(area: float) -> int:
+	last_group_id += 1
+	last_group_area = area
+	last_group_time = game_time
+	return last_group_id
+
+
+## Water of throw group `group` still loose (particles), px².
+func get_group_loose_area(group: int) -> float:
+	var total: float = 0.0
+	if group <= 0:
+		return total
+	for index: int in drop_groups.size():
+		if drop_groups[index] == group:
+			total += drop_areas[index]
+	return total
+
+
+## Game seconds since the last throw was let go.
+func get_last_throw_age() -> float:
+	return game_time - last_group_time
+
+
+## The room-local positions of throw group `group`'s particles (the freeze's frost
+## glints are drawn on them).
+func get_group_points(group: int) -> PackedVector2Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	if group <= 0:
+		return points
+	for index: int in drop_groups.size():
+		if drop_groups[index] == group:
+			points.append(drop_positions[index])
+	return points
+
+
+## The throw group of a loose drop within `radius` px of the room-local `point` (0:
+## water that isn't a throw), or -1 if no drop is that close. The ice crystal asks.
+## `sweep_time` (s): a drop also counts if the path it moved along in that much time
+## passed that close: a fast waterfall's drops are 10-20 px apart, and a thin
+## crystal could otherwise fly between them.
+func find_drop_group_near(point: Vector2, radius: float, sweep_time: float = 0.0) -> int:
+	var radius_squared: float = (radius + DROP_TOUCH_RADIUS) * (radius + DROP_TOUCH_RADIUS)
+	for index: int in drop_positions.size():
+		var now: Vector2 = drop_positions[index]
+		var before: Vector2 = now - drop_velocities[index] * sweep_time
+		var nearest: Vector2 = Geometry2D.get_closest_point_to_segment(point, before, now)
+		if nearest.distance_squared_to(point) <= radius_squared:
+			return drop_groups[index]
+	return -1
+
+
+## Takes every particle of throw group `group` out of the loose water. Returns
+## [points, areas, velocities] (room-local); their water is now nowhere (the caller
+## turns it into ice at once).
+func take_group_particles(group: int) -> Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	var areas: PackedFloat32Array = PackedFloat32Array()
+	var velocities: PackedVector2Array = PackedVector2Array()
+	var index: int = 0
+	while index < drop_positions.size():
+		if group > 0 and drop_groups[index] == group:
+			points.append(drop_positions[index])
+			areas.append(drop_areas[index])
+			velocities.append(drop_velocities[index])
+			_remove_drop(index)
+		else:
+			index += 1
+	return [points, areas, velocities]
+
+
+## Takes the loose water joined to the room-local `point` (the crystal hit a
+## waterfall or spray): the particle nearest the point, then every particle within
+## `join` px of one already taken (plus the distance the faster of the two moves in
+## STREAM_JOIN_TIME: a fast waterfall's drops fall 10-20 px apart), none farther than
+## `reach` from the point. Returns
+## [points, areas, velocities] like take_group_particles. A flood fill: a waterfall's
+## column is taken up and down from the hit, a separate splash beside it isn't.
+func take_loose_near(point: Vector2, reach: float, join: float) -> Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	var areas: PackedFloat32Array = PackedFloat32Array()
+	var velocities: PackedVector2Array = PackedVector2Array()
+	var reach_squared: float = reach * reach
+	# Candidates: every particle within reach.
+	var candidates: Array[int] = []
+	for index: int in drop_positions.size():
+		if drop_positions[index].distance_squared_to(point) <= reach_squared:
+			candidates.append(index)
+	if candidates.is_empty():
+		return [points, areas, velocities]
+	var nearest: int = candidates[0]
+	for index: int in candidates:
+		if drop_positions[index].distance_squared_to(point) < drop_positions[nearest].distance_squared_to(point):
+			nearest = index
+	var taken: Dictionary = {nearest: true}
+	var queue: Array[int] = [nearest]
+	while not queue.is_empty():
+		var here_index: int = queue.pop_back()
+		var here: Vector2 = drop_positions[here_index]
+		var here_speed: float = drop_velocities[here_index].length()
+		for index: int in candidates:
+			if taken.has(index):
+				continue
+			var allowed: float = join + maxf(here_speed, drop_velocities[index].length()) * STREAM_JOIN_TIME
+			if drop_positions[index].distance_squared_to(here) <= allowed * allowed:
+				taken[index] = true
+				queue.append(index)
+	# Remove from the highest index down, so the swap-with-last never moves one we want.
+	var indices: Array = taken.keys()
+	indices.sort()
+	indices.reverse()
+	for index: int in indices:
+		points.append(drop_positions[index])
+		areas.append(drop_areas[index])
+		velocities.append(drop_velocities[index])
+		_remove_drop(index)
+	return [points, areas, velocities]
+
+
+## Turns taken water (`points`, `areas`, `velocities`, room-local, as returned by
+## take_group_particles) into ice. Water that has split into separate blobs (a
+## splash, a throw that broke up) freezes into SEPARATE pieces, each with its own
+## water and its own velocity (play-test 5: one piece made of several blobs left
+## frozen splats hanging in the air). The blobs are the loops of the water's outline
+## as it's drawn (drops stretched along their speed, so a waterfall's beads are one
+## blob); each drop belongs to the loop around it, or the nearest one. All the pieces
+## of one freeze count as ONE toward the ice cap. Returns the biggest piece, or null
+## for no water (every piece is in `last_freeze_pieces`).
+func freeze_particles(points: PackedVector2Array, areas: PackedFloat32Array,
+		velocities: PackedVector2Array) -> Node:
+	last_freeze_pieces.clear()
+	if points.is_empty():
+		return null
+	var loops: Array[PackedVector2Array] = IceOutline.trace(points, velocities, water_tuning.blob_dot_radius,
+		water_tuning.blob_stretch, water_tuning.blob_threshold)
+	# Per loop, the indices of its drops. Plain Arrays, not PackedInt32Arrays: a
+	# packed array taken out of an Array is a COPY, so appending to it would be lost.
+	var members: Array[Array] = []
+	for loop: PackedVector2Array in loops:
+		members.append([])
+	if loops.is_empty():
+		members.append([])
+	for index: int in points.size():
+		members[_find_loop_of(points[index], loops)].append(index)
+	# Every piece made below shares one freeze id (one freeze for the ice cap).
+	freeze_id_counter += 1
+	current_freeze_id = freeze_id_counter
+	var biggest: Node = null
+	var biggest_area: float = -1.0
+	for loop_index: int in members.size():
+		var indices: Array = members[loop_index]
+		if indices.is_empty():
+			continue
+		var cluster_points: PackedVector2Array = PackedVector2Array()
+		var cluster_areas: PackedFloat32Array = PackedFloat32Array()
+		var cluster_velocities: PackedVector2Array = PackedVector2Array()
+		for index: int in indices:
+			cluster_points.append(points[index])
+			cluster_areas.append(areas[index])
+			cluster_velocities.append(velocities[index])
+		var loop: PackedVector2Array = loops[loop_index] if loop_index < loops.size() else PackedVector2Array()
+		var piece: Node = _freeze_blob(cluster_points, cluster_areas, cluster_velocities, loop)
+		if piece == null:
+			continue
+		last_freeze_pieces.append(piece)
+		var piece_area: float = float(piece.get(&"water_area"))
+		if piece_area > biggest_area:
+			biggest_area = piece_area
+			biggest = piece
+	current_freeze_id = -1
+	return biggest
+
+
+## Which of `loops` the point is in (or nearest to: a drop on the outline's very
+## edge), as an index; 0 with no loops at all.
+func _find_loop_of(point: Vector2, loops: Array[PackedVector2Array]) -> int:
+	var nearest: int = 0
+	var nearest_distance: float = INF
+	for loop_index: int in loops.size():
+		if Geometry2D.is_point_in_polygon(point, loops[loop_index]):
+			return loop_index
+		for corner: Vector2 in loops[loop_index]:
+			var distance: float = corner.distance_squared_to(point)
+			if distance < nearest_distance:
+				nearest_distance = distance
+				nearest = loop_index
+	return nearest
+
+
+## One blob of frozen water (its drops, and `loop`: its outline as drawn) into one
+## piece of free ice: COMPACT or LONG (see the section notes), moving at its own
+## water's average velocity.
+func _freeze_blob(points: PackedVector2Array, areas: PackedFloat32Array, velocities: PackedVector2Array,
+		loop: PackedVector2Array) -> Node:
+	var area: float = 0.0
+	var center: Vector2 = Vector2.ZERO
+	var velocity: Vector2 = Vector2.ZERO
+	for index: int in points.size():
+		area += areas[index]
+		center += points[index] * areas[index]
+		velocity += velocities[index] * areas[index]
+	if area <= 0.0:
+		return null
+	center /= area
+	velocity /= area
+	var is_long: bool = _is_long_spread(points, center)
+	# A long blob keeps the outline it's drawn with (stretched drops: that's what
+	# makes a waterfall's beads one column). A compact one is traced again with round
+	# drops: in flight its stretched dots would freeze its motion blur. If that splits
+	# it, the drawn outline is kept (it's one blob).
+	var outlines: Array[PackedVector2Array] = []
+	if not is_long:
+		outlines = IceOutline.trace(points, PackedVector2Array(), water_tuning.blob_dot_radius, 0.0,
+			water_tuning.blob_threshold)
+	if outlines.size() != 1 and loop.size() >= 3:
+		outlines = [loop]
+	return _make_free_ice(outlines, center, area, velocity, is_long)
+
+
+## Is water spread like this LONG (a ribbon, a waterfall) rather than COMPACT (a
+## ball)? Measured along the longest direction through the points (the principal
+## axis of their spread, from the 2x2 covariance): longer than compact_max_size and
+## at least twice as long as it is wide.
+func _is_long_spread(points: PackedVector2Array, center: Vector2) -> bool:
+	var spread_xx: float = 0.0
+	var spread_yy: float = 0.0
+	var spread_xy: float = 0.0
+	for point: Vector2 in points:
+		var offset: Vector2 = point - center
+		spread_xx += offset.x * offset.x
+		spread_yy += offset.y * offset.y
+		spread_xy += offset.x * offset.y
+	var axis: Vector2 = Vector2.from_angle(0.5 * atan2(2.0 * spread_xy, spread_xx - spread_yy))
+	var across: Vector2 = axis.orthogonal()
+	var along_min: float = INF
+	var along_max: float = -INF
+	var across_min: float = INF
+	var across_max: float = -INF
+	for point: Vector2 in points:
+		var along: float = (point - center).dot(axis)
+		var side: float = (point - center).dot(across)
+		along_min = minf(along_min, along)
+		along_max = maxf(along_max, along)
+		across_min = minf(across_min, side)
+		across_max = maxf(across_max, side)
+	var length: float = along_max - along_min
+	var width: float = across_max - across_min
+	return length > water_tuning.compact_max_size and length >= width * 2.0
+
+
+## An IceBlock of `area` px² of water as a round ball centered on the room-local
+## `center` (its water packed as the hands pack a ball), moving at `velocity` (game
+## px/s). Counted in ice_area.
+func make_ice_block(center: Vector2, area: float, velocity: Vector2) -> Node:
+	var outlines: Array[PackedVector2Array] = IceOutline.trace(_disc_dots(center, area), PackedVector2Array(),
+		water_tuning.blob_dot_radius, 0.0, water_tuning.blob_threshold)
+	return _make_free_ice(outlines, center, area, velocity, false)
+
+
+## Free ice (an IceBlock) with these outlines; a crumb too small to trace becomes a
+## small square, so the water is never just lost.
+func _make_free_ice(outlines: Array[PackedVector2Array], center: Vector2, area: float, velocity: Vector2,
+		is_long: bool) -> Node:
+	if outlines.is_empty():
+		var half: float = maxf(2.0, sqrt(area) / 2.0)
+		outlines = [PackedVector2Array([center + Vector2(-half, -half), center + Vector2(half, -half),
+			center + Vector2(half, half), center + Vector2(-half, half)])]
+	var block: IceBlock = IceBlock.make(self, outlines, area, velocity, is_long)
+	_register_ice(block, area, current_freeze_id)
+	return block
+
+
+## A static PILLAR along the room-local `spine`, holding `area` px² of water, in the
+## shape a snake along it would be drawn with (dots every 2 px). Used by tests and
+## anything that wants standing ice along a line.
+func make_ice_shape(spine: PackedVector2Array, area: float) -> Node:
+	var dots: PackedVector2Array = PackedVector2Array()
+	for index: int in range(1, spine.size()):
+		var from: Vector2 = spine[index - 1]
+		var to: Vector2 = spine[index]
+		var steps: int = maxi(1, ceili(from.distance_to(to) / 2.0))
+		for step: int in steps + 1:
+			dots.append(from.lerp(to, step / float(steps)))
+	return _make_pillar(dots, area)
+
+
+## A static pillar traced from the room-local `dots` (as the hands draw a snake).
+func _make_pillar(dots: PackedVector2Array, area: float) -> Node:
+	var outlines: Array[PackedVector2Array] = IceOutline.trace(dots, PackedVector2Array(),
+		water_tuning.blob_dot_radius, 0.0, water_tuning.blob_threshold)
+	if outlines.is_empty():
+		return _make_free_ice(outlines, dots[0] if not dots.is_empty() else Vector2.ZERO, area, Vector2.ZERO, false)
+	var piece: IcePiece = IcePiece.make_pillar(self, outlines, area)
+	_register_ice(piece, area)
+	return piece
+
+
+## `area` px² of water as dots packed in a disc around `center` (the sunflower packing
+## _spawn_ball and the hands use), for tracing a ball's outline.
+func _disc_dots(center: Vector2, area: float) -> PackedVector2Array:
+	var dots: PackedVector2Array = PackedVector2Array()
+	var count: int = clampi(ceili(area / (water_tuning.drop_units * UNIT_AREA)), 1, 64)
+	var radius: float = sqrt(maxf(area, 1.0) / PI)
+	for index: int in count:
+		dots.append(center + Vector2.from_angle(index * 2.39996) * radius * sqrt((index + 0.5) / count))
+	return dots
+
+
+## The crystal hit a pool at the room-local `point`: an ice SHEET over the body's
+## surface, freeze_pool_reach px each side (see the section notes), cut short where
+## the water is dry or already covered. Returns the sheet, or null (no open water).
+func freeze_body_at(point: Vector2) -> Node:
+	var found: Array = find_body_under(point + Vector2(0.0, -SHEET_PROBE_LIFT))
+	if found.is_empty():
+		return null
+	var body: WaterBody = found[0]
+	var hit_column: int = found[1]
+	if not _is_open_water(body, hit_column):
+		return null
+	var reach_columns: int = _radius_in_columns(water_tuning.freeze_pool_reach)
+	var first: int = hit_column
+	while first > 0 and hit_column - first < reach_columns and _is_open_water(body, first - 1):
+		first -= 1
+	var last: int = hit_column
+	while last < body.get_column_count() - 1 and last - hit_column < reach_columns and _is_open_water(body, last + 1):
+		last += 1
+	# The sheet's top follows the surface as it is (waves freeze too), smoothed over a
+	# few columns so a one-column spike doesn't make a notch; its bottom is
+	# ice_sheet_thickness lower, or the floor where the water is shallower.
+	var tops: PackedFloat32Array = PackedFloat32Array()
+	for column: int in range(first, last + 1):
+		var sum: float = 0.0
+		var count: int = 0
+		for near: int in range(maxi(first, column - 2), mini(last, column + 2) + 1):
+			sum += body.get_surface_y(near)
+			count += 1
+		tops.append(sum / count)
+	var top_line: PackedVector2Array = PackedVector2Array()
+	var bottom_line: PackedVector2Array = PackedVector2Array()
+	var xs: PackedFloat32Array = PackedFloat32Array()
+	var old_ceilings: PackedFloat32Array = PackedFloat32Array()
+	var frozen_areas: PackedFloat32Array = PackedFloat32Array()
+	var total: float = 0.0
+	for column: int in range(first, last + 1):
+		var top_here: float = tops[column - first]
+		var ice_bottom_here: float = minf(top_here + water_tuning.ice_sheet_thickness, body.floor_y[column])
+		var column_middle: float = body.get_column_left(column) + column_width * 0.5
+		top_line.append(Vector2(column_middle, top_here))
+		bottom_line.append(Vector2(column_middle, ice_bottom_here))
+		# The water above the sheet's bottom becomes ice (all of it, if it's shallow:
+		# then the column is frozen through, a dam).
+		var frozen_depth: float = clampf(ice_bottom_here - body.get_surface_y(column), 0.0, body.depth[column])
+		body.depth[column] -= frozen_depth
+		xs.append(body.get_column_left(column) + column_width * 0.5)
+		old_ceilings.append(body.ceiling_y[column])
+		frozen_areas.append(frozen_depth * column_width)
+		body.ceiling_y[column] = maxf(body.ceiling_y[column], ice_bottom_here)
+		total += frozen_depth * column_width
+	body.is_asleep = false
+	# The outline: along the top from the stretch's left edge to its right edge, then
+	# back along the bottom.
+	var left_x: float = body.get_column_left(first)
+	var right_x: float = body.get_column_left(last) + column_width
+	var outline: PackedVector2Array = PackedVector2Array([Vector2(left_x, tops[0])])
+	outline.append_array(top_line)
+	outline.append(Vector2(right_x, tops[tops.size() - 1]))
+	outline.append(Vector2(right_x, bottom_line[bottom_line.size() - 1].y))
+	bottom_line.reverse()
+	outline.append_array(bottom_line)
+	outline.append(Vector2(left_x, bottom_line[bottom_line.size() - 1].y))
+	outline = IceOutline.simplify(outline, 0.3)
+	var sheet: IcePiece = IcePiece.make_sheet(self, outline, xs, old_ceilings, frozen_areas, total)
+	_register_ice(sheet, total)
+	_lift_out_of(Rect2(to_global(sheet.sheet_rect.position), sheet.sheet_rect.size))
+	return sheet
+
+
+## Water in `column` that a sheet can freeze: wet, and not under a ceiling (rock or
+## another sheet) at its surface.
+func _is_open_water(body: WaterBody, column: int) -> bool:
+	return column >= 0 and column < body.get_column_count() \
+		and body.depth[column] > WaterBody.DRY_DEPTH * 10.0 \
+		and body.ceiling_y[column] < body.get_surface_y(column) - 0.5
+
+
+## The water in the hands freezes where it is (2 while holding), in the shape it's
+## drawn with: `dots` (room-local), the ball's and the snake's (held_dots). The ball
+## holds `ball_area` px² at room-local `ball_center`; a snake (`has_snake`, its foot
+## still in its pool) holds `snake_area` px². With a snake it all becomes one static
+## PILLAR standing in the pool; a ball alone becomes a block that falls from where it
+## was. Returns the ice, or null (empty hands).
+func freeze_held(ball_center: Vector2, ball_area: float, has_snake: bool, snake_area: float,
+		dots: PackedVector2Array) -> Node:
+	var area: float = minf(ball_area + snake_area, held_area)
+	if area <= 0.0:
+		return null
+	held_area -= area
+	if has_snake and dots.size() >= 2:
+		return _make_pillar(dots, area)
+	if dots.is_empty():
+		return make_ice_block(ball_center, area, Vector2.ZERO)
+	var outlines: Array[PackedVector2Array] = IceOutline.trace(dots, PackedVector2Array(),
+		water_tuning.blob_dot_radius, 0.0, water_tuning.blob_threshold)
+	return _make_free_ice(outlines, ball_center, area, Vector2.ZERO, false)
+
+
+## Every new piece of ice: counted (THE BOOKS), remembered, and the ice cap kept: a
+## piece past max_player_ice melts the oldest (Water_bending.md §7.3).
+## The pieces of one freeze share `freeze_id` (a splash frozen into several pieces);
+## -1 = a freeze of its own. The cap counts FREEZES, not pieces (play-test 5: a
+## frozen splash of many bits would otherwise melt all your other ice), and melting
+## the oldest freeze melts all its pieces.
+func _register_ice(ice: Node, area: float, freeze_id: int = -1) -> void:
+	if freeze_id < 0:
+		freeze_id_counter += 1
+		freeze_id = freeze_id_counter
+	ice.set_meta(&"freeze_id", freeze_id)
+	ice_area += area
+	player_ice.append(ice)
+	freeze_count += 1
+	last_ice = ice
+	while get_ice_freeze_count() > water_tuning.max_player_ice:
+		var oldest: int = int(player_ice[0].get_meta(&"freeze_id"))
+		for piece: Node in player_ice.duplicate():
+			if int(piece.get_meta(&"freeze_id")) == oldest:
+				melt_ice(piece)
+
+
+## How many FREEZES the room's player-made ice comes from (what the ice cap counts).
+func get_ice_freeze_count() -> int:
+	var ids: Dictionary = {}
+	for piece: Node in player_ice:
+		ids[piece.get_meta(&"freeze_id")] = true
+	return ids.size()
+
+
+## Ice melts back into water (fire, the ice cap, a shattered block): its water comes
+## back exactly. A block becomes a ball of loose water moving as it did, a shape
+## rains down along its line (a pillar refills its pool), a sheet sinks back into
+## the columns it came from. The node goes away.
+func melt_ice(ice: Node) -> void:
+	if not is_instance_valid(ice) or not player_ice.has(ice):
+		return
+	player_ice.erase(ice)
+	if ice == last_ice:
+		last_ice = null
+	var area: float = float(ice.get(&"water_area"))
+	ice_area -= area
+	if ice is IcePiece and (ice as IcePiece).is_sheet:
+		_unfreeze_sheet(ice as IcePiece)
+	else:
+		# It comes apart where it is: each convex part's share of the water (by its
+		# area) as a ball of loose water at the part's middle. A block keeps moving as
+		# it did; a pillar rains down into its pool.
+		var parts: Array[PackedVector2Array] = []
+		var velocity: Vector2 = Vector2.ZERO
+		if ice is IceBlock:
+			var block: IceBlock = ice as IceBlock
+			parts = IceOutline.moved(block.parts, to_local(block.global_position))
+			velocity = block.velocity
+		else:
+			parts = (ice as IcePiece).parts
+		var total: float = 0.0
+		for part: PackedVector2Array in parts:
+			total += absf(IceOutline.polygon_area(part))
+		for part: PackedVector2Array in parts:
+			var share: float = area * absf(IceOutline.polygon_area(part)) / total if total > 0.0 else area / parts.size()
+			var middle: Vector2 = IceOutline.centroid([part])
+			_spawn_ball(middle, velocity, share)
+			sparkle(middle, 1)
+	ice.queue_free()
+
+
+## A sheet's water goes back into the columns it froze, with their old ceilings.
+## The body may have changed since (merged, grown), so each column is found again by
+## its x under the sheet; one that's gone gets its water back as a drop.
+func _unfreeze_sheet(sheet: IcePiece) -> void:
+	var rect: Rect2 = sheet.sheet_rect
+	for index: int in sheet.sheet_xs.size():
+		var x: float = sheet.sheet_xs[index]
+		var area: float = sheet.sheet_areas[index]
+		var found: Array = find_body_under(Vector2(x, rect.position.y))
+		if found.is_empty():
+			if area > 0.0:
+				_spawn_drop(Vector2(x, rect.position.y - 1.0), Vector2.ZERO, area)
+			continue
+		var body: WaterBody = found[0]
+		var column: int = found[1]
+		body.ceiling_y[column] = sheet.sheet_old_ceilings[index]
+		body.depth[column] += area / column_width
+		body.is_asleep = false
+	for point_x: float in [rect.position.x + 2.0, rect.get_center().x, rect.end.x - 2.0]:
+		sparkle(Vector2(point_x, rect.position.y), 2)
+
+
+## Bodies caught inside new ice (you, a floating crate) are lifted onto it: you
+## swam at the surface and the pool froze around your head (W5 planning, default d).
+## Something wholly below the ice stays under it.
+func _lift_out_of(ice_rect_global: Rect2) -> void:
+	for member: Node in get_tree().get_nodes_in_group(SOLID_GROUP):
+		var body: CharacterBody2D = member as CharacterBody2D
+		if body == null or member is IceBlock or not member.has_method(&"get_water_box"):
+			continue
+		var box: Rect2 = member.call(&"get_water_box")
+		if box.size.x <= 0.0 or not box.intersects(ice_rect_global):
+			continue
+		# Origins are at the feet (the player, crates): stand it on the ice's top.
+		body.global_position.y = ice_rect_global.position.y
+		body.velocity.y = minf(body.velocity.y, 0.0)
+
+
+## Is the room-local `point` inside player-made ice? (A WaterSource whose mouth is
+## frozen stops pouring.)
+func is_point_in_ice(point: Vector2) -> bool:
+	var world_point: Vector2 = to_global(point)
+	for ice: Node in player_ice:
+		if not is_instance_valid(ice):
+			continue
+		if ice.has_method(&"get_water_boxes"):
+			for box: Rect2 in ice.call(&"get_water_boxes"):
+				if box.has_point(world_point):
+					return true
+		elif (ice.call(&"get_water_box") as Rect2).has_point(world_point):
+			return true
+	return false
+
+
 # --- Every frame ----------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
 	if GameState.current_room != room:
 		return  # not the room on screen: its water waits
 	var started_usec: int = Time.get_ticks_usec()
+	game_time += delta
 	_handle_debug_keys()
+	if not player_ice.is_empty():
+		var glint_player: Node2D = get_tree().get_first_node_in_group(Player.GROUP) as Node2D
+		if glint_player != null:
+			IceLook.update_glint(glint_player.global_position.x)
 	var was_busy: bool = get_awake_count() > 0 or get_drop_count() > 0
 	_update_ends()
 	var bodies_started_usec: int = Time.get_ticks_usec()
@@ -1098,26 +1711,37 @@ func _remove_drop(index: int) -> void:
 	drop_velocities[index] = drop_velocities[last]
 	drop_areas[index] = drop_areas[last]
 	drop_foam[index] = drop_foam[last]
+	drop_groups[index] = drop_groups[last]
 	drop_positions.resize(last)
 	drop_velocities.resize(last)
 	drop_areas.resize(last)
 	drop_foam.resize(last)
+	drop_groups.resize(last)
 
 
 ## The moving solids particles bump into this frame: everything in the
-## "water_solid" group in this room (crates, the player), as room-local boxes.
+## "water_solid" group in this room (crates, the player, ice), as room-local boxes.
+## A member has get_water_box() (one box) or get_water_boxes() (several).
 func _collect_solid_boxes() -> void:
 	solid_boxes.clear()
 	if drop_positions.is_empty():
 		return
+	var room_rect: Rect2 = Rect2(Vector2.ZERO, room.room_size)
 	for member: Node in get_tree().get_nodes_in_group(SOLID_GROUP):
+		# A shape made of several boxes (ice shapes, Stage W5) lists them all.
+		if member.has_method(&"get_water_boxes"):
+			for many_box: Rect2 in member.call(&"get_water_boxes"):
+				many_box.position = to_local(many_box.position)
+				if many_box.size.x > 0.0 and room_rect.intersects(many_box):
+					solid_boxes.append(many_box)
+			continue
 		if not member.has_method(&"get_water_box"):
 			continue
 		var box: Rect2 = member.call(&"get_water_box")
 		if box.size.x <= 0.0:
 			continue
 		box.position = to_local(box.position)
-		if Rect2(Vector2.ZERO, room.room_size).intersects(box):
+		if room_rect.intersects(box):
 			solid_boxes.append(box)
 
 
@@ -1127,6 +1751,7 @@ func _spawn_drop(position_px: Vector2, velocity: Vector2, area: float, foam: flo
 	drop_velocities.append(velocity)
 	drop_areas.append(area)
 	drop_foam.append(foam)
+	drop_groups.append(spawn_group)
 
 
 ## Moves every drop one frame. SPEED: this is the hottest loop in the water (up to
@@ -1141,6 +1766,7 @@ func _step_drops(delta: float) -> void:
 	var velocities: PackedVector2Array = drop_velocities
 	var areas: PackedFloat32Array = drop_areas
 	var foams: PackedFloat32Array = drop_foam
+	var groups: PackedInt32Array = drop_groups
 	var foam_fade: float = delta / maxf(water_tuning.particle_foam_life, 0.01)
 	var gravity_step: float = water_tuning.drop_gravity * delta
 	var max_fall: float = water_tuning.drop_max_fall_speed
@@ -1250,6 +1876,7 @@ func _step_drops(delta: float) -> void:
 			velocities[index] = velocities[count]
 			areas[index] = areas[count]
 			foams[index] = foams[count]
+			groups[index] = groups[count]
 			continue  # the drop moved into this slot is stepped next
 		positions[index] = new_position
 		velocities[index] = velocity
@@ -1259,10 +1886,12 @@ func _step_drops(delta: float) -> void:
 	velocities.resize(count)
 	areas.resize(count)
 	foams.resize(count)
+	groups.resize(count)
 	drop_positions = positions
 	drop_velocities = velocities
 	drop_areas = areas
 	drop_foam = foams
+	drop_groups = groups
 
 
 func _land_in_body(body: WaterBody, column: int, area: float, velocity: Vector2) -> void:

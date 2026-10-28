@@ -144,6 +144,8 @@ var is_snake_hold: bool = false
 ## REST: real seconds the full ball has sat still in the pool, and armed.
 var rest_time: float = 0.0
 var is_rest_armed: bool = false
+## The throw group of the last release (Stage W5; WaterWorld THROW GROUPS), 0 = none.
+var last_throw_group: int = 0
 
 
 func _ready() -> void:
@@ -212,7 +214,13 @@ func release(throw: bool) -> void:
 	var velocity: Vector2 = ball_velocity * tuning.throw_multiplier if throw else Vector2.ZERO
 	last_release_units = ball_units
 	last_release_velocity = velocity
+	# One THROW GROUP for the ball and its snake (Stage W5): the freeze (2) finds
+	# "the water you last threw" by it.
+	if world != null and (ball_units > 0.0 or snake != null):
+		last_throw_group = world.begin_throw_group(
+			ball_units * WaterWorld.UNIT_AREA + (snake.area if snake != null else 0.0))
 	if snake != null:
+		snake.group_id = last_throw_group
 		# A ribbon: it flows out after the ball along the same path (or just falls).
 		if snake.release(velocity):
 			flying_snake = snake
@@ -220,7 +228,7 @@ func release(throw: bool) -> void:
 	if world != null:
 		var center: Vector2 = world.to_local(ball_position)
 		if ball_units > 0.0:
-			world.release_held(center, velocity, ball_units * WaterWorld.UNIT_AREA)
+			world.release_held(center, velocity, ball_units * WaterWorld.UNIT_AREA, last_throw_group)
 		else:
 			world.sparkle(center)  # an empty ball fizzles
 		world.set_held_dots(PackedVector2Array() if flying_snake == null
@@ -229,6 +237,34 @@ func release(throw: bool) -> void:
 	is_gathering = false
 	released.emit(last_release_units, velocity)
 	queue_redraw()
+
+
+## 2 while holding (Stage W5, the freeze's first rule): the water in your hands
+## freezes where it is, in the shape it's drawn with. With a snake it all becomes one
+## pillar standing in its pool; a ball alone becomes a block that falls from there. The hold
+## ends (WaterHolding leaves when is_holding() turns false). Returns the ice, or
+## null with empty hands (nothing happens, the hold goes on).
+func freeze_held() -> Node:
+	if not holding or world == null or (ball_units <= 0.0 and snake == null):
+		return null
+	# It freezes in exactly the shape it's drawn with: the dots of the ball and snake.
+	var dots: PackedVector2Array = _make_ball_dots()
+	var snake_area: float = 0.0
+	var has_snake: bool = snake != null
+	if has_snake:
+		dots.append_array(snake.get_dots(get_ball_radius() if ball_units > 0.0 else 0.0, hold_real_time))
+		snake_area = snake.area
+		snake.area = 0.0
+		snake = null
+	var ice: Node = world.freeze_held(world.to_local(ball_position), ball_units * WaterWorld.UNIT_AREA,
+		has_snake, snake_area, dots)
+	holding = false
+	ball_units = 0.0
+	is_gathering = false
+	world.set_held_dots(PackedVector2Array() if flying_snake == null
+		else flying_snake.get_dots(0.0, hold_real_time))
+	queue_redraw()
+	return ice
 
 
 ## Under water, the ball moving into you or a floating crate shoves it once (see the

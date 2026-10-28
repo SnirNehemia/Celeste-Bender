@@ -151,8 +151,8 @@ class Entry:
 	## (the same cell when the tileset has one tile). See TileBrush.
 	var tile_plain: Vector2i = TileBrush.TILE_PLAIN
 	var tile_top_edge: Vector2i = TileBrush.TILE_TOP_EDGE
-	## Terrain kind: layers whose tiles a painted cell ERASES, so the brush carves
-	## its shape out of them (a hidden chamber dug into an earth wall). Same undo step.
+	## Terrain kind: layers whose tiles a painted cell ERASES (one terrain per cell, a
+	## hidden chamber carved into an earth wall). Same undo step. Set by _assign_carving.
 	var carves_layers: Array[StringName] = []
 	## More tabs the entry's button also shows in, besides `family` (a hidden chamber
 	## is terrain, and also something you break open). Both buttons pick this entry.
@@ -171,6 +171,9 @@ class Entry:
 
 
 const TILE: int = 8
+## Terrain layers the carving rule (_assign_carving) treats specially.
+const WATER_LAYER_NAME: StringName = &"Water"
+const HIDDEN_LAYER_NAME: StringName = &"Hidden"
 const SPAWN_POINT_NAME: StringName = &"SpawnPoint"
 ## Same as EditorOverlay's spawn marker: 6x12 standing on the feet point.
 const SPAWN_MARKER_SIZE: Vector2 = Vector2(6, 12)
@@ -195,7 +198,7 @@ const TAB_OF: Dictionary = {
 }
 ## Elements of entries whose stage family doesn't say it (terrain, enemies).
 const ELEMENT_OF: Dictionary = {
-	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
+	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"ice": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
 	&"wisp": "Air", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
 }
 
@@ -374,31 +377,36 @@ static func _build() -> void:
 	# touches open air (a cover you could walk through). painted_ground: only the
 	# GroundPainter draws the cover, and hides it again once it crumbles.
 	var hidden_chamber: Entry = _add(&"hidden_chamber", "Hidden chamber", "Terrain", Kind.TERRAIN)
-	hidden_chamber.hint = "A secret tunnel: paint it into a wall (it carves the tiles out). In play it looks like deep earth until a dig or a burnt overgrown cover reaches it, then it crumbles open. Red edges: it touches open air there. Turns Earth on."
+	hidden_chamber.hint = "A secret tunnel: paint it into a wall (it carves the tiles out). In play it looks like deep earth until a dig, a breaking wall or burnt thicket or cover reaches it, then it crumbles open. Red edges: it opens onto the air there, and walking in shows its inside through a mist until you leave. Turns Earth on."
 	hidden_chamber.layer_name = &"Hidden"
 	hidden_chamber.tile_set = earth.tile_set
 	hidden_chamber.layer_script = preload("res://scenes/objects/earth/hidden_layer.gd")
 	hidden_chamber.tile_plain = earth.tile_plain
 	hidden_chamber.tile_top_edge = earth.tile_plain
-	hidden_chamber.carves_layers = [&"Tiles", &"Earth", &"Grass", &"Thicket", &"Overgrown"]
 	hidden_chamber.extra_tabs = ["Breakable"]
 	hidden_chamber.room_settings_on_create = {&"earth_allowed": true, &"painted_ground": true}
 
-	# Walls are placed by their top-left corner and sized in whole tiles.
-	var cracked_wall: Entry = _add_object(&"cracked_wall", "Cracked wall", "Earth", preload("res://scenes/objects/earth/cracked_wall.tscn"))
-	cracked_wall.hint = "Solid until a thrown BIG rock hits it: then it breaks open. Small rocks, columns and the snake just bump into it. Fire doesn't burn it. Back on reset."
-	cracked_wall.bounds = Bounds.SIZE_TOP_LEFT
-	cracked_wall.size_property = &"wall_size_tiles"
-	cracked_wall.size_unit = TILE
-	cracked_wall.editable_properties = [&"wall_size_tiles"]
+	# Breakable walls, painted as terrain (after Stage W2; they were objects sized in
+	# tiles before). Each connected group of painted cells is one wall that breaks
+	# all at once (WallLayer makes a CrackedWall / StoneWall per group). Breaking one
+	# opens the hidden chambers it touches, with a quake. Old wall objects in a level
+	# become tiles when it's opened (RoomLook.prepare_for_editing).
+	var cracked_wall: Entry = _add(&"cracked_wall", "Cracked wall", "Earth", Kind.TERRAIN)
+	cracked_wall.hint = "Paint it like terrain: each connected patch is one wall, solid until a thrown BIG rock hits it, then the whole patch breaks open (and opens hidden chambers behind it). Small rocks, columns and the snake just bump into it. Fire doesn't burn it. Back on reset."
+	cracked_wall.layer_name = &"CrackedWalls"
+	cracked_wall.tile_set = preload("res://resources/tiles/placeholder_tileset.tres")
+	cracked_wall.layer_script = preload("res://scenes/objects/earth/cracked_wall_layer.gd")
+	cracked_wall.tile_plain = TileBrush.TILE_PLAIN
+	cracked_wall.tile_top_edge = TileBrush.TILE_PLAIN
 
 	# Only a charging thicket elephant breaks it (Fire F11b); listed with Earth's walls.
-	var stone_wall: Entry = _add_object(&"stone_wall", "Stone wall", "Earth", preload("res://scenes/objects/stone_wall.tscn"))
-	stone_wall.hint = "Much stronger than a cracked wall: rocks shatter on it and fire does nothing. Only a charging thicket elephant breaks it. Back on reset."
-	stone_wall.bounds = Bounds.SIZE_TOP_LEFT
-	stone_wall.size_property = &"wall_size_tiles"
-	stone_wall.size_unit = TILE
-	stone_wall.editable_properties = [&"wall_size_tiles"]
+	var stone_wall: Entry = _add(&"stone_wall", "Stone wall", "Earth", Kind.TERRAIN)
+	stone_wall.hint = "Paint it like terrain: each connected patch is one wall, much stronger than a cracked wall: rocks shatter on it and fire does nothing. Only a charging thicket elephant breaks it (and the hidden chambers behind it open). Back on reset."
+	stone_wall.layer_name = &"StoneWalls"
+	stone_wall.tile_set = cracked_wall.tile_set
+	stone_wall.layer_script = preload("res://scenes/objects/stone_wall_layer.gd")
+	stone_wall.tile_plain = TileBrush.TILE_TOP_EDGE
+	stone_wall.tile_top_edge = TileBrush.TILE_TOP_EDGE
 
 	# Rock spots (RockSpot): a loose rock lies there from the start and after every
 	# reset. The origin is the rock's center; it stands on the clicked tile.
@@ -427,8 +435,8 @@ static func _build() -> void:
 	grass.tile_plain = Vector2i(1, 0)
 	grass.tile_top_edge = Vector2i(0, 0)
 
-	var thicket: Entry = _add(&"thicket", "Thicket", "Terrain", Kind.TERRAIN)
-	thicket.hint = "Solid brambles that fire burns THROUGH: a burnt tile crumbles to ash and stays open until the room resets. Rocks shatter on it. Painting it turns Fire on in the room."
+	var thicket: Entry = _add(&"thicket", "Thicket (burns slowly)", "Terrain", Kind.TERRAIN)
+	thicket.hint = "Solid brambles that fire burns THROUGH, tile by tile: a burnt tile crumbles to ash and stays open until the room resets (a burning floor drops you). Burning through opens hidden chambers behind it. Rocks shatter on it. Painting it turns Fire on in the room."
 	thicket.layer_name = &"Thicket"
 	thicket.tile_set = preload("res://resources/tiles/thicket_tileset.tres")
 	thicket.layer_script = preload("res://scenes/objects/fire/thicket_layer.gd")
@@ -438,7 +446,7 @@ static func _build() -> void:
 
 	# Two brushes for the same "Overgrown" layer: covers passing for grass ground or
 	# for a thicket wall. Fire touching any cell burns the whole connected cover.
-	var overgrown_grass: Entry = _add(&"overgrown_grass", "Overgrown (grass look)", "Terrain", Kind.TERRAIN)
+	var overgrown_grass: Entry = _add(&"overgrown_grass", "Grass cover (burns at once)", "Terrain", Kind.TERRAIN)
 	overgrown_grass.hint = "A cover that looks like grass ground (a shade off, roots poking out): solid, but fire touching it burns the whole connected cover away at once. Hides passages. Turns Fire on."
 	overgrown_grass.layer_name = &"Overgrown"
 	overgrown_grass.tile_set = thicket.tile_set
@@ -447,8 +455,8 @@ static func _build() -> void:
 	overgrown_grass.tile_top_edge = ThicketLayer.GRASS_LOOK_TILE
 	overgrown_grass.room_settings_on_create = {&"fire_allowed": true}
 
-	var overgrown_thicket: Entry = _add(&"overgrown_thicket", "Overgrown (thicket look)", "Terrain", Kind.TERRAIN)
-	overgrown_thicket.hint = "A cover that looks like a thicket wall (a little browner): fire touching it burns the whole connected cover away at once. Turns Fire on."
+	var overgrown_thicket: Entry = _add(&"overgrown_thicket", "Thicket cover (burns at once)", "Terrain", Kind.TERRAIN)
+	overgrown_thicket.hint = "A cover that looks like a thicket wall (a little browner, roots poking out): fire touching ANY tile burns the whole connected cover away at once, unlike real thicket's slow tile-by-tile burn. Opens hidden chambers behind it. Turns Fire on."
 	overgrown_thicket.layer_name = &"Overgrown"
 	overgrown_thicket.tile_set = thicket.tile_set
 	overgrown_thicket.layer_script = overgrown_grass.layer_script
@@ -468,6 +476,16 @@ static func _build() -> void:
 	water.tile_plain = WaterLayer.WATER_TILE
 	water.tile_top_edge = WaterLayer.WATER_TILE
 	water.room_settings_on_create = {&"water_allowed": true}
+
+	# Painted ice (Stage W5; Water_bending.md §7.1): solid ground you slide on. Part of
+	# the level: it never melts and doesn't count toward the ice cap.
+	var ice: Entry = _add(&"ice", "Ice", "Terrain", Kind.TERRAIN)
+	ice.hint = "Solid ice: slow to start and stop on, you keep sliding, and a long run on it builds up speed for a long jump. No grip on its walls. Painted ice never melts."
+	ice.layer_name = &"Ice"
+	ice.tile_set = preload("res://resources/tiles/ice_tileset.tres")
+	ice.layer_script = preload("res://scenes/objects/water/ice_layer.gd")
+	ice.tile_plain = IceLayer.ICE_TILE
+	ice.tile_top_edge = IceLayer.ICE_TILE
 
 	# Sources and drains (Stage W2; Water_bending.md §6.2, §8.1). A room with a source
 	# gets a WaterWorld even without painted water.
@@ -588,6 +606,28 @@ static func _build() -> void:
 	enemy_gate.link_target_label = "enemy"
 
 	_assign_tabs()
+	_assign_carving()
+
+
+## One terrain per cell (after Stage W2): painting a terrain erases every other
+## terrain layer in that cell. Water is the exception: it lies in or on nothing
+## solid, so it erases nothing, and only the chamber keeps it (water can stand in a
+## hidden chamber). Two brushes sharing a layer (the covers) replace each other's
+## tiles through TileBrush.paint_cell.
+static func _assign_carving() -> void:
+	var layer_names: Array[StringName] = []
+	for entry: Entry in _entries:
+		if entry.kind == Kind.TERRAIN and not layer_names.has(entry.layer_name):
+			layer_names.append(entry.layer_name)
+	for entry: Entry in _entries:
+		if entry.kind != Kind.TERRAIN or entry.layer_name == WATER_LAYER_NAME:
+			continue
+		for layer_name: StringName in layer_names:
+			if layer_name == entry.layer_name:
+				continue
+			if entry.layer_name == HIDDEN_LAYER_NAME and layer_name == WATER_LAYER_NAME:
+				continue
+			entry.carves_layers.append(layer_name)
 
 
 ## Moves every entry from its stage's family (now its element) to its tab.

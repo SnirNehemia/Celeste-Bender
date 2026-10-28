@@ -17,6 +17,8 @@ extends PlayerState
 ##   - Jump                   -> release(false): the ball drops where it is, and you
 ##                               jump (from the ground; in the air the press is left
 ##                               for Fall, so a swimmer strokes)
+##   - 2 (Stage W5)           -> the ball (and snake) FREEZE where they are
+##                               (FreezeAbility.try_freeze_held): a block, or a pillar
 ##   - the ability let go by itself (the ball left the ring, or time ran out) -> leave
 ##   - death (Dead state)     -> exit() drops the ball (the room reset clears it)
 
@@ -50,6 +52,10 @@ func physics_update(delta: float) -> void:
 			player.start_ground_jump()
 			transition_requested.emit(&"Jump")
 			return
+		_leave()
+		return
+	# 2 (Stage W5): the water in your hands freezes where it is, and the hold ends.
+	if player.freeze.try_freeze_held():
 		_leave()
 		return
 	# Let go: is_action_pressed (not just_released) on purpose, so a release between

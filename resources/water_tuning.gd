@@ -281,6 +281,74 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## GENTLE, lifting too fast: this much of the pool (units) jumps up and rains back.
 @export var snake_tear_splash_units: float = 0.25
 
+@export_group("Freeze")
+## Stage W5 (Water_bending.md §5.3, as refined before W5): tap 2. Holding water: the
+## ball (and snake) freeze. Else, while your last throw is LIVE (see below), all of
+## it freezes at once, no aim. Else 2 throws an ICE CRYSTAL: a tap throws it at once
+## in the arrow direction (facing with none), holding 2 aims it in slow motion like
+## the fireball. It freezes the first water it touches.
+## Seconds (game time) between two freezes.
+@export_range(0.0, 2.0) var freeze_cooldown: float = 0.25
+## The last throw is LIVE (2 freezes it) for this many game seconds after release...
+@export_range(0.2, 5.0) var freeze_live_time: float = 1.5
+## ...and only while at least this share of its water is still loose (in the air or
+## running: not merged into a pool or soaked in). Stray drops left after a splash
+## never take the key from the crystal.
+@export_range(0.0, 1.0) var freeze_live_share: float = 0.5
+## Frozen water no longer than this, px (or not twice as long as it is wide: a full
+## 4-unit ball is ~18 px round), becomes an ICE BLOCK that falls (and keeps its
+## momentum); longer and thin, a STATIC ice shape (a pillar, an arc, a frozen
+## waterfall).
+@export var compact_max_size: float = 16.0
+## A static ice shape is a thick line along the frozen water: its thickness is the
+## water's area / its length, kept between these, px.
+@export var ice_min_thickness: float = 4.0
+@export var ice_max_thickness: float = 10.0
+## A pool or stream frozen by the crystal: the ice covers this many px EACH SIDE of
+## where it hit (after the W5 planning: a stretch, not the whole pool), a sheet
+## ice_sheet_thickness px thick at the surface. Where the water is shallower than
+## the sheet it freezes to the floor: a stream frozen through is DAMMED there.
+@export_range(8.0, 320.0) var freeze_pool_reach: float = 56.0
+@export_range(2.0, 24.0) var ice_sheet_thickness: float = 8.0
+## Loose water the crystal hits that isn't a live throw (a waterfall, spray, a
+## puddle's spill): the drops joined to the hit (each within freeze_join_distance of
+## the next, more for fast drops: WaterWorld.STREAM_JOIN_TIME), at most
+## freeze_loose_reach px from it.
+@export var freeze_loose_reach: float = 48.0
+@export var freeze_join_distance: float = 6.0
+## At most this many pieces of player-made ice per room: a new one melts the oldest
+## (Water_bending.md §7.3). Ice placed in the level doesn't count.
+@export_range(1, 20) var max_player_ice: int = 6
+## The crystal: speed (game px/s), how far it flies, px, and its aim in slow motion
+## (world speed, and real seconds before it flies by itself).
+@export var crystal_speed: float = 320.0
+@export var crystal_range: float = 120.0
+@export_range(0.05, 1.0) var crystal_aim_time_scale: float = 0.3
+@export_range(0.2, 5.0) var crystal_aim_max_real_time: float = 1.5
+
+@export_group("Ice")
+## Ice ground (Water_bending.md §7.1): acceleration and friction are these shares
+## of the normal ones (slow to start, slow to turn, you keep sliding). After the
+## first W5 play-test acceleration went from 0.15 to 0.03: about 3 s from standing
+## to run speed, so speed on ice comes from gusts, jumps and launches.
+@export_range(0.005, 1.0) var ice_accel_scale: float = 0.03
+@export_range(0.01, 1.0) var ice_friction_scale: float = 0.08
+## Top run speed on ice, as a share of the normal one (Claude's addition in W5: a
+## long run on ice builds up to it slowly, so a frozen pool is a runway for a long
+## jump even with no other momentum; 1 = off). Faster than that (a jet, a launch),
+## ice doesn't slow you to it.
+@export_range(1.0, 2.5) var ice_max_run_scale: float = 1.4
+## Leaving ice above run speed (a long jump), the extra speed fades this gently in
+## the air (px/s²) instead of air control's normal rate, unless you steer against it.
+@export var ice_air_overspeed_fade: float = 60.0
+## On an ice wall you slide down this many times faster (no grip).
+@export_range(1.0, 4.0) var ice_wall_slide_scale: float = 2.0
+## Ice blocks (frozen compact water, built on the crate): friction on the ground,
+## px/s², and a fall of this many px or more SHATTERS one into loose water (6 tiles:
+## the spec's 4 tiles broke blocks frozen at the top of an ordinary throw).
+@export var ice_block_friction: float = 40.0
+@export var ice_block_shatter_fall: float = 48.0
+
 @export_group("Water and projectiles")
 ## Any water (a pool, loose drops, the held ball) puts a FIREBALL out, and SOAKS a
 ## sentry orb (after play-test 3): it keeps orb_soaked_speed_keep of its speed and

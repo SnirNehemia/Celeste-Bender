@@ -111,6 +111,8 @@ There's no water bar and nothing to carry between holds: you hold water only whi
 
 ### 5.3 Freeze (tap 2)
 
+> **Refined in the W5 planning (§16 "Decided in Stage W5"):** rules 3 and 4 below became an **ice crystal**: with nothing held and no live throw, 2 throws a crystal (tap: at once in the arrow direction; hold: aim in slow motion) that freezes the first water it touches. Rule 2 applies only while the throw is LIVE (≤ 1.5 s old, at least half still loose), shown by frost glints and a ring over your head. Frozen balls keep their momentum; a pool freezes over a stretch around the hit, not whole. Wet-tile ice waits for W8.
+
 The freeze picks its target in this order:
 
 | # | When | Freezes |
@@ -594,6 +596,53 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
 - **Cohesion finds each pair once** (the "half-neighbourhood": the rest of its own cell, the cell to its right, the three below; one binary search per particle instead of three). Same springs; pairs are just handled in a different order, so numbers differ in the last digits.
 - **The budget checks** now repeat each stress 5 times and judge the **median of the 5 averages** against the same 2 ms; each round reseeds the random numbers, so every run does the same work. Waiting for calm counts physics frames, not real time. Each check prints a "machine check" (a fixed GDScript loop) so a slow-CPU run can be told apart from slow code. A third check runs the W1 stress with every pool resting on grass (painted for the check, then removed): the case of a room mixing Fire's meadows and Water's pools.
 - **Fire and water together** (measured headless with a throwaway probe, every surface of Water A grass, the fire at its 96-cell cap, W1's stress): FireGrid's logic 19 µs a frame on average (p95 0.1 ms), its flames 58 µs (p95 0.6 ms). Script time for both stays far under the 16.6 ms frame; drawing (flames, metaballs) wasn't measured headless.
+
+### Decided in Stage W5 (freeze and ice, 28 Oct 2026)
+- **Planning (developer's answers, before building):**
+  - **Hybrid freeze.** The developer asked whether a thrown "ice crystal" that freezes what it touches would play better than the target order. Claude's view: a crystal alone makes "freeze your own throw in the air" a projectile-hits-projectile shot (aim and lead it in half a second), while the target order can't reach far water. So the order was kept for what you hold and your last throw, and the crystal REPLACES rule 3 ("the water you're touching") and the frost puff.
+  - **Crystal aim:** a tap throws it at once in the arrow direction (facing with none), and holding 2 aims it in slow motion, like the fireball (the shared GustAim state).
+  - **Live window:** the last throw counts only while it's at most 1.5 s old AND at least half of it is still loose (`freeze_live_time`, `freeze_live_share`). Developer's addition: an indicator shows the window, as frost glints on the throw's water and a frost ring over the player's head that runs down.
+  - **Mid-air blocks keep their momentum** (developer's call; Claude suggested "hang, then fall"): a ball frozen in flight flies on as a block.
+  - **Pools freeze over a stretch, not whole** (developer's call): `freeze_pool_reach` (56 px each side of the hit; "fairly large, tunable").
+  - **Wet-tile ice waits for W8** (the real wet layer).
+  - **Defaults taken:**
+    - long ice is a solid curved shape, made of capsules along a spine (slopes up to 45° walkable; W6 makes slides one-way and adds Sliding);
+    - fire melts ice now, through the Flammable contract (`ignite()` melts);
+    - freezing what you hold stays;
+    - a swimmer whose head is at the surface is lifted onto a new sheet.
+- **Throw groups:** every release (the hands, a snake's ribbon, the debug throw 6) gets an id that its particles carry (`WaterWorld.drop_groups`). "The last throw" is the room's newest group.
+- **Which shape:** the frozen particles are measured along their principal axis (the direction they're spread most). COMPACT means no longer than `compact_max_size` (16 px) or not twice as long as wide; it becomes an `IceBlock`, 1 unit = 8×8. The ratio rule is needed because a full 4-unit ball is about 18 px round and would otherwise count as "long". Otherwise the water becomes an `IcePiece` along a spine (the points averaged in 4 px slices), as thick as area / length (4-10 px).
+- **Sheets reuse the ceilings:**
+  - The water above the sheet's bottom becomes ice, and the columns under it get the sheet's bottom as their ceiling, the same pressure model that joins pools under a wall. So you can't surface through it, and water under it keeps its level with the open part.
+  - A column frozen to its floor (ceiling at the floor) passes no flow: that's the dam (`WaterBody.FROZEN_GAP`).
+  - Melting gives each column its old ceiling and its water back.
+- **Ice ground:**
+  - accel ×0.15 and friction ×0.08, as specced;
+  - **Claude's addition:** a top speed of ×1.4 run speed (`ice_max_run_scale`) that only a long run on ice reaches. Without it a frozen pool was no runway: with no jet or launch around, nothing gave you speed for the "long jump off a frozen pool". 1.0 turns it off;
+  - leaving ice above run speed, the extra speed fades at `ice_air_overspeed_fade` (60 px/s²) in the air;
+  - ice walls slide ×2 (there's no wall cling in the game to remove).
+  - Measured in Water E: a run from standing reaches 126 px/s and long-jumps a 64 px spike pit (a run-speed jump covers about 55 px).
+- **Shatter fall 48 px** (`ice_block_shatter_fall`, the spec said 4 tiles): at 32 px, a ball frozen at the top of an ordinary throw shattered on landing.
+- **Waterfalls:** the crystal takes the drops joined to its hit. Two drops count as joined within `freeze_join_distance` plus how far the faster one moves in 0.06 s (`STREAM_JOIN_TIME`), because a fast waterfall's drops are 10-20 px apart and a fixed distance often froze one drop into a tiny block. A source with ice 4 px under its mouth stops pouring.
+- **Room Water E:** the big pool is held in by a rim of painted ice, not rock. Its water first leaked into the spike pit beside it, and a rock rim would brake the run-up right before the jump.
+- **Play-test 5 (28 Oct 2026, developer):**
+  - *The ice looked wrong* (the crucial point): a ball frozen in the air became a square, pool sheets were bland slabs, and frozen snakes were lumpy lines. Three looks were mocked up (A glass, B faceted crystal, C frosted); **A, glass with icicles,** was picked.
+    - Ice keeps EXACTLY the outline of the water that froze: `IceOutline` adds up the metaballs' field (the same soft dots and threshold `WaterRenderer` draws) on a 1 px grid and traces it with marching squares.
+    - A thrown ribbon or a waterfall is traced with its drops stretched as they're drawn (that's what joins a waterfall's beads into a column); a compact ball is traced round, so it doesn't freeze its motion blur.
+    - Sheets follow the surface as it was (frozen waves).
+    - `IceLook` draws all ice the same way: a see-through pale body, a darker underside band, a light top band, a 1 px rim, a small shine, and icicles under long pieces and sheets. `ice.gdshader` adds a glint band that slides with the player.
+  - *A frozen snake stayed in the air*: every free piece now keeps its momentum (`IceBlock` for all of them; its collision is its outline split into convex parts, and it never turns). COMPACT pieces are pushable blocks that slide and shatter; LONG pieces fly, then **lie still** where they land (not pushable, no shatter). Only a snake frozen in the hands, its foot in its pool, stays a standing pillar (`IcePiece`). A frozen waterfall falls too and stands where it lands. **W6 must re-plan slides**: they'll be pieces that landed as ramps, not arcs hanging in the air.
+  - *Too quick to speed up on ice*: `ice_accel_scale` 0.15 → 0.03 (about 3 s to run speed), so speed on ice comes from gusts, jumps and launches, which the ice keeps. The x1.4 runway stays (developer's call): a long enough run still builds past run speed.
+  - *A block under water turned back to water*: it shattered on the pool's floor (the fall was measured from above the water). Water now breaks a fall.
+  - *Splats froze into one piece* (second look): a throw that had split into separate blobs became one IceBlock with several parts, so splats hung in the air together. Now each blob of the drawn outline is its own piece, with its own water and velocity (`freeze_particles` → `_freeze_blob`). All the pieces of one freeze share a freeze id, and the ice cap counts FREEZES, not pieces (`get_ice_freeze_count`), so a frozen splash can't melt your other ice; melting the oldest freeze melts all its pieces.
+  - *Painted ice still looked like tiles*: `IceLayer` now hides its tiles and draws each connected patch in the same glass look (its outline is the patch's boundary on the tile grid), with icicles only where there's open air below.
+- **Not built:**
+  - ice slides and the Sliding state (W6);
+  - ice blocks floating as rafts on currents (W7);
+  - wet-tile ice crust (W8);
+  - jet and fireball melt combos beyond the Flammable hook (W10);
+  - frozen wisps (W11);
+  - the ice collar at a pillar's foot and skid sparks on ice (W12 look pass).
 
 ### Open questions for play-test
 - **Reach:** is 1/2 comfortable with the index on C? If not, try jump on V, or rely on Space (§3.2).

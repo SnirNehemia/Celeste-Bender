@@ -133,6 +133,9 @@ var area_per_length: float = 0.0
 var launch_point: Vector2 = Vector2.ZERO
 var launch_velocity: Vector2 = Vector2.ZERO
 var flight_reset_count: int = 0
+## The throw group its water joins when released (Stage W5; set by the hands before
+## release(), 0 for a tear): the freeze finds "the last throw" by it.
+var group_id: int = 0
 
 
 ## Starts a snake whose foot is on the surface under `foot` and whose head is at
@@ -404,7 +407,7 @@ func _finish_flight() -> void:
 	# Rounding leftovers leave with the last piece.
 	if area > 0.0:
 		world.release_held_along(PackedVector2Array([world.to_local(launch_point)]),
-			PackedVector2Array([launch_velocity]), PackedFloat32Array([area]), tuning.snake_width)
+			PackedVector2Array([launch_velocity]), PackedFloat32Array([area]), tuning.snake_width, group_id)
 	area = 0.0
 	flight_fed = _polyline_length(flight_path) - flight_start
 
@@ -428,7 +431,7 @@ func _feed_out(fed_length: float) -> void:
 		var piece_area: float = minf(area_per_length * piece_length, area)
 		areas.append(piece_area)
 		area -= piece_area
-	world.release_held_along(local_points, velocities, areas, tuning.snake_width)
+	world.release_held_along(local_points, velocities, areas, tuning.snake_width, group_id)
 
 
 ## Its water out as particles along the rope at once (a tear, or a throw too slow
@@ -450,7 +453,7 @@ func _let_go(speed_share: float) -> void:
 		velocities.append(velocity)
 		areas.append(area * segment_length / total_length)
 		along += segment_length
-	world.release_held_along(local_points, velocities, areas, tuning.snake_width)
+	world.release_held_along(local_points, velocities, areas, tuning.snake_width, group_id)
 	area = 0.0
 
 
