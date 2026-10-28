@@ -17,11 +17,17 @@ extends RefCounted
 ##      left, with its own index in the low bits. One packed array of keys.
 ##   2. keys.sort() (native code, fast) puts particles of the same cell next to
 ##      each other, cells in row order.
-##   3. A particle's neighbours are in the 3 x 3 cells around it. In row order the
-##      three cells of one row are consecutive, so ONE binary search
-##      (keys.bsearch, also native) per row finds them all: 3 searches per particle.
-## Each pair is handled once (only partners with a higher index), and both get
-## their share, so momentum is kept.
+##   3. A particle's neighbours are in the 3 x 3 cells around it, but each pair only
+##      needs finding ONCE, so a particle looks at HALF of them (the
+##      "half-neighbourhood"): the particles after it in its own cell, the cell to
+##      its right, and the three cells of the row below. Any pair is in exactly one
+##      of those from one of its two particles. In sorted order the rest of its own
+##      cell and the cell to its right come straight after it (no search at all),
+##      and the three cells below are consecutive: ONE binary search
+##      (keys.bsearch, also native) per particle.
+##      (Was: all 9 cells with 3 searches, then half the pairs thrown away. The
+##      half-neighbourhood visits about 40% as many entries, §6.5 perf pass.)
+## Both particles of a pair get their share, so momentum is kept.
 
 ## Low bits of a key hold the particle's index: up to 4096 particles.
 const INDEX_BITS: int = 12
@@ -55,23 +61,32 @@ static func apply(positions: PackedVector2Array, velocities: PackedVector2Array,
 	var radius_squared: float = radius * radius
 	var spring_step: float = stiffness * delta
 	var viscosity_step: float = minf(viscosity * delta, 0.5)
-	for index: int in count:
+	# Walk the particles in sorted (cell) order: then "the rest of my cell and the
+	# cell to my right" is simply the slots after mine.
+	for own_slot: int in count:
+		var index: int = keys[own_slot] & INDEX_MASK
 		var own_position: Vector2 = positions[index]
 		var own_velocity: Vector2 = velocities[index]
 		var cell_column: int = cell_columns[index]
-		for row_offset: int in 3:
-			var row_start: int = (cell_rows[index] - 1 + row_offset) * grid_columns
-			var lowest_key: int = (row_start + cell_column - 1) << INDEX_BITS
-			var past_key: int = (row_start + cell_column + 2) << INDEX_BITS
-			var slot: int = keys.bsearch(lowest_key)
+		var own_row_start: int = cell_rows[index] * grid_columns
+		for part: int in 2:
+			var slot: int
+			var past_key: int
+			if part == 0:
+				# Own row: the slots after mine, up to the end of the cell to my right.
+				slot = own_slot + 1
+				past_key = (own_row_start + cell_column + 2) << INDEX_BITS
+			else:
+				# The row below: its three cells under mine, one search.
+				var below_start: int = own_row_start + grid_columns
+				slot = keys.bsearch((below_start + cell_column - 1) << INDEX_BITS)
+				past_key = (below_start + cell_column + 2) << INDEX_BITS
 			while slot < count:
 				var key: int = keys[slot]
 				if key >= past_key:
 					break
 				slot += 1
 				var other: int = key & INDEX_MASK
-				if other <= index:
-					continue  # each pair once, from its lower index
 				var offset: Vector2 = positions[other] - own_position
 				var distance_squared: float = offset.length_squared()
 				if distance_squared >= radius_squared or distance_squared < 0.0001:

@@ -13,6 +13,13 @@ const WORLD_SCENE: PackedScene = preload("res://tests/water_test_world.tscn")
 const CONSERVATION_TOLERANCE: float = 0.02
 ## The §6.5 budget: the whole water step, in microseconds per physics frame.
 const BUDGET_USEC: int = 2000
+## Each budget check repeats its stress this many times and judges the MEDIAN of the
+## rounds' averages: one round slowed by the machine (a laptop CPU dropping out of
+## turbo doubles every number at once) can't fail it alone, but a real slowdown
+## shows in every round, so it still fails (§6.5 perf pass, 28 Oct 2026).
+const BUDGET_ROUNDS: int = 5
+## Physics frames timed per round (2 s).
+const BUDGET_FRAMES: int = 120
 ## How long to wait for the water to settle, seconds.
 const SETTLE_TIMEOUT: float = 20.0
 
@@ -223,30 +230,42 @@ func _check_w1_bodies(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 
 	# Performance (Water_bending.md §6.5): every body sloshing and the drop cap full.
-	await _wait_until_calm(water)
-	water.wake_all()
-	for poke_x: float in [60.0, 120.0, 180.0, 400.0, 460.0]:
-		water.poke(Vector2(poke_x, 110), 8.0)
-	for blob_index: int in 12:
-		water.add_loose_water(Vector2(48 + blob_index * 36, 30), 2.5)
+	var make_slosh: Callable = func() -> void:
+		water.wake_all()
+		for poke_x: float in [60.0, 120.0, 180.0, 400.0, 460.0]:
+			water.poke(Vector2(poke_x, 110), 8.0)
+		for blob_index: int in 12:
+			water.add_loose_water(Vector2(48 + blob_index * 36, 30), 2.5)
 	var cap: int = player.water_tuning.max_drops
-	_check(water.get_drop_count() <= cap + 12, "the drop cap holds (%d drops, cap %d)" % [water.get_drop_count(), cap])
-	var total_usec: int = 0
-	var bodies_usec: int = 0
-	var drops_usec: int = 0
-	var peak_usec: int = 0
-	var most_drops: int = 0
-	for frame: int in 120:
-		await get_tree().physics_frame
-		total_usec += water.last_step_usec
-		bodies_usec += water.last_bodies_usec
-		drops_usec += water.last_drops_usec
-		peak_usec = maxi(peak_usec, water.last_step_usec)
-		most_drops = maxi(most_drops, water.get_drop_count())
-	var average_usec: float = total_usec / 120.0
-	print("[WaterSmokeTest] water step under stress: %.0f us average (bodies %.0f, drops %.0f), %d us peak, up to %d drops, %d bodies" \
-		% [average_usec, bodies_usec / 120.0, drops_usec / 120.0, peak_usec, most_drops, water.bodies.size()])
-	_check(average_usec < BUDGET_USEC, "the water step stays under the 2 ms budget: %.0f us average" % average_usec)
+	var slosh: Dictionary = await _measure_water_step(room, water, make_slosh, true)
+	_check(int(slosh["most_drops"]) <= cap + 12, "the drop cap holds (%d drops, cap %d)" % [slosh["most_drops"], cap])
+	_print_budget("water step under stress", slosh, water)
+	_check_budget(float(slosh["median_usec"]),
+		"the water step stays under the 2 ms budget: %.0f us (median of %d rounds)" % [slosh["median_usec"], BUDGET_ROUNDS])
+
+	# The same stress with every pool resting on grass (§6.5 perf pass): absorbent
+	# ground under awake water is soaked from every frame, the case a room mixing
+	# Fire's meadows and Water's pools makes. Grass is painted under each pool for
+	# this check only, then taken away again.
+	var grass: TileMapLayer = room.get_node("Grass") as TileMapLayer
+	var tiles: TileMapLayer = room.get_node("Tiles") as TileMapLayer
+	var painted_grass: Array[Vector2i] = []
+	for water_cell: Vector2i in layer.get_used_cells():
+		var below: Vector2i = water_cell + Vector2i.DOWN
+		if layer.get_cell_source_id(below) == -1 and tiles.get_cell_source_id(below) != -1 \
+				and grass.get_cell_source_id(below) == -1:
+			grass.set_cell(below, 0, Vector2i(0, 0))
+			painted_grass.append(below)
+	water.refresh_solid_cells()  # re-reads which tiles are absorbent
+	var on_grass: Dictionary = await _measure_water_step(room, water, make_slosh, true)
+	_check(painted_grass.size() >= 20 and water.get_soaked_units() > 0.0,
+		"the pools rest on grass and soak into it (%d grass tiles, %.2f units soaked)" % [painted_grass.size(), water.get_soaked_units()])
+	_print_budget("water step on grass", on_grass, water)
+	_check_budget(float(on_grass["median_usec"]),
+		"pools on grass stay under the 2 ms budget: %.0f us (median of %d rounds)" % [on_grass["median_usec"], BUDGET_ROUNDS])
+	for cell: Vector2i in painted_grass:
+		grass.erase_cell(cell)
+	water.refresh_solid_cells()
 	room.reset_objects()
 
 	finished_sections.append("W1")
@@ -533,24 +552,16 @@ func _check_w2_loose_water(world: RoomManager, player: Player) -> void:
 
 	# Performance (§6.5): the particle cap full in one clump (cohesion's worst case),
 	# with both sources running.
-	water.throw_ball(Vector2(170, 60), Vector2(0, -30), 30.0)
-	var total_usec: int = 0
-	var drops_usec: int = 0
-	var cohesion_usec: int = 0
-	var peak_usec: int = 0
-	var most_particles: int = 0
-	for frame: int in 120:
-		await get_tree().physics_frame
-		total_usec += water.last_step_usec
-		drops_usec += water.last_drops_usec
-		cohesion_usec += water.last_cohesion_usec
-		peak_usec = maxi(peak_usec, water.last_step_usec)
-		most_particles = maxi(most_particles, water.get_drop_count())
-	var average_usec: float = total_usec / 120.0
-	print("[WaterSmokeTest] W2 loose water under stress: %.0f us average (particles %.0f, of it cohesion %.0f), %d us peak, up to %d particles" \
-		% [average_usec, drops_usec / 120.0, cohesion_usec / 120.0, peak_usec, most_particles])
-	_check(most_particles >= tuning.max_drops - 20, "the stress test fills the particle cap (%d of %d)" % [most_particles, tuning.max_drops])
-	_check(average_usec < BUDGET_USEC, "loose water stays under the 2 ms budget: %.0f us average" % average_usec)
+	# (The sources never let the room calm down, so no wait: the ball is thrown
+	# right after each reset.)
+	var make_ball: Callable = func() -> void:
+		water.throw_ball(Vector2(170, 60), Vector2(0, -30), 30.0)
+	var ball: Dictionary = await _measure_water_step(room, water, make_ball, false)
+	_print_budget("W2 loose water under stress", ball, water)
+	_check(int(ball["fewest_most_drops"]) >= tuning.max_drops - 20,
+		"every round of the stress test fills the particle cap (at least %d of %d)" % [ball["fewest_most_drops"], tuning.max_drops])
+	_check_budget(float(ball["median_usec"]),
+		"loose water stays under the 2 ms budget: %.0f us (median of %d rounds)" % [ball["median_usec"], BUDGET_ROUNDS])
 	room.reset_objects()
 	finished_sections.append("W2")
 
@@ -1118,15 +1129,97 @@ func _particle_spread(water: WaterWorld, area: Rect2) -> float:
 ## Waits physics frames until every body sleeps and no drop is falling, or the
 ## timeout. True if it settled.
 func _wait_until_calm(water: WaterWorld) -> bool:
-	var deadline: int = Time.get_ticks_msec() + roundi(SETTLE_TIMEOUT * 1000.0)
+	# The timeout counts physics frames, not real time: a slow machine then waits
+	# just as many water steps as a fast one.
+	var frames_left: int = roundi(SETTLE_TIMEOUT * Engine.physics_ticks_per_second)
 	# At least a few frames, so a body that was just woken gets stepped.
 	for frame: int in 3:
 		await get_tree().physics_frame
-	while Time.get_ticks_msec() < deadline:
+	while frames_left > 0:
 		if water.get_awake_count() == 0 and water.get_drop_count() == 0:
 			return true
 		await get_tree().physics_frame
+		frames_left -= 1
 	return false
+
+
+## The §6.5 budget, measured so machine noise can't decide it: BUDGET_ROUNDS times,
+## reset the room (and, if `wait_calm`, let it settle), reseed the random numbers so
+## every round and every run does the same work, call `make_stress`, and time the
+## water step (WaterWorld.last_step_usec, wall clock around the whole step) for
+## BUDGET_FRAMES frames. Returns:
+##   median_usec: the median of the rounds' average step (what the check judges)
+##   round_usec: each round's average; peak_usec: the slowest single frame
+##   bodies_usec / drops_usec / cohesion_usec: the split, averaged over all rounds
+##   most_drops / fewest_most_drops: the most particles at once, over all rounds and
+##     in the round that had the fewest
+##   calibration_usec: a fixed GDScript loop timed before the rounds (bigger = this
+##     run's machine was slower; compare it between runs to read the numbers)
+func _measure_water_step(room: Room, water: WaterWorld, make_stress: Callable, wait_calm: bool) -> Dictionary:
+	var calibration_usec: int = _time_calibration_loop()
+	var round_usec: Array[float] = []
+	var bodies_total: int = 0
+	var drops_total: int = 0
+	var cohesion_total: int = 0
+	var peak_usec: int = 0
+	var most_drops: int = 0
+	var fewest_most_drops: int = 1 << 30
+	for round_index: int in BUDGET_ROUNDS:
+		room.reset_objects()
+		if wait_calm:
+			await _wait_until_calm(water)
+		seed(20261028 + round_index)
+		make_stress.call()
+		var total_usec: int = 0
+		var round_most_drops: int = 0
+		for frame: int in BUDGET_FRAMES:
+			await get_tree().physics_frame
+			total_usec += water.last_step_usec
+			bodies_total += water.last_bodies_usec
+			drops_total += water.last_drops_usec
+			cohesion_total += water.last_cohesion_usec
+			peak_usec = maxi(peak_usec, water.last_step_usec)
+			round_most_drops = maxi(round_most_drops, water.get_drop_count())
+		round_usec.append(float(total_usec) / BUDGET_FRAMES)
+		most_drops = maxi(most_drops, round_most_drops)
+		fewest_most_drops = mini(fewest_most_drops, round_most_drops)
+	var sorted_usec: Array[float] = round_usec.duplicate()
+	sorted_usec.sort()
+	var frames: float = float(BUDGET_ROUNDS * BUDGET_FRAMES)
+	return {
+		"median_usec": sorted_usec[sorted_usec.size() >> 1],  # >> 1: the middle one
+		"round_usec": round_usec,
+		"peak_usec": peak_usec,
+		"bodies_usec": bodies_total / frames,
+		"drops_usec": drops_total / frames,
+		"cohesion_usec": cohesion_total / frames,
+		"most_drops": most_drops,
+		"fewest_most_drops": fewest_most_drops,
+		"calibration_usec": calibration_usec,
+	}
+
+
+## One line with everything _measure_water_step found.
+func _print_budget(label: String, result: Dictionary, water: WaterWorld) -> void:
+	var rounds: PackedStringArray = PackedStringArray()
+	for usec: float in result["round_usec"]:
+		rounds.append("%.0f" % usec)
+	print("[WaterSmokeTest] %s: %.0f us median of %d rounds (%s) (bodies %.0f, drops %.0f, of it cohesion %.0f), %d us peak, up to %d drops, %d bodies; machine check %d us" \
+		% [label, result["median_usec"], BUDGET_ROUNDS, ", ".join(rounds), result["bodies_usec"], result["drops_usec"],
+		result["cohesion_usec"], result["peak_usec"], result["most_drops"], water.bodies.size(), result["calibration_usec"]])
+
+
+## Times a fixed bit of GDScript (float math in a loop, about 10 ms on this machine
+## at full speed). It does no water work: it only says how fast the machine ran
+## GDScript just now, so a slow run can be told apart from slow code.
+func _time_calibration_loop() -> int:
+	var started_usec: int = Time.get_ticks_usec()
+	var total: float = 0.0
+	for index: int in 100000:
+		total += sqrt(float(index)) * 0.5
+	if total < 0.0:
+		print(total)  # never: keeps the loop from looking unused
+	return Time.get_ticks_usec() - started_usec
 
 
 ## The biggest difference between two wet columns' surfaces, px (only columns
@@ -1184,6 +1277,17 @@ func _action_has_key(action: StringName, key: Key) -> bool:
 		if key_event != null and (key_event.physical_keycode == key or key_event.keycode == key):
 			return true
 	return false
+
+
+## A §6.5 budget check: the median must be under BUDGET_USEC, except with a
+## debugger attached (`-d`, or run from the editor), which makes all GDScript about
+## a third slower (the "machine check" shows it): then the numbers are still printed
+## but the check is skipped. The budget is judged in plain runs only.
+func _check_budget(median_usec: float, description: String) -> void:
+	if EngineDebugger.is_active():
+		print("[WaterSmokeTest] SKIP %s: skipped: debugger attached" % description)
+		return
+	_check(median_usec < BUDGET_USEC, description)
 
 
 func _check(condition: bool, description: String) -> void:

@@ -101,6 +101,9 @@ const LEVEL_TOLERANCE: float = 0.1
 const COHESION_EVERY: int = 2
 ## Soaking wicks into absorbent tiles up to this many tiles beside a full one.
 const SOAK_REACH: int = 2
+## A tile with less room left than this, px², counts as full: float crumbs left by
+## the last fill would otherwise keep it "open" (and keep paying for it) forever.
+const SOAK_FULL_SLACK: float = 0.0001
 ## A breaking crest's rise is averaged over this many columns each side (_break_crests).
 const CREST_HALF_WIDTH: int = 2
 ## A poke (key 8, poke()) pushes the water over this many px each side of the point.
@@ -148,6 +151,17 @@ var drained_area: float = 0.0
 ## Soaking: water soaked into each absorbent tile so far, px² (cell -> area). A
 ## tile holding soak_per_tile is WET (is_wet); the stub of W8's wet layer.
 var soaked_cells: Dictionary = {}
+## The same amounts, one float per tile (y * grid_size.x + x): what the soak loop
+## reads every frame, since a packed array read is much cheaper than a Dictionary
+## lookup. soaked_cells stays the one the drawing and is_wet() read.
+var soaked_per_cell: PackedFloat64Array = PackedFloat64Array()
+## One byte per tile: 1 = absorbent and it or an absorbent tile within SOAK_REACH in
+## its row can still take water. A column over a 0 tile skips soaking with one read
+## (SPEED: pools on saturated grass used to redo the whole soak every frame, §6.5).
+var soak_open: PackedByteArray = PackedByteArray()
+## The tile capacity, px², soak_open was built for: an F5 change to soak_per_tile
+## rebuilds it.
+var soak_open_capacity: float = -1.0
 ## Moving solids the particles bump into this frame (crates, the player), room-local.
 var solid_boxes: Array[Rect2] = []
 ## How many particles bounced up out of a pool this frame and in all (splash crowns).
@@ -250,6 +264,10 @@ func refresh_solid_cells() -> void:
 		for y: int in range(maxi(first.y, 0), mini(last.y + 1, grid_size.y)):
 			for x: int in range(maxi(first.x, 0), mini(last.x + 1, grid_size.x)):
 				solid_cells[y * grid_size.x + x] = 1
+	if soaked_per_cell.size() != grid_size.x * grid_size.y:
+		soaked_per_cell.resize(grid_size.x * grid_size.y)
+		soaked_per_cell.fill(0.0)
+	_rebuild_soak_open()
 
 
 func _is_solid_cell_in_layers(cell: Vector2i) -> bool:
@@ -789,6 +807,8 @@ func wake_all() -> void:
 func reset() -> void:
 	_build_bodies_from_layer()
 	soaked_cells.clear()
+	soaked_per_cell.fill(0.0)
+	_rebuild_soak_open()
 	soaked_area = 0.0
 	sourced_area = 0.0
 	drained_area = 0.0
@@ -1381,45 +1401,102 @@ func _tidy_bodies() -> void:
 ## Water standing on absorbent ground (earth, grass) soaks in, up to soak_per_tile a
 ## tile: a small puddle on a lawn disappears, a big one wets it and stays (W2 stub
 ## of W8's wet layer). Only awake bodies; columns over rock cost one byte lookup.
+## SPEED: works on local copies of the body's arrays and skips a column over a
+## saturated (or not absorbent) tile with one byte read of soak_open, so a pool
+## resting on full grass costs almost nothing.
 func _soak_from_body(body: WaterBody) -> void:
-	if water_tuning.soak_per_tile <= 0.0:
+	var capacity: float = water_tuning.soak_per_tile * UNIT_AREA
+	if capacity <= 0.0:
 		return
-	for column: int in body.get_column_count():
-		if body.depth[column] <= WaterBody.DRY_DEPTH:
+	if capacity != soak_open_capacity:
+		_rebuild_soak_open()  # the F5 panel changed soak_per_tile
+	var depths: PackedFloat32Array = body.depth
+	var floors: PackedFloat32Array = body.floor_y
+	var open: PackedByteArray = soak_open
+	var grid_width: int = grid_size.x
+	var grid_height: int = grid_size.y
+	var changed: bool = false
+	for column: int in depths.size():
+		var column_depth: float = depths[column]
+		if column_depth <= WaterBody.DRY_DEPTH:
 			continue
-		var cell: Vector2i = Vector2i(floori((body.left_x + (column + 0.5) * column_width) / TILE),
-			floori((body.floor_y[column] + 0.5) / TILE))
-		if not _is_absorbent_cell(cell):
+		var cell_x: int = floori((body.left_x + (column + 0.5) * column_width) / TILE)
+		var cell_y: int = floori((floors[column] + 0.5) / TILE)
+		if cell_x < 0 or cell_y < 0 or cell_x >= grid_width or cell_y >= grid_height \
+				or open[cell_y * grid_width + cell_x] == 0:
 			continue
-		var soaked: float = _soak_into(cell, body.depth[column] * column_width)
+		var soaked: float = _soak_into(Vector2i(cell_x, cell_y), column_depth * column_width)
 		if soaked > 0.0:
-			body.depth[column] -= soaked / column_width
-			body.is_asleep = false
+			depths[column] = column_depth - soaked / column_width
+			changed = true
+	if changed:
+		body.depth = depths
+		body.is_asleep = false
 
 
 ## Soaks up to `area` px² into the absorbent tile `cell`; when that tile is full,
 ## into the absorbent tiles beside it in its row, up to SOAK_REACH tiles away (wet
-## ground wicks water sideways). Returns the area soaked.
+## ground wicks water sideways): itself, then 1 left, 1 right, 2 left, 2 right.
+## Returns the area soaked.
 func _soak_into(cell: Vector2i, area: float) -> float:
 	var capacity: float = water_tuning.soak_per_tile * UNIT_AREA
 	if area <= 0.0 or capacity <= 0.0 or not _is_absorbent_cell(cell):
 		return 0.0
 	var soaked: float = 0.0
-	for reach: int in SOAK_REACH + 1:
-		for side: int in ([0] if reach == 0 else [-reach, reach]):
-			var target: Vector2i = cell + Vector2i(side, 0)
-			if soaked >= area or not _is_absorbent_cell(target):
-				continue
-			var room_in_tile: float = capacity - float(soaked_cells.get(target, 0.0))
-			if room_in_tile <= 0.0:
-				continue
-			var taken: float = minf(area - soaked, room_in_tile)
-			soaked_cells[target] = float(soaked_cells.get(target, 0.0)) + taken
-			soaked += taken
+	# One loop over the offsets 0, -1, 1, -2, 2 (no array made per call).
+	for step: int in SOAK_REACH * 2 + 1:
+		if soaked >= area:
+			break
+		var side: int = ((step + 1) >> 1) * (-1 if step % 2 == 1 else 1)  # >> 1: halved, no float
+		var target: Vector2i = cell + Vector2i(side, 0)
+		if not _is_absorbent_cell(target):
+			continue
+		var index: int = target.y * grid_size.x + target.x
+		var room_in_tile: float = capacity - soaked_per_cell[index]
+		if room_in_tile <= SOAK_FULL_SLACK:
+			continue
+		var taken: float = minf(area - soaked, room_in_tile)
+		soaked_per_cell[index] += taken
+		soaked_cells[target] = soaked_per_cell[index]
+		soaked += taken
+		if room_in_tile - taken <= SOAK_FULL_SLACK:
+			_update_soak_open_around(target)  # it just filled up
 	if soaked > 0.0:
 		soaked_area += soaked
 		queue_redraw()
 	return soaked
+
+
+## Rebuilds soak_open for every tile (load, reset, a new soak_per_tile).
+func _rebuild_soak_open() -> void:
+	soak_open_capacity = water_tuning.soak_per_tile * UNIT_AREA
+	soak_open.resize(grid_size.x * grid_size.y)
+	soak_open.fill(0)
+	for y: int in grid_size.y:
+		for x: int in grid_size.x:
+			_update_soak_open_at(Vector2i(x, y))
+
+
+## A tile filled up: the tiles that could wick into it may have nothing left.
+func _update_soak_open_around(filled: Vector2i) -> void:
+	for side: int in range(-SOAK_REACH, SOAK_REACH + 1):
+		_update_soak_open_at(filled + Vector2i(side, 0))
+
+
+## soak_open for one tile: absorbent, with room in it or in an absorbent tile within
+## SOAK_REACH in its row (the same tiles _soak_into would try).
+func _update_soak_open_at(cell: Vector2i) -> void:
+	if cell.x < 0 or cell.y < 0 or cell.x >= grid_size.x or cell.y >= grid_size.y:
+		return
+	var is_open: bool = false
+	if _is_absorbent_cell(cell):
+		for side: int in range(-SOAK_REACH, SOAK_REACH + 1):
+			var target: Vector2i = cell + Vector2i(side, 0)
+			if _is_absorbent_cell(target) \
+					and soak_open_capacity - soaked_per_cell[target.y * grid_size.x + target.x] > SOAK_FULL_SLACK:
+				is_open = true
+				break
+	soak_open[cell.y * grid_size.x + cell.x] = 1 if is_open else 0
 
 
 func _is_absorbent_cell(cell: Vector2i) -> bool:
