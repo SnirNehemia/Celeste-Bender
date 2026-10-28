@@ -158,11 +158,15 @@ var crest_break_count: int = 0
 ## gather(), put back by release_held(). The books count it, so holding water
 ## changes nothing in them.
 var held_area: float = 0.0
+## How many resets so far: water still flying from the hands (a snake's ribbon)
+## checks it, since a reset empties held_area.
+var reset_count: int = 0
 ## The held ball as dots (room-local), drawn with the particles: by the WaterRenderer
 ## as metaballs, or as squares in the fallback. Set by WaterHandsAbility every frame
 ## (set_held_dots); empty when nothing is held.
 var held_dots: PackedVector2Array = PackedVector2Array()
-## Where the last gather() took water from (room-local), for the hands' tendril.
+## Where the last gather() took water from (room-local); nothing draws it since
+## the hands' tendril was removed (play-test 4), kept for debugging.
 var last_gather_point: Vector2 = Vector2.ZERO
 ## How much water the painted tiles held when the room loaded, px².
 var initial_area: float = 0.0
@@ -655,6 +659,53 @@ func release_held(center: Vector2, velocity: Vector2, area: float) -> void:
 		_spawn_ball(center, velocity, area)
 
 
+## Water for a snake (Stage W4): takes up to `area` px² from the body under the
+## room-local `point` (its column there, two tiles each side sharing, so the pool
+## dips around the snake's foot) into the hands (held_area). Returns what it got:
+## less when the pool is running dry.
+func draw_from_body_at(point: Vector2, area: float) -> float:
+	var found: Array = find_body_under(point)
+	if found.is_empty() or (found[0] as WaterBody).depth[found[1]] <= WaterBody.DRY_DEPTH:
+		return 0.0
+	var taken: float = (found[0] as WaterBody).remove_water(found[1], area, _radius_in_columns(TILE * 2.0))
+	held_area += taken
+	return taken
+
+
+## Gives `area` px² of the held water straight back to the body under the
+## room-local `point` (a snake shortening, or sinking back into its pool). No body
+## there: it drops as loose water.
+func return_held_to_body_at(point: Vector2, area: float) -> void:
+	area = minf(area, held_area)
+	if area <= 0.0:
+		return
+	held_area -= area
+	var found: Array = find_body_under(point)
+	if found.is_empty():
+		_spawn_ball(point, Vector2.ZERO, area)
+	else:
+		# Spread like draw_from_body_at takes: one column's worth would be a spike.
+		(found[0] as WaterBody).add_water_spread(found[1], area, _radius_in_columns(TILE * 2.0))
+
+
+## Lets go of held water along a line (a snake released like a whip, or torn):
+## `areas[i]` px² as particles around the room-local `points[i]`, moving at
+## `velocities[i]`, spread `width` px across the line. The books don't change.
+func release_held_along(points: PackedVector2Array, velocities: PackedVector2Array,
+		areas: PackedFloat32Array, width: float) -> void:
+	var drop_area: float = water_tuning.drop_units * UNIT_AREA
+	for index: int in points.size():
+		var area: float = minf(areas[index], held_area)
+		if area <= 0.0:
+			continue
+		held_area -= area
+		var room_left: int = maxi(1, water_tuning.max_drops - get_drop_count())
+		var count: int = mini(maxi(1, ceili(area / drop_area)), room_left)
+		for drop_index: int in count:
+			var offset: Vector2 = Vector2(randf_range(-0.5, 0.5), randf_range(-0.5, 0.5)) * width
+			_spawn_drop(points[index] + offset, velocities[index], area / count)
+
+
 ## The held ball's dots for this frame (room-local); empty = nothing held.
 func set_held_dots(dots: PackedVector2Array) -> void:
 	held_dots = dots
@@ -742,6 +793,7 @@ func reset() -> void:
 	sourced_area = 0.0
 	drained_area = 0.0
 	held_area = 0.0
+	reset_count += 1
 	held_dots.clear()
 	spray_positions.clear()
 	spray_velocities.clear()

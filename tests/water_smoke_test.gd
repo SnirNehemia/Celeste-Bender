@@ -30,9 +30,9 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	# `-- W3` (any of W1 Swim W2 W3) runs only those sections: quicker while working on one.
+	# `-- W3` (any of W1 Swim W2 W3 W4) runs only those sections: quicker while working on one.
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
-	var sections: Array[String] = ["W1", "Swim", "W2", "W3"]
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4"]
 	if not wanted.is_empty():
 		sections.assign(Array(wanted))
 	if sections.has("W1"):
@@ -43,6 +43,8 @@ func _ready() -> void:
 		await _check_w2_loose_water(world, world.player)
 	if sections.has("W3"):
 		await _check_w3_water_hands(world, world.player)
+	if sections.has("W4"):
+		await _check_w4_water_snake(world, world.player)
 
 	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
@@ -567,6 +569,11 @@ func _check_w3_water_hands(world: RoomManager, player: Player) -> void:
 		return
 	var tuning: WaterTuning = player.water_tuning
 	var hands: WaterHandsAbility = player.water_hands
+	# No snakes here (W4 tests them): with the KEY trigger and 3 never pressed, every
+	# lift out of a pool just leaves it, as it did when W3 was built. Restored at the
+	# end of the section.
+	var saved_trigger: WaterTuning.SnakeTrigger = tuning.snake_trigger
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.KEY
 	_check(_action_has_key("water_hands", KEY_1) and _action_has_key("water_freeze", KEY_2),
 		"water_hands is on 1 and water_freeze on 2")
 	_check(hands != null and player.state_machine.has_node("WaterHolding"), "the player has WaterHandsAbility and a WaterHolding state")
@@ -611,7 +618,8 @@ func _check_w3_water_hands(world: RoomManager, player: Player) -> void:
 		await get_tree().physics_frame
 	var pool_after: float = _units_in(water, 56, 144, 176)
 	var basin_after: float = _units_in(water, 176, 232, 160)
-	_check(pool_after < pool_before - 3.5 and basin_after > basin_before + 3.5,
+	# Some of it splashes out of the shallow basin onto the floor (crowns): about 1 unit.
+	_check(pool_after < pool_before - 3.0 and basin_after > basin_before + 2.5,
 		"4 units carried from the pool to the basin: pool %.2f -> %.2f, basin %.2f -> %.2f" % [pool_before, pool_after, basin_before, basin_after])
 	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
 		"the books balance after the carry (%.3f -> %.3f)" % [books, water.get_books_units()])
@@ -758,7 +766,7 @@ func _check_w3_water_hands(world: RoomManager, player: Player) -> void:
 	hands.ball_position = Vector2(crate_box.position.x - hands.get_ball_radius() + 0.5, crate_box.get_center().y)
 	hands.ball_velocity = Vector2(tuning.ball_move_speed, 0.0)
 	hands.last_shove_velocity = Vector2.ZERO
-	hands._shove_touched()
+	hands._shove_touched(hands.ball_velocity)
 	var crate_speed: float = (crate as CharacterBody2D).velocity.x
 	_check(hands.last_shove_velocity.x > 0.0 and crate_speed > 0.0,
 		"the ball shoves a floating crate too (%.0f px/s; the crate is %.2f under)" % [crate_speed, water.get_submerged_share(crate_box)])
@@ -769,7 +777,289 @@ func _check_w3_water_hands(world: RoomManager, player: Player) -> void:
 
 	room.reset_objects()
 	_check(water.held_area == 0.0, "a reset leaves nothing held")
+	tuning.snake_trigger = saved_trigger
 	finished_sections.append("W3")
+
+
+## Stage W4: the water snake (Water_bending.md §5.1-5.2), in room Water D. Drives
+## the real keys, like W3. The narrow pool is local x 72-112 (surface y 136, floor
+## y 176); the crate sits on the pillar at x 112-128, y 96-112. Each snake trigger
+## (WaterTuning.snake_trigger) gets a check; the player's own choice is restored.
+func _check_w4_water_snake(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterD") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water D is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water D has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var hands: WaterHandsAbility = player.water_hands
+	var origin: Vector2 = room.global_position
+	var crate: Crate = room.get_node("Crate1") as Crate
+	var saved_trigger: WaterTuning.SnakeTrigger = tuning.snake_trigger
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.KEY
+	_check(_action_has_key("water_snake", KEY_3), "water_snake is on 3")
+	await _wait_until_calm(water)
+	var books: float = water.get_books_units()
+	var pool_before: float = _units_in(water, 72, 112, 176)
+	var snakes_at_start: int = hands.snakes_raised
+
+	# KEY: dip the ball into the pool and fill it, then hold 3 and lift: a snake.
+	await _start_hold(player)
+	await _dip_and_fill(hands, origin, 140.0)
+	_check(hands._is_ball_in_pool() and not hands.is_snake_hold,
+		"the ball sits in the pool (y %.1f), a plain hold" % (hands.ball_position.y - origin.y))
+	Input.action_press(&"water_snake")
+	var raised: bool = await _steer_ball_until([&"move_up"], func() -> bool: return hands.snake != null, 1.5)
+	Input.action_release(&"water_snake")
+	_check(raised and hands.snakes_raised == snakes_at_start + 1,
+		"KEY: lifting the ball out with 3 held raises a snake (snakes %d, last tear '%s')" % [hands.snakes_raised, hands.last_tear_reason])
+	if not raised:
+		Input.action_release(&"water_hands")
+		tuning.snake_trigger = saved_trigger
+		return
+	# Up to the crate's height: the snake grows, and the pool pays for it.
+	await _steer_ball_until([&"move_up"],
+		func() -> bool: return hands.ball_position.y < origin.y + 104.0 or hands.snake == null, 2.5)
+	var lift_speed: float = hands.ball_velocity.length()
+	# Brake: let go of ↑ and the ball drifts on up ~26 px while the drag stops it
+	# (far more on a slow machine, where it then sweeps over the crate).
+	await _steer_ball_until([&"move_down"], func() -> bool: return hands.ball_velocity.y >= 0.0, 0.5)
+	var snake: WaterSnake = hands.snake
+	if snake != null:
+		print("[WaterSmokeTest] snake: length %.1f px, foot %s, head %s" % [snake.length, snake.get_foot() - origin, snake.get_head() - origin])
+	_check(snake != null and snake.length > 20.0
+		and lift_speed > 1.0 and lift_speed <= tuning.ball_move_speed * tuning.snake_speed_share + 0.01,
+		"holding up lifts the snake, a little slower than the ball (length %.0f px, %.0f px/s, last tear '%s', ball y %.1f)"
+			% [snake.length if snake != null else -1.0, lift_speed, hands.last_tear_reason,
+				hands.ball_position.y - origin.y])
+	if snake == null:
+		Input.action_release(&"water_hands")
+		tuning.snake_trigger = saved_trigger
+		return
+	var held_units: float = hands.ball_units + snake.area / WaterWorld.UNIT_AREA
+	var pool_now: float = _units_in(water, 72, 112, 176)
+	# The pool paid at least what's held: a fast ball dipped in splashes a little more
+	# out over the edge (the books check below counts that too).
+	_check(absf(water.held_area / WaterWorld.UNIT_AREA - held_units) < 0.01
+		and pool_before - pool_now > held_units - 0.3,
+		"the snake's water comes from the pool (pool %.2f -> %.2f, held %.2f: ball %.2f + snake %.2f)"
+			% [pool_before, pool_now, held_units, hands.ball_units, snake.area / WaterWorld.UNIT_AREA])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books count the snake's water")
+	_check(water.held_dots.size() > 64, "the snake is drawn with the ball (%d dots)" % water.held_dots.size())
+
+	# Dousing: a burning thing where the snake is goes out.
+	var fire: Node2D = (load("res://tests/douse_test_receiver.gd") as GDScript).new() as Node2D
+	room.add_child(fire)
+	fire.global_position = snake.points[floori(WaterSnake.POINT_COUNT / 2.0)]
+	for frame: int in 5:
+		await get_tree().process_frame
+	_check(not fire.call(&"is_burning") and hands.doused_count > 0, "the snake douses a fire it touches")
+	fire.queue_free()
+
+	# Sweep right: the head shoves the crate off its pillar.
+	var crate_start: Vector2 = crate.global_position
+	var shoved: bool = await _steer_ball_until([&"move_right"], func() -> bool: return hands.head_shoved_this_hold.has(crate), 1.5)
+	_check(shoved and crate.velocity.x > 0.0,
+		"the snake's head sweeps into the crate and shoves it (%.0f px/s; shoved %s, snake %s, last tear '%s', ball %s)"
+			% [crate.velocity.x, hands.last_head_shoved, hands.snake != null, hands.last_tear_reason, hands.ball_position - origin])
+
+	# Let go: a ribbon. The snake's water flows out after the ball over several
+	# frames, then nothing is held any more.
+	Input.action_release(&"water_hands")
+	# The hold ends in a physics step, rare in slow motion: wait for it first.
+	for frame: int in 30:
+		await get_tree().physics_frame
+		if not hands.is_holding():
+			break
+	var flying_frames: int = 0
+	for frame: int in 120:
+		await get_tree().process_frame
+		if hands.flying_snake == null:
+			break
+		flying_frames += 1
+	_check(flying_frames >= 2, "letting go throws the snake as a ribbon that feeds out over %d frames" % flying_frames)
+	for frame: int in 4:
+		await get_tree().physics_frame
+	_check(not hands.is_holding() and hands.snake == null and hands.flying_snake == null and water.held_area < 0.01
+		and water.get_drop_count() > 0,
+		"the ribbon ends as loose water (held %.2f px², %d particles)" % [water.held_area, water.get_drop_count()])
+	for frame: int in 120:
+		await get_tree().physics_frame
+	_check(crate.global_position.x > crate_start.x + 8.0 and crate.global_position.y > crate_start.y + 8.0,
+		"the crate fell off the pillar (%s -> %s)" % [crate_start - origin, crate.global_position - origin])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the books balance after the whip (%.3f -> %.3f)" % [books, water.get_books_units()])
+
+	# A snake whose head goes past the pool's right wall (x 112, out of the ring's
+	# reach here, so driven directly): its foot stays on the water, never on rock.
+	var surface_y: float = water.to_global(Vector2(0.0, water.get_surface_y_at(Vector2(100.0, 130.0)))).y
+	var wall_snake: WaterSnake = WaterSnake.new(water, Vector2(origin.x + 100.0, surface_y), Vector2(origin.x + 100.0, surface_y - 30.0))
+	for step: int in 40:
+		wall_snake.update(0.05, Vector2(origin.x + 160.0, surface_y - 30.0), Vector2.ZERO)
+	var foot_x: float = wall_snake.get_foot().x - origin.x
+	_check(foot_x >= 72.0 and foot_x <= 112.0,
+		"a snake pulled past the pool's wall keeps its foot on the water (foot x %.1f)" % foot_x)
+	# Its straight line from the foot to the head crosses the wall and pillar: the
+	# rope bends over them instead.
+	var query: PhysicsPointQueryParameters2D = PhysicsPointQueryParameters2D.new()
+	query.collision_mask = 1
+	var points_in_rock: int = 0
+	for point: Vector2 in wall_snake.points:
+		query.position = point
+		if not water.get_world_2d().direct_space_state.intersect_point(query, 1).is_empty():
+			points_in_rock += 1
+	var middle: Vector2 = wall_snake.points[floori(WaterSnake.POINT_COUNT / 2.0)]
+	var straight_y: float = lerpf(wall_snake.get_foot().y, wall_snake.get_head().y, 0.5)
+	_check(points_in_rock == 0 and middle.y < straight_y - 2.0,
+		"its rope drapes over the rim, not through it (%d points in rock; middle y %.1f, straight line %.1f)"
+			% [points_in_rock, middle.y - origin.y, straight_y - origin.y])
+	wall_snake.release(Vector2.ZERO)
+
+	# Held still with the pillar (a thin wall) between the head and its pool, with
+	# frame times as uneven as the slow motion's (play-test 4: it jittered there):
+	# once settled, the rope stays put.
+	var still_head: Vector2 = Vector2(origin.x + 138.0, origin.y + 118.0)
+	var shake_snake: WaterSnake = WaterSnake.new(water, Vector2(origin.x + 104.0, surface_y), still_head)
+	var frame_times: Array[float] = [0.008, 0.05, 0.02, 0.033]
+	for step: int in 120:
+		shake_snake.update(frame_times[step % frame_times.size()], still_head, Vector2.ZERO)
+	var max_shake: float = 0.0
+	for step: int in 40:
+		var before: PackedVector2Array = shake_snake.points.duplicate()
+		shake_snake.update(frame_times[step % frame_times.size()], still_head, Vector2.ZERO)
+		for index: int in WaterSnake.POINT_COUNT:
+			max_shake = maxf(max_shake, before[index].distance_to(shake_snake.points[index]))
+	var shake_in_rock: int = 0
+	for point: Vector2 in shake_snake.points:
+		query.position = point
+		if not water.get_world_2d().direct_space_state.intersect_point(query, 1).is_empty():
+			shake_in_rock += 1
+	print("[WaterSmokeTest] snake over the pillar: shake %.2f px, %d points in rock, length %.1f" % [max_shake, shake_in_rock, shake_snake.length])
+	_check(max_shake < 0.5 and shake_in_rock == 0,
+		"held still over a thin wall, the snake doesn't jitter (moves at most %.2f px a frame, %d points in rock)"
+			% [max_shake, shake_in_rock])
+	shake_snake.release(Vector2.ZERO)
+	for frame: int in 120:
+		await get_tree().physics_frame
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the books balance after it (%.3f -> %.3f)" % [books, water.get_books_units()])
+
+	# KEY without 3: the ball comes out alone (no snake, no splash), as in W3.
+	room.reset_objects()
+	await _wait_until_calm(water)
+	var snakes_before: int = hands.snakes_raised
+	hands.last_tear_splash_area = 0.0
+	await _start_hold(player)
+	await _dip_and_fill(hands, origin, 140.0)
+	var left_pool: bool = await _steer_ball_until([&"move_up"],
+		func() -> bool: return hands.ball_position.y < origin.y + 124.0, 1.5)
+	_check(left_pool and hands.snake == null and hands.snakes_raised == snakes_before and hands.last_tear_splash_area == 0.0
+		and hands.ball_units > tuning.ball_max_units - 0.01,
+		"KEY: without 3 the full ball just comes out (snakes %d, splash %.1f, units %.2f)"
+			% [hands.snakes_raised - snakes_before, hands.last_tear_splash_area, hands.ball_units])
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	# GENTLE, lifted from deep: the ball crosses the surface too fast, and it tears.
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.GENTLE
+	room.reset_objects()
+	await _wait_until_calm(water)
+	books = water.get_books_units()
+	snakes_before = hands.snakes_raised
+	await _start_hold(player)
+	await _steer_ball_until([&"move_right", &"move_down"],
+		func() -> bool: return hands.ball_position.y > origin.y + 166.0, 2.5)
+	hands.last_tear_splash_area = 0.0
+	await _steer_ball_until([&"move_up"], func() -> bool: return hands.ball_position.y < origin.y + 124.0, 2.0)
+	_check(hands.snakes_raised == snakes_before and hands.snake == null and hands.last_tear_reason == "too fast"
+		and hands.last_tear_splash_area > 0.0,
+		"GENTLE: lifted fast from deep, it tears: no snake, a splash rains back (tear '%s', splash %.1f px²)"
+			% [hands.last_tear_reason, hands.last_tear_splash_area])
+	Input.action_release(&"water_hands")
+	for frame: int in 120:
+		await get_tree().physics_frame
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE,
+		"the books balance after a tear (%.3f -> %.3f)" % [books, water.get_books_units()])
+
+	# KEY: raise a snake and lower it again: it sinks back into its pool (no tear).
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.KEY
+	await _wait_until_calm(water)
+	await _start_hold(player)
+	await _dip_and_fill(hands, origin, 140.0)
+	var tear_before: String = hands.last_tear_reason
+	Input.action_press(&"water_snake")
+	var raised_again: bool = await _steer_ball_until([&"move_up"],
+		func() -> bool: return hands.snake != null and hands.snake.length > 8.0, 2.0)
+	Input.action_release(&"water_snake")
+	var sank: bool = await _steer_ball_until([&"move_down"], func() -> bool: return hands.snake == null, 2.0)
+	_check(raised_again and sank and hands.last_tear_reason == tear_before and hands.is_holding(),
+		"lowered back to the surface, the snake sinks into its pool (no tear; raised %s, sank %s, tear '%s' -> '%s', snakes %d, ball %s, units %.2f, holding %s)"
+			% [raised_again, sank, tear_before, hands.last_tear_reason, hands.snakes_raised, hands.ball_position - origin,
+				hands.ball_units, hands.is_holding()])
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	# DOUBLE_TAP: tap 1, then press it again at once: that hold raises a snake with no
+	# other key.
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.DOUBLE_TAP
+	room.reset_objects()
+	await _wait_until_calm(water)
+	snakes_before = hands.snakes_raised
+	await _start_hold(player)
+	for frame: int in 3:
+		await get_tree().process_frame
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	Input.action_press(&"water_hands")
+	for frame: int in 10:
+		await get_tree().physics_frame
+		if hands.is_holding():
+			break
+	_check(hands.is_holding() and hands.is_snake_hold and hands.is_snake_ready(),
+		"DOUBLE_TAP: a double tap of 1 starts a snake hold (holding %s, snake hold %s)" % [hands.is_holding(), hands.is_snake_hold])
+	await _dip_and_fill(hands, origin, 140.0)
+	raised = await _steer_ball_until([&"move_up"], func() -> bool: return hands.snake != null, 1.5)
+	_check(raised and hands.snakes_raised == snakes_before + 1, "DOUBLE_TAP: lifting out of the pool raises a snake")
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	# REST: a full ball held still in the pool arms; then the lift raises a snake.
+	tuning.snake_trigger = WaterTuning.SnakeTrigger.REST
+	room.reset_objects()
+	await _wait_until_calm(water)
+	snakes_before = hands.snakes_raised
+	await _start_hold(player)
+	_check(not hands.is_snake_ready(), "REST: a fresh hold isn't armed")
+	await _dip_and_fill(hands, origin, 140.0)
+	var armed: bool = await _steer_ball_until([], func() -> bool: return hands.is_rest_armed, 1.5)
+	_check(armed and hands.is_snake_ready(), "REST: a full ball resting in the pool arms the snake (rest %.2f s)" % hands.rest_time)
+	raised = await _steer_ball_until([&"move_up"], func() -> bool: return hands.snake != null, 1.5)
+	_check(raised and hands.snakes_raised == snakes_before + 1, "REST: armed, lifting out raises a snake")
+	Input.action_release(&"water_hands")
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	tuning.snake_trigger = saved_trigger
+	room.reset_objects()
+	_check(water.held_area == 0.0 and hands.snake == null, "a reset leaves no snake")
+	finished_sections.append("W4")
+
+
+## Steers the held ball into the narrow pool of Water D, right then down past
+## local y `depth` (so it rises clear of the crate's pillar), and waits until it's full.
+func _dip_and_fill(hands: WaterHandsAbility, origin: Vector2, depth: float) -> void:
+	var tuning: WaterTuning = hands.player.water_tuning
+	await _steer_ball_until([&"move_right"], func() -> bool: return hands.ball_position.x > origin.x + 72.0, 1.0)
+	await _steer_ball_until([&"move_down"], func() -> bool: return hands.ball_position.y > origin.y + depth, 2.0)
+	await _steer_ball_until([], func() -> bool: return hands.ball_units >= tuning.ball_max_units - 0.001, 2.0)
 
 
 ## Presses 1 once the player is back on the ledge and settled, and waits until the

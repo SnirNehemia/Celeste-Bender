@@ -231,6 +231,56 @@ extends Resource
 @export var ball_push_speed: float = 200.0
 @export_range(0.0, 1.0) var ball_push_min_share: float = 0.5
 
+@export_group("Water snake")
+## Stage W4 (Water_bending.md §5.1-5.2), all in REAL time like the ball.
+## How you ask for a snake (after the first W4 play-test: heavy water made the ball
+## feel slow everywhere, so the ball keeps its W3 feel and these are tried instead;
+## pick the one that feels best and the rest go):
+##   KEY: hold `water_snake` (3) while the ball comes up out of a pool.
+##   DOUBLE_TAP: start the hold with a double tap of 1 (the ring turns green); in
+##     that hold, every lift out of a pool raises a snake.
+##   GENTLE: no key; come up slower than snake_max_rise_speed (tap ↑) and a snake
+##     follows; faster, it tears (a splash rains back). The snake tears too if you
+##     lift it faster than that.
+##   REST: the ball in a pool with no arrow held for snake_rest_time arms (the ring
+##     turns green); armed, lifting it out raises a snake.
+## In every mode but GENTLE, speed never tears a snake.
+enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
+@export var snake_trigger: SnakeTrigger = SnakeTrigger.KEY
+## DOUBLE_TAP: a press of 1 within this many REAL seconds of the last one.
+@export var snake_double_tap_window: float = 0.3
+## REST: how long (real s) the ball rests in a pool (no arrow held) before it's armed.
+@export var snake_rest_time: float = 0.4
+## GENTLE: lifting the ball out of a pool no faster than this (px/s) raises a snake;
+## faster, it tears: a little water rains back and the ball comes out alone.
+@export var snake_max_rise_speed: float = 40.0
+## With a snake hanging from it, the ball moves at this share of ball_move_speed: a
+## little slower, the water's weight (play-test 4: a 30 px/s lift felt sluggish).
+@export_range(0.1, 1.0) var snake_speed_share: float = 0.85
+## The snake's thickness, px: it holds snake_width px² of water per px of length
+## (6: 1 unit per ~11 px), drawn from its pool as it grows (and given back as it
+## shortens). The pool running dry tears it.
+@export var snake_width: float = 6.0
+## Longer than this (px, along the rope) and it tears. Its pool drops as it fills
+## it, so a snake from the ring's edge down to a lowered surface needs some room.
+@export var snake_max_length: float = 80.0
+## The ball back down within this many px of the surface (or under it), not rising,
+## and the snake sinks back into its pool (no tear).
+@export var snake_min_length: float = 4.0
+## The foot slides along the surface toward under the ball at this speed (px/s),
+## dragging a wave (snake_foot_wake x its speed pushes the water). 110: close behind
+## the faster snake (ball_move_speed x snake_speed_share), so a sideways sweep
+## doesn't stretch it to a tear.
+@export var snake_foot_speed: float = 110.0
+@export var snake_foot_wake: float = 0.6
+## The rope's own weight (px/s²): it sags and swings behind the ball.
+@export var snake_sag: float = 150.0
+## Its head (the ball) shoves what it moves into once per touch, like a gust:
+## crates, leaf piles, wisps (Pushable). px/s, like gust_push_strength.
+@export var snake_shove_strength: float = 160.0
+## GENTLE, lifting too fast: this much of the pool (units) jumps up and rains back.
+@export var snake_tear_splash_units: float = 0.25
+
 @export_group("Water and projectiles")
 ## Any water (a pool, loose drops, the held ball) puts a FIREBALL out, and SOAKS a
 ## sentry orb (after play-test 3): it keeps orb_soaked_speed_keep of its speed and

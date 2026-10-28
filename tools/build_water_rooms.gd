@@ -21,6 +21,11 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     a ledge to carry water between, and a sentry
 ##                                     whose orbs the held ball can eat
 ##                                     (_build_room_water_c)
+##   - tests/rooms/room_water_d.tscn   Stage W4 water snake: a narrow deep pool by
+##                                     the start, a crate on a low pillar past it to
+##                                     sweep off with a snake, and a wide pool on the
+##                                     right to practise rising, tearing and whips
+##                                     (_build_room_water_d)
 ##   - resources/tiles/water_tileset.tres  (Stage W1) the water tile: see-through blue,
 ##                                     NO collision (water isn't solid). The picture is
 ##                                     stored inside the .tres. Only written when missing.
@@ -36,7 +41,7 @@ extends "res://tools/build_earth_rooms.gd"
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_water_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
-## only those, e.g. `-- water_a` (names: water_a, water_b, water_c).
+## only those, e.g. `-- water_a` (names: water_a, water_b, water_c, water_d).
 
 const WATER_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/water_layer.gd")
 const WATER_SOURCE_SCENE: PackedScene = preload("res://scenes/objects/water/water_source.tscn")
@@ -61,6 +66,8 @@ func _ready() -> void:
 		_build_room_water_b()
 	if wanted.is_empty() or wanted.has("water_c"):
 		_build_room_water_c()
+	if wanted.is_empty() or wanted.has("water_d"):
+		_build_room_water_d()
 	print("[BuildWaterRooms] Done.")
 	get_tree().quit()
 
@@ -255,3 +262,39 @@ func _build_room_water_c() -> void:
 	_add(SENTRY_SCENE, "Sentry", Vector2(37 * TILE + 4, 16 * TILE), {"sight_range": 110.0, "fire_interval": 1.5})
 
 	_finish_room(Vector2(20 * TILE, 16 * TILE), "res://tests/rooms/room_water_c.tscn")
+
+
+## Water test room D (Stage W4): the water snake. 40 x 23 tiles (one screen), ground
+## top at row 16 (y 128). Left to right:
+##   - you start on the ground at the left (x 56)
+##   - a narrow DEEP POOL (cols 9-13, floor y 176, surface y 136: 25 units): hold 1,
+##     put the ball just under the surface, then ease it up (hold ↑): a snake rises
+##     after it. Burst up from the bottom instead and it tears
+##   - a low PILLAR (cols 14-15, top y 112) with a CRATE on it, at about your height
+##     and inside the ring: raise a snake beside it and steer right, and its head
+##     sweeps the crate off onto the floor past it
+##   - a wide POOL on the right (cols 22-35, floor y 176, surface y 136: 70 units)
+##     to practise in: tall snakes, tearing, whips flung over the floor
+func _build_room_water_d() -> void:
+	_begin_room("RoomWaterD", "Water D: water snake (W4)",
+		"Stage W4 water snake: hold 1, put the ball just under the pool's surface and ease it up (hold up): a snake follows it. Lift from deep and it tears. Raise one beside the crate on the pillar and steer right to sweep it off. Let go to fling the snake like a whip.")
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 40, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(39, 0, 1, 23)   # right wall
+	_gray(0, 16, 40, 7)   # the ground, top at y 128
+
+	# The narrow deep pool by the start, its surface 8 px under the ground.
+	_open(9, 16, 5, 6)    # rows 16-21: floor at row 22 (y 176)
+	_water(9, 17, 5, 5)
+	# The pillar with the crate on it, just past the pool.
+	_gray(14, 14, 2, 2)   # rows 14-15: top at y 112
+	_add(CRATE_SCENE, "Crate1", Vector2(15 * TILE, 14 * TILE))
+
+	# The wide practice pool on the right.
+	_open(22, 16, 14, 6)
+	_water(22, 17, 14, 5)
+
+	_finish_room(Vector2(7 * TILE, 16 * TILE), "res://tests/rooms/room_water_d.tscn")

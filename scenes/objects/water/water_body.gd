@@ -210,6 +210,18 @@ func add_water(column: int, area: float) -> void:
 	is_asleep = false
 
 
+## Pours `area` px² evenly over `center_column` and `spread` columns each side
+## (those that exist): a wide, gentle top-up instead of one column's spike (a
+## water snake shortening back into its pool, Stage W4). Wakes it.
+func add_water_spread(center_column: int, area: float, spread: int) -> void:
+	var first: int = maxi(0, center_column - spread)
+	var last: int = mini(get_column_count() - 1, center_column + spread)
+	var share: float = area / float(last - first + 1)
+	for column: int in range(first, last + 1):
+		depth[column] += share / column_width
+	is_asleep = false
+
+
 ## Takes up to `area` px² from the columns around `center_column` (spread over
 ## `spread` columns each side, the nearest giving most). Returns what it got, px².
 func remove_water(center_column: int, area: float, spread: int) -> float:

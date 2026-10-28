@@ -30,6 +30,13 @@ extends RefCounted
 ##      grass turns to ash at once, burning thicket crumbles). snuff_in_area() below
 ##      calls it; GustAbility calls that with its cone.
 ##
+##   7. optional (Water, Stage W4): func douse() -> void   WATER touched its fire
+##      (the held waterball or a water snake): put it out. douse_near() calls it.
+##      Things that burn in parts (the FireGrid) are doused through snuff_in()
+##      instead. Water_bending.md §9.2's douse table (Stage W10) gives douse() to
+##      braziers, bonfires and the rest; until then only burning grass and thicket
+##      go out under water.
+##
 ## Fire sources only ever call the static helpers here, so new flammable things
 ## (leaf piles, vines, crates in later stages) need no change to the fireball or jet.
 
@@ -40,6 +47,7 @@ const METHOD_SNUFF: StringName = &"snuff"
 const METHOD_FIRE_RECT: StringName = &"get_fire_rect"
 const METHOD_IGNITE_AT: StringName = &"ignite_at"
 const METHOD_SNUFF_IN: StringName = &"snuff_in"
+const METHOD_DOUSE: StringName = &"douse"
 ## Bit value of physics layer 6, "flammable" (layer n = bit 1 << (n - 1)).
 const LAYER_BIT: int = 32
 ## ignite_in_rect() lights a FireGrid at points this many px apart along a flame's edge.
@@ -144,6 +152,25 @@ static func snuff_in_area(tree: SceneTree, world_polygon: PackedVector2Array, di
 		if target.has_method(METHOD_SNUFF_IN):
 			snuffed_count += int(target.call(METHOD_SNUFF_IN, world_polygon, direction))
 	return snuffed_count
+
+
+## WATER at `world_point`, reaching `radius` px (the held ball, a snake's points):
+## puts out what burns there. Things that burn in parts (the FireGrid) put out the
+## parts inside that circle (snuff_in, the gust's hook); others with douse() go out
+## if their fire rect, grown by the radius, holds the point. Returns how many went out.
+## Cheap when nothing burns: the FireGrid's snuff_in returns at once.
+static func douse_near(tree: SceneTree, world_point: Vector2, radius: float) -> int:
+	var circle: PackedVector2Array = PackedVector2Array()
+	for corner: int in 8:
+		circle.append(world_point + Vector2.from_angle(corner * TAU / 8.0) * radius)
+	var doused_count: int = 0
+	for target: Node in tree.get_nodes_in_group(GROUP):
+		if target.has_method(METHOD_SNUFF_IN):
+			doused_count += int(target.call(METHOD_SNUFF_IN, circle, Vector2.ZERO))
+		elif target.has_method(METHOD_DOUSE) and is_burning(target) 				and get_fire_rect(target).grow(radius).has_point(world_point):
+			target.call(METHOD_DOUSE)
+			doused_count += 1
+	return doused_count
 
 
 static func is_burning(target: Node) -> bool:
