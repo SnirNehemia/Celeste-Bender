@@ -37,9 +37,9 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	# `-- W3` (any of W1 Swim W2 W3 W4 W5 W6 Ice) runs only those sections: quicker while working on one.
+	# `-- W3` (any of W1 Swim W2 W3 W4 W5 W6 Ice W7a Snow W7b) runs only those sections: quicker while working on one.
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
-	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "W5", "W6", "Ice"]
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "W5", "W6", "Ice", "W7a", "Snow", "W7b"]
 	if not wanted.is_empty():
 		sections.assign(Array(wanted))
 	if sections.has("W1"):
@@ -63,6 +63,12 @@ func _ready() -> void:
 	_use_w5_ice(world.player, false)
 	if sections.has("Ice"):
 		await _check_predictable_ice(world, world.player)
+	if sections.has("W7a"):
+		await _check_w7a_black_water(world, world.player)
+	if sections.has("Snow"):
+		await _check_snow_and_ice_ball(world, world.player)
+	if sections.has("W7b"):
+		await _check_w7b_currents(world, world.player)
 
 	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
@@ -407,6 +413,224 @@ func _check_swimming(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 	tuning.wave_break_throw = break_throw
 	finished_sections.append("Swim")
+
+
+## Stage W7b, in room Water I: currents (FLOW moves water, LOOP doesn't), riders
+## (a swimmer drifts, a diver goes back, a crate rides the stream, a raft carries its
+## rider), the waterfall's push, floating leaves, the leaf platform on its rail, the
+## streak look's speeds, and the budget with all of it running.
+func _check_w7b_currents(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterI") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water I is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water I has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var origin: Vector2 = room.global_position
+	var unit: float = WaterWorld.UNIT_AREA
+	_check(PaletteCatalog.get_entry(&"current_zone") != null, "the palette has the current zone")
+	_check(water.current_zones.size() == 3, "the WaterWorld found the room's 3 current zones (%d)" % water.current_zones.size())
+	await _stand_at(player, origin + Vector2(12.0, 128.0))
+	var waterfall: WaterSource = room.get_node("Waterfall") as WaterSource
+	var pool_current: CurrentZone = room.get_node("PoolCurrent") as CurrentZone
+
+	# FLOW: the stream's water runs right at a good share of the zone's 50 px/s, and
+	# a body under a flow zone stays awake.
+	for frame: int in 180:
+		await get_tree().physics_frame
+	var stream_speed: float = water.get_water_velocity_at(Vector2(100.0, 152.0))
+	print("[WaterSmokeTest] W7b: stream water speed %.1f px/s" % stream_speed)
+	_check(stream_speed > 25.0 and stream_speed < 80.0, "the flow current runs the stream right (%.1f px/s)" % stream_speed)
+	var stream_body: WaterBody = water.find_water_at(Vector2(100.0, 152.0))[0]
+	_check(stream_body.is_in_current and not stream_body.is_asleep, "a body under a flow current never sleeps")
+
+	# The crate floating at the stream's start rides it over the spikes (from a reset:
+	# it gets there within the first seconds).
+	var crate: Crate = room.get_node("StreamCrate") as Crate
+	room.reset_objects()
+	await get_tree().physics_frame
+	var crate_start_x: float = crate.global_position.x
+	for frame: int in 180:
+		await get_tree().physics_frame
+	var crate_moved: float = crate.global_position.x - crate_start_x
+	print("[WaterSmokeTest] W7b: crate drifted %.1f px in 3 s (speed %.1f, water %.1f)" % [crate_moved, crate.velocity.x, crate.water_speed_x])
+	_check(crate_moved > 80.0 and crate.submerged_share > 0.0, "a floating crate rides the stream past the spikes (%.1f px in 3 s)" % crate_moved)
+
+	# A swimmer in the stream drifts right at about current_push of the water's speed.
+	room.reset_objects()
+	for frame: int in 120:
+		await get_tree().physics_frame
+	player.global_position = origin + Vector2(40.0, 158.0)
+	player.velocity = Vector2.ZERO
+	var swim_start_x: float = player.global_position.x
+	for frame: int in 45:
+		await get_tree().physics_frame
+	var swim_moved: float = player.global_position.x - swim_start_x
+	print("[WaterSmokeTest] W7b: swimmer drifted %.1f px in 0.75 s (carry %.1f px/s)" % [swim_moved, player.swim.current_speed_x])
+	_check(swim_moved > 8.0 and not player.is_dead(), "a swimmer in the stream drifts with it (%.1f px)" % swim_moved)
+	await _stand_at(player, origin + Vector2(12.0, 128.0))
+
+	# LOOP: no tilt, the surface runs right and the bottom left. The waterfall is off
+	# for this, so its waves don't hide the level.
+	var pool_drain: WaterSink = room.get_node("PoolDrain") as WaterSink
+	waterfall.rate = 0.0
+	pool_drain.max_rate = 0.0
+	room.reset_objects()
+	for frame: int in 240:
+		await get_tree().physics_frame
+	var pool_body: WaterBody = water.find_water_at(Vector2(460.0, 140.0))[0]
+	var level_spread: float = _surface_spread(pool_body)
+	var top_speed: float = water.get_water_velocity_at(Vector2(460.0, 115.0))
+	var bottom_speed: float = water.get_water_velocity_at(Vector2(460.0, 159.0))
+	print("[WaterSmokeTest] W7b: loop pool: surface %.1f px/s, bottom %.1f px/s, level spread %.2f px" % [top_speed, bottom_speed, level_spread])
+	_check(top_speed > 25.0 and bottom_speed < -25.0, "a loop current runs the surface right and the bottom left (%.1f / %.1f px/s)" % [top_speed, bottom_speed])
+	_check(level_spread < 0.5, "a loop current moves no water: the pool stays level (%.2f px)" % level_spread)
+
+	# A diver near the loop's bottom is carried back left; near the top, right.
+	player.global_position = origin + Vector2(470.0, 160.0)
+	player.velocity = Vector2.ZERO
+	var dive_start_x: float = player.global_position.x
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var dive_moved: float = player.global_position.x - dive_start_x
+	player.global_position = origin + Vector2(440.0, 126.0)
+	player.velocity = Vector2.ZERO
+	var top_start_x: float = player.global_position.x
+	for frame: int in 20:
+		await get_tree().physics_frame
+	var top_moved: float = player.global_position.x - top_start_x
+	print("[WaterSmokeTest] W7b: loop: diver %.1f px in 1 s, swimmer at the top %.1f px in 0.33 s" % [dive_moved, top_moved])
+	_check(dive_moved < -5.0, "the loop carries a diver at the bottom back left (%.1f px)" % dive_moved)
+	_check(top_moved > 2.0, "the loop carries a swimmer at the top right (%.1f px)" % top_moved)
+
+	# FLOW in a closed pool tilts it (real flow), and the water is all still there.
+	var books: float = water.get_books_units()
+	pool_current.mode = CurrentZone.Mode.FLOW
+	for frame: int in 240:
+		await get_tree().physics_frame
+	var left_surface: float = pool_body.get_surface_y(pool_body.get_column_at(424.0))
+	var right_surface: float = pool_body.get_surface_y(pool_body.get_column_at(496.0))
+	print("[WaterSmokeTest] W7b: flow in the closed pool: surface %.2f (left) vs %.2f (right)" % [left_surface, right_surface])
+	_check(left_surface - right_surface > 1.0, "a flow current tilts a closed pool: it piles up downstream (%.2f px)" % (left_surface - right_surface))
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books still balance with a current running")
+	pool_current.mode = CurrentZone.Mode.LOOP
+
+	# Swimming in water with no current doesn't carry you faster than you swim (the
+	# player's own wake isn't ridden).
+	pool_current.strength = 0.0
+	room.reset_objects()
+	for frame: int in 60:
+		await get_tree().physics_frame
+	player.global_position = origin + Vector2(424.0, 150.0)
+	player.velocity = Vector2.ZERO
+	Input.action_press(&"move_right")
+	var fastest_swim: float = 0.0
+	for frame: int in 50:
+		await get_tree().physics_frame
+		fastest_swim = maxf(fastest_swim, player.velocity.x)
+	Input.action_release(&"move_right")
+	var swim_cap: float = player.tuning.max_run_speed * (1.0 - tuning.water_resistance)
+	print("[WaterSmokeTest] W7b: swimming in still water: top %.1f px/s (no-current cap %.1f)" % [fastest_swim, swim_cap])
+	_check(fastest_swim < swim_cap * 1.15, "swimming in still water isn't sped up by your own wake (%.1f px/s)" % fastest_swim)
+	pool_current.strength = 40.0
+
+	# The waterfall pushes a swimmer under it down.
+	waterfall.rate = 2.0
+	pool_drain.max_rate = 2.0
+	room.reset_objects()
+	for frame: int in 150:
+		await get_tree().physics_frame
+	player.global_position = origin + Vector2(490.0, 140.0)
+	player.velocity = Vector2.ZERO
+	var most_push: float = 0.0
+	for frame: int in 30:
+		await get_tree().physics_frame
+		most_push = maxf(most_push, player.swim.fall_push)
+	player.global_position = origin + Vector2(440.0, 140.0)
+	player.velocity = Vector2.ZERO
+	for frame: int in 40:
+		await get_tree().physics_frame
+	print("[WaterSmokeTest] W7b: waterfall push under it %.1f px/s, away from it %.1f px/s" % [most_push, player.swim.fall_push])
+	_check(most_push > 10.0, "a waterfall pushes a swimmer under it down (%.1f px/s)" % most_push)
+	_check(player.swim.fall_push < 1.0, "no push away from the waterfall (%.1f px/s)" % player.swim.fall_push)
+	await _stand_at(player, origin + Vector2(12.0, 128.0))
+
+	# Floating leaves: blown off the ledge, they float on the pool and drift right on
+	# the loop's surface; a floating leaf can't be lit.
+	var pile: LeafPile = room.get_node("LedgeLeaves") as LeafPile
+	for leaf_index: int in pile.leaf_positions.size():
+		pile._launch_leaf(leaf_index, Vector2(randf_range(90.0, 180.0), -randf_range(40.0, 70.0)))
+	for frame: int in 180:
+		await get_tree().physics_frame
+	var floating: Array[int] = []
+	for leaf_index: int in pile.leaf_positions.size():
+		if pile.leaf_is_flying[leaf_index] == LeafPile.FLOATING:
+			floating.append(leaf_index)
+	_check(floating.size() >= 5, "leaves blown onto the pool float (%d of %d)" % [floating.size(), pile.leaf_positions.size()])
+	if not floating.is_empty():
+		var leaf: int = floating[0]
+		var leaf_world: Vector2 = pile.to_global(pile.leaf_positions[leaf])
+		var surface_here: float = water.get_surface_y_at(water.to_local(leaf_world))
+		_check(absf(water.to_local(leaf_world).y - surface_here) < 3.0,
+			"a floating leaf lies on the surface (y %.1f, surface %.1f)" % [water.to_local(leaf_world).y, surface_here])
+		var mean_before: float = 0.0
+		for index: int in floating:
+			mean_before += pile.leaf_positions[index].x
+		mean_before /= floating.size()
+		for frame: int in 30:
+			await get_tree().physics_frame
+		var mean_after: float = 0.0
+		for index: int in floating:
+			mean_after += pile.leaf_positions[index].x
+		mean_after /= floating.size()
+		print("[WaterSmokeTest] W7b: %d floating leaves drifted %.1f px in 0.5 s" % [floating.size(), mean_after - mean_before])
+		_check(mean_after - mean_before > 2.0, "floating leaves drift with the surface current (%.1f px)" % (mean_after - mean_before))
+		pile._get_fire().light_leaf(leaf)
+		_check(not pile.fire.is_leaf_burning(leaf), "a floating leaf can't be lit")
+
+	# The leaf platform on its rail floats at the surface.
+	var leaf_platform: LeafPlatform = room.get_node("FloatingLeaf") as LeafPlatform
+	var platform_top: float = water.to_local(leaf_platform.global_position).y
+	var pool_surface: float = water.get_surface_y_at(Vector2(440.0, 140.0))
+	print("[WaterSmokeTest] W7b: leaf platform top %.1f, surface %.1f, floating %s" % [platform_top, pool_surface, leaf_platform.is_floating])
+	_check(leaf_platform.is_floating and absf(platform_top - (pool_surface - tuning.leaf_platform_float_lift)) < 2.5,
+		"the leaf platform floats on its rail at the surface (top %.1f, surface %.1f)" % [platform_top, pool_surface])
+
+	# Surfing: a raft on the black channel's loop current carries whoever stands on it.
+	room.reset_objects()
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var raft: IceBlock = water._make_raft(260.0, 136.0, 4.0 * unit) as IceBlock
+	for frame: int in 20:
+		await get_tree().physics_frame
+	var raft_box: Rect2 = raft.get_water_box()
+	player.global_position = Vector2(raft_box.get_center().x, raft_box.position.y)
+	player.velocity = Vector2.ZERO
+	var raft_start_x: float = raft.global_position.x
+	var rider_start_x: float = player.global_position.x
+	for frame: int in 180:
+		await get_tree().physics_frame
+	var raft_moved: float = raft.global_position.x - raft_start_x
+	var rider_moved: float = player.global_position.x - rider_start_x
+	print("[WaterSmokeTest] W7b: surfing: raft %.1f px, rider %.1f px in 3 s, dead %s" % [raft_moved, rider_moved, player.is_dead()])
+	_check(raft_moved > 20.0, "a raft drifts with the black channel's current (%.1f px in 3 s)" % raft_moved)
+	_check(rider_moved > 20.0 and not player.is_dead(), "the raft carries its rider: surfing (%.1f px in 3 s)" % rider_moved)
+	await _wait_for_respawn(player)
+	room.reset_objects()
+	await _stand_at(player, origin + Vector2(12.0, 128.0))
+
+	# The look: the water's corners carry their speed to the shader (the streaks).
+	_check(water.draw_uvs.size() > 0, "the water's corners carry their speed for the streaks (%d)" % water.draw_uvs.size())
+
+	# The budget, with the stream, the loops, the waterfall and the leaves running.
+	var result: Dictionary = await _measure_water_step(room, water, func() -> void: pass, false)
+	_print_budget("W7b budget (currents, waterfall)", result, water)
+	_check_budget(result["median_usec"], "Water I with currents stays under the 2 ms budget (median %.0f us)" % result["median_usec"])
+	finished_sections.append("W7b")
 
 
 ## Puts the player at `feet` (standing), still, and lets a few frames pass.
@@ -1128,7 +1352,8 @@ func _check_w5_freeze(world: RoomManager, player: Player) -> void:
 		await get_tree().physics_frame
 	_check(is_instance_valid(block) and block.is_on_floor(), "the block lands and stays a block")
 
-	# The live window closes: freeze_live_time later, 2 throws a crystal instead.
+	# The live window closes: freeze_live_time later, 2 makes a snow puff instead
+	# (it replaced the ice crystal after the W7a play-test).
 	water.throw_ball(Vector2(60.0, 60.0), Vector2(0.0, -40.0), 1.0)
 	_check(freeze.is_last_throw_live(), "a second throw is live")
 	books += 1.0  # that throw's new water
@@ -1137,14 +1362,21 @@ func _check_w5_freeze(world: RoomManager, player: Player) -> void:
 		await get_tree().physics_frame
 		waited += get_physics_process_delta_time()
 	_check(not freeze.is_last_throw_live(), "after %.1f s it isn't live any more" % tuning.freeze_live_time)
-	freeze.last_crystal = null
+	freeze.last_puff = null
 	freeze.cooldown_remaining = 0.0
 	await _press(&"water_freeze")
 	for frame: int in 10:
 		await get_tree().physics_frame
-		if freeze.last_crystal != null:
+		if freeze.last_puff != null:
 			break
-	_check(freeze.last_crystal != null, "with nothing live, a tap of 2 throws an ice crystal")
+	_check(freeze.last_puff != null, "with nothing live, a tap of 2 makes a snow puff")
+	# Its flakes freeze the pool by the player: let them melt, then put the water back
+	# (the next check gathers from that pool). The books start over from there.
+	for frame: int in int(tuning.snow_flake_life * 60.0) + 10:
+		await get_tree().physics_frame
+	water.reset()
+	await _wait_until_calm(water)
+	books = water.get_books_units()
 
 	# Rule 1, with the real keys: a ball in the hands freezes where it is.
 	await _stand_at(player, origin + Vector2(36.0, 128.0))
@@ -1816,6 +2048,404 @@ func _check_predictable_ice(world: RoomManager, player: Player) -> void:
 	_check(slid and fastest > 80.0, "you slide down the frozen trail (%.0f px/s)" % fastest)
 	await _wait_for_respawn(player)
 	finished_sections.append("Ice")
+
+
+## Stage W7a in room Water H: black water (kills, can't be gathered or frozen, its
+## drops are ink), slicks (clean water floating on black), rafts (from the hands and
+## from a slick), riding one (rider weight, gust recoil, jump recoil), and painted
+## ice slopes (one glass patch, slide down, launch off the lip over the spikes).
+func _check_w7a_black_water(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterH") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water H is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water H has a WaterWorld")
+	if water == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var origin: Vector2 = room.global_position
+	var unit: float = WaterWorld.UNIT_AREA
+	await _stand_at(player, origin + Vector2(16.0, 128.0))
+	await _wait_until_calm(water)
+
+	# The painted water: two clean pools and two black ones (black tiles don't join
+	# the clean patches next to them).
+	var black_count: int = 0
+	for body: WaterBody in water.bodies:
+		if body.is_black:
+			black_count += 1
+	_check(water.bodies.size() == 4 and black_count == 2,
+		"Water H has 2 clean and 2 black pools (%d bodies, %d black)" % [water.bodies.size(), black_count])
+	for id: StringName in [&"black_water", &"ice_slope_up_right", &"ice_slope_up_left",
+			&"gentle_ice_slope_up_right", &"gentle_ice_slope_up_left"]:
+		_check(PaletteCatalog.get_entry(id) != null, "the palette has %s" % id)
+
+	# Black water can't be gathered, drawn into a snake or frozen.
+	var channel_point: Vector2 = Vector2(136.0, 148.0)  # room-local, inside the channel
+	var books: float = water.get_books_units()
+	_check(water.is_black_at(channel_point), "the channel is black water")
+	_check(water.gather(channel_point, 6.0, 4.0 * unit) == 0.0, "the ball gathers nothing from black water")
+	_check(water.draw_from_body_at(Vector2(136.0, 120.0), unit) == 0.0, "a snake draws nothing from black water")
+	_check(water.freeze_body_at(channel_point) == null, "black water doesn't freeze")
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "nothing left the books")
+
+	# It kills: the player dropped into the channel dies.
+	var deaths_before: int = GameState.death_count
+	player.global_position = origin + Vector2(136.0, 150.0)
+	player.velocity = Vector2.ZERO
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(GameState.death_count == deaths_before + 1, "falling into black water kills (deaths %d -> %d)" % [deaths_before, GameState.death_count])
+	await _wait_for_respawn(player)
+	await _stand_at(player, origin + Vector2(16.0, 128.0))
+
+	# A SLICK: a ball thrown onto the black pit floats on it, then sinks in and turns black.
+	var pit_body: WaterBody = water.find_body_under(Vector2(272.0, 140.0))[0]
+	var pit_area_before: float = pit_body.get_area()
+	water.throw_ball(Vector2(272.0, 100.0), Vector2.ZERO, 4.0)
+	var slick_group: int = water.last_group_id
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var slick_points: PackedVector2Array = water.get_group_points(slick_group)
+	var lowest: float = -INF
+	for point: Vector2 in slick_points:
+		lowest = maxf(lowest, point.y)
+	var pit_surface: float = pit_body.get_surface_y(pit_body.get_column_at(272.0))
+	_check(water.get_group_loose_area(slick_group) > 3.9 * unit and lowest <= pit_surface + WaterWorld.SLICK_MAX_DEPTH + 0.5,
+		"clean water thrown on black floats on it as a slick (%.2f units loose, lowest y %.1f, surface %.1f)"
+			% [water.get_group_loose_area(slick_group) / unit, lowest, pit_surface])
+	var min_x: float = INF
+	var max_x: float = -INF
+	for point: Vector2 in slick_points:
+		min_x = minf(min_x, point.x)
+		max_x = maxf(max_x, point.x)
+	_check(max_x - min_x < 48.0, "the slick stays a lens, not a film over the whole pit (%.0f px wide)" % (max_x - min_x))
+	var slick_books: float = water.get_books_units()
+	for frame: int in int(tuning.black_slick_time * 60.0) + 30:
+		await get_tree().physics_frame
+	# Sinking in all at once makes a small wave, and its crest throws a few black drops
+	# that may still be in the air: they count with the pit (a drop or two may land on
+	# the bank: 0.15 units of slack; the books check says nothing is lost).
+	var ink_in_air: float = 0.0
+	for index: int in water.get_drop_count():
+		if water.drop_groups[index] == WaterWorld.BLACK_GROUP:
+			ink_in_air += water.drop_areas[index]
+	var pit_gain: float = (pit_body.get_area() + ink_in_air - pit_area_before) / unit
+	_check(water.get_group_loose_area(slick_group) < 0.01 and pit_body.is_black and pit_gain > 3.85
+		and absf(water.get_books_units() - slick_books) < CONSERVATION_TOLERANCE,
+		"after black_slick_time it sinks in: the pit (and its ink in the air) is black and 4 units fuller (+%.2f), none lost" % pit_gain)
+
+	# A slick frozen in the live window becomes a RAFT.
+	water.throw_ball(Vector2(272.0, 100.0), Vector2.ZERO, 4.0)
+	for frame: int in 40:
+		await get_tree().physics_frame
+	books = water.get_books_units()
+	player.freeze.cooldown_remaining = 0.0
+	var slick_raft: IceBlock = player.freeze.freeze_last_throw() as IceBlock
+	_check(slick_raft != null and slick_raft.is_raft and not slick_raft.is_frozen_in_place,
+		"freezing the slick makes a raft (%s)" % slick_raft)
+	if slick_raft != null:
+		var expected_width: float = clampf(4.0 * tuning.raft_width_per_unit, tuning.raft_min_width, tuning.raft_max_width)
+		_check(absf(slick_raft.crate_size.x - expected_width) < 0.5 and absf(slick_raft.crate_size.y - tuning.raft_thickness) < 0.5,
+			"a 4-unit raft is %.0f x %.0f px (%.0f x %.0f)" % [expected_width, tuning.raft_thickness, slick_raft.crate_size.x, slick_raft.crate_size.y])
+		_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the raft holds all the slick's water")
+		var raft_mid_sum: float = 0.0
+		for frame: int in 120:
+			await get_tree().physics_frame
+			if frame >= 60:
+				raft_mid_sum += slick_raft.global_position.y - origin.y - tuning.raft_thickness * 0.5
+		# Averaged over a second (it bobs), 1 / raft_buoyancy of it is under (after the
+		# W7a play-test: rafts float high, a quarter under).
+		var raft_mid: float = raft_mid_sum / 60.0
+		var surface_now: float = pit_body.get_surface_y(pit_body.get_column_at(slick_raft.global_position.x - origin.x))
+		var under: float = raft_mid + tuning.raft_thickness * 0.5 - surface_now
+		var expected_under: float = tuning.raft_thickness / tuning.raft_buoyancy
+		_check(absf(under - expected_under) < 1.0,
+			"it floats high on the black water: %.1f px under (expected %.1f)" % [under, expected_under])
+
+	# The HANDS: gather from the left pool, steer the ball down onto the black channel,
+	# freeze it (2): a raft.
+	await _stand_at(player, origin + Vector2(64.0, 128.0))
+	var hands: WaterHandsAbility = player.water_hands
+	await _start_hold(player)
+	_check(hands.is_holding(), "1 starts a hold by the pools")
+	await _steer_ball_until([&"move_left", &"move_down"], func() -> bool:
+		return hands.ball_position.x < origin.x + 48.0 and hands.ball_position.y > origin.y + 136.0, 2.0)
+	await _steer_ball_until([], func() -> bool: return hands.ball_units >= 2.0, 2.0)
+	_check(hands.ball_units >= 2.0, "the ball fills from the clean pool (%.2f units)" % hands.ball_units)
+	await _steer_ball_until([&"move_right", &"move_up"], func() -> bool:
+		return hands.ball_position.x > origin.x + 92.0, 2.0)
+	await _steer_ball_until([&"move_down"], func() -> bool:
+		return hands.ball_position.y + hands.get_ball_radius() > origin.y + 133.0, 2.0)
+	var held_units: float = hands.ball_units
+	_check(hands.ball_units >= 2.0, "the ball over the channel still holds its water (%.2f units)" % hands.ball_units)
+	books = water.get_books_units()
+	player.freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	var hand_raft: IceBlock = water.last_ice as IceBlock
+	_check(not hands.is_holding() and hand_raft != null and hand_raft.is_raft,
+		"2 freezes the held ball at the black surface into a raft (%s)" % hand_raft)
+	Input.action_release(&"water_hands")
+	if hand_raft == null or not hand_raft.is_raft:
+		return
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE
+		and absf(hand_raft.water_area - held_units * unit) < 0.01,
+		"the raft holds the ball's %.2f units" % held_units)
+	for frame: int in 60:
+		await get_tree().physics_frame
+
+	# RIDING it: it carries you (pressed down a little), and you don't die.
+	# Its height averaged over half a second (it bobs), alone and then with you on it.
+	var raft_y_alone: float = 0.0
+	for frame: int in 30:
+		await get_tree().physics_frame
+		raft_y_alone += hand_raft.global_position.y / 30.0
+	player.state_machine.transition_to(&"Fall")
+	player.global_position = Vector2(hand_raft.global_position.x, hand_raft.get_slide_top_y(hand_raft.global_position.x) - 0.5)
+	player.velocity = Vector2.ZERO
+	var raft_y_ridden: float = 0.0
+	for frame: int in 90:
+		await get_tree().physics_frame
+		if frame >= 60:
+			raft_y_ridden += hand_raft.global_position.y / 30.0 if is_instance_valid(hand_raft) else 0.0
+	_check(not player.is_dead() and player.get_floor_body() == hand_raft,
+		"you stand on the raft over black water, alive")
+	var channel_body: WaterBody = water.find_body_under(water.to_local(hand_raft.global_position))[0]
+	var channel_surface: float = channel_body.get_surface_y(channel_body.get_column_at(hand_raft.global_position.x - origin.x))
+	_check(player.global_position.y - origin.y < channel_surface - 2.0,
+		"your feet stay clear above the black water (feet y %.1f, surface %.1f)" % [player.global_position.y - origin.y, channel_surface])
+	_check(raft_y_ridden > raft_y_alone + 0.4,
+		"your weight presses it down (%.2f px)" % (raft_y_ridden - raft_y_alone))
+	# A gust to the LEFT while standing on it: the raft takes the recoil, to the right.
+	var raft_x_before: float = hand_raft.global_position.x
+	Input.action_press(&"move_left")
+	await _press(&"gust")
+	Input.action_release(&"move_left")
+	for frame: int in 40:
+		await get_tree().physics_frame
+	var drift: float = hand_raft.global_position.x - raft_x_before
+	_check(drift > 16.0 and not player.is_dead() and player.get_floor_body() == hand_raft,
+		"gusting left on it pushes the raft right, you on it (%.1f px)" % drift)
+	# Jumping off to the right pushes it back to the left.
+	hand_raft.velocity = Vector2.ZERO
+	Input.action_press(&"move_right")
+	for frame: int in 6:
+		await get_tree().physics_frame
+	await _press(&"jump")
+	var recoil: float = hand_raft.velocity.x
+	Input.action_release(&"move_right")
+	_check(recoil < -5.0, "jumping off pushes the raft back (%.0f px/s)" % recoil)
+	await _wait_for_respawn(player)
+
+	# A black DROP is ink: it turns clean water black (then the room is reset).
+	var small_pool: WaterBody = water.find_body_under(Vector2(220.0, 140.0))[0]
+	_check(not small_pool.is_black, "the small pool starts clean")
+	water.spawn_group = WaterWorld.BLACK_GROUP
+	water.add_loose_water(Vector2(220.0, 110.0), 0.25)
+	water.spawn_group = 0
+	for frame: int in 40:
+		await get_tree().physics_frame
+	_check(small_pool.is_black or water.find_body_under(Vector2(220.0, 140.0))[0].is_black,
+		"a black drop landing in clean water turns it black")
+	water.reset()
+	await _stand_at(player, origin + Vector2(16.0, 128.0))
+
+	# Painted ICE SLOPES: one glass patch; slide from the plateau, launch off the lip.
+	var ice_layer: IceLayer = room.get_node("Ice") as IceLayer
+	# The water sees a slope tile's real shape, not its square (fix after play-test:
+	# a pool beside a slope stopped at the tile tops in a staircase).
+	_check(not water.is_solid_px(372.0, 85.0) and water.is_solid_px(372.0, 87.0),
+		"to the water, a 22.5 degree slope tile is solid only below its slope line")
+	_check(absf(water.floor_below(372.0, 60.0) - 86.0) < 0.01,
+		"the floor under a point over the slope is the slope line (%.2f, expected 86)" % water.floor_below(372.0, 60.0))
+	water.add_loose_water(Vector2(372.0, 70.0), 1.0)
+	for frame: int in 300:
+		await get_tree().physics_frame
+	var stuck_on_slope: float = 0.0
+	for body: WaterBody in water.bodies:
+		for column: int in body.get_column_count():
+			var column_x: float = body.get_column_left(column)
+			if column_x >= 360.0 and column_x < 448.0 and body.depth[column] > 0.05:
+				stuck_on_slope += body.depth[column] * body.column_width
+	_check(stuck_on_slope < 0.05 * unit and water.get_drop_count() == 0,
+		"water poured on the slope runs down it, none stuck on the way (%.3f units left on it)" % (stuck_on_slope / unit))
+	water.reset()
+	var loops: Array[PackedVector2Array] = ice_layer._trace_patches()
+	_check(loops.size() == 1, "the slopes and the ice under them are one outline (%d loops)" % loops.size())
+	await _stand_at(player, origin + Vector2(352.0, 80.0))
+	_check(player.is_on_floor(), "standing on the plateau")
+	Input.action_press(&"move_right")
+	var slid: bool = false
+	var fastest: float = 0.0
+	var cleared: bool = false
+	for frame: int in 150:
+		await get_tree().physics_frame
+		slid = slid or player.state_machine.current_state.name == &"Sliding"
+		fastest = maxf(fastest, player.velocity.length())
+		if player.global_position.x > origin.x + 552.0 and player.is_on_floor() and not player.is_dead():
+			cleared = true
+			break
+		if player.is_dead():
+			break
+	Input.action_release(&"move_right")
+	print("[WaterSmokeTest] slopes: slid %s, top speed %.0f px/s, x %.0f" % [slid, fastest, player.global_position.x - origin.x])
+	_check(slid, "you slide down the painted slopes")
+	_check(cleared, "off the ramp you clear the 56 px spike pit (top speed %.0f px/s)" % fastest)
+	await _wait_for_respawn(player)
+	finished_sections.append("W7a")
+
+
+## The SNOW PUFF and the ICE BALL (after the W7a play-test), in room Water H: a puff
+## over a pool freezes stretches of it, all one freeze; flakes freeze a throw in the
+## air; black water doesn't freeze; a tap bursts around you, a hold tosses it; wholly
+## under water, 2 makes an ice ball that floats up, rolls with the arrows, and 2 again
+## shatters it with the books balanced.
+func _check_snow_and_ice_ball(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterH") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "Water H has a WaterWorld (snow)")
+	if water == null:
+		return
+	water.reset()
+	var tuning: WaterTuning = player.water_tuning
+	var freeze: FreezeAbility = player.freeze
+	var origin: Vector2 = room.global_position
+	await _stand_at(player, origin + Vector2(64.0, 128.0))
+	await _wait_until_calm(water)
+
+	# A puff over the clean pool: its flakes freeze stretches of it, as ONE freeze.
+	var books: float = water.get_books_units()
+	var freezes_before: int = water.get_ice_freeze_count()
+	var pool_puff: SnowPuff = SnowPuff.burst(room, origin + Vector2(40.0, 112.0), Vector2.ZERO, tuning)
+	# A puff frees itself once its last flake melts: collect what it froze as it goes.
+	var pool_frozen: Array[Node] = []
+	pool_puff.froze.connect(func(ice: Node) -> void: pool_frozen.append(ice))
+	for frame: int in int(tuning.snow_flake_life * 60.0) + 10:
+		await get_tree().physics_frame
+	var sheets: int = 0
+	for ice: Node in pool_frozen:
+		if ice is IcePiece and (ice as IcePiece).is_sheet:
+			sheets += 1
+	_check(sheets >= 1 and not is_instance_valid(pool_puff), "a puff over the pool freezes it (%d sheet(s)), then it's gone" % sheets)
+	_check(water.get_ice_freeze_count() == freezes_before + 1, "a whole puff counts as one freeze for the ice cap (%d -> %d)"
+		% [freezes_before, water.get_ice_freeze_count()])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the books count the puff's ice")
+	water.reset()
+	await _wait_until_calm(water)
+
+	# Flakes freeze a throw they touch (older than the live window: only the snow can).
+	water.throw_ball(Vector2(140.0, 40.0), Vector2(0.0, -20.0), 2.0)
+	var air_puff: SnowPuff = SnowPuff.burst(room, origin + Vector2(140.0, 40.0), Vector2.ZERO, tuning)
+	var air_frozen: Array[Node] = []
+	air_puff.froze.connect(func(ice: Node) -> void: air_frozen.append(ice))
+	for frame: int in 20:
+		await get_tree().physics_frame
+	_check(not air_frozen.is_empty() and air_frozen[0] is IceBlock,
+		"flakes freeze a throw in the air (%s)" % [air_frozen])
+
+	# Black water: the flakes melt on it, nothing freezes.
+	var black_puff: SnowPuff = SnowPuff.burst(room, origin + Vector2(272.0, 120.0), Vector2.ZERO, tuning)
+	var black_frozen: Array[Node] = []
+	black_puff.froze.connect(func(ice: Node) -> void: black_frozen.append(ice))
+	for frame: int in int(tuning.snow_flake_life * 60.0) + 10:
+		await get_tree().physics_frame
+	_check(black_frozen.is_empty() and not is_instance_valid(black_puff), "a puff over black water freezes nothing")
+	water.reset()
+	await _stand_at(player, origin + Vector2(64.0, 128.0))
+
+	# The keys: a TAP bursts around you, a HOLD (aiming left) tosses it that way.
+	freeze.cooldown_remaining = 0.0
+	freeze.last_puff = null
+	await _press(&"water_freeze")
+	for frame: int in 10:
+		await get_tree().physics_frame
+		if freeze.last_puff != null:
+			break
+	var tap_puff: SnowPuff = freeze.last_puff
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(tap_puff != null and absf(_flake_center(tap_puff).x - player.get_center().x) < 8.0,
+		"a tap of 2 bursts a puff around you (center %.1f px from you)" % (absf(_flake_center(tap_puff).x - player.get_center().x) if tap_puff != null else -1.0))
+	for frame: int in int(tuning.snow_flake_life * 60.0):
+		await get_tree().physics_frame
+	freeze.cooldown_remaining = 0.0
+	freeze.last_puff = null
+	Input.action_press(&"move_left")
+	Input.action_press(&"water_freeze")
+	await _steer_ball_until([], func() -> bool: return false, tuning.snow_tap_time + 0.25)
+	Input.action_release(&"water_freeze")
+	for frame: int in 10:
+		await get_tree().physics_frame
+		if freeze.last_puff != null:
+			break
+	Input.action_release(&"move_left")
+	var toss_puff: SnowPuff = freeze.last_puff
+	for frame: int in 45:
+		await get_tree().physics_frame
+	var tossed: float = player.get_center().x - _flake_center(toss_puff).x if toss_puff != null else 0.0
+	_check(toss_puff != null and tossed > tuning.snow_toss_distance * 0.6,
+		"holding 2 aimed left tosses the puff that way (%.0f px, toss %.0f)" % [tossed, tuning.snow_toss_distance])
+	# Let its last flakes melt first: snow still falling would freeze the reset water.
+	for frame: int in int(tuning.snow_flake_life * 60.0):
+		await get_tree().physics_frame
+	water.reset()
+
+	# The ICE BALL: wholly under water in the left pool, 2 encases you.
+	await _wait_until_calm(water)
+	player.state_machine.transition_to(&"Fall")
+	player.global_position = origin + Vector2(40.0, 151.0)
+	player.velocity = Vector2.ZERO
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(player.swim.submerged_share >= tuning.ice_ball_min_share,
+		"standing on the pool's floor you're wholly under (%.2f)" % player.swim.submerged_share)
+	books = water.get_books_units()
+	freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	_check(player.state_machine.current_state.name == &"IceBall" and freeze.has_ice_ball(),
+		"2 wholly under water makes an ice ball around you (state %s)" % player.state_machine.current_state.name)
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "the ball's water is in the books")
+	var start_y: float = player.get_center().y
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var surface: float = water.get_surface_y_at(water.to_local(player.get_center())) + origin.y
+	_check(player.get_center().y < start_y - 10.0 and absf(player.get_center().y - surface) < tuning.ice_ball_radius,
+		"it floats up to the surface (center y %.1f, surface %.1f, from %.1f)" % [player.get_center().y - origin.y, surface - origin.y, start_y - origin.y])
+	var x_before: float = player.global_position.x
+	Input.action_press(&"move_left")
+	for frame: int in 20:
+		await get_tree().physics_frame
+	Input.action_release(&"move_left")
+	_check(player.global_position.x < x_before - 3.0, "the arrows roll it (%.1f px)" % (player.global_position.x - x_before))
+	freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	_check(not freeze.has_ice_ball() and player.state_machine.current_state.name != &"IceBall",
+		"2 again shatters it (state %s)" % player.state_machine.current_state.name)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE and water.held_area < 0.01,
+		"its water went back to the pool, the books balance")
+	water.reset()
+	await _stand_at(player, origin + Vector2(16.0, 128.0))
+	finished_sections.append("Snow")
+
+
+## The average position of a puff's flakes still falling (world).
+func _flake_center(puff: SnowPuff) -> Vector2:
+	if puff == null or not is_instance_valid(puff):
+		return Vector2.ZERO
+	var sum: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for index: int in puff.positions.size():
+		if puff.alive[index] == 1:
+			sum += puff.positions[index]
+			count += 1
+	return sum / count if count > 0 else Vector2.ZERO
 
 
 ## W4-W6's behaviour (`on`): the W4 rope and the W5 ice that keeps its momentum; off:

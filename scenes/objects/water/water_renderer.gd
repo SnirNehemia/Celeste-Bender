@@ -121,7 +121,9 @@ func _draw_dots() -> void:
 		# draw_set_transform: everything drawn next is moved, turned and scaled, so the
 		# dot is drawn around (0, 0), long along x, turned to point along the velocity.
 		dot_layer.draw_set_transform(positions[index], velocity.angle(), Vector2(stretch, 1.0))
-		dot_layer.draw_texture_rect(dot_texture, dot_rect, false, Color(1.0, foam, 0.0, 1.0))
+		# BLACK water (Stage W7a) rides in blue the same way: the shader draws ink.
+		var ink: float = 1.0 if world.drop_groups[index] == WaterWorld.BLACK_GROUP else 0.0
+		dot_layer.draw_texture_rect(dot_texture, dot_rect, false, Color(1.0, foam, ink, 1.0))
 	# The held ball (Stage W3): plain round dots, no foam. The same blobs as loose
 	# water, so the ball and the water it lets go of look like one thing.
 	for dot: Vector2 in world.held_dots:

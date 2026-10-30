@@ -14,6 +14,14 @@ extends Node
 ##   - is_swimming(): your head is under (share >= swim_share). Then jump is a STROKE
 ##     (Player.try_swim_move()), gravity is weak and you sink slowly.
 ##
+##   - current_speed_x (Stage W7b): the CURRENT that carries you, px/s: the water's
+##     speed around you (WaterWorld.get_water_velocity_around, which looks past your
+##     own wake) times current_push, times how much of you is in it. Player adds it to
+##     the wind (get_wind_velocity), so a current works exactly like a sideways wind:
+##     it shifts the speed you settle at.
+##   - fall_push (Stage W7b): a WATERFALL falling through you pushes you down, px/s of
+##     extra sink (Player.apply_gravity), easing in and out at waterfall_grip.
+##
 ## Like the other abilities, it owns no movement: Player.apply_gravity(),
 ## apply_horizontal_movement(), start_ground_jump() and try_swim_move() read it, and
 ## the states (Idle, Run, Jump, Fall) call those. The water itself is pushed by the
@@ -24,6 +32,10 @@ extends Node
 var player: Player
 ## 0..1: how much of the player's hitbox is under water this frame.
 var submerged_share: float = 0.0
+## The current carrying you sideways, px/s (0 out of water).
+var current_speed_x: float = 0.0
+## A waterfall pushing you down, px/s of extra sink (0 under none).
+var fall_push: float = 0.0
 
 
 func _ready() -> void:
@@ -39,6 +51,12 @@ func update_submersion() -> void:
 	# A puddle or a splash's thin film doesn't count: less than wade_min_depth px in.
 	if submerged_share * hitbox.size.y < player.water_tuning.wade_min_depth:
 		submerged_share = 0.0
+	var tuning: WaterTuning = player.water_tuning
+	current_speed_x = 0.0
+	if submerged_share > 0.0:
+		current_speed_x = water_world.get_water_velocity_around(hitbox) * tuning.current_push * submerged_share
+	var target_push: float = 0.0 if water_world == null else water_world.get_falling_push(hitbox)
+	fall_push = move_toward(fall_push, target_push, tuning.waterfall_max_push * tuning.waterfall_grip * get_physics_process_delta_time())
 
 
 func is_in_water() -> bool:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=40 format=3]
+[gd_scene load_steps=41 format=3]
 
 [ext_resource type="Script" path="res://scenes/player/player.gd" id="1_player"]
 [ext_resource type="Resource" path="res://resources/player_tuning.tres" id="2_tuning"]
@@ -38,6 +38,7 @@
 [ext_resource type="Script" path="res://scenes/player/states/water_holding.gd" id="93_water_holding"]
 [ext_resource type="Script" path="res://scenes/player/abilities/water/freeze_ability.gd" id="94_freeze"]
 [ext_resource type="Script" path="res://scenes/player/states/sliding.gd" id="95_sliding"]
+[ext_resource type="Script" path="res://scenes/player/states/ice_ball.gd" id="96_ice_ball"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hitbox"]
 size = Vector2(7.6, 11)
@@ -175,6 +176,9 @@ script = ExtResource("93_water_holding")
 
 [node name="Sliding" type="Node" parent="StateMachine"]
 script = ExtResource("95_sliding")
+
+[node name="IceBall" type="Node" parent="StateMachine"]
+script = ExtResource("96_ice_ball")
 
 [node name="Dead" type="Node" parent="StateMachine"]
 script = ExtResource("9_dead")

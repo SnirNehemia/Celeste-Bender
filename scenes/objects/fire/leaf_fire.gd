@@ -159,7 +159,7 @@ func light_in_rect(local_rect: Rect2) -> void:
 ## The leaf catches `delay` seconds from now (unless something lights it sooner).
 ## Priming it again doesn't push its moment back: the jet touches it every frame.
 func prime_leaf(leaf_index: int, delay: float) -> void:
-	if leaf_states[leaf_index] != LeafState.UNLIT or catch_left[leaf_index] >= 0.0:
+	if leaf_states[leaf_index] != LeafState.UNLIT or catch_left[leaf_index] >= 0.0 			or pile.leaf_is_flying[leaf_index] == LeafPile.FLOATING:
 		return
 	catch_left[leaf_index] = delay
 	primed_count += 1
@@ -173,7 +173,8 @@ func get_prime_share(leaf_index: int) -> float:
 
 
 func light_leaf(leaf_index: int) -> void:
-	if leaf_states[leaf_index] != LeafState.UNLIT:
+	# A leaf floating on water can't catch (Stage W7b).
+	if leaf_states[leaf_index] != LeafState.UNLIT or pile.leaf_is_flying[leaf_index] == LeafPile.FLOATING:
 		return
 	if catch_left[leaf_index] >= 0.0:
 		catch_left[leaf_index] = -1.0

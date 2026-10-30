@@ -59,6 +59,10 @@ extends CharacterBody2D
 ## water lifts it with `buoyancy` (WaterTuning) times that share of gravity, so with
 ## buoyancy 2 it settles half under. Water drag slows it (no bouncing out again),
 ## and it slides down the slope of a passing wave, so it bobs and drifts on waves.
+## CURRENTS (Stage W7b): the drag pulls it toward the WATER's speed, not toward a
+## stop (WaterWorld.get_water_velocity_at, in the middle of its wet part), and while
+## afloat its air friction slows it toward that speed too: it rides a stream. A
+## waterfall falling on it pushes it down (WaterWorld.get_falling_push).
 ##
 ## ICE SLOPES (Stage W6, Water_bending.md §7.2): standing on ice steep enough to slide
 ## on, it slides down (IceSlope.slide_object), so a slide can deliver a crate or an
@@ -154,6 +158,9 @@ var swing_speed: float = 0.0
 var water_world: WaterWorld = null
 var has_looked_for_water: bool = false
 var submerged_share: float = 0.0
+## The water's speed where it floats, px/s (Stage W7b): what friction and the water's
+## drag slow it toward while it's in water.
+var water_speed_x: float = 0.0
 
 ## Where it was placed, in world coordinates. reset() puts it back here.
 var start_position: Vector2
@@ -297,7 +304,9 @@ func _physics_process(delta: float) -> void:
 			velocity.y = minf(velocity.y + net_gravity * delta, max_fall_speed)
 		# Friction: slide toward a stop, faster on the ground than in the air.
 		var friction: float = ground_friction if was_on_floor else air_friction
-		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
+		# Afloat, it settles at the water's speed (a stream carries it), not at rest.
+		var rest_speed: float = water_speed_x if submerged_share > 0.0 and not was_on_floor else 0.0
+		velocity.x = move_toward(velocity.x, rest_speed, friction * delta)
 	var speed_before: Vector2 = velocity
 	# move_and_slide() also zeroes the part of velocity that runs into a wall,
 	# so a crate shoved into a wall just stops...
@@ -336,18 +345,42 @@ func _float_in_water(delta: float) -> float:
 	var box: Rect2 = Rect2(global_position - Vector2(crate_size.x / 2.0, crate_size.y), crate_size)
 	var share: float = water_world.get_submerged_share(box)
 	var water_tuning: WaterTuning = water_world.water_tuning
+	# A waterfall falling on it pushes it down (Stage W7b), in water or out.
+	var fall_push: float = water_world.get_falling_push(box)
+	if fall_push > 0.0:
+		velocity.y = minf(velocity.y + fall_push * water_tuning.waterfall_grip * delta, max_fall_speed)
 	if share > 0.0 and submerged_share <= 0.0:
 		water_world.push_at(Vector2(global_position.x, box.end.y), velocity * water_tuning.entry_splash_strength, crate_size.x)
 	submerged_share = share
 	if share <= 0.0:
+		water_speed_x = 0.0
 		return 0.0
-	velocity *= maxf(0.0, 1.0 - water_tuning.water_drag * share * delta)
+	# The water's speed in the middle of the crate's wet part (Stage W7b).
+	var wet_middle: Vector2 = Vector2(global_position.x, box.end.y - share * box.size.y * 0.5)
+	water_speed_x = water_world.get_water_velocity_at(water_world.to_local(wet_middle))
+	# Drag: sideways toward the water's speed (a current carries it), up and down
+	# toward rest (no bouncing out again).
+	var drag_keep: float = maxf(0.0, 1.0 - _get_water_drag() * share * delta)
+	velocity.x = water_speed_x + (velocity.x - water_speed_x) * drag_keep
+	velocity.y *= drag_keep
 	if is_metal:
 		return 0.0  # steel sinks: the water only slows it
 	if not is_on_floor():
 		velocity.x += water_world.get_surface_slope_at(Vector2(global_position.x, box.position.y)) \
 			* water_tuning.wave_slope_push * delta
-	return gravity * water_tuning.buoyancy * share
+	return gravity * _get_buoyancy() * share
+
+
+## How strongly water lifts it (2 = it floats half under; an ice raft overrides it:
+## it floats higher, after the W7a play-test).
+func _get_buoyancy() -> float:
+	return water_world.water_tuning.buoyancy
+
+
+## How much of its speed the water takes per second at full depth (an ice raft
+## overrides it: it drifts far, Stage W7a).
+func _get_water_drag() -> float:
+	return water_world.water_tuning.water_drag
 
 
 ## Starts swinging on `vine` (or stops, null). Starting: the angle comes from where

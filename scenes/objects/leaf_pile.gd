@@ -64,6 +64,15 @@ extends Node2D
 ## and a heap of them lying together becomes a Bonfire. Burning leaves still blow,
 ## fall and get kicked like any leaf (that's the ember rain). Burnt leaves are gone
 ## until R.
+##
+## WATER (Stage W7b, Water_bending.md §16 "Planned in Stage W7b"): a leaf falling
+## onto water FLOATS (leaf_is_flying = FLOATING): it lies on the surface, bobs with
+## its waves and ripples, and drifts at the water's own speed
+## (WaterWorld.get_water_velocity_at), so a current carries it and a swimmer's wake
+## nudges it. Nothing can light a floating leaf, and a burning leaf that lands on
+## water goes out. A floating leaf whose water drains away (or that drifts onto a
+## bank) falls again. Rooms without water pay nothing (the WaterWorld is looked up
+## once, and is null).
 
 ## Not in the §2 color key: dry, muted greens and golds (kept clear of the windmill
 ## yellow, projectile orange and crate brown).
@@ -88,6 +97,10 @@ const UNBURY_DIRECTIONS: Array[Vector2] = [Vector2.UP, Vector2.LEFT, Vector2.RIG
 const STACK_BUCKET: float = 4.0
 ## No support leaf: resting on a solid (or untouched in the pile).
 const NO_LEAF: int = -1
+## leaf_is_flying's values: resting, in the air, afloat on water (Stage W7b).
+const RESTING: int = 0
+const FLYING: int = 1
+const FLOATING: int = 2
 
 ## Size of the mound, px.
 @export var pile_width: float = 36.0:
@@ -159,7 +172,8 @@ var leaf_rotations: PackedFloat32Array = PackedFloat32Array()
 ## Position in the swing cycle (radians) and how fast it advances (radians/s).
 var leaf_sway_phases: PackedFloat32Array = PackedFloat32Array()
 var leaf_sway_rates: PackedFloat32Array = PackedFloat32Array()
-## 1 = in the air (simulated), 0 = resting.
+## FLYING (1) = in the air (simulated), RESTING (0) = lying still, FLOATING (2) =
+## afloat on water (simulated, Stage W7b).
 var leaf_is_flying: PackedByteArray = PackedByteArray()
 var leaf_colors: PackedColorArray = PackedColorArray()
 ## The body each landed leaf rests on, and where that body was last frame (world
@@ -207,6 +221,10 @@ var sensor_shape_node: CollisionShape2D
 ## pay for it). null = nothing ever burnt here.
 var fire: LeafFire
 
+## The room's water (Stage W7b), looked up on the first physics frame; null = none.
+var water_world: WaterWorld = null
+var has_looked_for_water: bool = false
+
 
 func _ready() -> void:
 	z_index = 1  # in front of plates, crates and the player's feet
@@ -248,10 +266,18 @@ func _physics_process(delta: float) -> void:
 		any_changed = _update_resting_leaves() or any_changed
 	if leaf_supports_dirty:
 		any_changed = _drop_unsupported_leaves() or any_changed
+	if not has_looked_for_water:
+		has_looked_for_water = true
+		water_world = WaterWorld.find_at(get_tree(), global_position)
 	for leaf_index: int in leaf_positions.size():
-		if leaf_is_flying[leaf_index] == 1 and not _is_gone(leaf_index):
+		if _is_gone(leaf_index):
+			continue
+		if leaf_is_flying[leaf_index] == FLYING:
 			any_changed = true
 			_fly_leaf(leaf_index, delta)
+		elif leaf_is_flying[leaf_index] == FLOATING:
+			any_changed = true
+			_float_leaf(leaf_index, delta)
 	if any_changed:
 		_update_sensor_bounds()
 		queue_redraw()
@@ -370,6 +396,10 @@ func _fly_leaf(leaf_index: int, delta: float) -> void:
 	var position_now: Vector2 = leaf_positions[leaf_index]
 	var motion: Vector2 = (velocity + Vector2(sway_velocity_x, 0.0)) * delta
 	var position_next: Vector2 = position_now + motion
+	# Falling onto water (Stage W7b): it floats from here on.
+	if water_world != null and motion.y > 0.0 			and not water_world.find_water_at(water_world.to_local(to_global(position_next))).is_empty():
+		_start_floating(leaf_index, position_next)
+		return
 	# Falling onto another leaf: it comes to rest on top of it (a heap builds up), or,
 	# if it would only overhang its edge, slides off outward (see _is_cradled).
 	if motion.y > 0.0:
@@ -410,6 +440,50 @@ func _fly_leaf(leaf_index: int, delta: float) -> void:
 	leaf_velocities[leaf_index] = velocity
 	if position_now.y > LOST_DISTANCE:
 		leaf_is_flying[leaf_index] = 0  # fell into a pit: stop simulating it
+
+
+## Lands on water (Stage W7b): from now on _float_leaf moves it. A burning leaf
+## goes out (a hiss of smoke, no ash left floating).
+func _start_floating(leaf_index: int, landing_position: Vector2) -> void:
+	leaf_positions[leaf_index] = landing_position
+	leaf_velocities[leaf_index] = Vector2.ZERO
+	leaf_is_flying[leaf_index] = FLOATING
+	leaf_supports[leaf_index] = null
+	leaf_support_leaves[leaf_index] = NO_LEAF
+	if fire != null and fire.is_leaf_burning(leaf_index):
+		fire.snuff_leaf(leaf_index)
+
+
+## A floating leaf, one physics step (Stage W7b): on the surface (with its ripples,
+## so it bobs), tilted with the surface's slope, drifting at the water's speed plus a
+## small sway. A wall stops it. With no water under it any more it falls again.
+func _float_leaf(leaf_index: int, delta: float) -> void:
+	var tuning: WaterTuning = water_world.water_tuning
+	var position_now: Vector2 = leaf_positions[leaf_index]
+	var water_point: Vector2 = water_world.to_local(to_global(position_now))
+	# The water under the leaf: a little above it, so a leaf a hair over the surface
+	# still finds its pool.
+	var found: Array = water_world.find_body_under(water_point - Vector2(0.0, 2.0))
+	if found.is_empty() or (found[0] as WaterBody).depth[found[1]] <= 1.0:
+		_launch_leaf(leaf_index, Vector2.ZERO)  # stranded: it falls (and lands) as a leaf
+		return
+	var body: WaterBody = found[0]
+	var column: int = found[1]
+	var surface_y: float = body.get_surface_y(column)
+	var speed: float = water_world.get_water_velocity_at(Vector2(water_point.x, surface_y + 0.5)) * tuning.leaf_current_share
+	var phase: float = leaf_sway_phases[leaf_index] + leaf_sway_rates[leaf_index] * delta
+	leaf_sway_phases[leaf_index] = phase
+	var next_x: float = position_now.x + (speed + tuning.leaf_float_sway * cos(phase)) * delta
+	# Where it would be, on the surface there (drawn surface: it rides the ripples).
+	var next_point: Vector2 = Vector2(water_point.x + next_x - position_now.x, water_point.y)
+	var next_column: int = body.get_column_at(next_point.x)
+	if next_column < 0 or water_world.is_solid_px(next_point.x, body.get_drawn_surface_y(next_column) - tuning.leaf_float_lift):
+		next_point.x = water_point.x  # a wall or the pool's end: it stops there
+		next_column = column
+	next_point.y = body.get_drawn_surface_y(next_column) - tuning.leaf_float_lift
+	leaf_positions[leaf_index] = to_local(water_world.to_global(next_point))
+	var slope: float = water_world.get_surface_slope_at(water_world.to_global(next_point))
+	leaf_rotations[leaf_index] = lerpf(leaf_rotations[leaf_index], atan(slope), minf(6.0 * delta, 1.0))
 
 
 ## Lands on a solid (`support`).
@@ -470,7 +544,7 @@ func _update_resting_leaves() -> bool:
 	# out), unless its support just moved. 4 frames = 1/15 s: too short to notice.
 	var check_slot: int = Engine.get_physics_frames() % 4
 	for leaf_index: int in leaf_positions.size():
-		if leaf_is_flying[leaf_index] == 1 or _is_gone(leaf_index):
+		if leaf_is_flying[leaf_index] != RESTING or _is_gone(leaf_index):
 			continue
 		var support: Node2D = leaf_supports[leaf_index]
 		var has_support: bool = support != null
@@ -518,7 +592,7 @@ func _drop_unsupported_leaves() -> bool:
 		_rebuild_resting_buckets()
 	var falling: Array[int] = []
 	for leaf_index: int in leaf_positions.size():
-		if leaf_is_flying[leaf_index] == 1 or leaf_supports[leaf_index] != null or _is_gone(leaf_index):
+		if leaf_is_flying[leaf_index] != RESTING or leaf_supports[leaf_index] != null or _is_gone(leaf_index):
 			continue
 		if leaf_positions[leaf_index].y > LOST_DISTANCE:
 			continue  # lost in a pit: let it be
@@ -847,7 +921,9 @@ func _draw() -> void:
 				color = color.lerp(LEAF_EMBER_COLOR, 0.7 * fire.get_prime_share(leaf_index))
 		# The diamond moved to the leaf, turned and scaled: corner = position
 		# + x * long_axis + y * short_axis (what draw_set_transform would do).
-		var leaf_position: Vector2 = leaf_positions[leaf_index] + Vector2(0.0, ground_sink)
+		# (Not a floating leaf: it lies ON the water, Stage W7b.)
+		var sink: float = 0.0 if leaf_is_flying[leaf_index] == FLOATING else ground_sink
+		var leaf_position: Vector2 = leaf_positions[leaf_index] + Vector2(0.0, sink)
 		var long_axis: Vector2 = Vector2.from_angle(leaf_rotations[leaf_index]) * leaf_scale
 		var short_axis: Vector2 = Vector2(-long_axis.y, long_axis.x)  # turned +90°
 		var first_vertex: int = drawn_count * 4

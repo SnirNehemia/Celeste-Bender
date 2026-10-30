@@ -1,0 +1,12 @@
+date,commit,dirty,label,median_usec,peak_usec,machine_usec
+2026-10-30,4fe466e,yes,"water step under stress",1561,4236,3681
+2026-10-30,4fe466e,yes,"water step on grass",2116,17259,4814
+2026-10-30,4fe466e,yes,"W2 loose water under stress",1521,57648,5262
+2026-10-30,4fe466e,yes,"W7b budget (currents, waterfall)",876,15736,7538
+2026-10-30,4fe466e,yes,"water step under stress",2383,7717,6066
+2026-10-30,4fe466e,yes,"water step on grass",2346,8379,4860
+2026-10-30,4fe466e,yes,"W2 loose water under stress",1515,9702,6416
+2026-10-30,4fe466e,yes,"W7b budget (currents, waterfall)",879,2541,5924
+2026-10-30,4fe466e,no,"water step under stress",1528,5641,4446
+2026-10-30,4fe466e,no,"water step on grass",1377,6287,4596
+2026-10-30,4fe466e,no,"W2 loose water under stress",1038,7683,4431

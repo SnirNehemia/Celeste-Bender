@@ -10,7 +10,7 @@ You run checks on a Godot 4 project and report results compactly. You never edit
 `godot` = `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe`. Project folder: `D:\GODOT\Celeste-Bender`. Run from the project folder.
 
 ## What to run
-The caller may name specific tests. If not, run all of these that exist:
+The caller may name specific tests, with `-- SECTION` arguments for the water test; run exactly those. If not, run all of these that exist:
 1. `godot --headless --path . --import` (parse errors)
 2. `res://tests/world_smoke_test.tscn` (Air rooms)
 3. `res://tests/earth_smoke_test.tscn` (Earth mechanics)

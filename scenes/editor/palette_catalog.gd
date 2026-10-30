@@ -151,6 +151,12 @@ class Entry:
 	## (the same cell when the tileset has one tile). See TileBrush.
 	var tile_plain: Vector2i = TileBrush.TILE_PLAIN
 	var tile_top_edge: Vector2i = TileBrush.TILE_TOP_EDGE
+	## Terrain kind: painted on ODD columns instead of tile_plain (TileBrush.NO_TILE:
+	## never). A 22.5° ice slope is two tiles side by side (Stage W7a).
+	var tile_odd_column: Vector2i = TileBrush.NO_TILE
+	## Entries sharing a menu_group show as ONE palette button; clicking it drops down
+	## a list of the group's entries (the four ice slopes). "" = a button of its own.
+	var menu_group: String = ""
 	## Terrain kind: layers whose tiles a painted cell ERASES (one terrain per cell, a
 	## hidden chamber carved into an earth wall). Same undo step. Set by _assign_carving.
 	var carves_layers: Array[StringName] = []
@@ -179,6 +185,8 @@ const SPAWN_POINT_NAME: StringName = &"SpawnPoint"
 const SPAWN_MARKER_SIZE: Vector2 = Vector2(6, 12)
 ## Light blue, see-through: the air color of GAME_DESIGN.md §2.
 const WIND_STAND_IN_COLOR: Color = Color(0.6, 0.85, 1.0, 0.18)
+## A current zone's stand-in (Stage W7b): water blue, see-through.
+const CURRENT_STAND_IN_COLOR: Color = Color(0.18, 0.5, 0.82, 0.22)
 ## The thinnest a LINE_TO_POINT outline gets (a vine is a 1-2 px line), px.
 const LINE_THICKNESS: float = 4.0
 
@@ -188,17 +196,19 @@ const TAB_ORDER: Array[String] = ["Terrain", "Basics", "Triggers", "Activated", 
 const TAB_OF: Dictionary = {
 	&"wind_zone": "Basics", &"no_glide_zone": "Basics", &"ice_pins": "Basics",
 	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
-	&"door": "Activated",
+	&"door": "Activated", &"switch_wall": "Activated", &"step_pad": "Triggers",
 	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
 	&"cracked_wall": "Breakable", &"stone_wall": "Breakable", &"thicket": "Breakable",
 	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
 	&"crate": "Objects", &"leaf_platform": "Objects", &"sail_platform": "Objects", &"boulder": "Objects",
 	&"loose_rock": "Objects", &"vine": "Objects", &"hanging_platform": "Objects", &"leaf_pile": "Objects",
-	&"water_source": "Objects", &"water_sink": "Objects",
+	&"water_source": "Objects", &"water_sink": "Objects", &"current_zone": "Objects",
 }
 ## Elements of entries whose stage family doesn't say it (terrain, enemies).
 const ELEMENT_OF: Dictionary = {
-	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"ice": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
+	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"ice": "Water",
+	&"black_water": "Water", &"ice_slope_up_right": "Water", &"ice_slope_up_left": "Water",
+	&"gentle_ice_slope_up_right": "Water", &"gentle_ice_slope_up_left": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
 	&"wisp": "Air", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
 }
 
@@ -349,6 +359,24 @@ static func _build() -> void:
 	pressure_plate.placement = Placement.ON_FLOOR
 	pressure_plate.editable_properties = [&"plate_width"]
 
+	var step_pad: Entry = _add_object(&"step_pad", "Step pad", "Air", preload("res://scenes/objects/step_pad.tscn"))
+	step_pad.hint = "A switch the player turns on by standing on it; it stays on until death or R. Put several on different platforms and link a door to them all (door Link Mode: All) so the player must visit each. One tile wide; drag the handle to widen."
+	step_pad.bounds = Bounds.WIDTH_CENTERED
+	step_pad.width_property = &"pad_width"
+	step_pad.local_rect = Rect2(0, -4, 0, 4)
+	step_pad.placement = Placement.ON_FLOOR
+	step_pad.editable_properties = [&"pad_width"]
+
+	var switch_wall: Entry = _add_object(&"switch_wall", "Switch wall", "Air", preload("res://scenes/objects/earth/switch_wall.tscn"))
+	switch_wall.hint = "A cracked-looking wall that breaks open when its linked switches turn on (select it, then L, and click a step pad, plate or brazier). Link Mode All needs every switch. Rocks don't break it. Back whole on death or R."
+	switch_wall.bounds = Bounds.SIZE_TOP_LEFT
+	switch_wall.size_property = &"wall_size_tiles"
+	switch_wall.size_unit = TILE
+	switch_wall.placement = Placement.TOP_LEFT
+	switch_wall.editable_properties = [&"wall_size_tiles", &"link_mode"]
+	switch_wall.link_property = &"switches"
+	switch_wall.link_target_class = &"Switch"
+
 	var no_glide_zone: Entry = _add_object(&"no_glide_zone", "No-glide zone", "Air", preload("res://scenes/objects/no_glide_zone.tscn"))
 	no_glide_zone.hint = "Dead air: gliding can't start inside it and a glide drifting in ends. Jump, gust and the flame jet still work."
 	no_glide_zone.bounds = Bounds.SIZE_TOP_LEFT
@@ -487,6 +515,41 @@ static func _build() -> void:
 	ice.tile_plain = IceLayer.ICE_TILE
 	ice.tile_top_edge = IceLayer.ICE_TILE
 
+	# Black water (Stage W7a; Water_bending.md §16 "Decided in Stage W7a"): the same
+	# Water layer, the inky tile.
+	var black_water: Entry = _add(&"black_water", "Black water", "Terrain", Kind.TERRAIN)
+	black_water.hint = "Inky water that KILLS on touch. It can't be gathered or frozen, and it never soaks in. Clean water thrown on it floats like oil for a moment; freeze clean water on it into a raft to cross. Paint it apart from clean water: pools that touch join, and black wins."
+	black_water.layer_name = &"Water"
+	black_water.tile_set = water.tile_set
+	black_water.layer_script = water.layer_script
+	black_water.tile_plain = WaterLayer.BLACK_TILE
+	black_water.tile_top_edge = WaterLayer.BLACK_TILE
+	black_water.room_settings_on_create = {&"water_allowed": true}
+
+	# Painted ice slopes (Stage W7a, from the re-planned ice): the fixed slides a level
+	# is built around. 45° one tile each; 22.5° alternates its low and high tile by
+	# column (paint a run of two or more).
+	var slopes: Array = [
+		[&"ice_slope_up_right", "Ice slope, up right", IceLayer.SLOPE_UP_RIGHT, TileBrush.NO_TILE,
+			"A 45 degree ice slope rising to the right. You slide down it fast and can't walk up it; at the end of a run, one makes a ramp lip that launches you."],
+		[&"ice_slope_up_left", "Ice slope, up left", IceLayer.SLOPE_UP_LEFT, TileBrush.NO_TILE,
+			"A 45 degree ice slope rising to the left. You slide down it fast and can't walk up it; at the end of a run, one makes a ramp lip that launches you."],
+		[&"gentle_ice_slope_up_right", "Gentle ice slope, up right", IceLayer.GENTLE_UP_RIGHT_LOW, IceLayer.GENTLE_UP_RIGHT_HIGH,
+			"A 22.5 degree ice slope rising to the right, two tiles per half-tile of rise: even columns get the low tile, odd ones the high tile. Drag along a row; start one column over to swap them."],
+		[&"gentle_ice_slope_up_left", "Gentle ice slope, up left", IceLayer.GENTLE_UP_LEFT_LOW, IceLayer.GENTLE_UP_LEFT_HIGH,
+			"A 22.5 degree ice slope rising to the left, two tiles per half-tile of rise: even columns get the low tile, odd ones the high tile. Drag along a row; start one column over to swap them."],
+	]
+	for slope: Array in slopes:
+		var slope_entry: Entry = _add(slope[0], slope[1], "Terrain", Kind.TERRAIN)
+		slope_entry.hint = slope[4]
+		slope_entry.layer_name = &"Ice"
+		slope_entry.tile_set = ice.tile_set
+		slope_entry.layer_script = ice.layer_script
+		slope_entry.tile_plain = slope[2]
+		slope_entry.tile_top_edge = slope[2]
+		slope_entry.tile_odd_column = slope[3]
+		slope_entry.menu_group = "Ice slope"
+
 	# Ice pins (Stage W6; Water_bending.md §16 "Planned in Stage W6"): spikes that catch
 	# ice. Floor only: they always point up.
 	var ice_pins: Entry = _add(&"ice_pins", "Ice pins", "Water", Kind.STRIP)
@@ -512,6 +575,17 @@ static func _build() -> void:
 	water_sink.placement = Placement.TOP_LEFT
 	water_sink.editable_properties = [&"sink_size", &"max_rate"]
 	water_sink.room_settings_on_create = {&"water_allowed": true}
+
+	var current_zone: Entry = _add_object(&"current_zone", "Current", "Water", preload("res://scenes/objects/water/current_zone.tscn"))
+	current_zone.hint = "Makes the water inside it run left or right (Stage W7b). Flow: real flow, it moves water (a closed pool tilts; for a stream, put a Water source upstream and a Drain downstream). Loop: the surface runs the arrow's way and the bottom runs back, moving no water. Swimmers, crates, rafts and floating leaves ride it."
+	current_zone.bounds = Bounds.SIZE_TOP_LEFT
+	current_zone.size_property = &"zone_size"
+	current_zone.placement = Placement.TOP_LEFT
+	current_zone.is_area = true
+	current_zone.editor_color = CURRENT_STAND_IN_COLOR
+	current_zone.arrow_property = &"current_direction"
+	current_zone.editable_properties = [&"zone_size", &"current_direction", &"strength", &"mode"]
+	current_zone.room_settings_on_create = {&"water_allowed": true}
 
 	# Fire objects turn Fire on in their room. The player still needs pips: the
 	# room's Fire Start Pips, or a fire diamond (a play-test warning says so).
@@ -577,13 +651,13 @@ static func _build() -> void:
 	wisp.editable_properties = [&"start_direction", &"patrol_speed"]
 
 	var sentry: Entry = _add_object(&"sentry", "Sentry", "Enemies", preload("res://scenes/enemies/sentry.tscn"))
-	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It can hang from a ceiling, never fire (a target for an enemy gate), or throw fireballs like yours (Fire Orbs: painted orange)."
+	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It bolts itself to the nearest wall, ceiling or floor; select it to see its sight range. It can never fire (a target for an enemy gate), or throw fireballs like yours (Fire Orbs: painted orange)."
 	sentry.bounds = Bounds.SIZE_BOTTOM_CENTER
 	sentry.size_property = &"body_size"
 	sentry.hang_property = &"mounted_on_ceiling"
 	sentry.snaps_to_ground = true
 	sentry.placement = Placement.ON_FLOOR
-	sentry.editable_properties = [&"mounted_on_ceiling", &"can_fire", &"fire_orbs", &"fire_interval", &"first_shot_delay", &"sight_range"]
+	sentry.editable_properties = [&"can_fire", &"fire_orbs", &"fire_interval", &"first_shot_delay", &"sight_range"]
 
 	var vine_monkey: Entry = _add_object(&"vine_monkey", "Vine monkey", "Enemies", preload("res://scenes/enemies/vine_monkey.tscn"))
 	vine_monkey.hint = "A leafy monkey that walks and hops gaps. Fire turns it into a running torch that lights what it touches. Gusts and rocks knock it about."
@@ -681,6 +755,8 @@ static func get_local_bounds(node: Node2D) -> Rect2:
 	var entry: Entry = entry_for_node(node)
 	if entry == null:
 		return Rect2(Vector2.ZERO, Vector2.ONE * TILE)
+	if node is Sentry:
+		return (node as Sentry).get_local_outline()  # floor, ceiling or side wall
 	match entry.bounds:
 		Bounds.SPAWN_MARKER:
 			return Rect2(Vector2(-SPAWN_MARKER_SIZE.x / 2.0, -SPAWN_MARKER_SIZE.y), SPAWN_MARKER_SIZE)

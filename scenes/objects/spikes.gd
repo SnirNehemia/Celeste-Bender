@@ -25,10 +25,30 @@ enum Facing { UP, DOWN, LEFT, RIGHT }
 
 ## Spike color (GAME_DESIGN.md §2: red).
 const SPIKE_COLOR: Color = Color(0.9, 0.2, 0.2)
+## Looks: stone teeth that grow out of the ground (the same gray as the gray terrain,
+## so they blend into it), a lighter left facet, and a bright red tip that says
+## "danger". Drawing only: the hitbox below is unchanged.
+const STONE_COLOR: Color = Color(0.36, 0.37, 0.43)
+const STONE_LIGHT_COLOR: Color = Color(0.52, 0.52, 0.58)
+## One slim tooth per tile: narrower than the tile by TOOTH_INSET px on each side, so
+## it reads as an elegant thorn with the rocky lip between neighbours.
+const TEETH_PER_TILE: int = 1
+const TOOTH_INSET: float = 1.0
+## Drawn heights, repeating along a strip so it looks hand-made but never changes
+## between redraws. All stay above HITBOX_HEIGHT, so every tip is still fair.
+const SPIKE_HEIGHTS: Array[float] = [7.0, 6.0, 7.0, 7.0, 6.0, 7.0, 6.0]
+## How far the stone base reaches INTO the surface the spikes are mounted on, px:
+## terrain textures have dents along their edge, and this fills the gaps under the
+## spikes so they grow out of something instead of floating over holes.
+const BASE_SINK: float = 3.0
+## How far the stone base rises above the surface between the teeth, px (a rocky lip).
+const BASE_LIP: float = 1.0
+## Where the red tip starts, as a fraction of the spike's height.
+const RED_TIP_START: float = 0.45
 ## One tile, in pixels.
 const TILE_SIZE: float = 8.0
 ## Drawn height of each triangle, measured from its base.
-const SPIKE_HEIGHT: float = 5.0
+const SPIKE_HEIGHT: float = 5.0  # the base height; each spike varies, see SPIKE_HEIGHTS
 ## Deadly part of the triangle, measured from its base (smaller than drawn = fair).
 const HITBOX_HEIGHT: float = 3.0
 ## Hitbox inset at both ends of the strip, in pixels.
@@ -100,17 +120,26 @@ func _rebuild() -> void:
 		remove_child(child)
 		child.queue_free()
 
-	# Triangles, one per tile: base corners on the mounting surface, tip pointing out.
-	for tile_index: int in tile_count:
-		var base_start: float = tile_index * TILE_SIZE
-		var triangle: Polygon2D = Polygon2D.new()
-		triangle.color = SPIKE_COLOR
-		triangle.polygon = PackedVector2Array([
-			_to_local_point(base_start, 0.0),
-			_to_local_point(base_start + TILE_SIZE, 0.0),
-			_to_local_point(base_start + TILE_SIZE / 2.0, SPIKE_HEIGHT),
-		])
-		add_child(triangle)
+	# The rocky base along the whole strip: stone sunk into the surface (fills the dents
+	# in the terrain's edge) and a lip above it with a lit top edge, joining the teeth.
+	var length: float = tile_count * TILE_SIZE
+	_add_quad_polygon(STONE_COLOR, -BASE_SINK, BASE_LIP, 0.0, length)
+	_add_quad_polygon(STONE_LIGHT_COLOR, BASE_LIP - 1.0, BASE_LIP, 0.0, length)  # the lip catches light
+
+	# Teeth: slim triangles side by side, each stone with a lighter left facet and a
+	# red tip, their heights varying a little along the strip.
+	var tooth_pitch: float = TILE_SIZE / TEETH_PER_TILE
+	var tooth_width: float = tooth_pitch - 2.0 * TOOTH_INSET
+	for tooth_index: int in tile_count * TEETH_PER_TILE:
+		var tooth_start: float = tooth_index * tooth_pitch + TOOTH_INSET
+		var tooth_middle: float = tooth_start + tooth_width / 2.0
+		var tooth_height: float = SPIKE_HEIGHTS[tooth_index % SPIKE_HEIGHTS.size()]
+		_add_triangle(STONE_COLOR, tooth_start, tooth_start + tooth_width, BASE_LIP, tooth_middle, tooth_height)
+		_add_triangle(STONE_LIGHT_COLOR, tooth_start, tooth_middle, BASE_LIP, tooth_middle, tooth_height)
+		var tip_start: float = roundf(tooth_height * RED_TIP_START)  # whole pixels: crisp, same every time
+		var tip_inset: float = tooth_width / 2.0 * (tip_start / tooth_height)
+		_add_triangle(SPIKE_COLOR, tooth_start + tip_inset, tooth_start + tooth_width - tip_inset,
+			tip_start, tooth_middle, tooth_height)
 
 	# One rectangular hitbox for the whole strip.
 	var corner_a: Vector2 = _to_local_point(HITBOX_END_INSET, 0.0)
@@ -122,6 +151,32 @@ func _rebuild() -> void:
 	hitbox.shape = rectangle
 	hitbox.position = hitbox_local_rect.get_center()
 	add_child(hitbox)
+
+
+## A rectangle in strip coordinates: from `height_a` to `height_b` above the surface,
+## from `along_a` to `along_b` along it.
+func _add_quad_polygon(color: Color, height_a: float, height_b: float, along_a: float, along_b: float) -> void:
+	var quad: Polygon2D = Polygon2D.new()
+	quad.color = color
+	quad.polygon = PackedVector2Array([
+		_to_local_point(along_a, height_a), _to_local_point(along_b, height_a),
+		_to_local_point(along_b, height_b), _to_local_point(along_a, height_b),
+	])
+	add_child(quad)
+
+
+## One triangle in strip coordinates: base from `along_a` to `along_b` at `base_height`,
+## tip at (`tip_along`, `tip_height`).
+func _add_triangle(color: Color, along_a: float, along_b: float, base_height: float,
+		tip_along: float, tip_height: float) -> void:
+	var triangle: Polygon2D = Polygon2D.new()
+	triangle.color = color
+	triangle.polygon = PackedVector2Array([
+		_to_local_point(along_a, base_height),
+		_to_local_point(along_b, base_height),
+		_to_local_point(tip_along, tip_height),
+	])
+	add_child(triangle)
 
 
 ## Converts "strip coordinates" to this node's local pixels:

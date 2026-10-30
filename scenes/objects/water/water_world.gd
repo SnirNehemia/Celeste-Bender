@@ -51,6 +51,31 @@ extends Node2D
 ## get_books_units() (total + lost + soaked + drained - sourced) never changes: the
 ## smoke test checks it.
 ##
+## BLACK WATER and RAFTS (Stage W7a, Water_bending.md §16 "Decided in Stage W7a"):
+##   - a body painted with the black tile (WaterLayer.BLACK_TILE) is BLACK
+##     (WaterBody.is_black): it KILLS the player (more than black_kill_depth px of
+##     the hitbox in it), and can't be gathered, drawn into a snake or frozen. Drops
+##     it throws (spills, splashes, breaking crests) are black too: they carry the
+##     throw group BLACK_GROUP, kill on touch and turn any water they land in black.
+##     Black wins: two pools that join are black if either was.
+##   - clean water landing on black water doesn't mix at once: it FLOATS on it like
+##     oil (a SLICK: the black surface is a floor to it) for black_slick_time, then
+##     sinks in and turns black (drop_slick_time counts each drop's time afloat).
+##   - water frozen at a surface (the held ball resting on it, a slick, a throw just
+##     landing) becomes a RAFT: a flat floating slab (IceBlock.is_raft), the way to
+##     cross black water with water brought from elsewhere (_make_raft).
+##
+## CURRENTS (Stage W7b, Water_bending.md §16 "Planned in Stage W7b"): CurrentZone
+## nodes in the room. A FLOW zone drives the pipes of the water inside it toward its
+## speed every frame (_apply_currents): real flow, it moves water. A LOOP zone moves
+## no water: get_water_velocity_at() adds its speed (surface one way, bottom the
+## other). That function is THE water's speed at a point (pipe flow over depth, plus
+## any loop), and everything that rides water reads it: swimmers (through
+## get_water_velocity_around, which looks past the player's own wake), crates and
+## rafts, floating leaves, leaf platforms. Waterfalls push down what they fall
+## through (get_falling_push). The look: each corner's UV.x carries the water's speed
+## there, and water.gdshader scrolls faint streaks with it.
+##
 ## COST: `last_step_usec` / `peak_step_usec` time the whole step; the smoke test's
 ## performance section holds them to the 2 ms budget of §6.5.
 ##
@@ -70,6 +95,8 @@ const GROUP: StringName = &"water_world"
 const SOLID_GROUP: StringName = &"water_solid"
 const NODE_NAME: StringName = &"WaterWorld"
 const TILE: int = 8
+## How far water is drawn into the floor and walls around it, px (fills texture dents).
+const WALL_SINK: float = 3.0
 ## One unit of water (Water_bending.md §4.1): one 8x8 tile full, px².
 const UNIT_AREA: float = 64.0
 ## The look (Water_bending.md §12.1): this shader colors every pixel of the water.
@@ -118,6 +145,23 @@ const STREAM_JOIN_TIME: float = 0.06
 ## The crystal finds the pool under its hit this much higher, px: a surface can sit a
 ## hair under the point where it touched the water (W5).
 const SHEET_PROBE_LIFT: float = 2.0
+## solid_cells' value for a painted ice SLOPE tile: solid only inside its shape
+## (slope_shapes). 0 = open, 1 = solid.
+const PARTLY_SOLID: int = 2
+## A film on a slope thinner than this, px, counts as drained (the body may sleep).
+const SLOPE_FILM_DEPTH: float = 0.05
+## The throw group of BLACK drops (Stage W7a): water thrown off a black body. Throw
+## groups of the hands are > 0 and plain water is 0, so nothing mistakes it for a throw.
+const BLACK_GROUP: int = -1
+## The vertex alpha that tells water.gdshader "this is black water" (clean is 1).
+const INK_ALPHA: float = 0.5
+## A slick's drop is never deeper than this under the black surface, px.
+const SLICK_MAX_DEPTH: float = 6.0
+## The water's speed in a corner's UV.x (Stage W7b streaks) is px/s divided by
+## this (the shader multiplies it back).
+const STREAK_SPEED_ENCODE: float = 256.0
+## get_falling_push looks this many px above the rect too (see there), px.
+const FALLING_PUSH_REACH: float = 6.0
 
 ## preload() returns the same resource object the player holds, so F5 panel edits
 ## reach the water at once.
@@ -137,6 +181,9 @@ var grid_size: Vector2i = Vector2i.ZERO
 var solid_cells: PackedByteArray = PackedByteArray()
 ## One byte per tile too: 1 = absorbent (earth, grass), it soaks water up (W2 stub).
 var absorbent_cells: PackedByteArray = PackedByteArray()
+## The shape of every PARTLY_SOLID cell: cell -> its polygon, px from the tile's
+## top-left corner (IceLayer.TILE_SHAPES). Built with solid_cells.
+var slope_shapes: Dictionary = {}
 ## Width of every column of every body, px: TILE divided into whole columns, so
 ## columns always line up with the tiles and with each other.
 var column_width: float = 2.0
@@ -153,6 +200,9 @@ var drop_foam: PackedFloat32Array = PackedFloat32Array()
 ## hands' throws, the debug throw), 0 for any other water (spills, sources, splashes
 ## of a pool). The freeze finds "the water you last threw" by it (see THROW GROUPS).
 var drop_groups: PackedInt32Array = PackedInt32Array()
+## Each drop's time afloat on black water as a SLICK, game s (Stage W7a): 0 for a drop
+## that isn't on black water; past black_slick_time it sinks in and turns black.
+var drop_slick_time: PackedFloat32Array = PackedFloat32Array()
 ## The group new drops get (_spawn_drop): set around a release, else 0.
 var spawn_group: int = 0
 ## The newest throw group: its id, how much water it let go, px² (a snake's ribbon
@@ -233,6 +283,15 @@ var last_freeze_pieces: Array[Node] = []
 var freeze_id_counter: int = 0
 ## While freeze_particles() makes its pieces, the freeze id they share; else -1.
 var current_freeze_id: int = -1
+## While a SNOW PUFF freezes things (SnowPuff), the freeze id they all share, so the
+## ice cap counts one puff as one freeze however many pieces it makes; else -1.
+var shared_freeze_id: int = -1
+## The room's current zones (Stage W7b), found on the first physics frame.
+var current_zones: Array[CurrentZone] = []
+var has_collected_current_zones: bool = false
+## Filled by _add_quad while _draw() builds its triangles: each corner's UV, whose x
+## is the water's speed there / STREAK_SPEED_ENCODE (the shader's streaks).
+var draw_uvs: PackedVector2Array = PackedVector2Array()
 
 
 func _ready() -> void:
@@ -284,6 +343,7 @@ func refresh_solid_cells() -> void:
 		for x: int in grid_size.x:
 			if _is_solid_cell_in_layers(Vector2i(x, y)):
 				solid_cells[y * grid_size.x + x] = 1
+	_mark_slope_cells()
 	# Old-style test rooms list solid blocks as rectangles instead of tiles.
 	absorbent_cells.resize(grid_size.x * grid_size.y)
 	absorbent_cells.fill(0)
@@ -301,6 +361,36 @@ func refresh_solid_cells() -> void:
 		soaked_per_cell.resize(grid_size.x * grid_size.y)
 		soaked_per_cell.fill(0.0)
 	_rebuild_soak_open()
+
+
+## Painted ice SLOPE tiles (Stage W7a, IceLayer.TILE_SHAPES) are only partly solid:
+## their cell gets PARTLY_SOLID in solid_cells and its shape in slope_shapes, so
+## is_solid_px and floor_below follow the slope line, not the tile's square. Without
+## this, water against a slope stood on the tile tops in a staircase and never filled
+## the open half of each slope tile.
+func _mark_slope_cells() -> void:
+	slope_shapes.clear()
+	for layer: TileMapLayer in solid_layers:
+		if not layer is IceLayer:
+			continue
+		for cell: Vector2i in layer.get_used_cells():
+			var atlas: Vector2i = layer.get_cell_atlas_coords(cell)
+			if atlas == IceLayer.ICE_TILE or cell.x < 0 or cell.y < 0 \
+					or cell.x >= grid_size.x or cell.y >= grid_size.y:
+				continue
+			# A slope tile over another layer's solid tile stays solid.
+			if solid_cells[cell.y * grid_size.x + cell.x] == 1 and _is_solid_in_other_layers(cell, layer):
+				continue
+			solid_cells[cell.y * grid_size.x + cell.x] = PARTLY_SOLID
+			slope_shapes[cell] = IceLayer.get_tile_shape(atlas)
+
+
+## Is `cell` solid in a tile layer other than `except`?
+func _is_solid_in_other_layers(cell: Vector2i, except: TileMapLayer) -> bool:
+	for layer: TileMapLayer in solid_layers:
+		if layer != except and layer.get_cell_source_id(cell) != -1:
+			return true
+	return false
 
 
 func _is_solid_cell_in_layers(cell: Vector2i) -> bool:
@@ -323,14 +413,26 @@ func is_solid_px(x: float, y: float) -> bool:
 	var cell_y: int = int(y / TILE)
 	if cell_x >= grid_size.x or cell_y >= grid_size.y:
 		return true
-	return solid_cells[cell_y * grid_size.x + cell_x] == 1
+	var kind: int = solid_cells[cell_y * grid_size.x + cell_x]
+	if kind == PARTLY_SOLID:
+		# A slope tile: solid only inside its shape.
+		var cell: Vector2i = Vector2i(cell_x, cell_y)
+		return Geometry2D.is_point_in_polygon(Vector2(x, y) - Vector2(cell * TILE), slope_shapes[cell])
+	return kind == 1
 
 
 ## The top of the first solid tile at or below `from_y` in the pixel column `x`
 ## (the floor water there would rest on), px.
 func floor_below(x: float, from_y: float) -> float:
 	var start_row: int = maxi(floori(from_y / TILE), 0)
+	var cell_x: int = int(x / TILE)
 	for row: int in range(start_row, grid_size.y):
+		if cell_x >= 0 and cell_x < grid_size.x and solid_cells[row * grid_size.x + cell_x] == PARTLY_SOLID:
+			# A slope tile (Stage W7a): the floor is its shape's top at this x.
+			var top: float = IceOutline.top_y_at([slope_shapes[Vector2i(cell_x, row)]], x - cell_x * TILE)
+			if top < INF:
+				return row * TILE + top
+			continue
 		if is_solid_px(x, row * TILE + 0.5):
 			return row * TILE
 	return grid_size.y * TILE
@@ -340,7 +442,18 @@ func floor_below(x: float, from_y: float) -> float:
 ## WaterBody.NO_CEILING if it's open to the sky.
 func ceiling_above(x: float, from_y: float) -> float:
 	var row: int = floori((from_y - 0.5) / TILE)
+	var cell_x: int = int(x / TILE)
 	while row >= 0:
+		# A slope tile (Stage W7a) is rock only below its slope line: it's a ceiling
+		# only when it lies wholly above from_y. The one whose open part from_y is in
+		# (a floor on a slope) isn't: it used to give a column a ceiling under its
+		# floor, which reads as frozen through, so the water there stopped flowing.
+		if cell_x >= 0 and cell_x < grid_size.x and row < grid_size.y \
+				and solid_cells[row * grid_size.x + cell_x] == PARTLY_SOLID:
+			if (row + 1) * TILE <= from_y + 0.01:
+				return (row + 1) * TILE
+			row -= 1
+			continue
 		if is_solid_px(x, row * TILE + 0.5):
 			return (row + 1) * TILE
 		row -= 1
@@ -359,6 +472,7 @@ func _build_bodies_from_layer() -> void:
 	drop_areas.clear()
 	drop_foam.clear()
 	drop_groups.clear()
+	drop_slick_time.clear()
 	lost_area = 0.0
 	if water_layer == null:
 		initial_area = 0.0
@@ -370,6 +484,9 @@ func _build_bodies_from_layer() -> void:
 			unvisited[cell] = true
 	while not unvisited.is_empty():
 		var start: Vector2i = unvisited.keys()[0]
+		# A patch is all clean or all black (Stage W7a): the flood only crosses to
+		# tiles of its own kind. (Patches of both that touch merge in play, black.)
+		var is_black: bool = water_layer.is_black_cell(start)
 		var patch: Array[Vector2i] = []
 		var queue: Array[Vector2i] = [start]
 		unvisited.erase(start)
@@ -378,10 +495,12 @@ func _build_bodies_from_layer() -> void:
 			patch.append(cell)
 			for step: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 				var neighbour: Vector2i = cell + step
-				if unvisited.has(neighbour):
+				if unvisited.has(neighbour) and water_layer.is_black_cell(neighbour) == is_black:
 					unvisited.erase(neighbour)
 					queue.append(neighbour)
-		bodies.append(_make_body_from_patch(patch))
+		var body: WaterBody = _make_body_from_patch(patch)
+		body.is_black = is_black
+		bodies.append(body)
 	initial_area = get_total_area()
 
 
@@ -566,6 +685,88 @@ func get_surface_y_at(point: Vector2) -> float:
 	return (found[0] as WaterBody).get_surface_y(found[1])
 
 
+## The water's sideways speed at the room-local point, px/s (+ = right), 0 if the
+## point isn't in water (Stage W7b). Two parts:
+##   - the pipe flow: flow is px of depth per second through a pipe, so the water's
+##     speed is flow × column_width / depth (the two pipes of the column averaged).
+##     Waves slosh it back and forth; FLOW current zones and real streams keep it
+##     running one way;
+##   - any LOOP zone over the point: its speed at the point's depth.
+func get_water_velocity_at(point: Vector2) -> float:
+	var found: Array = find_water_at(point)
+	if found.is_empty():
+		return 0.0
+	return _get_column_velocity(found[0], found[1], point.y)
+
+
+## The speed at height `y` in `column` of `body` (see get_water_velocity_at).
+func _get_column_velocity(body: WaterBody, column: int, y: float) -> float:
+	var count: int = body.get_column_count()
+	var pipe_flow: float = 0.0
+	var pipes: int = 0
+	if column > 0:
+		pipe_flow += body.flow[column - 1]
+		pipes += 1
+	if column < count - 1:
+		pipe_flow += body.flow[column]
+		pipes += 1
+	var speed: float = 0.0
+	if pipes > 0:
+		speed = pipe_flow / pipes * column_width / maxf(body.depth[column], water_tuning.current_min_depth)
+	if not current_zones.is_empty():
+		var x: float = body.get_column_left(column) + column_width * 0.5
+		var surface_y: float = body.get_surface_y(column)
+		var depth_share: float = (y - surface_y) / maxf(body.depth[column], 0.01)
+		for zone: CurrentZone in current_zones:
+			if zone.mode != CurrentZone.Mode.LOOP:
+				continue
+			var rect: Rect2 = zone.get_rect_in(self)
+			if x >= rect.position.x and x < rect.end.x and y >= rect.position.y and y <= rect.end.y:
+				speed += zone.get_loop_speed(rect, x, depth_share)
+	return clampf(speed, -water_tuning.current_max_speed, water_tuning.current_max_speed)
+
+
+## The water's speed around a WORLD rect at its middle height, px/s: sampled
+## current_sample_margin px past its left and right sides (the water in it, if
+## neither side is in water). For the player: the wake the player drags along is
+## water moving at the player's own speed, and riding it would speed the player up
+## without end (a swimmer would carry themselves).
+func get_water_velocity_around(world_rect: Rect2) -> float:
+	var rect: Rect2 = Rect2(to_local(world_rect.position), world_rect.size)
+	var y: float = rect.get_center().y
+	var total: float = 0.0
+	var samples: int = 0
+	for x: float in [rect.position.x - water_tuning.current_sample_margin, rect.end.x + water_tuning.current_sample_margin]:
+		var found: Array = find_water_at(Vector2(x, y))
+		if found.is_empty() or is_solid_px(x, y):
+			continue
+		total += _get_column_velocity(found[0], found[1], y)
+		samples += 1
+	if samples == 0:
+		return get_water_velocity_at(rect.get_center())
+	return total / samples
+
+
+## How hard falling water (a waterfall, a pour) pushes down on the WORLD rect, px/s
+## of extra sink: the falling water's area × downward speed, over the rect's area,
+## times waterfall_push, capped at waterfall_max_push. 0 with no loose water there.
+## The rect is taken FALLING_PUSH_REACH px taller at the top: loose water bumps off
+## the player and crates (SOLID_GROUP), so it piles on their top, never inside.
+## Under water it reaches up to that far above the SURFACE: a waterfall lands in the
+## pool there, and its weight goes on down onto a swimmer under it.
+func get_falling_push(world_rect: Rect2) -> float:
+	if drop_positions.is_empty() or world_rect.get_area() <= 0.0:
+		return 0.0
+	var rect: Rect2 = Rect2(to_local(world_rect.position), world_rect.size)
+	var top: float = rect.position.y
+	var surface_y: float = get_surface_y_at(Vector2(rect.get_center().x, rect.position.y))
+	if is_finite(surface_y) and surface_y < top:
+		top = surface_y
+	var reach: Rect2 = Rect2(rect.position.x, top - FALLING_PUSH_REACH, rect.size.x, rect.end.y - top + FALLING_PUSH_REACH)
+	var falling: float = maxf(0.0, get_flow_through(reach, Vector2.DOWN))
+	return minf(falling / rect.get_area() * water_tuning.waterfall_push, water_tuning.waterfall_max_push)
+
+
 # --- Changing the water (debug keys, floating things, later the bending) --------------
 
 ## Drops `units` of water as a loose blob around the room-local `center`, moving at
@@ -681,7 +882,8 @@ func gather(point: Vector2, reach: float, max_area: float) -> float:
 	var reach_squared: float = reach * reach
 	var index: int = 0
 	while index < drop_positions.size() and taken < max_area:
-		if drop_positions[index].distance_squared_to(point) <= reach_squared:
+		# Black drops (Stage W7a) can't be gathered.
+		if drop_groups[index] != BLACK_GROUP and drop_positions[index].distance_squared_to(point) <= reach_squared:
 			taken += drop_areas[index]
 			last_gather_point = drop_positions[index]
 			_remove_drop(index)  # the last particle takes this slot: look at it next
@@ -690,7 +892,7 @@ func gather(point: Vector2, reach: float, max_area: float) -> float:
 	if taken < max_area:
 		for body: WaterBody in bodies:
 			var column: int = body.get_column_at(point.x)
-			if column < 0 or body.depth[column] <= WaterBody.DRY_DEPTH:
+			if column < 0 or body.depth[column] <= WaterBody.DRY_DEPTH or body.is_black:
 				continue
 			var surface_y: float = maxf(body.get_surface_y(column), body.ceiling_y[column])
 			# In reach: from `reach` above the surface down to the floor. Not through a
@@ -727,8 +929,9 @@ func release_held(center: Vector2, velocity: Vector2, area: float, group: int = 
 ## less when the pool is running dry.
 func draw_from_body_at(point: Vector2, area: float) -> float:
 	var found: Array = find_body_under(point)
-	if found.is_empty() or (found[0] as WaterBody).depth[found[1]] <= WaterBody.DRY_DEPTH:
-		return 0.0
+	if found.is_empty() or (found[0] as WaterBody).depth[found[1]] <= WaterBody.DRY_DEPTH \
+			or (found[0] as WaterBody).is_black:
+		return 0.0  # no water there, or black water (Stage W7a): nothing to draw
 	var taken: float = (found[0] as WaterBody).remove_water(found[1], area, _radius_in_columns(TILE * 2.0))
 	held_area += taken
 	return taken
@@ -941,13 +1144,16 @@ func get_group_points(group: int) -> PackedVector2Array:
 
 
 ## The throw group of a loose drop within `radius` px of the room-local `point` (0:
-## water that isn't a throw), or -1 if no drop is that close. The ice crystal asks.
+## water that isn't a throw), or -1 if no drop is that close. Snowflakes (and the
+## ice crystal) ask.
 ## `sweep_time` (s): a drop also counts if the path it moved along in that much time
 ## passed that close: a fast waterfall's drops are 10-20 px apart, and a thin
 ## crystal could otherwise fly between them.
 func find_drop_group_near(point: Vector2, radius: float, sweep_time: float = 0.0) -> int:
 	var radius_squared: float = (radius + DROP_TOUCH_RADIUS) * (radius + DROP_TOUCH_RADIUS)
 	for index: int in drop_positions.size():
+		if drop_groups[index] == BLACK_GROUP:
+			continue  # black water can't be frozen (Stage W7a)
 		var now: Vector2 = drop_positions[index]
 		var before: Vector2 = now - drop_velocities[index] * sweep_time
 		var nearest: Vector2 = Geometry2D.get_closest_point_to_segment(point, before, now)
@@ -990,7 +1196,7 @@ func take_loose_near(point: Vector2, reach: float, join: float) -> Array:
 	# Candidates: every particle within reach.
 	var candidates: Array[int] = []
 	for index: int in drop_positions.size():
-		if drop_positions[index].distance_squared_to(point) <= reach_squared:
+		if drop_groups[index] != BLACK_GROUP and drop_positions[index].distance_squared_to(point) <= reach_squared:
 			candidates.append(index)
 	if candidates.is_empty():
 		return [points, areas, velocities]
@@ -1039,6 +1245,15 @@ func freeze_particles(points: PackedVector2Array, areas: PackedFloat32Array,
 	last_freeze_pieces.clear()
 	if points.is_empty():
 		return null
+	# Water resting on a surface (a slick on black water, a throw just landing)
+	# freezes into a RAFT (Stage W7a).
+	var total_area: float = 0.0
+	for piece_area: float in areas:
+		total_area += piece_area
+	var raft: Node = _try_make_raft(points, total_area)
+	if raft != null:
+		last_freeze_pieces.append(raft)
+		return raft
 	var loops: Array[PackedVector2Array] = IceOutline.trace(points, velocities, water_tuning.blob_dot_radius,
 		water_tuning.blob_stretch, water_tuning.blob_threshold)
 	if water_tuning.ice_hangs:
@@ -1056,8 +1271,11 @@ func freeze_particles(points: PackedVector2Array, areas: PackedFloat32Array,
 	for index: int in points.size():
 		members[_find_loop_of(points[index], loops)].append(index)
 	# Every piece made below shares one freeze id (one freeze for the ice cap).
-	freeze_id_counter += 1
-	current_freeze_id = freeze_id_counter
+	if shared_freeze_id >= 0:
+		current_freeze_id = shared_freeze_id
+	else:
+		freeze_id_counter += 1
+		current_freeze_id = freeze_id_counter
 	var biggest: Node = null
 	var biggest_area: float = -1.0
 	for loop_index: int in members.size():
@@ -1247,18 +1465,28 @@ func _disc_dots(center: Vector2, area: float) -> PackedVector2Array:
 	return dots
 
 
-## The crystal hit a pool at the room-local `point`: an ice SHEET over the body's
-## surface, freeze_pool_reach px each side (see the section notes), cut short where
-## the water is dry or already covered. Returns the sheet, or null (no open water).
-func freeze_body_at(point: Vector2) -> Node:
+## A new freeze id for something that freezes in several goes (a snow puff), to set
+## as shared_freeze_id around each of them.
+func new_freeze_id() -> int:
+	freeze_id_counter += 1
+	return freeze_id_counter
+
+
+## A pool hit at the room-local `point` (by the crystal, or a snowflake): an ice
+## SHEET over the body's surface, `reach` px each side (freeze_pool_reach when -1;
+## see the section notes), cut short where the water is dry or already covered.
+## Returns the sheet, or null (no open water, or black water).
+func freeze_body_at(point: Vector2, reach: float = -1.0) -> Node:
 	var found: Array = find_body_under(point + Vector2(0.0, -SHEET_PROBE_LIFT))
 	if found.is_empty():
 		return null
 	var body: WaterBody = found[0]
 	var hit_column: int = found[1]
-	if not _is_open_water(body, hit_column):
-		return null
-	var reach_columns: int = _radius_in_columns(water_tuning.freeze_pool_reach)
+	if body.is_black or not _is_open_water(body, hit_column):
+		return null  # black water never freezes (Stage W7a)
+	# How far each side of the hit: the crystal's freeze_pool_reach, or the caller's
+	# (a snowflake freezes snow_pool_reach).
+	var reach_columns: int = _radius_in_columns(water_tuning.freeze_pool_reach if reach < 0.0 else reach)
 	var first: int = hit_column
 	while first > 0 and hit_column - first < reach_columns and _is_open_water(body, first - 1):
 		first -= 1
@@ -1338,11 +1566,88 @@ func freeze_held(ball_center: Vector2, ball_area: float, has_snake: bool, snake_
 	held_area -= area
 	if has_snake and dots.size() >= 2:
 		return _make_pillar(dots, area)
+	# A ball held down onto a water surface freezes into a RAFT (Stage W7a).
+	var raft: Node = _try_make_raft(dots if not dots.is_empty() else PackedVector2Array([ball_center]), area)
+	if raft != null:
+		return raft
 	if dots.is_empty():
 		return make_ice_block(ball_center, area, Vector2.ZERO)
 	var outlines: Array[PackedVector2Array] = IceOutline.trace(dots, PackedVector2Array(),
 		water_tuning.blob_dot_radius, 0.0, water_tuning.blob_threshold)
 	return _make_free_ice(outlines, ball_center, area, Vector2.ZERO, false)
+
+
+# --- Rafts (Stage W7a, Water_bending.md §16 "Decided in Stage W7a") -----------------
+#
+# Water frozen while it touches a water SURFACE (its lowest point within
+# raft_surface_reach above the surface and its highest within that below it) becomes
+# a RAFT: a flat slab floating on that water instead of a ball of ice. Its width
+# comes from its water (raft_width_per_unit), its water is exactly what froze (melting
+# gives it all back). Open water only: on an ice sheet a frozen ball stays a puck.
+# Black water can't be frozen, but clean water ON it can: that's how you cross it.
+
+## A raft from water at the room-local `points` (`area` px²), if they touch a water
+## surface; else null (the caller freezes them as usual).
+func _try_make_raft(points: PackedVector2Array, area: float) -> Node:
+	if points.is_empty() or area <= 0.0:
+		return null
+	var center_x: float = 0.0
+	var top_y: float = INF
+	var bottom_y: float = -INF
+	for point: Vector2 in points:
+		center_x += point.x
+		top_y = minf(top_y, point.y)
+		bottom_y = maxf(bottom_y, point.y)
+	center_x /= points.size()
+	var found: Array = find_body_under(Vector2(center_x, top_y))
+	if found.is_empty():
+		return null
+	var body: WaterBody = found[0]
+	var column: int = found[1]
+	if body.depth[column] <= WaterBody.DRY_DEPTH or not _is_open_water(body, column):
+		return null  # no water there, or an ice sheet over it (a puck, not a raft)
+	var surface_y: float = body.get_surface_y(column)
+	var reach: float = water_tuning.raft_surface_reach
+	if bottom_y < surface_y - reach or top_y > surface_y + reach:
+		return null  # in the air above it, or deep under it
+	return _make_raft(center_x, surface_y, area)
+
+
+## A raft holding `area` px² of water, centered on the room-local `center_x`, its
+## middle at the water surface `surface_y` (buoyancy settles it from there). It fits
+## between the walls around it: moved and, if it must, narrowed.
+func _make_raft(center_x: float, surface_y: float, area: float) -> Node:
+	var thickness: float = water_tuning.raft_thickness
+	var width: float = clampf(area / UNIT_AREA * water_tuning.raft_width_per_unit,
+		water_tuning.raft_min_width, water_tuning.raft_max_width)
+	var top: float = surface_y - thickness * 0.5
+	var bottom: float = top + thickness
+	# The open stretch around center_x at the raft's height (1 px steps, ≤ 64 each way).
+	var span_left: float = center_x
+	while center_x - span_left < width and _is_open_column(span_left - 1.0, top, bottom):
+		span_left -= 1.0
+	var span_right: float = center_x
+	while span_right - center_x < width and _is_open_column(span_right + 1.0, top, bottom):
+		span_right += 1.0
+	width = minf(width, maxf(span_right - span_left, 4.0))
+	var left: float = clampf(center_x - width * 0.5, span_left, maxf(span_left, span_right - width))
+	var right: float = left + width
+	# A slab with its corners cut (1.5 px), clockwise on screen like every ice outline.
+	var cut: float = 1.5
+	var outline: PackedVector2Array = PackedVector2Array([
+		Vector2(left + cut, top), Vector2(right - cut, top), Vector2(right, top + cut),
+		Vector2(right, bottom - cut), Vector2(right - cut, bottom), Vector2(left + cut, bottom),
+		Vector2(left, bottom - cut), Vector2(left, top + cut),
+	])
+	var outlines: Array[PackedVector2Array] = [outline]
+	var raft: IceBlock = IceBlock.make(self, outlines, area, Vector2.ZERO, false, true)
+	_register_ice(raft, area, current_freeze_id)
+	return raft
+
+
+## No rock at the room-local `x` between `top` and `bottom` (checked at both).
+func _is_open_column(x: float, top: float, bottom: float) -> bool:
+	return not is_solid_px(x, top + 0.5) and not is_solid_px(x, bottom - 0.5)
 
 
 ## Every new piece of ice: counted (THE BOOKS), remembered, and the ice cap kept: a
@@ -1352,6 +1657,8 @@ func freeze_held(ball_center: Vector2, ball_area: float, has_snake: bool, snake_
 ## frozen splash of many bits would otherwise melt all your other ice), and melting
 ## the oldest freeze melts all its pieces.
 func _register_ice(ice: Node, area: float, freeze_id: int = -1) -> void:
+	if freeze_id < 0 and shared_freeze_id >= 0:
+		freeze_id = shared_freeze_id  # a snow puff: everything it freezes is ONE freeze
 	if freeze_id < 0:
 		freeze_id_counter += 1
 		freeze_id = freeze_id_counter
@@ -1481,6 +1788,7 @@ func _physics_process(delta: float) -> void:
 	var was_busy: bool = get_awake_count() > 0 or get_drop_count() > 0
 	_update_ends()
 	var bodies_started_usec: int = Time.get_ticks_usec()
+	_apply_currents(delta)
 	# Each awake body's depths before the step: how fast each surface rises this frame
 	# is what _break_crests() needs (a packed array copy is cheap: one memcpy).
 	var depths_before: Array[PackedFloat32Array] = []
@@ -1542,6 +1850,50 @@ func _handle_debug_keys() -> void:
 		print("[WaterWorld] water look: %s" % get_look_name())
 
 
+## FLOW current zones (Stage W7b) drive the water inside them: every pipe of a column
+## whose water reaches into the zone moves current_grip × delta of the way toward the
+## zone's speed. A pipe's flow for water moving at speed u over depth h is
+## u × h / column_width (as in the wake), h being the deeper of its two columns, so
+## a dry column next to the stream still fills. The flag keeps the body awake.
+func _apply_currents(delta: float) -> void:
+	if not has_collected_current_zones:
+		has_collected_current_zones = true
+		for node: Node in get_tree().get_nodes_in_group(CurrentZone.GROUP):
+			if room.is_ancestor_of(node):
+				current_zones.append(node as CurrentZone)
+	for body: WaterBody in bodies:
+		body.is_in_current = false
+	if current_zones.is_empty():
+		return
+	var blend: float = minf(1.0, water_tuning.current_grip * delta)
+	for zone: CurrentZone in current_zones:
+		if zone.mode != CurrentZone.Mode.FLOW or zone.strength <= 0.0:
+			continue
+		var rect: Rect2 = zone.get_rect_in(self)
+		var speed: float = zone.get_sign() * zone.strength
+		for body: WaterBody in bodies:
+			var count: int = body.get_column_count()
+			var first: int = maxi(0, floori((rect.position.x - body.left_x) / column_width))
+			var last: int = mini(count - 1, ceili((rect.end.x - body.left_x) / column_width) - 1)
+			if first > last:
+				continue
+			# Only the columns whose water (surface to floor) reaches into the zone.
+			var driven: bool = false
+			for column: int in range(first, last + 1):
+				if body.depth[column] <= WaterBody.DRY_DEPTH or body.floor_y[column] < rect.position.y \
+						or body.get_surface_y(column) > rect.end.y:
+					continue
+				driven = true
+				# The pipe on this column's right (the last column's leads out of the zone:
+				# the water carries on downstream).
+				if column < count - 1:
+					var pipe_depth: float = maxf(body.depth[column], body.depth[column + 1])
+					body.flow[column] = lerpf(body.flow[column], speed * pipe_depth / column_width, blend)
+			if driven:
+				body.is_in_current = true
+				body.is_asleep = false
+
+
 ## Decides each awake body's two ends (see the header): wall, grow, merge or spill.
 func _update_ends() -> void:
 	for body: WaterBody in bodies.duplicate():
@@ -1559,8 +1911,15 @@ func _update_end(body: WaterBody, at_left: bool) -> void:
 	var surface: float = body.get_surface_y(end_column)
 	var probe_y: float = surface + 0.01
 	# Too thin to flow anywhere (surface tension), or solid at the surface: a wall.
-	if body.depth[end_column] > water_tuning.puddle_min_depth and not is_solid_px(outside_x, probe_y):
-		var outside_floor: float = floor_below(outside_x, probe_y)
+	# Except DOWNHILL: on a slope even a thin film runs on (the ground just past the
+	# end is lower, but no lower than a spill), so drops landing on a slope tile run
+	# down it instead of sticking as tiny puddles.
+	var is_open: bool = not is_solid_px(outside_x, probe_y)
+	var outside_floor: float = floor_below(outside_x, probe_y) if is_open else 0.0
+	var drop_outside: float = outside_floor - body.floor_y[end_column]
+	var runs_downhill: bool = is_open and body.depth[end_column] > WaterBody.DRY_DEPTH \
+		and drop_outside > WaterBody.DOWNHILL_SLACK and drop_outside <= water_tuning.spill_drop
+	if is_open and (body.depth[end_column] > water_tuning.puddle_min_depth or runs_downhill):
 		if outside_floor - body.floor_y[end_column] > water_tuning.spill_drop:
 			kind = WaterBody.EndKind.SPILL
 		else:
@@ -1630,6 +1989,8 @@ func _step_bodies(delta: float) -> void:
 func _release_spills() -> void:
 	var drop_area: float = water_tuning.drop_units * UNIT_AREA
 	for body: WaterBody in bodies:
+		# A black pool spills black drops (Stage W7a).
+		spawn_group = BLACK_GROUP if body.is_black else 0
 		for at_left: bool in [true, false]:
 			var pending: float = body.spilled_left if at_left else body.spilled_right
 			var still_spilling: bool = body.spill_flow_left > 0.0 if at_left else body.spill_flow_right > 0.0
@@ -1666,6 +2027,7 @@ func _release_spills() -> void:
 				body.spilled_left = pending
 			else:
 				body.spilled_right = pending
+	spawn_group = 0
 
 
 ## Breaking waves (W2 play-test, WaterTuning "Breaking waves"): where a pool's surface
@@ -1732,7 +2094,9 @@ func _break_crests(delta: float, depths_before: Array[PackedFloat32Array]) -> vo
 				continue
 			var throw: Vector2 = Vector2(clampf(sideways, -120.0, 120.0) + randf_range(-15.0, 15.0),
 				-rise_speed * throw_scale * randf_range(0.6, 1.0))
+			spawn_group = BLACK_GROUP if body.is_black else 0  # a black crest throws ink
 			_spawn_drop(Vector2(center_x, surface_y - 1.5), throw, taken, 1.0)
+			spawn_group = 0
 			crest_break_count += 1
 			allowed -= 1
 			if allowed <= 0:
@@ -1747,11 +2111,13 @@ func _remove_drop(index: int) -> void:
 	drop_areas[index] = drop_areas[last]
 	drop_foam[index] = drop_foam[last]
 	drop_groups[index] = drop_groups[last]
+	drop_slick_time[index] = drop_slick_time[last]
 	drop_positions.resize(last)
 	drop_velocities.resize(last)
 	drop_areas.resize(last)
 	drop_foam.resize(last)
 	drop_groups.resize(last)
+	drop_slick_time.resize(last)
 
 
 ## The moving solids particles bump into this frame: everything in the
@@ -1787,6 +2153,7 @@ func _spawn_drop(position_px: Vector2, velocity: Vector2, area: float, foam: flo
 	drop_areas.append(area)
 	drop_foam.append(foam)
 	drop_groups.append(spawn_group)
+	drop_slick_time.append(0.0)
 
 
 ## Moves every drop one frame. SPEED: this is the hottest loop in the water (up to
@@ -1802,6 +2169,10 @@ func _step_drops(delta: float) -> void:
 	var areas: PackedFloat32Array = drop_areas
 	var foams: PackedFloat32Array = drop_foam
 	var groups: PackedInt32Array = drop_groups
+	var slicks: PackedFloat32Array = drop_slick_time
+	var slick_time: float = water_tuning.black_slick_time
+	var slick_keep: float = maxf(0.0, 1.0 - water_tuning.black_slick_damping * delta)
+	var slick_buoyancy: float = water_tuning.black_slick_buoyancy
 	var foam_fade: float = delta / maxf(water_tuning.particle_foam_life, 0.01)
 	var gravity_step: float = water_tuning.drop_gravity * delta
 	var max_fall: float = water_tuning.drop_max_fall_speed
@@ -1827,6 +2198,10 @@ func _step_drops(delta: float) -> void:
 		var area: float = areas[index]
 		var foam: float = maxf(0.0, foams[index] - foam_fade)
 		velocity = velocity * drag_keep
+		# A slick's clock runs from its first touch of black water (Stage W7a), also
+		# while a drop sits on top of the others, out of the water.
+		if slicks[index] > 0.0:
+			slicks[index] += delta
 		velocity.y = minf(velocity.y + gravity_step, max_fall)
 		var new_position: Vector2 = old_position + velocity * delta
 		# Moving solids (crates, the player): pushed out of the box by the shortest
@@ -1873,6 +2248,34 @@ func _step_drops(delta: float) -> void:
 				var column_floor: float = body.floor_y[column]
 				var column_top: float = maxf(column_floor - column_depth, body.ceiling_y[column])
 				if new_position.y <= column_floor and new_position.y >= column_top:
+					if body.is_black and groups[index] != BLACK_GROUP:
+						# Clean water on black water (Stage W7a): it FLOATS on it like
+						# oil for black_slick_time from its first touch; then it sinks
+						# in (lands below, and the water it joins is black). Floating:
+						# pushed up the harder the deeper it is (black_slick_buoyancy
+						# per px, with gravity balanced 1/buoyancy px under), so a ball
+						# settles as a lens riding a little into the surface. A flat
+						# floor at the surface squeezed every drop onto one line, and
+						# the cohesion springs spread them into a film.
+						if slicks[index] == 0.0:
+							slicks[index] = delta
+						if slicks[index] < slick_time:
+							var below: float = new_position.y - column_top
+							velocity.y -= gravity_step * below * slick_buoyancy
+							if below > SLICK_MAX_DEPTH:
+								new_position.y = column_top + SLICK_MAX_DEPTH
+								velocity.y = minf(velocity.y, 0.0)
+							# Oil hardly slides: a strong drag both ways, so it stays a
+							# lens instead of spreading into a film. It stays on its
+							# pool, never pressed into the rock at its ends.
+							velocity *= slick_keep
+							var inside_x: float = clampf(new_position.x, body_lefts[body_index] + 0.5, body_rights[body_index] - 0.5)
+							if inside_x != new_position.x:
+								new_position.x = inside_x
+								velocity.x = 0.0
+							break
+					elif groups[index] == BLACK_GROUP:
+						body.is_black = true  # ink into clean water: it's all black now
 					if velocity.y > crown_speed and randf() < crown_chance:
 						# Part of a splash crown: it bounces back up out of the pool
 						# (it stays a particle), and still kicks the surface.
@@ -1899,7 +2302,8 @@ func _step_drops(delta: float) -> void:
 			if is_solid_px(new_position.x, new_position.y):
 				if velocity.y > 0.0:
 					# Landed on the ground: a puddle starts (or grows) here.
-					_land_on_ground(new_position.x, floor_below(new_position.x, old_position.y), area, velocity)
+					_land_on_ground(new_position.x, floor_below(new_position.x, old_position.y), area, velocity,
+						groups[index] == BLACK_GROUP)
 					is_gone = true
 				else:
 					velocity.y = 0.0  # hit a ceiling going up
@@ -1912,6 +2316,7 @@ func _step_drops(delta: float) -> void:
 			areas[index] = areas[count]
 			foams[index] = foams[count]
 			groups[index] = groups[count]
+			slicks[index] = slicks[count]
 			continue  # the drop moved into this slot is stepped next
 		positions[index] = new_position
 		velocities[index] = velocity
@@ -1922,11 +2327,13 @@ func _step_drops(delta: float) -> void:
 	areas.resize(count)
 	foams.resize(count)
 	groups.resize(count)
+	slicks.resize(count)
 	drop_positions = positions
 	drop_velocities = velocities
 	drop_areas = areas
 	drop_foam = foams
 	drop_groups = groups
+	drop_slick_time = slicks
 
 
 func _land_in_body(body: WaterBody, column: int, area: float, velocity: Vector2) -> void:
@@ -1942,28 +2349,40 @@ func _land_in_body(body: WaterBody, column: int, area: float, velocity: Vector2)
 
 ## A drop reached bare ground at room-local `x`, on the floor `floor_y`: it joins a
 ## body lying there, grows a body that ends right next to it, or starts a new one.
-func _land_on_ground(x: float, floor_y: float, area: float, velocity: Vector2) -> void:
+## `is_black`: a black drop (Stage W7a) doesn't soak in, and the water it joins or
+## starts is black.
+func _land_on_ground(x: float, floor_y: float, area: float, velocity: Vector2, is_black: bool = false) -> void:
 	# Absorbent ground (earth, grass) soaks it up first, up to soak_per_tile a tile.
-	area -= _soak_into(Vector2i(floori(x / TILE), floori((floor_y + 0.5) / TILE)), area)
+	if not is_black:
+		area -= _soak_into(Vector2i(floori(x / TILE), floori((floor_y + 0.5) / TILE)), area)
 	if area <= 0.0:
 		return
 	var column_left: float = floorf(x / column_width) * column_width
 	var center_x: float = column_left + column_width * 0.5
+	# On a slope the floor differs across a column: use the one at its center, like
+	# every other column (a puddle's floors must line up with its neighbours').
+	var center_floor: float = floor_below(center_x, floor_y - 2.0)
+	if absf(center_floor - floor_y) < 2.0:
+		floor_y = center_floor
 	var lying_there: WaterBody = _find_body_with_floor(center_x, floor_y, null)
 	if lying_there != null:
+		lying_there.is_black = lying_there.is_black or is_black
 		_land_in_body(lying_there, lying_there.get_column_at(center_x), area, velocity)
 		return
 	for body: WaterBody in bodies:
 		var last: int = body.get_column_count() - 1
 		if absf(body.get_right_x() - column_left) < 0.01 and absf(body.floor_y[last] - floor_y) < 0.5:
 			body.add_column(floor_y, ceiling_above(center_x, floor_y), area / column_width, false)
+			body.is_black = body.is_black or is_black
 			return
 		if absf(body.left_x - (column_left + column_width)) < 0.01 and absf(body.floor_y[0] - floor_y) < 0.5:
 			body.add_column(floor_y, ceiling_above(center_x, floor_y), area / column_width, true)
+			body.is_black = body.is_black or is_black
 			return
 	var new_body: WaterBody = WaterBody.new()
 	new_body.column_width = column_width
 	new_body.left_x = column_left
+	new_body.is_black = is_black
 	new_body.add_column(floor_y, ceiling_above(center_x, floor_y), area / column_width, false)
 	bodies.append(new_body)
 
@@ -1989,6 +2408,9 @@ func _stir_with_player(delta: float) -> void:
 		var surface_y: float = body.get_surface_y(column)
 		submerged_height = maxf(0.0, minf(hitbox.end.y, body.floor_y[column]) - maxf(hitbox.position.y, surface_y))
 	var is_in_water: bool = submerged_height > 0.0
+	if _is_in_black_water(hitbox):
+		player.die()  # black water kills (Stage W7a)
+		return
 	var velocity: Vector2 = player.velocity
 	if is_in_water != player_was_in_water and body != null:
 		# Crossing the surface: in going down, out going up.
@@ -2017,6 +2439,48 @@ func _stir_with_player(delta: float) -> void:
 		body.push(trailing, 0.0, 0.0, kick)
 
 
+## Black water (Stage W7a) touching the room-local `hitbox`: more than
+## black_kill_depth px of it under a black pool's surface (at its left, middle and
+## right), or a black drop inside it.
+func _is_in_black_water(hitbox: Rect2) -> bool:
+	if not has_black_water():
+		return false
+	# Inside an ice ball (FreezeAbility) the black water can't reach you: a lifeboat.
+	var player: Player = get_tree().get_first_node_in_group(Player.GROUP) as Player
+	if player != null and player.freeze.has_ice_ball():
+		return false
+	var kill_depth: float = water_tuning.black_kill_depth
+	for sample_x: float in [hitbox.position.x + 1.0, hitbox.get_center().x, hitbox.end.x - 1.0]:
+		var found: Array = find_body_under(Vector2(sample_x, hitbox.position.y))
+		if found.is_empty():
+			continue
+		var body: WaterBody = found[0]
+		var column: int = found[1]
+		if not body.is_black or body.depth[column] <= WaterBody.DRY_DEPTH:
+			continue
+		var top: float = maxf(hitbox.position.y, body.get_surface_y(column))
+		if minf(hitbox.end.y, body.floor_y[column]) - top > kill_depth:
+			return true
+	for index: int in drop_positions.size():
+		if drop_groups[index] == BLACK_GROUP and hitbox.has_point(drop_positions[index]):
+			return true
+	return false
+
+
+## Is there any black water in the room (a black pool, or black drops)?
+func has_black_water() -> bool:
+	for body: WaterBody in bodies:
+		if body.is_black:
+			return true
+	return drop_groups.has(BLACK_GROUP)
+
+
+## Is the water at the room-local `point` (in it, or the pool under it) black?
+func is_black_at(point: Vector2) -> bool:
+	var found: Array = find_body_under(point)
+	return not found.is_empty() and (found[0] as WaterBody).is_black
+
+
 ## A splash where something crosses the surface of `body` at `column`, moving at
 ## `speed` px/s, `width` px wide: the water is pushed down and away (a dip that runs
 ## out as waves) and a crown of drops, taken from the body's own water, is thrown up.
@@ -2028,6 +2492,8 @@ func _splash(body: WaterBody, column: int, speed: float, width: float) -> void:
 	drop_count = mini(drop_count, water_tuning.max_drops - get_drop_count())
 	var surface_y: float = body.get_surface_y(column)
 	var center_x: float = body.get_column_left(column) + column_width * 0.5
+	var group_before: int = spawn_group
+	spawn_group = BLACK_GROUP if body.is_black else group_before  # a black splash is ink
 	for index: int in drop_count:
 		var taken: float = body.remove_water(column, drop_area, radius * 2)
 		if taken <= 0.0:
@@ -2038,6 +2504,7 @@ func _splash(body: WaterBody, column: int, speed: float, width: float) -> void:
 		var throw_speed: float = speed * water_tuning.splash_throw_scale * randf_range(0.5, 1.0)
 		var throw: Vector2 = Vector2(side * sin(angle), -cos(angle)) * throw_speed
 		_spawn_drop(Vector2(center_x + side * width * 0.5, surface_y - 1.0), throw, taken, 1.0)
+	spawn_group = group_before
 	# And twice as many specks of spray, faster and lighter than the drops.
 	for index: int in drop_count * 2:
 		var spray_angle: float = deg_to_rad(randf_range(-50.0, 50.0))
@@ -2057,6 +2524,8 @@ func _tidy_bodies() -> void:
 			lost_area += body.get_area()
 			bodies.erase(body)
 			continue
+		if body.is_in_current:
+			continue  # a FLOW current drives it (Stage W7b): never asleep
 		if body.is_calm(water_tuning.sleep_flow, water_tuning.sleep_ripple) and _is_level(body) \
 				and body.spilled_left <= 0.0 and body.spilled_right <= 0.0:
 			body.fall_asleep()
@@ -2070,8 +2539,8 @@ func _tidy_bodies() -> void:
 ## resting on full grass costs almost nothing.
 func _soak_from_body(body: WaterBody) -> void:
 	var capacity: float = water_tuning.soak_per_tile * UNIT_AREA
-	if capacity <= 0.0:
-		return
+	if capacity <= 0.0 or body.is_black:
+		return  # black water doesn't soak in (Stage W7a): a black pool keeps its shape
 	if capacity != soak_open_capacity:
 		_rebuild_soak_open()  # the F5 panel changed soak_per_tile
 	var depths: PackedFloat32Array = body.depth
@@ -2177,7 +2646,24 @@ func _is_level(body: WaterBody) -> bool:
 		if absf(left_surface - right_surface) <= LEVEL_TOLERANCE:
 			continue
 		var higher: int = column if left_surface < right_surface else column + 1
+		var lower: int = column + 1 if higher == column else column
 		if body.depth[higher] > water_tuning.puddle_min_depth:
+			return false
+		# A thin film above lower ground (on a slope) is still running down it.
+		if body.depth[higher] > SLOPE_FILM_DEPTH and body.floor_y[lower] > body.floor_y[higher] + WaterBody.DOWNHILL_SLACK:
+			return false
+	# Nor is a puddle with open, lower ground just past either end (a drop that
+	# landed on a slope): it runs on down (_update_end grows it that way).
+	for at_left: bool in [true, false]:
+		var end_column: int = 0 if at_left else body.get_column_count() - 1
+		if body.depth[end_column] <= SLOPE_FILM_DEPTH:
+			continue
+		var outside_x: float = body.left_x - column_width * 0.5 if at_left else body.get_right_x() + column_width * 0.5
+		var probe_y: float = body.get_surface_y(end_column) + 0.01
+		if is_solid_px(outside_x, probe_y):
+			continue
+		var drop_outside: float = floor_below(outside_x, probe_y) - body.floor_y[end_column]
+		if drop_outside > WaterBody.DOWNHILL_SLACK and drop_outside <= water_tuning.spill_drop:
 			return false
 	return true
 
@@ -2252,6 +2738,9 @@ func _update_shader_parameters() -> void:
 	water_material.set_shader_parameter(&"deep_full_px", water_tuning.deep_full_depth)
 	water_material.set_shader_parameter(&"wobble_px", water_tuning.wobble_px)
 	water_material.set_shader_parameter(&"caustic_strength", water_tuning.caustic_strength)
+	water_material.set_shader_parameter(&"streak_speed_start", water_tuning.streak_speed_start)
+	water_material.set_shader_parameter(&"streak_speed_full", water_tuning.streak_speed_full)
+	water_material.set_shader_parameter(&"streak_alpha", water_tuning.streak_alpha)
 
 
 ## Everything is one list of triangles, drawn in one call: a quad per wet column, a
@@ -2261,6 +2750,7 @@ func _draw() -> void:
 	var points: PackedVector2Array = PackedVector2Array()
 	var colors: PackedColorArray = PackedColorArray()
 	var indices: PackedInt32Array = PackedInt32Array()
+	draw_uvs.clear()
 	for body: WaterBody in bodies:
 		_add_body_triangles(body, points, colors, indices)
 	# Soaked tiles: a damp darkening along their top, deeper as they fill (the stub
@@ -2275,7 +2765,8 @@ func _draw() -> void:
 	var draw_particles: bool = not renderer.is_drawing_particles()
 	for index: int in (drop_positions.size() if draw_particles else 0):
 		var size: float = 2.0 if drop_areas[index] <= water_tuning.drop_units * UNIT_AREA * 1.5 else 3.0
-		var drop_color: Color = Color(0.0, drop_foam[index], KIND_DROP)  # green = foam
+		var drop_color: Color = Color(0.0, drop_foam[index], KIND_DROP,
+			INK_ALPHA if drop_groups[index] == BLACK_GROUP else 1.0)  # green = foam, alpha = ink
 		_add_square(points, colors, indices, drop_positions[index], size, drop_color)
 	# The ball in the player's hands (Stage W3), the same way.
 	for dot: Vector2 in (held_dots if draw_particles else PackedVector2Array()):
@@ -2286,7 +2777,7 @@ func _draw() -> void:
 	if not indices.is_empty():
 		# Same as draw_colored_polygon, but it never has to cut a concave outline into
 		# triangles (a staircase floor), and it's all one batch.
-		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, points, colors)
+		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, points, colors, draw_uvs)
 
 
 ## One quad per wet column (surface to floor) plus a 1 px quad along the open
@@ -2322,14 +2813,27 @@ func _add_body_triangles(body: WaterBody, points: PackedVector2Array, colors: Pa
 		var water_speed: float = pipe_flow * column_width / maxf(body.depth[column], 1.0)
 		var foam: float = clampf((water_speed - water_tuning.foam_speed_start) / foam_speed_range, 0.0, 1.0)
 		foam = maxf(foam, clampf(absf(body.ripple_speed[column]) / maxf(water_tuning.foam_ripple_full, 0.01), 0.0, 1.0))
-		var top_color: Color = Color(0.0, foam, KIND_BODY)
-		var bottom_color: Color = Color((bottom - own_top) / DEPTH_ENCODE_PX, foam, KIND_BODY)
-		_add_quad(points, colors, indices, Vector2(left_x, left_top), Vector2(right_x, right_top),
-			Vector2(right_x, bottom), Vector2(left_x, bottom), top_color, bottom_color)
+		# Alpha says which water: 1 clean, INK_ALPHA black (Stage W7a; the shader reads it).
+		var ink: float = INK_ALPHA if body.is_black else 1.0
+		var top_color: Color = Color(0.0, foam, KIND_BODY, ink)
+		var bottom_color: Color = Color((bottom - own_top) / DEPTH_ENCODE_PX, foam, KIND_BODY, ink)
+		# The current's streaks (Stage W7b): the water's speed at the surface and at the
+		# floor (they differ in a LOOP zone; in between the shader blends them, which is
+		# exactly the loop's even change with depth).
+		var top_speed: float = _get_column_velocity(body, column, body.get_surface_y(column))
+		var bottom_speed: float = _get_column_velocity(body, column, bottom)
+		# The quad reaches WALL_SINK px into the floor and the side walls it touches, so dents in the terrain's edge texture show water, not gaps.
+		var mid_y: float = (own_top + bottom) * 0.5
+		var quad_left_x: float = left_x - (WALL_SINK if is_solid_px(left_x - 1.0, mid_y) else 0.0)
+		var quad_right_x: float = right_x + (WALL_SINK if is_solid_px(right_x + 1.0, mid_y) else 0.0)
+		var sink: float = WALL_SINK if is_solid_px((left_x + right_x) * 0.5, bottom + 1.0) else 0.0
+		_add_quad(points, colors, indices, Vector2(quad_left_x, left_top), Vector2(quad_right_x, right_top),
+			Vector2(quad_right_x, bottom + sink), Vector2(quad_left_x, bottom + sink),
+			top_color, bottom_color, top_speed, bottom_speed)
 		# The light surface line, where the water is open to the air (not pressed
 		# against a ceiling).
 		if body.get_surface_y(column) - body.ripple[column] > body.ceiling_y[column]:
-			var line_color: Color = Color(0.0, foam, KIND_SURFACE)
+			var line_color: Color = Color(0.0, foam, KIND_SURFACE, ink)
 			_add_quad(points, colors, indices, Vector2(left_x, left_top), Vector2(right_x, right_top),
 				Vector2(right_x, minf(right_top + 1.0, bottom)), Vector2(left_x, minf(left_top + 1.0, bottom)),
 				line_color, line_color)
@@ -2343,10 +2847,15 @@ func _add_square(points: PackedVector2Array, colors: PackedColorArray, indices: 
 		top_left + Vector2(size, size), top_left + Vector2(0.0, size), color, color)
 
 
+## `top_speed` / `bottom_speed`: the water's speed at the quad's top and bottom, px/s,
+## put in the corners' UV.x for the shader's current streaks (Stage W7b; 0 = none).
 func _add_quad(points: PackedVector2Array, colors: PackedColorArray, indices: PackedInt32Array,
 		top_left: Vector2, top_right: Vector2, bottom_right: Vector2, bottom_left: Vector2,
-		top_color: Color, bottom_color: Color) -> void:
+		top_color: Color, bottom_color: Color, top_speed: float = 0.0, bottom_speed: float = 0.0) -> void:
 	var first: int = points.size()
 	points.append_array([top_left, top_right, bottom_right, bottom_left])
 	colors.append_array([top_color, top_color, bottom_color, bottom_color])
+	var top_uv: Vector2 = Vector2(top_speed / STREAK_SPEED_ENCODE, 0.0)
+	var bottom_uv: Vector2 = Vector2(bottom_speed / STREAK_SPEED_ENCODE, 0.0)
+	draw_uvs.append_array([top_uv, top_uv, bottom_uv, bottom_uv])
 	indices.append_array([first, first + 1, first + 2, first, first + 2, first + 3])

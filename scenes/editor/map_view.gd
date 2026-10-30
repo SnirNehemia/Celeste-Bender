@@ -535,10 +535,35 @@ func set_room_rect(room: Room, rect: Rect2, is_resize: bool = true) -> bool:
 					kept[cell + cell_shift] = cells_before[layer][cell]
 			cells_after[layer] = kept
 	editor.undo_redo.create_action("Resize room" if is_resize else "Move room")
+	if is_resize:
+		# Objects left entirely outside the smaller room are erased, in the same undo
+		# step. First in the action, so undo (which runs backwards) restores the room
+		# rect before the objects come back and are not shifted a second time.
+		for stray: Node2D in _objects_outside(room, rect.size, shift):
+			editor._add_delete_steps(stray)
 	editor.undo_redo.add_do_method(_apply_room_rect.bind(room, rect, shift, cells_after))
 	editor.undo_redo.add_undo_method(_apply_room_rect.bind(room, old_rect, -shift, cells_before))
 	editor.undo_redo.commit_action()
 	return true
+
+
+## The room's own objects (not its spawn point, which every room needs) that would lie
+## wholly outside a room of `new_size` once they move by `shift`.
+func _objects_outside(room: Room, new_size: Vector2, shift: Vector2) -> Array[Node2D]:
+	var strays: Array[Node2D] = []
+	var new_area: Rect2 = Rect2(Vector2.ZERO, new_size)
+	for child: Node in room.get_children():
+		var object: Node2D = child as Node2D
+		if object == null or object is TileMapLayer or object.owner != editor.level_root:
+			continue
+		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(object)
+		if entry == null or entry.kind == PaletteCatalog.Kind.SPAWN_POINT:
+			continue
+		var outline: Rect2 = PaletteCatalog.get_local_bounds(object)
+		outline.position += object.position + shift
+		if not outline.intersects(new_area):
+			strays.append(object)
+	return strays
 
 
 ## Puts `room` at `rect`, moves its own objects by `object_shift` and sets its

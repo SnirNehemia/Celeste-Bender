@@ -18,7 +18,7 @@ func physics_update(delta: float) -> void:
 		transition_requested.emit(&"WaterHolding")
 		return
 	if player.try_start_freeze():
-		transition_requested.emit(&"GustAim")
+		transition_requested.emit(player.get_freeze_start_state())
 		return
 	if player.try_tear_rock():
 		transition_requested.emit(&"BoulderHold")

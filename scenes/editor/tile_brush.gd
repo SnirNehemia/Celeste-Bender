@@ -31,6 +31,8 @@ const SOURCE_ID: int = 0
 ## tools/build_rooms.gd), plain and with a top edge.
 const TILE_PLAIN: Vector2i = Vector2i(0, 0)
 const TILE_TOP_EDGE: Vector2i = Vector2i(1, 0)
+## "No tile": a brush's tile_odd_column when it paints the same tile everywhere.
+const NO_TILE: Vector2i = Vector2i(-1, -1)
 
 ## Name of the layer node inside a room, and the tileset and script a new layer gets.
 var layer_name: StringName
@@ -39,6 +41,9 @@ var layer_script: Script
 ## The atlas cells it paints: a plain tile and one with a top edge (may be the same).
 var tile_plain: Vector2i
 var tile_top_edge: Vector2i
+## Painted on odd columns instead of tile_plain, or NO_TILE (Stage W7a: a 22.5° ice
+## slope is a low tile and a high tile side by side).
+var tile_odd_column: Vector2i = NO_TILE
 
 ## The layer the current stroke paints on (null between strokes).
 var stroke_layer: TileMapLayer = null
@@ -48,12 +53,14 @@ var stroke_before: Dictionary = {}
 
 ## The defaults are the Ground brush's: no layer script, the placeholder tiles.
 func _init(new_layer_name: StringName, new_tile_set: TileSet, new_layer_script: Script = null,
-		new_tile_plain: Vector2i = TILE_PLAIN, new_tile_top_edge: Vector2i = TILE_TOP_EDGE) -> void:
+		new_tile_plain: Vector2i = TILE_PLAIN, new_tile_top_edge: Vector2i = TILE_TOP_EDGE,
+		new_tile_odd_column: Vector2i = NO_TILE) -> void:
 	layer_name = new_layer_name
 	tile_set = new_tile_set
 	layer_script = new_layer_script
 	tile_plain = new_tile_plain
 	tile_top_edge = new_tile_top_edge
+	tile_odd_column = new_tile_odd_column
 
 
 ## The room's layer for this brush. With `create`, makes it if missing (owned by
@@ -80,11 +87,14 @@ func begin_stroke(layer: TileMapLayer) -> void:
 
 
 func paint_cell(cell: Vector2i) -> void:
+	var tile: Vector2i = tile_plain
+	if tile_odd_column != NO_TILE and posmod(cell.x, 2) == 1:
+		tile = tile_odd_column
 	var old_value: Vector3i = _read(stroke_layer, cell)
-	if old_value.x == SOURCE_ID and (Vector2i(old_value.y, old_value.z) == tile_plain or Vector2i(old_value.y, old_value.z) == tile_top_edge):
+	if old_value.x == SOURCE_ID and (Vector2i(old_value.y, old_value.z) == tile or Vector2i(old_value.y, old_value.z) == tile_top_edge):
 		return  # already this terrain: nothing to do (its edge is already right)
 	# Another brush's tile on the same layer (the other cover look) is replaced.
-	_write(cell, Vector3i(SOURCE_ID, tile_plain.x, tile_plain.y))
+	_write(cell, Vector3i(SOURCE_ID, tile.x, tile.y))
 	_refresh_edge(cell)
 	_refresh_edge(cell + Vector2i.DOWN)  # it just got covered
 

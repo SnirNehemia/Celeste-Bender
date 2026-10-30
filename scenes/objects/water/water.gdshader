@@ -8,6 +8,12 @@ shader_type canvas_item;
 //   COLOR.b  what is drawn: 0 = the body, 0.25 = a soaked tile's damp top (its
 //            foam channel says how soaked), 0.5 = the 1 px surface line, 1 = a drop
 //            (a drop with foam 1 is a white spray speck).
+//   COLOR.a  1 = clean water, 0.5 = BLACK WATER (Stage W7a): inky, almost opaque,
+//            with an oily violet sheen on its surface line instead of the glints.
+//   UV.x     the water's sideways speed, px/s / 256 (Stage W7b): CURRENT STREAKS,
+//            faint dashes scrolling with the water where it runs, so a current reads
+//            before you jump in. A loop zone's surface and floor speeds differ; the
+//            blend between them is the loop's even change with depth.
 // It runs on the graphics card, once per pixel at 320x180, so it costs the CPU
 // nothing: the 2 ms water budget (§6.5) only pays for the simulation.
 //
@@ -33,6 +39,10 @@ uniform vec4 deep_color : source_color = vec4(0.122, 0.306, 0.549, 1.0);     // 
 uniform vec4 surface_color : source_color = vec4(0.749, 0.894, 1.0, 1.0);    // #BFE4FF
 uniform vec4 foam_color : source_color = vec4(0.95, 0.98, 1.0, 1.0);
 // The four bands of look C, top to bottom.
+// Black water (Stage W7a, Water_bending.md §12.1): ink, and its oily surface sheen.
+uniform vec4 ink_shallow : source_color = vec4(0.165, 0.133, 0.212, 1.0);  // #2A2236
+uniform vec4 ink_deep : source_color = vec4(0.055, 0.043, 0.078, 1.0);     // #0E0B14
+uniform vec4 ink_sheen : source_color = vec4(0.420, 0.353, 0.502, 1.0);    // #6B5A80
 uniform vec4 band_light : source_color = vec4(0.373, 0.659, 0.910, 1.0);    // #5FA8E8
 uniform vec4 band_mid : source_color = vec4(0.184, 0.498, 0.820, 1.0);      // #2F7FD1
 uniform vec4 band_dark : source_color = vec4(0.145, 0.376, 0.675, 1.0);     // #2560AC
@@ -57,12 +67,20 @@ uniform float band_alpha = 0.9;
 uniform float blend_band_alpha = 0.5;
 // How tall each band of look C is, px.
 uniform float band_px = 7.0;
+// Current streaks (Stage W7b): faint from streak_speed_start px/s, full at
+// streak_speed_full, at most streak_alpha over the water.
+uniform float streak_speed_start = 8.0;
+uniform float streak_speed_full = 60.0;
+uniform float streak_alpha = 0.35;
 
 // The corner's position in the world, px, handed from vertex() to fragment().
 varying vec2 world_px;
+// The water's speed here, px/s (from UV.x; blended between the corners).
+varying float water_speed;
 
 void vertex() {
 	world_px = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+	water_speed = UV.x * 256.0;
 }
 
 // A cheap pseudo-random number in 0..1 for a pixel (the same pixel gives the same number).
@@ -89,12 +107,48 @@ vec3 add_foam(vec3 color, vec2 pixel, float foam, float below_px) {
 	return mix(color, foam_color.rgb, step(1.0 - foam_here, speck) * 0.85);
 }
 
+// Current streaks: each 2 px row of water gets dashes (a random few of every
+// 12 px) that scroll at half the water's speed. The speed is rounded to 4 px/s, so a
+// stream reads as even bands instead of dashes squeezed where the speed changes.
+vec3 add_streaks(vec3 color, vec2 pixel, float speed, vec3 streak_color) {
+	float strength = clamp((abs(speed) - streak_speed_start) / max(streak_speed_full - streak_speed_start, 1.0), 0.0, 1.0);
+	if (strength <= 0.0) {
+		return color;
+	}
+	float row = floor(pixel.y / 2.0);
+	float lane = hash(vec2(row, 3.7));
+	float step_speed = round(speed / 4.0) * 4.0;
+	float along = (pixel.x - TIME * step_speed * 0.5) / 12.0 + lane * 7.0;
+	float dash = step(0.7, fract(along)) * step(0.55, hash(vec2(row, floor(along))));
+	return mix(color, streak_color, dash * strength * streak_alpha);
+}
+
 void fragment() {
 	vec2 pixel = floor(world_px);
 	float below_px = COLOR.r * 64.0;
 	float foam = COLOR.g;
 	float kind = COLOR.b;
-	if (kind > 0.75) {
+	bool is_ink = COLOR.a < 0.75;
+	if (is_ink && kind > 0.75) {
+		// A black drop: ink, its foam a dull gray.
+		COLOR = vec4(mix(ink_shallow.rgb, ink_sheen.rgb, foam * 0.6), 0.95);
+	} else if (is_ink && kind > 0.375) {
+		// Black water's surface line: an oily sheen whose bright spot drifts slowly
+		// along it (no white glints: it's not clear water).
+		float drift = 0.5 + 0.5 * sin(pixel.x * 0.21 + TIME * 1.3) * sin(pixel.x * 0.07 - TIME * 0.6);
+		COLOR = vec4(mix(ink_shallow.rgb, ink_sheen.rgb, 0.4 + 0.6 * step(0.55, drift)), 1.0);
+	} else if (is_ink) {
+		// Black water: nearly opaque ink, darker with depth, with a faint shimmer of
+		// what's behind (it's still a liquid) and gray churn where it's choppy.
+		float deepness = clamp(below_px / deep_full_px, 0.0, 1.0);
+		vec3 behind = textureLod(screen_texture, SCREEN_UV, 0.0).rgb;
+		vec3 ink = mix(ink_shallow.rgb, ink_deep.rgb, deepness);
+		vec3 color = mix(behind, ink, mix(0.86, 0.97, deepness));
+		float speck = hash(pixel + vec2(floor(TIME * 8.0) * 17.0, 0.0));
+		float churn = foam * (1.0 - clamp(below_px / 6.0, 0.0, 1.0));
+		color = add_streaks(color, pixel, water_speed, ink_sheen.rgb);
+		COLOR = vec4(mix(color, ink_sheen.rgb, step(1.0 - churn, speck) * 0.7), 1.0);
+	} else if (kind > 0.75) {
 		// A drop (light blue) or a spray speck (white).
 		COLOR = vec4(mix(mix(shallow_color.rgb, surface_color.rgb, 0.35), foam_color.rgb, foam), 0.9);
 	} else if (kind > 0.375) {
@@ -176,6 +230,7 @@ void fragment() {
 			// (B's own cover is shallow_alpha / deep_alpha, the bands' is band_alpha.)
 			color = mix(tinted, banded, blend_band_alpha);
 		}
+		color = add_streaks(color, pixel, water_speed, surface_color.rgb);
 		color = add_foam(color, pixel, foam, below_px);
 		// We mixed in what's behind ourselves, so the result is opaque.
 		COLOR = vec4(color, 1.0);

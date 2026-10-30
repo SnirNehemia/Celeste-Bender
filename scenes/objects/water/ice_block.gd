@@ -33,6 +33,13 @@ extends Crate
 ## in the air it falls straight down (the push's sideways part is dropped) until it
 ## lands; on ice it slides with puck_ice_friction (none: on until something stops it),
 ## off ice puck_ground_friction stops it at once. Frozen in water, it floats instead.
+## RAFTS (Stage W7a, `is_raft`): water frozen at a water surface becomes a flat slab
+## that floats there (WaterWorld._make_raft). A compact block underneath, but never
+## frozen in place: it floats from the start, bobs on waves, and drifts far (its own
+## low water drag, raft_water_drag, and no air friction: on water a crate counts as
+## "in the air"). Gusts, the ball's shove and launches push it (Pushable). Its deck is
+## ice. Whoever stands on it presses it down (raft_rider_weight), and jumping off
+## pushes it back the other way (raft_jump_push). It's how black water is crossed.
 ## Fire MELTS it (the Flammable contract's ignite(): it doesn't burn). The room's
 ## WaterWorld made it, owns it (player_ice: the ice cap), frees it on reset, and melts
 ## it through WaterWorld.melt_ice(), which gives its water back exactly.
@@ -74,17 +81,23 @@ var is_impaled: bool = false
 var is_frozen_in_place: bool = false
 ## Just knocked loose in the air: it falls straight down until it first lands.
 var is_dropping_straight: bool = false
+## A raft (Stage W7a, see the header).
+var is_raft: bool = false
+## Was the player standing on this raft last frame (for the jump's recoil)?
+var was_ridden: bool = false
 
 
 ## New free ice: the outlines `room_outlines` (room-local) of `area` px² of water,
-## moving at `start_velocity`, added to `owner_world`'s room. `long` picks the kind.
+## moving at `start_velocity`, added to `owner_world`'s room. `long` picks the kind;
+## `raft` makes it a raft (Stage W7a: compact, floating, never frozen in place).
 static func make(owner_world: WaterWorld, room_outlines: Array[PackedVector2Array], area: float,
-		start_velocity: Vector2, long: bool) -> IceBlock:
+		start_velocity: Vector2, long: bool, raft: bool = false) -> IceBlock:
 	var block: IceBlock = IceBlock.new()
-	block.name = "IceBlock"
+	block.name = "IceRaft" if raft else "IceBlock"
 	block.world = owner_world
 	block.water_area = area
-	block.is_long = long
+	block.is_long = long and not raft
+	block.is_raft = raft
 	var box: Rect2 = IceOutline.bounds(room_outlines)
 	# The origin at the bottom-center of the box, like a crate: then everything a
 	# Crate works out from crate_size (its water box, its floating) fits the ice.
@@ -94,7 +107,9 @@ static func make(owner_world: WaterWorld, room_outlines: Array[PackedVector2Arra
 	block.crate_size = box.size
 	block.velocity = start_velocity
 	block.ground_friction = LONG_GROUND_FRICTION if long else owner_world.water_tuning.ice_block_friction
-	block.is_frozen_in_place = owner_world.water_tuning.ice_hangs and not long
+	block.is_frozen_in_place = owner_world.water_tuning.ice_hangs and not long and not raft
+	if raft:
+		block.air_friction = 0.0  # on water it's "in the air": only the water slows it
 	# Placed BEFORE add_child, so _ready() (run by add_child) sees where it is.
 	block.position = owner_world.room.to_local(owner_world.to_global(bottom_center))
 	owner_world.room.add_child(block)
@@ -112,6 +127,11 @@ func _ready() -> void:
 	add_to_group(ICE_GROUP)
 	# Pins catch it (Stage W6): look at their layer too.
 	collision_mask |= IcePins.CATCH_LAYER_BIT
+	if is_raft:
+		# A raft's own moves ignore the player (layer 2; you still stand on it). Bobbing
+		# up into your feet, it got pushed back down, your floor snap followed it, and
+		# the two of you sank together into the black water (found after raft_buoyancy).
+		collision_mask &= ~2
 	is_slide = is_long and IceOutline.lying_angle_degrees(outlines) < world.water_tuning.slide_pillar_angle
 	if is_slide:
 		add_to_group(SLIDE_GROUP)
@@ -143,6 +163,8 @@ func _physics_process(delta: float) -> void:
 		_set_puck_friction()
 	if is_dropping_straight:
 		velocity.x = 0.0
+	if is_raft and not Engine.is_editor_hint() and is_instance_valid(world):
+		_carry_rider(delta)
 	super(delta)
 	if is_dropping_straight and is_on_floor():
 		is_dropping_straight = false
@@ -173,6 +195,51 @@ func _touches_pins() -> bool:
 		if collider != null and collider.is_in_group(IcePins.GROUP):
 			return true
 	return false
+
+
+## A raft's rider (the player standing on it) presses it down while there; jumping
+## off pushes it back the other way and dips it (the recoil).
+func _carry_rider(delta: float) -> void:
+	var tuning: WaterTuning = world.water_tuning
+	var player: Player = get_tree().get_first_node_in_group(Player.GROUP) as Player
+	var is_ridden: bool = player != null and not player.is_dead() and player.get_floor_body() == self
+	if is_ridden:
+		velocity.y += gravity * tuning.raft_rider_weight * delta
+	elif was_ridden and player != null and player.velocity.y < 0.0:
+		# Jumped off: pushed back away from the arrow held (none: only the dip).
+		velocity.x -= signf(player.get_move_input()) * tuning.raft_jump_push
+		velocity.y += tuning.raft_jump_dip
+	was_ridden = is_ridden
+
+
+## Player.WIND_CATCHER_METHOD (Stage W7a): standing on a raft and gusting sideways,
+## your feet stay planted and the RAFT takes the gust's recoil: it moves the other
+## way, like a boat pushed off by a paddle. Gust back toward where you came from to go
+## on. (Only rafts catch it: see is_catching_wind.)
+func absorb_gust_recoil(direction: Vector2, strength: float) -> void:
+	if is_raft and is_instance_valid(world):
+		receive_gust(Vector2(-signf(direction.x), 0.0), strength * world.water_tuning.raft_gust_recoil_share)
+
+
+## Does standing on this take the gust's recoil (Player.get_wind_catching_floor)?
+## Only a raft: on a puck or a block you recoil as on the ground.
+func is_catching_wind() -> bool:
+	return is_raft
+
+
+## Crate's hook: a raft floats high (raft_buoyancy: after the W7a play-test, your
+## feet stay above the black water).
+func _get_buoyancy() -> float:
+	if is_raft and is_instance_valid(world):
+		return world.water_tuning.raft_buoyancy
+	return super()
+
+
+## Crate's hook: a raft drifts far on water (raft_water_drag, Stage W7a).
+func _get_water_drag() -> float:
+	if is_raft and is_instance_valid(world):
+		return world.water_tuning.raft_water_drag
+	return super()
 
 
 ## Caught by pins: stops dead, for good, and nothing pushes it any more.

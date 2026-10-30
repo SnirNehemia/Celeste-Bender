@@ -37,11 +37,12 @@ extends CharacterBody2D
 ##   │                     gathering and throwing (abilities/water/water_hands_ability.gd);
 ##   │                     held in WaterHolding
 ##   ├─ FreezeAbility      Water move 2: freezes what you hold, your last throw, or
-##   │                     throws an ice crystal (abilities/water/freeze_ability.gd);
-##   │                     the crystal aims in GustAim
+##   │                     makes a snow puff (abilities/water/freeze_ability.gd; the
+##   │                     puff aims in GustAim); wholly under water, an ice ball
+##   │                     (the IceBall state)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
-##                         SnakeSteer, Jetting, WaterHolding, Sliding, Dead
+##                         SnakeSteer, Jetting, WaterHolding, Sliding, IceBall, Dead
 ##
 ## Ice (Stage W5, Water_bending.md §7.1): on an ice floor (IceBlock.ICE_GROUP: ice
 ## blocks, frozen shapes and sheets, painted ice tiles) you speed up and slow down
@@ -496,12 +497,18 @@ func get_gust_start_state() -> StringName:
 ## On the frame 2 (water_freeze) is pressed where Water is allowed (Stage W5): your
 ## last throw, if still live, freezes at once (false: nothing else changes); else
 ## the freeze makes itself the aim source and returns true, and the caller switches
-## to GustAim (a tap throws the ice crystal at once, a hold aims it in slow motion).
+## to get_freeze_start_state(): GustAim (the snow puff: a tap bursts it around you, a
+## hold aims a toss in slow motion) or, wholly under water, IceBall.
 func try_start_freeze() -> bool:
 	if not freeze.try_start():
 		return false
 	aim_source = freeze
 	return true
+
+
+## The state a freeze press starts (after try_start_freeze() said true).
+func get_freeze_start_state() -> StringName:
+	return freeze.start_state
 
 
 ## Is `thing` ice (Stage W5)? Ice blocks, frozen shapes and sheets, painted ice tiles:
@@ -727,6 +734,8 @@ func get_wind_velocity() -> Vector2:
 	var total_wind: Vector2 = Vector2.ZERO
 	for zone: WindZone in active_wind_zones:
 		total_wind += zone.get_wind_velocity()
+	# A water current (Stage W7b) carries you like a sideways wind (SwimAbility).
+	total_wind.x += swim.current_speed_x
 	return total_wind
 
 
@@ -774,10 +783,13 @@ func get_floor_body() -> Object:
 
 ## The floor we stand on if it CATCHES WIND (has WIND_CATCHER_METHOD), else null.
 ## Such a floor takes the sideways recoil of our gusts (GustRecoil state) and
-## shelters us from wind zones (get_wind_velocity). SailPlatform is one.
+## shelters us from wind zones (get_wind_velocity). SailPlatform is one, an ice raft
+## another (Stage W7a). A floor that can be either also has is_catching_wind() (ice:
+## only a raft catches the gust).
 func get_wind_catching_floor() -> Object:
 	var floor_body: Object = get_floor_body()
-	if floor_body != null and floor_body.has_method(WIND_CATCHER_METHOD):
+	if floor_body != null and floor_body.has_method(WIND_CATCHER_METHOD) \
+			and (not floor_body.has_method(&"is_catching_wind") or floor_body.call(&"is_catching_wind")):
 		return floor_body
 	return null
 
@@ -848,15 +860,20 @@ func apply_gravity(delta: float) -> void:
 		# the swimming values by how much of us is under, with no apex hang. Falling
 		# in faster than that, the water brakes us hard: a plunge, not a stop.
 		var share: float = swim.submerged_share
-		var water_gravity: float = lerpf(tuning.gravity, water_tuning.swim_gravity, share)
-		var water_sink_cap: float = lerpf(fall_speed_cap, water_tuning.swim_max_sink, share)
+		# A waterfall falling through you (Stage W7b) sinks you faster and pulls harder:
+		# a stroke still lifts you, but you can't swim up through it.
+		var water_gravity: float = lerpf(tuning.gravity, water_tuning.swim_gravity, share) 			+ swim.fall_push * water_tuning.waterfall_grip
+		var water_sink_cap: float = lerpf(fall_speed_cap, water_tuning.swim_max_sink, share) + swim.fall_push
 		if velocity.y > water_sink_cap:
 			velocity.y = move_toward(velocity.y, water_sink_cap, water_tuning.swim_brake * share * delta)
 		else:
 			velocity.y = move_toward(velocity.y, water_sink_cap, water_gravity * delta)
 		return
 
-	velocity.y = move_toward(velocity.y, fall_speed_cap, tuning.gravity * gravity_scale * delta)
+	# In the air a waterfall pushes down too (Stage W7b; 0 under none).
+	fall_speed_cap += swim.fall_push
+	velocity.y = move_toward(velocity.y, fall_speed_cap,
+		tuning.gravity * gravity_scale * delta + swim.fall_push * water_tuning.waterfall_grip * delta)
 
 
 ## Accelerates toward the held direction, or slows down if nothing is held.

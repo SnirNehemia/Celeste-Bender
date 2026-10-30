@@ -33,6 +33,15 @@ extends AnimatableBody2D
 ## from both tips while flames run along it, then it crumbles to ash and is gone
 ## (no collision) until death or R. It is NOT a FireHazard: the burn is your time to
 ## jump off (decided in Stage F8). It keeps riding its rail while it burns.
+##
+## WATER (Stage W7b, Water_bending.md §16 "Planned in Stage W7b"): the leaf FLOATS
+## ON ITS RAIL. Where its rail runs through water, it can't sink below the surface:
+## it rises along the rail until its top floats leaf_platform_float_lift px above
+## the water (at up to leaf_platform_float_speed), and follows the surface down a
+## little as waves pass, so it bobs. A current pushes it along its rail
+## (leaf_platform_current_share of the water's speed, along the rail's direction),
+## like a gust that never stops. The rail stays the level's guarantee: the leaf
+## never leaves it. All values in WaterTuning ("Currents").
 
 ## Not in the §2 color key: an olive-green leaf, paler while away from home.
 const LEAF_COLOR: Color = Color(0.5, 0.72, 0.28)
@@ -93,6 +102,12 @@ var flames: Array[FlameTongue] = []
 
 var surface: CollisionShape2D
 
+## The room's water (Stage W7b), looked up on the first physics frame; null = none.
+var water_world: WaterWorld = null
+var has_looked_for_water: bool = false
+## Is the leaf on (or in) water this frame? (Tests read it.)
+var is_floating: bool = false
+
 
 func _ready() -> void:
 	collision_layer = 1 | 8  # bit values of layer 1 "world" and layer 4 "pushable"
@@ -151,6 +166,7 @@ func _physics_process(delta: float) -> void:
 	# per frame), so it spins up and coasts down instead of starting/stopping instantly.
 	pinwheel_speed = lerpf(pinwheel_speed, target_pinwheel_speed, minf(8.0 * delta, 1.0))
 	pinwheel_angle += pinwheel_speed * delta
+	distance_along_rail = _float_on_water(distance_along_rail, rail_length, delta)
 
 	# Moving an AnimatableBody2D = just setting its position inside _physics_process.
 	# round() keeps it on whole pixels, so the leaf and a player standing on it
@@ -160,6 +176,40 @@ func _physics_process(delta: float) -> void:
 		offset = travel * (distance_along_rail / rail_length)
 	position = home_position + offset.round()
 	queue_redraw()  # the rail and the pinwheel change every frame
+
+
+## Water (Stage W7b, see the header): the rail distance after floating on the water
+## and riding its current, from `distance` (what the rail logic wanted this frame).
+func _float_on_water(distance: float, rail_length: float, delta: float) -> float:
+	if not has_looked_for_water:
+		has_looked_for_water = true
+		water_world = WaterWorld.find_at(get_tree(), global_position)
+	is_floating = false
+	if water_world == null or rail_length <= 0.0:
+		return distance
+	var tuning: WaterTuning = water_world.water_tuning
+	var rail_axis: Vector2 = travel / rail_length
+	# Where the leaf's top would be, in the water's coordinates (not rounded).
+	var top: Vector2 = water_world.to_local(get_parent().to_global(home_position + rail_axis * distance))
+	var found: Array = water_world.find_body_under(top - Vector2(0.0, SURFACE_THICKNESS))
+	if found.is_empty() or (found[0] as WaterBody).depth[found[1]] <= 1.0:
+		return distance
+	var body: WaterBody = found[0]
+	var float_y: float = body.get_drawn_surface_y(found[1]) - tuning.leaf_platform_float_lift
+	# Above the water (by more than a wave's dip): the water doesn't touch it.
+	if top.y < float_y - SURFACE_THICKNESS * 0.5:
+		return distance
+	is_floating = true
+	# Float: move along the rail until the top is at float_y (only a rail that goes
+	# up or down can lift it), no faster than leaf_platform_float_speed.
+	if absf(rail_axis.y) > 0.05:
+		var along_change: float = (float_y - top.y) / rail_axis.y
+		var max_change: float = tuning.leaf_platform_float_speed * delta / absf(rail_axis.y)
+		distance += clampf(along_change, -max_change, max_change)
+	# The current: along the rail, by the rail's sideways part.
+	var water_speed: float = water_world.get_water_velocity_at(Vector2(top.x, float_y + tuning.leaf_platform_float_lift + 0.5))
+	distance += water_speed * tuning.leaf_platform_current_share * rail_axis.x * delta
+	return clampf(distance, 0.0, rail_length)
 
 
 ## The Pushable contract: any gust (direction and strength don't matter) sends it

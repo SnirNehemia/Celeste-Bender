@@ -45,6 +45,8 @@ const EYE_CHARGED_COLOR: Color = Color(1.0, 0.6, 0.15)
 ## A fire-orb sentry's body: ember orange, darker at the base (Fire_bending.md §9.1).
 const FIRE_BODY_COLOR: Color = Color("#E8431A")
 const FIRE_BODY_DARK_COLOR: Color = Color("#8A2410")
+## How far the mounting plate reaches into the floor, ceiling or wall, px.
+const BASE_SINK: float = 3.0
 ## Preloaded once: the orb scene to instance for every shot.
 const ORB_SCENE: PackedScene = preload("res://scenes/enemies/sentry_orb.tscn")
 ## A fire sentry's fireballs fly like the player's: these tunings set them.
@@ -61,6 +63,15 @@ signal defeated
 		mounted_on_ceiling = value
 		_resize_hitbox()
 		queue_redraw()
+## Bolted to a side wall instead of the floor or ceiling: -1 = the wall is on its
+## left, 1 = on its right, 0 = floor/ceiling (see mounted_on_ceiling). The level
+## editor sets it when it snaps the sentry to the nearest wall. The origin is then
+## the middle of the wall face it touches.
+@export var wall_side: int = 0:
+	set(value):
+		wall_side = clampi(value, -1, 1)
+		_resize_hitbox()
+		queue_redraw()
 ## Off = never fires (a practice target that a reflected orb can still destroy).
 @export var can_fire: bool = true:
 	set(value):
@@ -72,7 +83,7 @@ signal defeated
 		fire_orbs = value
 		queue_redraw()
 ## Turret size, px.
-@export var body_size: Vector2 = Vector2(12, 12):
+@export var body_size: Vector2 = Vector2(16, 16):  # 2x2 tiles, so its wall reads at a glance
 	set(value):
 		body_size = value
 		_resize_hitbox()
@@ -144,7 +155,14 @@ func get_eye_position() -> Vector2:
 ## The middle of the body relative to the origin: above it on a floor, below it on
 ## a ceiling.
 func _get_local_center() -> Vector2:
+	if wall_side != 0:
+		return Vector2(-wall_side * body_size.x / 2.0, 0.0)  # beside the wall it hangs on
 	return Vector2(0.0, body_size.y / 2.0 if mounted_on_ceiling else -body_size.y / 2.0)
+
+
+## The body's rectangle relative to the origin (the level editor's outline).
+func get_local_outline() -> Rect2:
+	return Rect2(_get_local_center() - body_size / 2.0, body_size)
 
 
 ## SentryOrb aim assist: where a reflected orb should fly to hit us.
@@ -283,8 +301,22 @@ func _draw() -> void:
 	var body_color: Color = _get_body_color()
 	draw_rect(box, body_color)
 	# A darker base strip on the mounting side, so it reads as "mounted", not as a crate.
-	var base_y: float = box.position.y if mounted_on_ceiling else box.end.y - 3.0
-	draw_rect(Rect2(box.position.x, base_y, box.size.x, 3.0), FIRE_BODY_DARK_COLOR if fire_orbs else BODY_DARK_COLOR)
+	var base_color: Color = FIRE_BODY_DARK_COLOR if fire_orbs else BODY_DARK_COLOR
+	# The mounting plate sinks a few px into the surface behind it, so dents in the
+	# terrain's edge texture don't show gaps under the body.
+	if wall_side != 0:
+		var plate_x: float = box.position.x - BASE_SINK if wall_side < 0 else box.end.x
+		draw_rect(Rect2(plate_x, box.position.y, BASE_SINK, box.size.y), base_color)
+	elif mounted_on_ceiling:
+		draw_rect(Rect2(box.position.x, box.position.y - BASE_SINK, box.size.x, BASE_SINK), base_color)
+	else:
+		draw_rect(Rect2(box.position.x, box.end.y, box.size.x, BASE_SINK), base_color)
+	if wall_side != 0:
+		var base_x: float = box.position.x if wall_side < 0 else box.end.x - 3.0
+		draw_rect(Rect2(base_x, box.position.y, 3.0, box.size.y), base_color)
+	else:
+		var base_y: float = box.position.y if mounted_on_ceiling else box.end.y - 3.0
+		draw_rect(Rect2(box.position.x, base_y, box.size.x, 3.0), base_color)
 
 	# The eye: dark normally, blending to orange during the telegraph.
 	var charge: float = 0.0

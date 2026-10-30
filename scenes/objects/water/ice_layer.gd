@@ -16,11 +16,48 @@ extends TileMapLayer
 ## that hang over open air (not over rock). The outline is the patch's boundary on the
 ## tile grid (_trace_patches); it's rebuilt when the tiles change (the editor paints).
 ##
-## The tileset is made by tools/build_water_rooms.gd (only when missing).
+## SLOPES (Stage W7a, from the re-planned ice): besides the full tile, the tileset
+## has ice SLOPE tiles, the fixed, learnable slides a level is built around: 45° both
+## ways, and 22.5° made of two tiles side by side (a LOW one and a HIGH one). Each
+## tile's solid part is a polygon (TILE_SHAPES), used for its collision and for the
+## outline. The player and objects slide down them like any ice slope (IceSlope reads
+## the slope from the collision's normal) and launch off their lips. Painted slopes
+## are fully solid (not one-way: that's only the player's own slides).
+##
+## The tileset is made by tools/build_water_rooms.gd (when missing or out of date).
 
 const TILESET_PATH: String = "res://resources/tiles/ice_tileset.tres"
-## The single tile of the ice tileset.
+## The full (square) ice tile.
 const ICE_TILE: Vector2i = Vector2i(0, 0)
+## 45° slopes: rising to the right (◢) and to the left (◣).
+const SLOPE_UP_RIGHT: Vector2i = Vector2i(1, 0)
+const SLOPE_UP_LEFT: Vector2i = Vector2i(2, 0)
+## 22.5° slopes, two tiles each: rising to the right, the LOW tile then the HIGH one;
+## rising to the left, the HIGH tile then the LOW one.
+const GENTLE_UP_RIGHT_LOW: Vector2i = Vector2i(3, 0)
+const GENTLE_UP_RIGHT_HIGH: Vector2i = Vector2i(4, 0)
+const GENTLE_UP_LEFT_HIGH: Vector2i = Vector2i(5, 0)
+const GENTLE_UP_LEFT_LOW: Vector2i = Vector2i(6, 0)
+## The solid part of each tile, px from its top-left corner (y down), walked
+## clockwise on screen like every ice outline. Every corner is on a 4 px grid, which
+## is what lets the outline tracer cancel the edges two tiles share.
+const TILE_SHAPES: Dictionary = {
+	ICE_TILE: [Vector2(0, 0), Vector2(8, 0), Vector2(8, 8), Vector2(0, 8)],
+	SLOPE_UP_RIGHT: [Vector2(8, 0), Vector2(8, 8), Vector2(0, 8)],
+	SLOPE_UP_LEFT: [Vector2(0, 0), Vector2(8, 8), Vector2(0, 8)],
+	GENTLE_UP_RIGHT_LOW: [Vector2(8, 4), Vector2(8, 8), Vector2(0, 8)],
+	GENTLE_UP_RIGHT_HIGH: [Vector2(0, 4), Vector2(8, 0), Vector2(8, 8), Vector2(0, 8)],
+	GENTLE_UP_LEFT_HIGH: [Vector2(0, 0), Vector2(8, 4), Vector2(8, 8), Vector2(0, 8)],
+	GENTLE_UP_LEFT_LOW: [Vector2(0, 4), Vector2(8, 8), Vector2(0, 8)],
+}
+## The outline tracer splits straight edges into pieces this long (px), so a full
+## tile's side and a half-height slope's side cancel where they touch.
+const EDGE_PIECE: int = 4
+
+
+## The solid polygon of the tile at `atlas` (TILE_SHAPES; the full tile for any other).
+static func get_tile_shape(atlas: Vector2i) -> PackedVector2Array:
+	return PackedVector2Array(TILE_SHAPES.get(atlas, TILE_SHAPES[ICE_TILE]))
 
 ## Draws the glass look (a child: the layer's own drawing is its hidden tiles).
 var look_node: Node2D
@@ -58,30 +95,37 @@ func _draw_look() -> void:
 		look.draw(look_node)
 
 
-## The outline of every connected patch of painted ice (local px): the boundary edges
-## of its tiles (the sides with no ice tile next to them), each walked clockwise
-## around its tile, linked end to start into closed loops. Loops that wind the other
-## way are holes, left out (a hole in painted ice draws filled; collision is right).
+## The outline of every connected patch of painted ice (local px). Every tile's
+## polygon (TILE_SHAPES) is walked clockwise as EDGES (straight ones cut into
+## EDGE_PIECE px pieces); an edge two tiles share is walked once each way, so the
+## pair cancels and only the patch's boundary is left. Those edges are linked end to
+## start into closed loops. Loops that wind the other way are holes, left out (a
+## hole in painted ice draws filled; collision is right).
 func _trace_patches() -> Array[PackedVector2Array]:
-	var size: Vector2 = Vector2(tile_set.tile_size)
-	var used: Dictionary = {}
+	var tile_px: Vector2i = tile_set.tile_size
+	# Every boundary edge as Vector4i(from.x, from.y, to.x, to.y), in whole px.
+	var edges: Dictionary = {}
 	for cell: Vector2i in get_used_cells():
-		used[cell] = true
+		var shape: PackedVector2Array = get_tile_shape(get_cell_atlas_coords(cell))
+		var origin: Vector2i = cell * tile_px
+		for index: int in shape.size():
+			var from: Vector2i = origin + Vector2i(shape[index])
+			var to: Vector2i = origin + Vector2i(shape[(index + 1) % shape.size()])
+			var pieces: int = 1
+			if from.x == to.x or from.y == to.y:
+				pieces = maxi(1, floori((absi(to.x - from.x) + absi(to.y - from.y)) / float(EDGE_PIECE)))
+			for piece: int in pieces:
+				var piece_from: Vector2i = from + Vector2i((Vector2(to - from) * piece / pieces).round())
+				var piece_to: Vector2i = from + Vector2i((Vector2(to - from) * (piece + 1) / pieces).round())
+				var reverse: Vector4i = Vector4i(piece_to.x, piece_to.y, piece_from.x, piece_from.y)
+				if edges.has(reverse):
+					edges.erase(reverse)  # shared with the tile next door: inside the patch
+				else:
+					edges[Vector4i(piece_from.x, piece_from.y, piece_to.x, piece_to.y)] = true
 	# Corner -> the corners the boundary goes on to from there.
 	var next_corners: Dictionary = {}
-	for cell: Vector2i in used:
-		var top_left: Vector2i = cell
-		var top_right: Vector2i = cell + Vector2i(1, 0)
-		var bottom_right: Vector2i = cell + Vector2i(1, 1)
-		var bottom_left: Vector2i = cell + Vector2i(0, 1)
-		if not used.has(cell + Vector2i.UP):
-			_add_edge(next_corners, top_left, top_right)
-		if not used.has(cell + Vector2i.RIGHT):
-			_add_edge(next_corners, top_right, bottom_right)
-		if not used.has(cell + Vector2i.DOWN):
-			_add_edge(next_corners, bottom_right, bottom_left)
-		if not used.has(cell + Vector2i.LEFT):
-			_add_edge(next_corners, bottom_left, top_left)
+	for edge: Vector4i in edges:
+		_add_edge(next_corners, Vector2i(edge.x, edge.y), Vector2i(edge.z, edge.w))
 	var loops: Array[PackedVector2Array] = []
 	while not next_corners.is_empty():
 		var start: Vector2i = next_corners.keys()[0]
@@ -92,7 +136,7 @@ func _trace_patches() -> Array[PackedVector2Array]:
 			var next: Vector2i = onward.pop_back()
 			if onward.is_empty():
 				next_corners.erase(corner)
-			loop.append(Vector2(corner) * size)
+			loop.append(Vector2(corner))
 			corner = next
 			if corner == start:
 				break

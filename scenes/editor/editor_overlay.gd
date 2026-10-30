@@ -32,6 +32,9 @@ const SPAWN_COLOR: Color = Color(0.3, 0.85, 0.4)
 const HOVER_COLOR: Color = Color(1.0, 1.0, 1.0, 0.8)
 ## Yellow: stands out against every placeholder color in GAME_DESIGN.md §2.
 const SELECTED_COLOR: Color = Color(1.0, 0.85, 0.2)
+## A selected sentry's sight range: a faint purple disc with a slightly stronger rim.
+const SIGHT_FILL_COLOR: Color = Color(0.5, 0.24, 0.7, 0.08)
+const SIGHT_RING_COLOR: Color = Color(0.6, 0.35, 0.85, 0.35)
 const HANDLE_FILL_COLOR: Color = Color(0.1, 0.1, 0.12)
 ## The eraser outlines what it would remove in red.
 const ERASER_HOVER_COLOR: Color = Color(1.0, 0.35, 0.3, 0.95)
@@ -125,6 +128,12 @@ func _draw() -> void:
 	if selected != null and is_instance_valid(selected) and selected.is_inside_tree():
 		draw_rect(PaletteCatalog.get_bounds(selected).grow(OUTLINE_MARGIN), SELECTED_COLOR, false, -1.0)
 		_draw_handles(selected)
+		# A selected sentry shows how far it can see: a faint purple circle around its eye.
+		var selected_sentry: Sentry = selected as Sentry
+		if selected_sentry != null:
+			var eye: Vector2 = selected_sentry.get_eye_position()
+			draw_circle(eye, selected_sentry.sight_range, SIGHT_FILL_COLOR)
+			draw_arc(eye, selected_sentry.sight_range, 0.0, TAU, 96, SIGHT_RING_COLOR, -1.0)
 
 	if editor.preview_active:
 		draw_rect(editor.preview_rect, editor.preview_color)

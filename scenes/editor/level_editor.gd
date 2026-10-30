@@ -781,7 +781,7 @@ func _stroke_cell(cell: Vector2i) -> void:
 func _brush_for(entry: PaletteCatalog.Entry) -> TileBrush:
 	if not brushes.has(entry.id):
 		brushes[entry.id] = TileBrush.new(entry.layer_name, entry.tile_set, entry.layer_script,
-			entry.tile_plain, entry.tile_top_edge)
+			entry.tile_plain, entry.tile_top_edge, entry.tile_odd_column)
 	return brushes[entry.id]
 
 
@@ -1090,6 +1090,8 @@ func get_grounded_position(node: Node2D, room: Room, from_mount: bool = false) -
 	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(node)
 	if entry == null or not entry.snaps_to_ground or room == null:
 		return node.position
+	if node is Sentry and not from_mount:
+		return _snap_sentry_to_nearest_wall(node as Sentry, room)
 	var outline: Rect2 = PaletteCatalog.get_local_bounds(node)
 	outline.position += node.position
 	var hangs: bool = entry.hang_property != &"" and bool(node.get(entry.hang_property))
@@ -1113,10 +1115,75 @@ func get_grounded_position(node: Node2D, room: Room, from_mount: bool = false) -
 	return node.position
 
 
+## A sentry bolts itself to the surface closest to its middle: floor, ceiling or a
+## side wall. Every surface on the column and row through its middle is a candidate
+## (a free cell next to a solid one); a candidate counts only if the 2x2-tile body
+## fits there without overlapping any tile, and the closest one wins (ties: floor,
+## ceiling, left wall, right wall). Sets mounted_on_ceiling / wall_side to match and
+## returns the position (room-local) that puts the body flush against the surface.
+## No candidate fits: it stays as it is.
+func _snap_sentry_to_nearest_wall(sentry: Sentry, room: Room) -> Vector2:
+	var outline: Rect2 = PaletteCatalog.get_local_bounds(sentry)
+	outline.position += sentry.position
+	var center: Vector2 = outline.get_center()
+	var size: Vector2 = sentry.body_size
+	var room_size: Vector2i = room_cell_rect(room).size
+	var column: int = clampi(floori(center.x / TILE), 0, room_size.x - 1)
+	var row: int = clampi(floori(center.y / TILE), 0, room_size.y - 1)
+	var side_y: float = snappedf(center.y, TILE)
+	var side_x: float = snappedf(sentry.position.x, TILE)
+	# Each candidate: [origin, body rectangle, ceiling?, wall_side].
+	var candidates: Array = []
+	for y: int in range(1, room_size.y - 1):
+		if _is_solid_cell(room, Vector2i(column, y)) and not _is_solid_cell(room, Vector2i(column, y - 1)):
+			var floor_origin: Vector2 = Vector2(side_x, y * TILE)
+			candidates.append([floor_origin, Rect2(floor_origin + Vector2(-size.x / 2.0, -size.y), size), false, 0])
+		if _is_solid_cell(room, Vector2i(column, y - 1)) and not _is_solid_cell(room, Vector2i(column, y)):
+			var ceiling_origin: Vector2 = Vector2(side_x, y * TILE)
+			candidates.append([ceiling_origin, Rect2(ceiling_origin + Vector2(-size.x / 2.0, 0.0), size), true, 0])
+	for x: int in range(1, room_size.x - 1):
+		if _is_solid_cell(room, Vector2i(x - 1, row)) and not _is_solid_cell(room, Vector2i(x, row)):
+			var left_origin: Vector2 = Vector2(x * TILE, side_y)
+			candidates.append([left_origin, Rect2(left_origin + Vector2(0.0, -size.y / 2.0), size), false, -1])
+		if _is_solid_cell(room, Vector2i(x, row)) and not _is_solid_cell(room, Vector2i(x - 1, row)):
+			var right_origin: Vector2 = Vector2(x * TILE, side_y)
+			candidates.append([right_origin, Rect2(right_origin + Vector2(-size.x, -size.y / 2.0), size), false, 1])
+	var best: Array = []
+	var best_distance: float = INF
+	for candidate: Array in candidates:
+		var body: Rect2 = candidate[1]
+		if not _is_body_free(room, body, room_size):
+			continue
+		var distance: float = body.get_center().distance_to(center)
+		if distance < best_distance:
+			best_distance = distance
+			best = candidate
+	if best.is_empty():
+		return sentry.position
+	sentry.mounted_on_ceiling = best[2]
+	sentry.wall_side = best[3]
+	return best[0]
+
+
+## True if `body` (room-local pixels) lies inside the room and covers no solid cell.
+func _is_body_free(room: Room, body: Rect2, room_size: Vector2i) -> bool:
+	var first: Vector2i = Vector2i((body.position / TILE).floor())
+	var last: Vector2i = Vector2i(((body.end - Vector2.ONE * 0.01) / TILE).floor())
+	if first.x < 0 or first.y < 0 or last.x >= room_size.x or last.y >= room_size.y:
+		return false
+	for y: int in range(first.y, last.y + 1):
+		for x: int in range(first.x, last.x + 1):
+			if _is_solid_cell(room, Vector2i(x, y)):
+				return false
+	return true
+
+
 ## True if any terrain layer of `room` has a tile at `cell`.
 func _is_solid_cell(room: Room, cell: Vector2i) -> bool:
 	for child: Node in room.get_children():
 		var layer: TileMapLayer = child as TileMapLayer
+		if layer is HiddenLayer:
+			continue  # a hidden chamber is open space (a gap in the wall), not a surface
 		if layer != null and layer.get_cell_source_id(cell) != -1:
 			return true
 	return false

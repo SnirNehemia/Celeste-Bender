@@ -15,7 +15,7 @@
 [ext_resource type="PackedScene" path="res://scenes/objects/water/water_sink.tscn" id="13_e7lb1"]
 
 [node name="RoomWaterE" type="Node2D" unique_id=558740154]
-editor_description = "Stage W5 freeze and ice: 2 freezes the water you hold, else your last throw while it glints (a ring over your head runs down), else throws an ice crystal (tap: at once in the arrow direction; hold: aim in slow motion). Freeze a thrown ball into a step to the ledge; freeze the pool and long-jump the spikes off the ice; freeze a snake into a pillar to climb the shelf; freeze the waterfall and the stream."
+editor_description = "Stage W5 freeze and ice: 2 freezes the water you hold, else your last throw while it glints (a ring over your head runs down), else makes a snow puff whose flakes freeze the water they touch (tap: around you; hold: aim a toss in slow motion; wholly under water: an ice ball you float up in, 2 again shatters it). Freeze a thrown ball into a step to the ledge; freeze the pool and long-jump the spikes off the ice; freeze a snake into a pillar to climb the shelf; freeze the waterfall and the stream."
 script = ExtResource("1_vsyue")
 display_title = "Water E: freeze and ice (W5)"
 room_size = Vector2(640, 180)

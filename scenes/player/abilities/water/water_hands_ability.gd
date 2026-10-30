@@ -427,8 +427,8 @@ func _on_left_pool() -> void:
 	var tuning: WaterTuning = player.water_tuning
 	var local_ball: Vector2 = world.to_local(ball_position)
 	var surface_y: float = world.get_surface_y_at(local_ball)
-	if is_nan(surface_y):
-		return
+	if is_nan(surface_y) or world.is_black_at(local_ball):
+		return  # no pool, or black water (Stage W7a): no snake rises from ink
 	var surface_point: Vector2 = world.to_global(Vector2(local_ball.x, surface_y))
 	var is_gentle: bool = tuning.snake_trigger == WaterTuning.SnakeTrigger.GENTLE
 	if is_snake_ready() or (is_gentle and -ball_velocity.y <= tuning.snake_max_rise_speed):

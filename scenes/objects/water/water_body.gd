@@ -49,6 +49,9 @@ extends RefCounted
 const NO_CEILING: float = -1.0e9
 ## Water shallower than this, px, counts as a dry column (drawing, trimming).
 const DRY_DEPTH: float = 0.01
+## Surface tension holds a thin film only where the next column's floor is at most
+## this much lower, px: on a slope the film runs downhill.
+const DOWNHILL_SLACK: float = 0.1
 ## A column whose ceiling is within this many px of its floor is FROZEN THROUGH (an
 ## ice sheet down to the floor, Stage W5): no water flows into or out of it.
 const FROZEN_GAP: float = 0.05
@@ -78,6 +81,13 @@ var spilled_left: float = 0.0
 var spilled_right: float = 0.0
 ## A calm body sleeps: WaterWorld skips its step until something wakes it.
 var is_asleep: bool = false
+## BLACK WATER (Stage W7a): inky water that kills the player, can't be gathered or
+## frozen. It's simulated like any water (waves, floating); only WaterWorld reads
+## this flag. Black wins: a body that takes in any black water turns black.
+var is_black: bool = false
+## A FLOW current zone drove this body's water this frame (Stage W7b): it never falls
+## asleep while one does. Set by WaterWorld._apply_currents every frame.
+var is_in_current: bool = false
 
 
 # --- Building -----------------------------------------------------------------------
@@ -126,6 +136,7 @@ func absorb_on_right(other: WaterBody) -> void:
 		var joint_column: int = get_column_count() - other.get_column_count() - 1
 		depth[joint_column] += spilled_right / column_width
 	spilled_right = other.spilled_right
+	is_black = is_black or other.is_black  # ink spreads through the joined water
 	is_asleep = false
 
 
@@ -363,13 +374,15 @@ func step_flow(delta: float, gravity: float, max_wave_depth: float, damping: flo
 			# water ABOVE a step's edge can go over it (without this, momentum would
 			# carry a tank's water over its lip until the tank is below the lip).
 			# Surface tension: a film no deeper than min_depth doesn't creep onto a
-			# column that's just as thin (where a puddle stops spreading).
-			if left_depth <= min_depth and right_depth < min_depth:
+			# column that's just as thin (where a puddle stops spreading), on LEVEL
+			# ground. Downhill it runs on (a film on a slope, Stage W7a slope tiles,
+			# drains into the pool below instead of sticking to the slope).
+			if left_depth <= min_depth and right_depth < min_depth and floors[i + 1] <= floors[i] + DOWNHILL_SLACK:
 				new_flow = 0.0
 			elif floors[i + 1] < floors[i]:
 				new_flow = minf(new_flow, maxf(0.0, floors[i + 1] - left_surface) / delta)
 		elif new_flow < 0.0:
-			if right_depth <= min_depth and left_depth < min_depth:
+			if right_depth <= min_depth and left_depth < min_depth and floors[i] <= floors[i + 1] + DOWNHILL_SLACK:
 				new_flow = 0.0
 			elif floors[i] < floors[i + 1]:
 				new_flow = maxf(new_flow, -maxf(0.0, floors[i] - right_surface) / delta)

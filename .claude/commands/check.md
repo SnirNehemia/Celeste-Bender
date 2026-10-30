@@ -4,6 +4,7 @@ description: Import the project and run every smoke test that exists, report PAS
 
 Run the full health check **through the `test-runner` agent** (Agent tool, `subagent_type: "test-runner"`), so the test output stays out of this conversation. It already knows the Godot path and the list of smoke tests (Air, Earth, Earth chapter, Fire, Fire chapter once it exists, editor).
 
+0. If `$ARGUMENTS` is empty or says "changed"/"relevant", first ask the `test-selector` agent (`subagent_type: "test-selector"`) which tests the current change needs, and pass its list to `test-runner`. Say "all" in `$ARGUMENTS` to skip this and run everything.
 1. Prompt it: "Run the import check and all smoke tests that exist; report the table and every ERROR/SCRIPT ERROR line." If I named specific tests in `$ARGUMENTS`, pass only those.
 2. Relay its table to me: test, PASS/FAIL, and for failures the first failing line.
 3. Never say "all good" if its report quotes any ERROR / SCRIPT ERROR line, even when the test printed PASS. Quote the line.

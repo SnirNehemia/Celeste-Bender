@@ -14,5 +14,14 @@ extends TileMapLayer
 ## The tileset is made by tools/build_water_rooms.gd (only when missing).
 
 const TILESET_PATH: String = "res://resources/tiles/water_tileset.tres"
-## The single tile of the water tileset.
+## The clean water tile.
 const WATER_TILE: Vector2i = Vector2i(0, 0)
+## BLACK WATER (Stage W7a): the same water, inky. Each connected patch of it becomes
+## a black body (WaterBody.is_black): it kills the player, can't be gathered or
+## frozen. Paint it apart from clean water: touching pools join, and black wins.
+const BLACK_TILE: Vector2i = Vector2i(1, 0)
+
+
+## Is the painted tile at `cell` black water?
+func is_black_cell(cell: Vector2i) -> bool:
+	return get_cell_atlas_coords(cell) == BLACK_TILE

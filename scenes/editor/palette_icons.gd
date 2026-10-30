@@ -106,11 +106,35 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 0, 3, 10, 7, DARK_GRAY)
 			_rect(image, 1, 4, 8, 5, WATER_BLUE)
 			_rect(image, 1, 4, 8, 1, FOAM_BLUE)
+		&"black_water":
+			# A pool of ink with an oily violet surface line.
+			_rect(image, 0, 3, 10, 7, DARK_GRAY)
+			_rect(image, 1, 4, 8, 5, Color("#2A2236"))
+			_rect(image, 1, 4, 8, 1, Color("#6B5A80"))
+		&"ice":
+			_rect(image, 0, 2, 10, 8, CYAN)
+			_rect(image, 0, 2, 10, 1, WHITE)
+		&"ice_slope_up_right", &"ice_slope_up_left", &"gentle_ice_slope_up_right", &"gentle_ice_slope_up_left":
+			# The slope as a staircase of ice columns, rising toward its high side.
+			var rises_right: bool = entry.id == &"ice_slope_up_right" or entry.id == &"gentle_ice_slope_up_right"
+			var steep: bool = entry.id == &"ice_slope_up_right" or entry.id == &"ice_slope_up_left"
+			for column: int in SIZE:
+				var from_low: int = column if rises_right else SIZE - 1 - column
+				var height: int = from_low + 1 if steep else floori(from_low / 2.0) + 1
+				_rect(image, column, SIZE - height, 1, height, CYAN)
+				_rect(image, column, SIZE - height, 1, 1, WHITE)
 		&"water_source":
 			# A spout pouring a stream of water.
 			_rect(image, 2, 1, 6, 2, DARK_GRAY)
 			_rect(image, 4, 3, 2, 7, WATER_BLUE)
 			_rect(image, 4, 3, 2, 1, FOAM_BLUE)
+		&"current_zone":
+			# Water with two streaks running right: a current.
+			_rect(image, 0, 2, 10, 7, WATER_BLUE)
+			_rect(image, 0, 2, 10, 1, FOAM_BLUE)
+			_rect(image, 2, 4, 5, 1, FOAM_BLUE)
+			_rect(image, 6, 3, 1, 3, FOAM_BLUE)
+			_rect(image, 1, 7, 4, 1, FOAM_BLUE)
 		&"water_sink":
 			# A dark grate with light bars.
 			_rect(image, 1, 3, 8, 5, DARK_GRAY)
@@ -163,6 +187,14 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"pressure_plate":
 			_rect(image, 1, 7, 8, 2, TAN)
 			_rect(image, 0, 9, 10, 1, DARK_GRAY)
+		&"step_pad":
+			_rect(image, 1, 7, 8, 2, TAN)
+			_rect(image, 0, 9, 10, 1, DARK_GRAY)
+			_rect(image, 4, 2, 2, 3, WHITE)  # a footstep arrow
+			_rect(image, 3, 4, 4, 1, WHITE)
+		&"switch_wall":
+			_rect(image, 1, 0, 8, 10, GRAY)
+			_rect(image, 4, 0, 1, 10, BLUE_GRAY)
 		&"windmill":
 			_rect(image, 4, 1, 2, 8, YELLOW)
 			_rect(image, 1, 4, 8, 2, YELLOW)

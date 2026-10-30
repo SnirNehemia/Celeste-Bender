@@ -56,7 +56,7 @@ func physics_update(delta: float) -> void:
 		transition_requested.emit(&"WaterHolding")
 		return
 	if player.try_start_freeze():
-		transition_requested.emit(&"GustAim")
+		transition_requested.emit(player.get_freeze_start_state())
 		return
 	if not player.is_on_floor():
 		# Off the end or off a ramp's lip: the velocity carries on.

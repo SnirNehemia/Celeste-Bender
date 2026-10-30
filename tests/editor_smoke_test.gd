@@ -486,7 +486,7 @@ func _check_l4_air_objects() -> void:
 		if entry.element == "Air" and entry.family != "Enemies":
 			air_ids.append(entry.id)
 	_check(air_ids == [&"wind_zone", &"wind_crystal", &"gust_diamond", &"crate", &"windmill", &"leaf_platform",
-		&"sail_platform", &"door", &"pressure_plate", &"no_glide_zone"], "Air has all ten objects, got %s" % [air_ids])
+		&"sail_platform", &"door", &"pressure_plate", &"step_pad", &"switch_wall", &"no_glide_zone"], "Air has all twelve objects, got %s" % [air_ids])
 
 	var path: String = LevelStorage.create_level("Air Level")
 	LevelEditor.path_to_open = path
@@ -507,7 +507,7 @@ func _check_l4_air_objects() -> void:
 		&"wind_zone": Vector2i(5, 5), &"wind_crystal": Vector2i(20, 10), &"gust_diamond": Vector2i(22, 10),
 		&"crate": Vector2i(10, 20), &"windmill": Vector2i(33, 12), &"leaf_platform": Vector2i(15, 12),
 		&"sail_platform": Vector2i(26, 5), &"door": Vector2i(30, 10), &"pressure_plate": Vector2i(25, 20),
-		&"no_glide_zone": Vector2i(12, 2),
+		&"no_glide_zone": Vector2i(12, 2), &"step_pad": Vector2i(8, 20), &"switch_wall": Vector2i(18, 14),
 	}
 	var placed: Dictionary = {}
 	var all_found: bool = true
@@ -521,7 +521,7 @@ func _check_l4_air_objects() -> void:
 		if not found:
 			print("    %s: not found under its own outline %s" % [id, outline])
 		all_found = all_found and found
-	_check(all_found, "all ten Air objects are placed, recognised and picked under the mouse")
+	_check(all_found, "all twelve Air objects are placed, recognised and picked under the mouse")
 
 	# Where they land: outlines snapped to the grid, the way each object stands.
 	_check((placed[&"crate"] as Node2D).position == Vector2(88, 168), "the crate stands on the floor, its 2-tile width on tile lines, got %s" % (placed[&"crate"] as Node2D).position)
@@ -951,13 +951,17 @@ func _check_l7_map() -> void:
 	_check(goal.global_position == goal_level_position, "its goal stays where it was in the level")
 	_check(room3_tiles.get_used_cells().size() == tile_count and room3_tiles.get_cell_source_id(Vector2i(10, 0)) != -1
 		and room3_tiles.get_cell_source_id(Vector2i(0, 0)) == -1, "its tiles too (the old left wall is 10 cells in now)")
+	var stray_crate: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room3, Vector2i(45, 20)) as Crate
 	var narrower: Rect2 = map.snap_resized(MapView.room_rect(room3), MapView.EDGE_RIGHT, Vector2(560, 250), room3, 0.0)
 	_check(map.set_room_rect(room3, narrower) and room3.room_size.x == 320.0, "the right edge shrinks it to 320")
 	var max_x: int = 0
 	for cell: Vector2i in room3_tiles.get_used_cells():
 		max_x = maxi(max_x, cell.x)
 	_check(max_x < 40, "tiles left outside are cut off, rightmost cell %d" % max_x)
+	_check(stray_crate.get_parent() == null, "an object left outside the smaller room is erased")
+	_check(goal.get_parent() == room3, "objects still inside stay")
 	editor.undo()
+	_check(stray_crate.get_parent() == room3, "undo brings the erased object back")
 	_check(room3.room_size.x == 400.0 and room3_tiles.get_cell_source_id(Vector2i(49, 0)) != -1, "undo brings size and tiles back")
 
 	# The start room.
@@ -1480,9 +1484,18 @@ func _check_l10b_followups() -> void:
 	_check(editor.ui.palette.size.y <= editor.ui.get_viewport().get_visible_rect().size.y - 2.0 * EditorUI.BAR_HEIGHT + 0.5,
 		"the palette ends above the status line, got %.0f" % editor.ui.palette.size.y)
 
-	# Sentries snap to the ground below, or to the ceiling when hanging.
-	var sentry: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(30, 8)) as Sentry
-	_check(PaletteCatalog.get_bounds(sentry).end.y == room.global_position.y + 168.0, "a sentry placed in mid-air drops onto the floor")
+	# Sentries bolt themselves to the nearest wall: floor, ceiling or a side wall.
+	var sentry: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(20, 16)) as Sentry
+	_check(PaletteCatalog.get_bounds(sentry).end.y == room.global_position.y + 168.0, "a sentry placed in mid-air nearer the floor drops onto the floor")
+	var ceiling_sentry: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(20, 3)) as Sentry
+	_check(ceiling_sentry.mounted_on_ceiling and PaletteCatalog.get_bounds(ceiling_sentry).position.y == room.global_position.y + 8.0, "nearer the ceiling, it hangs from it")
+	editor.delete_object(ceiling_sentry)
+	var wall_sentry: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(2, 10)) as Sentry
+	_check(wall_sentry.wall_side == -1 and PaletteCatalog.get_bounds(wall_sentry).position.x == room.global_position.x + 8.0, "nearer the left wall, it sits on it")
+	editor.delete_object(wall_sentry)
+	var embedded: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(20, 0)) as Sentry
+	_check(embedded.mounted_on_ceiling and PaletteCatalog.get_bounds(embedded).position.y == room.global_position.y + 8.0, "clicked inside the ceiling tiles, it still hangs flush under them")
+	editor.delete_object(embedded)
 	var on_floor_tile: Sentry = editor.place_object(PaletteCatalog.get_entry(&"sentry"), room, Vector2i(10, 21)) as Sentry
 	_check(PaletteCatalog.get_bounds(on_floor_tile).end.y == room.global_position.y + 168.0, "one placed by clicking the floor tile stands on it")
 	editor.delete_object(on_floor_tile)

@@ -77,6 +77,10 @@ var import_picker: RoomImportPicker
 var key_hints: String = TERRAIN_HINTS + "    " + COMMON_HINTS
 ## Palette button per entry id, to show which one is chosen.
 var palette_buttons: Dictionary = {}
+## menu_group name -> Array of its entries, and -> the one Button that opens its list.
+var menu_groups: Dictionary = {}
+var menu_group_buttons: Dictionary = {}
+var menu_group_button_group: ButtonGroup = null
 ## The second buttons of entries shown in more than one tab (catalog `extra_tabs`):
 ## entry id -> Array of Buttons. They're pressed together with the main one.
 var extra_palette_buttons: Dictionary = {}
@@ -206,6 +210,17 @@ func show_chosen_entry(entry: PaletteCatalog.Entry, fill_terrain: PaletteCatalog
 		(palette_buttons[id] as Button).set_pressed_no_signal(pressed)
 		for extra_button: Button in extra_palette_buttons.get(id, []):
 			extra_button.set_pressed_no_signal(pressed)
+	# A group's button stands for whichever of its entries is chosen: pressed, and
+	# showing that entry's picture.
+	for group_name: String in menu_group_buttons:
+		var group_button: Button = menu_group_buttons[group_name]
+		var holds_chosen: bool = false
+		for member: PaletteCatalog.Entry in menu_groups[group_name]:
+			holds_chosen = holds_chosen or member.id == entry.id or (fill_terrain != null and member.id == fill_terrain.id)
+			if member.id == entry.id:
+				group_button.icon = PaletteIcons.get_icon(member)
+		group_button.set_pressed_no_signal(holds_chosen)
+		group_button.set_meta(&"chosen", holds_chosen)
 	match entry.kind:
 		PaletteCatalog.Kind.TERRAIN:
 			set_tool("Brush: " + entry.display_name)
@@ -356,7 +371,11 @@ func _build_palette(column: VBoxContainer) -> void:
 		lists.add_child(entry_list)
 		family_lists[family] = entry_list
 
+	menu_group_button_group = entry_group
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+		if entry.menu_group != "":
+			_add_to_menu_group(entry)
+			continue
 		if entry.family != "":
 			(family_lists[entry.family] as VBoxContainer).add_child(_make_entry_button(entry, entry_group))
 			# Its other tabs get a button of their own (made after the main one, so
@@ -371,6 +390,38 @@ func _build_palette(column: VBoxContainer) -> void:
 			if not extra_buttons.is_empty():
 				extra_palette_buttons[entry.id] = extra_buttons
 	show_family(PaletteCatalog.get_families()[0])
+
+
+## Entries with a `menu_group` share one button, made for the first of them: it drops
+## down a list of the group (clicking a row chooses that entry). The others get no
+## button of their own, so palette_buttons holds only the group's first entry.
+func _add_to_menu_group(entry: PaletteCatalog.Entry) -> void:
+	if menu_groups.has(entry.menu_group):
+		(menu_groups[entry.menu_group] as Array).append(entry)
+		palette_buttons[entry.id] = menu_group_buttons[entry.menu_group]  # the group's one button
+		return
+	menu_groups[entry.menu_group] = [entry]
+	var button: Button = _make_entry_button(entry, menu_group_button_group)
+	button.text = entry.menu_group + " ▾"  # the name and a little down arrow
+	button.tooltip_text = "Click for a list of the %ss.\n" % entry.menu_group.to_lower() + button.tooltip_text
+	# The helper wired it to choose `entry`; open the list instead.
+	for connection: Dictionary in button.pressed.get_connections():
+		button.pressed.disconnect(connection["callable"])
+	button.pressed.connect(_open_menu_group.bind(entry.menu_group, button))
+	menu_group_buttons[entry.menu_group] = button
+	(family_lists[entry.family] as VBoxContainer).add_child(button)
+
+
+func _open_menu_group(group_name: String, button: Button) -> void:
+	var members: Array = menu_groups[group_name]
+	var rows: Array[String] = []
+	for member: PaletteCatalog.Entry in members:
+		rows.append(member.display_name)
+	# A toggle button flips itself when clicked: put it back until a row is chosen.
+	button.set_pressed_no_signal(bool(button.get_meta(&"chosen", false)))
+	var rect: Rect2 = button.get_global_rect()
+	show_menu(rows, Vector2(rect.end.x, rect.position.y),
+		func(row: int) -> void: entry_chosen.emit(members[row]))
 
 
 func _make_entry_button(entry: PaletteCatalog.Entry, group: ButtonGroup) -> Button:
