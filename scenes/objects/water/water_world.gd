@@ -1915,9 +1915,12 @@ func _update_end(body: WaterBody, at_left: bool) -> void:
 	# end is lower, but no lower than a spill), so drops landing on a slope tile run
 	# down it instead of sticking as tiny puddles.
 	var is_open: bool = not is_solid_px(outside_x, probe_y)
-	var outside_floor: float = floor_below(outside_x, probe_y) if is_open else 0.0
+	# SPEED: floor_below walks the rows down; a dry end (a pool's freshly grown
+	# 0-depth column, the most common end) can't flow either way, so skip it.
+	var is_wet_end: bool = body.depth[end_column] > WaterBody.DRY_DEPTH
+	var outside_floor: float = floor_below(outside_x, probe_y) if is_open and is_wet_end else 0.0
 	var drop_outside: float = outside_floor - body.floor_y[end_column]
-	var runs_downhill: bool = is_open and body.depth[end_column] > WaterBody.DRY_DEPTH \
+	var runs_downhill: bool = is_open and is_wet_end \
 		and drop_outside > WaterBody.DOWNHILL_SLACK and drop_outside <= water_tuning.spill_drop
 	if is_open and (body.depth[end_column] > water_tuning.puddle_min_depth or runs_downhill):
 		if outside_floor - body.floor_y[end_column] > water_tuning.spill_drop:
