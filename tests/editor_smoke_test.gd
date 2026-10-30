@@ -12,6 +12,7 @@ extends Node
 
 const TEST_LEVELS_DIR: String = "user://editor_smoke_test_levels/"
 const TEST_PROGRESS_PATH: String = "user://editor_smoke_test_story_progress.cfg"
+const TEST_RECORD_PATH: String = "user://editor_smoke_test_playtest_record.cfg"
 const MAIN_MENU_SCENE: PackedScene = preload("res://scenes/ui/main_menu.tscn")
 const LEVEL_LIBRARY_SCENE: PackedScene = preload("res://scenes/ui/level_library.tscn")
 const LEVEL_EDITOR_SCENE: PackedScene = preload("res://scenes/editor/level_editor.tscn")
@@ -24,6 +25,7 @@ var finished_sections: Array[String] = []
 
 func _ready() -> void:
 	LevelStorage.levels_dir = TEST_LEVELS_DIR
+	PlaytestRecord.record_path = TEST_RECORD_PATH  # every play-test's deaths go there, not the real file
 	_delete_test_folder()  # leftovers from a run that crashed
 
 	_check_l1_storage()  # waits for nothing, so no await
@@ -51,10 +53,15 @@ func _ready() -> void:
 	await _check_l12_palette_tools()
 	await _check_l13_hidden_chambers()
 	await _check_l14_walls_and_peeks()
+	await _check_l15_cross_room_strokes()
+	await _check_l16_designer_tools()
+	await _check_l17_backdrops()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks"]:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECORD_PATH))
+	PlaytestRecord.record_path = PlaytestRecord.DEFAULT_RECORD_PATH
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -245,10 +252,11 @@ func _check_l2_editor() -> void:
 		"cells outside the room are ignored, and no empty undo step is made")
 
 	# A fast drag: the stroke fills the cells between two mouse positions.
+	var stroke_start: Vector2 = room.global_position + Vector2(2 * 8 + 4, 6 * 8 + 4)
 	editor.begin_stroke(room, true)
-	editor.last_stroke_cell = Vector2i(2, 6)
-	editor._stroke_cell(Vector2i(2, 6))
-	editor._continue_stroke(Vector2i(8, 6))
+	editor.last_stroke_point = stroke_start
+	editor._stamp(stroke_start)
+	editor._continue_stroke(stroke_start + Vector2(6 * 8, 0))
 	editor.end_stroke()
 	var gapless: bool = true
 	for x: int in range(2, 9):
@@ -1934,7 +1942,7 @@ func _check_l12_palette_tools() -> void:
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 		if entry.family == "":
 			tool_ids.append(entry.id)
-	_check(tool_ids == [&"select", &"eraser", &"fill"], "the tools are Select, Eraser, Fill, got %s" % [tool_ids])
+	_check(tool_ids == [&"select", &"eraser", &"brush", &"fill"], "the tools are Select, Eraser, Brush, Fill, got %s" % [tool_ids])
 	var eraser_button: Button = editor.ui.palette_buttons[&"eraser"]
 	_check(eraser_button.get_parent() is HBoxContainer and editor.ui.palette_buttons[&"select"].get_parent() == eraser_button.get_parent(),
 		"Select sits next to the Eraser, in one row")
@@ -2268,6 +2276,379 @@ func _check_l14_walls_and_peeks() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("L14 walls and peeks")
+
+
+## After L14: the brush size ([ and ]), and strokes, rectangles and the eraser
+## carrying on into the rooms next door, with the top edge read across rooms.
+func _check_l15_cross_room_strokes() -> void:
+	var path: String = LevelStorage.create_level("Cross Room Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room1: Room = editor.get_rooms()[0]
+	# One room to the right, one under it (188 tall: its grid is half a tile off room1's).
+	var right_room: Room = editor.map_view.create_room(Rect2(room1.position + Vector2(room1.room_size.x, 0), Vector2(320, 180)))
+	var below_room: Room = editor.map_view.create_room(Rect2(room1.position + Vector2(0, room1.room_size.y), Vector2(320, 188)))
+	_check(right_room != null and below_room != null, "two rooms made next to the first")
+	editor.choose_entry(PaletteCatalog.get_entry(&"ground"))
+	var tiles1: TileMapLayer = room1.get_node("Tiles") as TileMapLayer
+	var last_column: int = editor.room_cell_rect(room1).end.x - 1
+	var center: Callable = func(room: Room, cell: Vector2i) -> Vector2: return editor._cell_center(room, cell)
+	var has_tile: Callable = func(room: Room, cell: Vector2i) -> bool:
+		var layer: TileMapLayer = room.get_node_or_null("Tiles") as TileMapLayer
+		return layer != null and layer.get_cell_source_id(cell) != -1
+
+	# Keys: [ and ] are InputMap actions; the size stays between 1 and 8.
+	_check(InputMap.has_action("editor_brush_bigger") and InputMap.has_action("editor_brush_smaller"), "the brush size keys are InputMap actions")
+	editor.change_brush_size(-1)
+	_check(editor.brush_size == 1, "the brush can't get smaller than 1")
+	for _step: int in 10:
+		editor.change_brush_size(1)
+	_check(editor.brush_size == LevelEditor.MAX_BRUSH_SIZE, "nor bigger than %d" % LevelEditor.MAX_BRUSH_SIZE)
+	editor.brush_size = 1
+
+	# A free-hand drag from room1 into the right room: one stroke, both rooms, one undo.
+	var row: int = 5
+	_check(not has_tile.call(room1, Vector2i(last_column - 2, row)) and not has_tile.call(right_room, Vector2i(2, row)), "the drag's cells start empty")
+	var start: Vector2 = center.call(room1, Vector2i(last_column - 2, row))
+	editor.begin_stroke(room1, true)
+	editor.last_stroke_point = start
+	editor._stamp(start)
+	editor._continue_stroke(center.call(right_room, Vector2i(2, row)))
+	editor.end_stroke()
+	var right_tiles: TileMapLayer = right_room.get_node_or_null("Tiles") as TileMapLayer
+	_check(right_tiles != null, "the stroke made the right room's ground layer")
+	var both_painted: bool = has_tile.call(room1, Vector2i(last_column - 2, row)) and has_tile.call(room1, Vector2i(last_column - 1, row))
+	for x: int in range(0, 3):
+		both_painted = both_painted and has_tile.call(right_room, Vector2i(x, row))
+	_check(both_painted, "a drag across the border paints on in the next room")
+	editor.undo()
+	_check(not has_tile.call(room1, Vector2i(last_column - 2, row)) and not has_tile.call(right_room, Vector2i(2, row)), "one undo takes the whole drag back, in both rooms")
+	editor.redo()
+
+	# The eraser's drag crosses too.
+	editor.choose_entry(PaletteCatalog.get_entry(&"eraser"))
+	editor.erase_at(center.call(room1, Vector2i(last_column - 2, row)))
+	editor.erase_at(center.call(right_room, Vector2i(2, row)), true)
+	editor.end_stroke()
+	_check(not has_tile.call(room1, Vector2i(last_column - 2, row)) and not has_tile.call(right_room, Vector2i(1, row)), "the eraser's drag erases in both rooms")
+	editor.undo()
+	_check(has_tile.call(room1, Vector2i(last_column - 2, row)) and has_tile.call(right_room, Vector2i(1, row)), "and one undo brings both back")
+	editor.choose_entry(PaletteCatalog.get_entry(&"ground"))
+
+	# A bigger brush at the border reaches over it.
+	editor.brush_size = 3
+	var big_start: Vector2 = center.call(room1, Vector2i(last_column, 10))
+	editor.begin_stroke(room1, true)
+	editor.last_stroke_point = big_start
+	editor._stamp(big_start)
+	editor.end_stroke()
+	_check(has_tile.call(right_room, Vector2i(0, 9)) and has_tile.call(right_room, Vector2i(0, 11)) and not has_tile.call(right_room, Vector2i(1, 10)),
+		"a 3x3 brush on room1's last column paints the right room's first column")
+	_check(editor.brush_cells_at(Vector2i(10, 10)) == Rect2i(9, 9, 3, 3), "a 3x3 brush is centered on its tile")
+	editor.brush_size = 1
+
+	# A rectangle across the border fills both rooms.
+	editor.fill_rectangle(room1, Vector2i(last_column - 1, 14), Vector2i(last_column + 3, 15), true)
+	_check(has_tile.call(room1, Vector2i(last_column - 1, 14)) and has_tile.call(right_room, Vector2i(2, 15)) and not has_tile.call(right_room, Vector2i(3, 15)),
+		"a rectangle reaching past the room fills on into the next one")
+	editor.undo()
+	_check(not has_tile.call(right_room, Vector2i(2, 15)), "one undo empties it in both rooms")
+	# paint_cells stays in its room.
+	var version_before: int = editor.undo_redo.get_version()
+	editor.paint_cells(room1, [Vector2i(last_column + 2, 20)], true)
+	_check(editor.undo_redo.get_version() == version_before and not has_tile.call(right_room, Vector2i(1, 20)), "paint_cells ignores cells outside its room")
+
+	# Top edges across rooms: the room below's top row looks into room1's bottom row.
+	var bottom_row: int = editor.room_cell_rect(room1).end.y - 1
+	var plain: Vector3i = Vector3i(0, TileBrush.TILE_PLAIN.x, TileBrush.TILE_PLAIN.y)
+	var top_edge: Vector3i = Vector3i(0, TileBrush.TILE_TOP_EDGE.x, TileBrush.TILE_TOP_EDGE.y)
+	editor.paint_cells(room1, [Vector2i(5, bottom_row)], true)
+	editor.paint_cells(below_room, [Vector2i(5, 0)], true)
+	var below_tiles: TileMapLayer = below_room.get_node("Tiles") as TileMapLayer
+	_check(TileBrush.read_cell(below_tiles, Vector2i(5, 0)) == plain, "ground under room1's ground gets no top edge, though it's another room")
+	editor.paint_cells(room1, [Vector2i(5, bottom_row)], false)
+	_check(TileBrush.read_cell(below_tiles, Vector2i(5, 0)) == top_edge, "erasing room1's bottom tile gives the room below its edge")
+	editor.undo()
+	_check(TileBrush.read_cell(below_tiles, Vector2i(5, 0)) == plain and tiles1.get_cell_source_id(Vector2i(5, bottom_row)) != -1,
+		"undo puts both back")
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L15 cross-room strokes")
+
+
+## After L15: the designer's tools. Brush tool, eyedropper, palette search, quick
+## bar, Shift+Fill, copy / paste (mirrored), play-test trail and deaths, play-test
+## cheats, jump reach.
+func _check_l16_designer_tools() -> void:
+	var path: String = LevelStorage.create_level("Tools Two Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var ground: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"ground")
+	var earth: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"earth")
+	var crate_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"crate")
+	var center: Callable = func(cell: Vector2i) -> Vector2: return editor._cell_center(room, cell)
+	var tiles: TileMapLayer = room.get_node("Tiles") as TileMapLayer
+	var crates_in_room: Callable = func() -> int:
+		var count: int = 0
+		for child: Node in room.get_children():
+			count += 1 if child is Crate else 0
+		return count
+	_check(InputMap.has_action("editor_brush_tool") and InputMap.has_action("editor_pick") and InputMap.has_action("editor_paste_mirrored")
+		and InputMap.has_action("playtest_fly") and InputMap.has_action("editor_quick_9"), "the new keys are InputMap actions")
+
+	# Brush tool: from Fill straight back to painting with the last terrain.
+	editor.choose_entry(earth)
+	editor.choose_entry(PaletteCatalog.get_entry(&"fill"))
+	_check(editor.current_entry.kind == PaletteCatalog.Kind.FILL, "Fill is on")
+	editor.choose_entry(PaletteCatalog.get_entry(&"brush"))
+	_check(editor.current_entry == earth, "the Brush tool goes back to painting the last terrain (Earth), got %s" % editor.current_entry.id)
+	_check((editor.ui.palette_buttons[&"brush"] as Button).button_pressed, "the Brush button shows pressed while a terrain paints")
+
+	# Eyedropper: the object under the mouse first, else the tile's terrain.
+	var crate: Node2D = editor.place_object(crate_entry, room, Vector2i(30, 19))
+	_check(editor.pick_at(PaletteCatalog.get_bounds(crate).get_center()) == crate_entry and editor.current_entry == crate_entry, "P on a crate picks the crate")
+	_check(editor.pick_at(center.call(Vector2i(0, 10))) == ground and editor.current_entry == ground, "P on a wall picks Ground")
+	editor.undo()  # the crate
+
+	# Palette search.
+	_check(PaletteSearch.find_matches("ice slo").size() == 4, "\"ice slo\" finds the four ice slopes, got %d" % PaletteSearch.find_matches("ice slo").size())
+	editor.ui.search.search_box.text = "crate"
+	editor.ui.search._on_text_changed("crate")
+	_check(editor.ui.search.is_searching() and not editor.ui.palette_tab_grid.visible, "while searching, the matches replace the tabs")
+	editor.ui.search._on_text_submitted("crate")
+	_check(editor.current_entry == crate_entry and not editor.ui.search.is_searching() and editor.ui.palette_tab_grid.visible,
+		"Enter chooses the first match and empties the box")
+
+	# Quick bar: things land in slots and stay there; keys choose them.
+	var quick: QuickBar = editor.ui.quick_bar
+	_check(quick.slot_entries.has(ground) and quick.slot_entries.has(earth) and quick.slot_entries.has(crate_entry), "used things are in the quick bar")
+	_check(not quick.slot_entries.has(PaletteCatalog.get_entry(&"fill")), "tools aren't")
+	var earth_slot: int = quick.slot_entries.find(earth)
+	quick.choose_slot(earth_slot)
+	_check(editor.current_entry == earth and quick.slot_entries.find(earth) == earth_slot, "a slot's key chooses it, and it keeps its slot")
+	editor.choose_entry(ground)
+
+	# Shift+Fill: every matching cell of the room, connected or not.
+	editor.paint_cells(room, [Vector2i(20, 10), Vector2i(21, 10)], true, ground)  # an island
+	var earth_layer_name: StringName = earth.layer_name
+	editor.choose_entry(earth)
+	editor.choose_entry(PaletteCatalog.get_entry(&"fill"))
+	editor.fill_region(room, Vector2i(0, 10), true)
+	_check(tiles.get_cell_source_id(Vector2i(20, 10)) != -1, "a plain fill of the walls leaves the island alone")
+	editor.undo()
+	var ground_cells: int = tiles.get_used_cells().size()
+	editor.fill_region(room, Vector2i(0, 10), true, true)
+	var earth_tiles: TileMapLayer = room.get_node_or_null(NodePath(earth_layer_name)) as TileMapLayer
+	_check(tiles.get_used_cells().is_empty() and earth_tiles != null and earth_tiles.get_used_cells().size() == ground_cells,
+		"Shift+Fill turns all %d Ground tiles of the room into Earth" % ground_cells)
+	editor.undo()
+	_check(tiles.get_used_cells().size() == ground_cells, "one undo brings the Ground back")
+	editor.choose_entry(ground)
+
+	# Copy and paste: a region of tiles and a crate.
+	editor.paint_cells(room, [Vector2i(9, 8), Vector2i(10, 8), Vector2i(11, 8)], true, ground)
+	var region_crate: Node2D = editor.place_object(crate_entry, room, Vector2i(10, 7))
+	editor.region_room = room
+	editor.region_cells = Rect2i(6, 2, 8, 7)
+	_check(PaletteCatalog.get_bounds(region_crate).intersects(editor.get_region_rect()), "the crate sits in the region")
+	_check(editor.copy_region(false) and editor.clipboard.tiles.size() == 3 and editor.clipboard.objects.size() == 1,
+		"Ctrl+C copies the region's 3 tiles and its crate")
+	var crates_before: int = crates_in_room.call()
+	_check(editor.paste_at(center.call(Vector2i(24, 2)), false), "Ctrl+V pastes")
+	_check(tiles.get_cell_source_id(Vector2i(27, 8)) != -1 and tiles.get_cell_source_id(Vector2i(29, 8)) != -1 and crates_in_room.call() == crates_before + 1,
+		"the tiles and the crate land at the mouse")
+	_check(editor.region_cells == Rect2i(24, 2, 8, 7), "the pasted area becomes the region")
+	editor.undo()
+	_check(tiles.get_cell_source_id(Vector2i(27, 8)) == -1 and crates_in_room.call() == crates_before, "one undo takes the whole paste back")
+	# Mirrored: the copied row is 3 tiles from the region's left; in the mirror,
+	# its leftmost tile (offset 3) lands at offset 8 - 1 - 3 = 4.
+	editor.paint_cells(room, [Vector2i(6, 4)], true, ground)  # one tile at the region's left edge
+	editor.region_room = room
+	editor.region_cells = Rect2i(6, 2, 8, 7)
+	editor.copy_region(false)
+	editor.paste_at(center.call(Vector2i(24, 2)), true)
+	_check(tiles.get_cell_source_id(Vector2i(31, 4)) != -1 and tiles.get_cell_source_id(Vector2i(24, 4)) == -1,
+		"a mirrored paste puts the left-edge tile at the right edge")
+	editor.undo()
+	# Cut: copied, and gone from where it was.
+	editor.region_room = room
+	editor.region_cells = Rect2i(6, 2, 8, 7)
+	editor.copy_region(true)
+	_check(tiles.get_cell_source_id(Vector2i(9, 8)) == -1 and not region_crate.is_inside_tree() and editor.clipboard.objects.size() == 1,
+		"Ctrl+X copies the region and clears it")
+	editor.undo()
+	_check(tiles.get_cell_source_id(Vector2i(9, 8)) != -1 and region_crate.is_inside_tree(), "undo puts the cut back")
+	# Mirroring things with a direction: spikes facing right face left.
+	var mirror_test: EditorClipboard = EditorClipboard.new()
+	mirror_test.size_cells = Vector2i(4, 2)
+	var spikes: Spikes = PaletteCatalog.instantiate(PaletteCatalog.get_entry(&"spikes")) as Spikes
+	spikes.facing = Spikes.Facing.RIGHT
+	var mirrored_spikes: Spikes = PaletteCatalog.instantiate(PaletteCatalog.get_entry(&"spikes")) as Spikes
+	PaletteCatalog.copy_settings(spikes, mirrored_spikes)
+	mirror_test._mirror_object(mirrored_spikes, spikes, Vector2.ZERO, Vector2.ZERO)
+	_check(mirrored_spikes.facing == Spikes.Facing.LEFT, "mirrored spikes face the other way")
+	spikes.free()
+	mirrored_spikes.free()
+	_check(IceLayer.get_mirrored_tile(IceLayer.SLOPE_UP_RIGHT) == IceLayer.SLOPE_UP_LEFT
+		and IceLayer.get_mirrored_tile(IceLayer.GENTLE_UP_RIGHT_LOW) == IceLayer.GENTLE_UP_LEFT_LOW, "ice slopes mirror to the other way")
+
+	# Jump reach: a full jump rises about 30 px (PlayerTuning's own note); a glide goes further.
+	var jump_arc: PackedVector2Array = JumpReach.trace(editor.player_tuning, Vector2.ZERO, 1.0, false, 48.0)
+	var glide_arc: PackedVector2Array = JumpReach.trace(editor.player_tuning, Vector2.ZERO, 1.0, true, 48.0)
+	var jump_reach: Vector2 = JumpReach.summary(jump_arc)
+	_check(jump_reach.y > 24.0 and jump_reach.y < 36.0, "a full jump rises ~30 px, got %.1f" % jump_reach.y)
+	_check(jump_reach.x > 40.0 and glide_arc[glide_arc.size() - 1].x > jump_arc[jump_arc.size() - 1].x,
+		"it carries %.0f px across, and gliding carries further" % jump_reach.x)
+	# One gust at its best moment: back (shoves you on) and back-and-down reach further
+	# across, a down-gust rises higher.
+	var back_gust: Vector2 = JumpReach.summary(JumpReach.trace_gust(editor.player_tuning, Vector2.ZERO, 1.0, Vector2.LEFT, 48.0))
+	var diagonal_gust: Vector2 = JumpReach.summary(JumpReach.trace_gust(editor.player_tuning, Vector2.ZERO, 1.0, Vector2(-1, 1).normalized(), 48.0))
+	var down_gust: Vector2 = JumpReach.summary(JumpReach.trace_gust(editor.player_tuning, Vector2.ZERO, 1.0, Vector2.DOWN, 48.0))
+	_check(back_gust.x > jump_reach.x and diagonal_gust.x > jump_reach.x and down_gust.y > jump_reach.y,
+		"gusts reach further: back %.0f, diagonal %.0f across (jump %.0f), down %.0f up (jump %.0f)"
+		% [back_gust.x, diagonal_gust.x, jump_reach.x, down_gust.y, jump_reach.y])
+
+	# Play-test record: trail segments, deaths kept per level.
+	var record: PlaytestRecord = editor.play_record
+	record.begin_trail()
+	record.add_point(Vector2(0, 0))
+	record.add_point(Vector2(2, 0))
+	record.add_point(Vector2(200, 0))  # a respawn: a jump
+	_check(record.trail.size() == 2 and record.trail[0].size() == 2, "the trail breaks at a respawn")
+
+	# A real play-test: cheats, then a death, then the trail.
+	_check(editor.start_playtest(), "the play-test starts")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var cheats: PlaytestCheats = editor.play_cheats
+	var player: Player = editor.play_root.player
+	_check(cheats != null and cheats.get_parent() == editor.play_root, "the cheats are in the play copy")
+	cheats.set_invincible(true)
+	player.die()
+	_check(not player.is_dead(), "invincible: an ordinary death doesn't happen")
+	cheats.set_invincible(false)
+	cheats.set_flying(true)
+	_check(player.process_mode == Node.PROCESS_MODE_DISABLED and player.is_invincible, "flying: the player is out of the physics world and can't die")
+	cheats.set_flying(false)
+	_check(player.process_mode == Node.PROCESS_MODE_INHERIT and not player.is_invincible, "and back")
+	cheats.speed_index = 1
+	# process_frame fires BEFORE the nodes' _process: the second one is after the cheats ran.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(is_equal_approx(Engine.time_scale, 0.5), "slow motion: half speed, got %s" % Engine.time_scale)
+	cheats.speed_index = 0
+	cheats.set_paused(true)
+	_check(get_tree().paused, "P pauses")
+	await cheats.step_frame()
+	_check(get_tree().paused and not cheats.is_stepping, "a step lets one frame run and pauses again")
+	cheats.set_paused(false)
+	_check(not get_tree().paused, "P again resumes")
+	var deaths_before: int = record.deaths.size()
+	player.die()
+	await get_tree().physics_frame
+	_check(record.deaths.size() == deaths_before + 1, "a death in a play-test is recorded")
+	_check(not record.trail.is_empty() and record.trail[0].size() >= 1, "the play-test made a trail")
+	cheats.speed_index = 1  # left on: stop_playtest must reset it
+	editor.stop_playtest()
+	await get_tree().process_frame
+	_check(is_equal_approx(Engine.time_scale, 1.0) and not get_tree().paused, "ending the play-test switches the cheats off")
+	var reloaded: PlaytestRecord = PlaytestRecord.new()
+	reloaded.load_level(path)
+	_check(reloaded.deaths.size() == record.deaths.size(), "the deaths are saved for the level")
+	editor.play_record.clear_deaths()
+	reloaded.load_level(path)
+	_check(reloaded.deaths.is_empty(), "Ctrl+T clears them")
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("L16 designer tools")
+
+
+## Backdrops in the editor (after the backdrop play-test): selecting several rooms
+## on the map (box, Ctrl+click), setting their backdrop at once (one undo step),
+## "New room here", the backdrop preview, the scroll between looks, and every look
+## x altitude builds.
+func _check_l17_backdrops() -> void:
+	var path: String = LevelStorage.create_level("Backdrop Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var start: Room = editor.get_rooms()[0]
+	var map: MapView = editor.map_view
+	_check(InputMap.has_action("editor_backdrop_preview") and InputMap.has_action("backdrop_preview_drift"), "the backdrop keys are InputMap actions")
+	editor.toggle_map()
+	var above: Room = map.create_room(Rect2(start.position - Vector2(0, 180), Vector2(320, 180)))
+	var beside: Room = map.create_room_at(start.position + Vector2(start.room_size.x + 160, start.room_size.y / 2.0))
+	_check(beside != null and beside.room_size == MapView.MIN_ROOM_SIZE and is_equal_approx(beside.position.x, start.position.x + start.room_size.x),
+		"New room here: one screen, snapped beside its neighbour")
+	_check(above != null and above.get_backdrop_altitude(start) == Backdrop.Altitude.SKYLINE, "a room above the start is on the skyline (auto)")
+
+	# A selection box over all three, then Ctrl+click one out.
+	_check(map.select_rooms_in(MapView.room_rect(above).merge(MapView.room_rect(beside))) == 3, "a selection box selects every room it touches")
+	map.toggle_room_selected(beside)
+	_check(map.selected_rooms.size() == 2 and not map.selected_rooms.has(beside), "Ctrl+click takes a room out of the selection")
+	map.toggle_room_selected(beside)
+	editor._on_panel_property_changed(beside, &"backdrop_theme", Backdrop.Look.JUNGLE)
+	_check(start.backdrop_theme == Backdrop.Look.JUNGLE and above.backdrop_theme == Backdrop.Look.JUNGLE and beside.backdrop_theme == Backdrop.Look.JUNGLE,
+		"a room setting changed in the panel goes to every selected room")
+	editor.undo()
+	_check(start.backdrop_theme == Backdrop.Look.AUTO and above.backdrop_theme == Backdrop.Look.AUTO, "one Ctrl+Z puts them all back")
+	editor.set_rooms_property(map.selected_rooms, &"backdrop_altitude", Backdrop.Altitude.UNDERGROUND)
+	_check(above.get_backdrop_altitude(start) == Backdrop.Altitude.UNDERGROUND, "the menu's altitude row sets the selected rooms")
+	editor.undo()
+	map.select_rooms_in(Rect2(start.position - Vector2(2000, 2000), Vector2(10, 10)))
+	_check(map.selected_rooms.is_empty() and map.selected_room == null, "a box over empty space selects nothing")
+
+	# The preview: opens on the room's look; Enter (on_apply) sets it.
+	map.select_room(above)
+	editor.open_backdrop_preview()
+	var preview: BackdropPreview = editor.ui.backdrop_preview
+	_check(preview.visible and preview.on_apply.is_valid() and editor.ui.is_over_panels(Vector2.ZERO), "K opens the backdrop preview over the editor")
+	preview.on_apply.call(Backdrop.Look.VOLCANO, Backdrop.Altitude.UNDERGROUND)
+	preview.close()
+	_check(not preview.visible and above.backdrop_theme == Backdrop.Look.VOLCANO and above.backdrop_altitude == Backdrop.Altitude.UNDERGROUND,
+		"Enter in the preview sets the look and altitude of the selected room")
+	editor.toggle_map()
+	editor.queue_free()
+	await get_tree().process_frame
+
+	# The scroll: up when the altitude rises, sideways the way the player went.
+	_check(Backdrop.get_slide_direction(Backdrop.Altitude.UNDERGROUND, Backdrop.Altitude.SURFACE, Vector2(300, 0)) == Vector2.UP
+		and Backdrop.get_slide_direction(Backdrop.Altitude.SKYLINE, Backdrop.Altitude.SURFACE, Vector2.ZERO) == Vector2.DOWN
+		and Backdrop.get_slide_direction(Backdrop.Altitude.SURFACE, Backdrop.Altitude.SURFACE, Vector2(-320, 10)) == Vector2.LEFT,
+		"scrolls go up / down with the altitude, else sideways")
+	var camera: Camera2D = Camera2D.new()
+	add_child(camera)
+	var backdrop: Backdrop = Backdrop.new()
+	backdrop.camera = camera
+	add_child(backdrop)
+	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.UNDERGROUND)
+	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.SURFACE, Vector2.UP)
+	_check(backdrop.is_sliding() and backdrop.get_child_count() == 2, "a new altitude scrolls in beside the old one")
+	await get_tree().create_timer(Backdrop.SLIDE_TIME + 0.2).timeout
+	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1, "after the scroll only the new look is left")
+	backdrop.queue_free()
+	camera.queue_free()
+
+	# Every look x altitude builds layers.
+	var empty_looks: Array[String] = []
+	for look: Backdrop.Look in Backdrop.THEME_SCRIPTS.keys():
+		for altitude: Backdrop.Altitude in Backdrop.THEME_SCRIPTS[look].keys():
+			var theme: BackdropTheme = (Backdrop.THEME_SCRIPTS[look][altitude] as GDScript).new() as BackdropTheme
+			theme.build()
+			if theme.get_child_count() < 3:
+				empty_looks.append(Backdrop.describe(look, altitude))
+			theme.free()
+	_check(empty_looks.is_empty(), "every look x altitude has its layers (missing: %s)" % ", ".join(empty_looks))
+	await get_tree().process_frame
+	finished_sections.append("L17 backdrops")
 
 
 func _button_texts(page: Node) -> Array[String]:

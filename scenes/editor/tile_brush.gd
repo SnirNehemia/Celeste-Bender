@@ -14,7 +14,8 @@ extends RefCounted
 ## cell gets the top edge when the cell above it is empty. Painting or erasing a
 ## cell can change the cell below too, so the brush updates both. A tileset with
 ## one tile (earth: the GroundPainter draws the surfaces) gives the same atlas
-## cell for both, and there's nothing to pick.
+## cell for both, and there's nothing to pick. For a room's top row, "the cell
+## above" is in the room above (outside_reader, set by LevelEditor).
 ##
 ## A stroke (one press-drag-release, or one rectangle) works like this:
 ##   begin_stroke(layer)  ->  paint_cell() / erase_cell() many times  ->  end_stroke()
@@ -49,6 +50,11 @@ var tile_odd_column: Vector2i = NO_TILE
 var stroke_layer: TileMapLayer = null
 ## Old values of every cell the current stroke touched, recorded before the first change.
 var stroke_before: Dictionary = {}
+## Rooms side by side (strokes cross them): the cells inside the layer's room, and
+## func(cell) -> value that reads the same layer in the room above, for a cell just
+## outside the top. Unset (invalid Callable) = everything outside counts as empty.
+var room_cells: Rect2i = Rect2i()
+var outside_reader: Callable = Callable()
 
 
 ## The defaults are the Ground brush's: no layer script, the placeholder tiles.
@@ -61,6 +67,12 @@ func _init(new_layer_name: StringName, new_tile_set: TileSet, new_layer_script: 
 	tile_plain = new_tile_plain
 	tile_top_edge = new_tile_top_edge
 	tile_odd_column = new_tile_odd_column
+
+
+## A new brush painting the same tiles, with no stroke going: a stroke over
+## several rooms has one brush per layer it touches.
+func make_twin() -> TileBrush:
+	return TileBrush.new(layer_name, tile_set, layer_script, tile_plain, tile_top_edge, tile_odd_column)
 
 
 ## The room's layer for this brush. With `create`, makes it if missing (owned by
@@ -106,6 +118,15 @@ func erase_cell(cell: Vector2i) -> void:
 	_refresh_edge(cell + Vector2i.DOWN)  # it's now a surface
 
 
+## Sets `cell` to exactly `value` (a pasted tile), then fixes the top edges of it
+## and of the cell below, as painting would.
+func write_value(cell: Vector2i, value: Vector3i) -> void:
+	if _read(stroke_layer, cell) != value:
+		_write(cell, value)
+	_refresh_edge(cell)
+	_refresh_edge(cell + Vector2i.DOWN)
+
+
 ## Ends the stroke. Returns {"before": {cell: value}, "after": {cell: value}} for
 ## the cells that changed, or an empty Dictionary if nothing did.
 func end_stroke() -> Dictionary:
@@ -135,16 +156,30 @@ static func read_cell(layer: TileMapLayer, cell: Vector2i) -> Vector3i:
 
 
 ## Gives a ground cell the top edge if nothing is above it, the plain tile if
-## something is. Empty cells and other kinds of tiles are left alone.
+## something is. Empty cells and other kinds of tiles are left alone. Public: a
+## stroke in the room above changes what's above this room's top row.
+func refresh_edge(cell: Vector2i) -> void:
+	_refresh_edge(cell)
+
+
 func _refresh_edge(cell: Vector2i) -> void:
 	var value: Vector3i = _read(stroke_layer, cell)
 	var atlas: Vector2i = Vector2i(value.y, value.z)
 	if tile_plain == tile_top_edge or value.x != SOURCE_ID or not (atlas == tile_plain or atlas == tile_top_edge):
 		return
-	var is_surface: bool = _read(stroke_layer, cell + Vector2i.UP) == EMPTY
+	var is_surface: bool = _read_above(cell) == EMPTY
 	var wanted: Vector2i = tile_top_edge if is_surface else tile_plain
 	if wanted != atlas:
 		_write(cell, Vector3i(SOURCE_ID, wanted.x, wanted.y))
+
+
+## The cell above `cell`: on this layer, or, above the room's top row, in the
+## room above (outside_reader), so ground running on up into it gets no edge line.
+func _read_above(cell: Vector2i) -> Vector3i:
+	var above: Vector2i = cell + Vector2i.UP
+	if outside_reader.is_valid() and not room_cells.has_point(above):
+		return outside_reader.call(above)
+	return _read(stroke_layer, above)
 
 
 ## Changes a cell during a stroke, recording its old value the first time.

@@ -7,17 +7,23 @@ extends RefCounted
 ## EditorOverlay draws all of that from what this object says.
 ##
 ## Mouse, in the map:
-##   - drag on empty space: a new, empty room at the dragged size (only a spawn
-##     point; the room panel's "Fill edges" button walls it in)
-##   - drag a room: move it          - drag its edge or corner: resize it
 ##   - click a room: select it (its settings show in the property panel)
+##   - Ctrl+click a room: add it to the selection, or take it out
+##   - drag on empty space: a selection box; every room it touches is selected.
+##     With more than one room selected, a room setting changed in the property
+##     panel changes in all of them (one undo step): e.g. their backdrop.
+##   - drag a room: move it          - drag its edge or corner: resize it
 ##   - double-click a room: close the map and edit that room
-## Keys: S makes the selected room the start room, Delete deletes it, I imports a
-## room from another world (RoomImport; a ghost follows the mouse until you click),
-## Esc cancels an import or closes the map.
-## Right-click (after the L11 play-test): a menu (EditorUI.show_menu) to copy the
-## room under the mouse, paste the copied one (a ghost follows the mouse like an
-## import, a click puts it down), edit it, make it the start room or delete it.
+## Keys: S makes the selected room the start room, Delete deletes the selected
+## rooms, I imports a room from another world (RoomImport; a ghost follows the
+## mouse until you click), Esc cancels an import or closes the map.
+## Right-click: a menu (EditorUI.show_menu). On empty space: a new room there (one
+## screen, empty but for a spawn point; the room panel's "Fill edges" walls it in),
+## or "Draw a new room", after which a drag on empty space makes one at the dragged
+## size. On a room: copy it, paste the copied one (a ghost follows the mouse like
+## an import, a click puts it down), edit it, make it the start room, delete it.
+## Both: the backdrop look or altitude of the selected rooms, and the backdrop
+## preview (BackdropPreview), which can set them too.
 ## Copying packs the level as it is now (unsaved changes too) and keeps that
 ## (`clipboard`), so later changes to the original don't change the copy. Links to
 ## things outside the room are dropped, as with an import.
@@ -37,7 +43,7 @@ extends RefCounted
 ##
 ## Every change is one UndoRedo step on the editor's undo_redo.
 
-enum Drag { NONE, CREATE, MOVE, RESIZE }
+enum Drag { NONE, CREATE, MOVE, RESIZE, SELECT }
 
 ## Edge bits for resizing: a corner is two of them.
 const EDGE_LEFT: int = 1
@@ -55,8 +61,14 @@ const OPENING_SAMPLE_STEP: float = 4.0
 
 var editor: LevelEditor
 var is_open: bool = false
-## The room clicked last in the map (S and Delete act on it), or null.
+## The room clicked last in the map (S acts on it), or null.
 var selected_room: Room = null
+## Every selected room (selected_room among them): Delete, the backdrop menu and
+## the property panel act on all of them.
+var selected_rooms: Array[Room] = []
+## True after "Draw a new room": the next drag on empty space makes a room
+## instead of a selection box.
+var is_drawing_next_room: bool = false
 ## The room and edges under the mouse (for the overlay and the cursor).
 var hovered_room: Room = null
 var hovered_edges: int = 0
@@ -96,7 +108,7 @@ func open() -> void:
 	is_open = true
 	room_view_zoom_index = editor.camera.zoom_index
 	room_view_position = editor.camera.position
-	selected_room = editor.current_room
+	select_room(editor.current_room)
 	editor.fit_view(get_level_bounds())
 
 
@@ -106,8 +118,10 @@ func close(focus_room: Room = null) -> void:
 	if not is_open:
 		return
 	drag = Drag.NONE
+	is_drawing_next_room = false
 	is_open = false
 	hovered_room = null
+	selected_rooms.clear()
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	if focus_room != null:
 		editor.current_room = focus_room
@@ -141,7 +155,8 @@ static func room_rect(room: Room) -> Rect2:
 func handle_input(event: InputEvent, mouse_world: Vector2) -> bool:
 	if event.is_action_pressed("editor_paint"):
 		var mouse_button: InputEventMouseButton = event as InputEventMouseButton
-		_on_press(mouse_world, mouse_button != null and mouse_button.double_click)
+		_on_press(mouse_world, mouse_button != null and mouse_button.double_click,
+			mouse_button != null and mouse_button.ctrl_pressed)
 	elif event.is_action_released("editor_paint"):
 		_on_release()
 	elif event.is_action_pressed("editor_erase"):
@@ -150,8 +165,9 @@ func handle_input(event: InputEvent, mouse_world: Vector2) -> bool:
 		else:
 			_open_room_menu(mouse_world)
 	elif event.is_action_pressed("editor_delete"):
-		if selected_room != null:
-			delete_room(selected_room)
+		# A copy: delete_room() takes each one out of the selection.
+		for room: Room in selected_rooms.duplicate():
+			delete_room(room)
 	# Exact match (no Ctrl): Ctrl+S must still save, not pick the start room.
 	elif event.is_action_pressed("editor_start_room", false, true):
 		if selected_room != null:
@@ -181,16 +197,18 @@ func mouse_moved(mouse_world: Vector2) -> void:
 				drag_room, snap_distance)
 		Drag.RESIZE:
 			preview_rect = snap_resized(drag_start_rect, drag_edges, mouse_world, drag_room, snap_distance)
+		Drag.SELECT:
+			preview_rect = Rect2(drag_start_mouse, Vector2.ZERO).expand(mouse_world)
 		Drag.NONE:
 			if importing_room != null:
 				preview_rect = snap_moved(Rect2(mouse_world - importing_room.room_size / 2.0, importing_room.room_size),
 					null, snap_distance)
-	if drag != Drag.NONE or importing_room != null:
+	if (drag != Drag.NONE and drag != Drag.SELECT) or importing_room != null:
 		preview_valid = is_free(preview_rect, drag_room)
 	_update_hover(mouse_world)
 
 
-func _on_press(mouse_world: Vector2, is_double_click: bool) -> void:
+func _on_press(mouse_world: Vector2, is_double_click: bool, is_adding: bool = false) -> void:
 	if importing_room != null:
 		mouse_moved(mouse_world)
 		place_import(preview_rect.position)
@@ -201,6 +219,9 @@ func _on_press(mouse_world: Vector2, is_double_click: bool) -> void:
 		close(room)
 		return
 	drag_start_mouse = mouse_world
+	if is_adding and room != null:
+		toggle_room_selected(room)
+		return
 	if edges != 0:
 		drag = Drag.RESIZE
 		drag_room = hovered_room
@@ -209,9 +230,13 @@ func _on_press(mouse_world: Vector2, is_double_click: bool) -> void:
 		drag = Drag.MOVE
 		drag_room = room
 	else:
-		drag = Drag.CREATE
+		# Empty space: a selection box (Ctrl: added to the selection), or after
+		# "Draw a new room", the new room's outline.
+		drag = Drag.CREATE if is_drawing_next_room else Drag.SELECT
+		is_drawing_next_room = false
 		drag_room = null
-		select_room(null)
+		if not is_adding:
+			select_room(null)
 		preview_rect = Rect2(mouse_world, Vector2.ZERO)
 		preview_valid = true
 		return
@@ -226,18 +251,52 @@ func _on_release() -> void:
 	drag = Drag.NONE
 	match finished:
 		Drag.CREATE:
-			# A click (not a drag) on empty space only clears the selection.
 			if preview_rect.size.x > 0.0 and preview_rect.size.y > 0.0:
 				create_room(preview_rect)
+		Drag.SELECT:
+			# A click (not a drag) on empty space only cleared the selection.
+			select_rooms_in(preview_rect, true)
 		Drag.MOVE, Drag.RESIZE:
 			set_room_rect(drag_room, preview_rect, finished == Drag.RESIZE)
 	drag_room = null
 
 
+## Selects only `room` (null: nothing).
 func select_room(room: Room) -> void:
 	selected_room = room
+	selected_rooms.clear()
 	if room != null:
+		selected_rooms.append(room)
 		editor.current_room = room
+	editor._show_selection_in_panel()
+
+
+## Ctrl+click: `room` joins the selection, or leaves it if it was in.
+func toggle_room_selected(room: Room) -> void:
+	if selected_rooms.has(room):
+		selected_rooms.erase(room)
+		selected_room = selected_rooms.back() if not selected_rooms.is_empty() else null
+	else:
+		selected_rooms.append(room)
+		selected_room = room
+	if selected_room != null:
+		editor.current_room = selected_room
+	editor._show_selection_in_panel()
+
+
+## Selects every room `box` touches (a selection box), added to the selection when
+## `is_adding`. Returns how many are selected now.
+func select_rooms_in(box: Rect2, is_adding: bool = false) -> int:
+	if not is_adding:
+		selected_rooms.clear()
+	for room: Room in editor.get_rooms():
+		if box.intersects(room_rect(room), true) and not selected_rooms.has(room):
+			selected_rooms.append(room)
+	selected_room = selected_rooms.back() if not selected_rooms.is_empty() else null
+	if selected_room != null:
+		editor.current_room = selected_room
+	editor._show_selection_in_panel()
+	return selected_rooms.size()
 
 
 func _update_hover(mouse_world: Vector2) -> void:
@@ -610,6 +669,7 @@ func delete_room(room: Room) -> bool:
 
 
 func _detach_room(room: Room) -> void:
+	selected_rooms.erase(room)
 	if selected_room == room:
 		selected_room = null
 	if editor.current_room == room:
@@ -636,13 +696,23 @@ func _add_room_undoable(room: Room, action_name: String) -> void:
 
 # --- The right-click menu: copy and paste ---
 
-## The right-click menu for the room under `mouse_world` (or empty space).
+## The right-click menu for the room under `mouse_world` (or empty space). A room
+## outside the selection becomes the selection; one inside keeps it, so the
+## backdrop rows can change several rooms at once.
 func _open_room_menu(mouse_world: Vector2) -> void:
 	var room: Room = editor.room_at(mouse_world)
 	var rows: Array[String] = []
 	var actions: Array[Callable] = []
-	if room != null:
+	if room != null and not selected_rooms.has(room):
 		select_room(room)
+	if room == null:
+		rows.append("New room here")
+		actions.append(create_room_at.bind(mouse_world))
+		rows.append("Draw a new room (drag its size)")
+		actions.append(func() -> void:
+			is_drawing_next_room = true
+			editor.ui.show_message("Drag on empty space: the new room's size."))
+	else:
 		rows.append("Copy %s" % editor.room_title(room))
 		actions.append(copy_room.bind(room))
 	if clipboard != null:
@@ -653,13 +723,54 @@ func _open_room_menu(mouse_world: Vector2) -> void:
 		actions.append(close.bind(room))
 		rows.append("Make it the start room")
 		actions.append(set_start_room.bind(room))
-		rows.append("Delete room")
-		actions.append(delete_room.bind(room))
-	if rows.is_empty():
-		editor.ui.show_message("Right-click a room to copy it, then right-click anywhere to paste it.")
-		return
+	if not selected_rooms.is_empty():
+		var target: String = _selection_text()
+		rows.append("Backdrop look of %s..." % target)
+		actions.append(_open_look_menu)
+		rows.append("Backdrop altitude of %s..." % target)
+		actions.append(_open_altitude_menu)
+	rows.append("Preview backdrops... (%s)" % EditorHelp.key_text("editor_backdrop_preview"))
+	actions.append(editor.open_backdrop_preview)
+	if room != null:
+		rows.append("Delete %s" % _selection_text())
+		actions.append(func() -> void:
+			for doomed: Room in selected_rooms.duplicate():
+				delete_room(doomed))
 	editor.ui.show_menu(rows, editor.get_viewport().get_mouse_position(),
 		func(index: int) -> void: actions[index].call())
+
+
+## "Room 3", or "3 rooms" when several are selected (menu rows, messages).
+func _selection_text() -> String:
+	if selected_rooms.size() == 1:
+		return editor.room_title(selected_rooms[0])
+	return "%d rooms" % selected_rooms.size()
+
+
+## A second menu: every look (Auto, None, Mountain...), for the selected rooms.
+func _open_look_menu() -> void:
+	var rows: Array[String] = []
+	for look_name: String in Backdrop.Look.keys():
+		rows.append(look_name.capitalize())
+	editor.ui.show_menu(rows, editor.get_viewport().get_mouse_position(),
+		func(index: int) -> void: editor.set_rooms_property(selected_rooms, &"backdrop_theme", index))
+
+
+## A second menu: every altitude (Auto, Underground, Surface, Skyline).
+func _open_altitude_menu() -> void:
+	var rows: Array[String] = []
+	for altitude_name: String in Backdrop.Altitude.keys():
+		rows.append(altitude_name.capitalize())
+	editor.ui.show_menu(rows, editor.get_viewport().get_mouse_position(),
+		func(index: int) -> void: editor.set_rooms_property(selected_rooms, &"backdrop_altitude", index))
+
+
+## "New room here": a one-screen room centered near `point`, snapped like a moved
+## room. Null if there's no space for it.
+func create_room_at(point: Vector2) -> Room:
+	var snap_distance: float = SNAP_SCREEN_PIXELS / editor.camera.get_zoom_factor()
+	var rect: Rect2 = snap_moved(Rect2(point - MIN_ROOM_SIZE / 2.0, MIN_ROOM_SIZE), null, snap_distance)
+	return create_room(rect)
 
 
 ## Copy: remembers `room` as it is now (see the header).

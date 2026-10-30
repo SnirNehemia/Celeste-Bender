@@ -38,6 +38,9 @@ var shake_total_time: float = 0.0
 var is_frozen: bool = false
 ## True while a menu (pause menu, room picker) has the game paused.
 var is_menu_open: bool = false
+## True while the level editor's play-test cheat holds the game (PlaytestCheats:
+## pause and frame step). Never set in the real game.
+var is_step_paused: bool = false
 ## The game speed when not frozen: 1.0 normally, lower during slow motion.
 var slow_motion_scale: float = 1.0
 ## Bumped on every set/clear, so an old safety timer can tell it's out of date.
@@ -108,14 +111,20 @@ func freeze(seconds: float) -> void:
 	await get_tree().create_timer(seconds, true, false, true).timeout
 	is_frozen = false
 	# A menu opened during the freeze keeps the game paused.
-	get_tree().paused = is_menu_open
+	get_tree().paused = is_menu_open or is_step_paused
 
 
 ## Pauses (true) or resumes (false) the game for a menu. Menus call this instead
 ## of setting get_tree().paused themselves (see the header for why).
 func set_menu_pause(open: bool) -> void:
 	is_menu_open = open
-	get_tree().paused = is_menu_open or is_frozen
+	get_tree().paused = is_menu_open or is_frozen or is_step_paused
+
+
+## The play-test cheat's pause (PlaytestCheats), a reason of its own like a menu's.
+func set_step_pause(on: bool) -> void:
+	is_step_paused = on
+	get_tree().paused = is_menu_open or is_frozen or is_step_paused
 
 
 ## Covers the screen with `color` and fades it to transparent over `duration`

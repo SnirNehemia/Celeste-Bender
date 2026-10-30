@@ -84,6 +84,16 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## Rooms made in the level editor have it on; the chapters' rooms keep their
 ## plain tiles. (A room with an Earth layer always gets the painter.)
 @export var painted_ground: bool = false
+## The parallax background behind this room (scenes/backdrop/): a mountain range,
+## a temple hall, a forest, a desert or the deep sea. AUTO picks from the room's
+## contents (get_backdrop_theme); NONE shows the plain background color. Walking
+## into a room with another look scrolls to it.
+@export var backdrop_theme: Backdrop.Look = Backdrop.Look.AUTO
+## Where in that setting the room is: UNDERGROUND (caves, crypts, roots), SURFACE,
+## or SKYLINE (high up). AUTO picks from the room's height compared with the
+## level's start room (get_backdrop_altitude), so a level that climbs or digs
+## moves through the three by itself; set it by hand where that guess is wrong.
+@export var backdrop_altitude: Backdrop.Altitude = Backdrop.Altitude.AUTO
 
 @onready var spawn_point: Marker2D = $SpawnPoint
 
@@ -171,6 +181,41 @@ static func find_room_of(node: Node) -> Room:
 ## The room's rectangle in world coordinates.
 func get_bounds() -> Rect2:
 	return Rect2(global_position, room_size)
+
+
+## The backdrop look this room shows (Backdrop asks on every room change).
+## backdrop_theme, or for AUTO a guess from what the room holds, one look per
+## element's chapter: water -> the deep sea, fire or thicket -> forest, an Earth
+## layer -> desert, anything else -> mountains (Air). TEMPLE is only ever chosen.
+func get_backdrop_theme() -> Backdrop.Look:
+	if backdrop_theme != Backdrop.Look.AUTO:
+		return backdrop_theme
+	if water_allowed or get_node_or_null("Water") is WaterLayer:
+		return Backdrop.Look.UNDERWATER
+	if fire_allowed or get_node_or_null("Thicket") is ThicketLayer:
+		return Backdrop.Look.FOREST
+	if get_node_or_null("Earth") is EarthLayer:
+		return Backdrop.Look.DESERT
+	return Backdrop.Look.MOUNTAIN
+
+
+## The backdrop altitude this room shows: backdrop_altitude, or for AUTO, from
+## where the room's middle is compared with the level's start room `start_room`
+## (the "ground floor"): below its bottom edge -> UNDERGROUND, above its top edge
+## -> SKYLINE, otherwise SURFACE. A room level with the start, or overlapping its
+## height, is on the surface. Without a start room: SURFACE.
+func get_backdrop_altitude(start_room: Room) -> Backdrop.Altitude:
+	if backdrop_altitude != Backdrop.Altitude.AUTO:
+		return backdrop_altitude
+	if start_room == null or not is_instance_valid(start_room):
+		return Backdrop.Altitude.SURFACE
+	var start_bounds: Rect2 = start_room.get_bounds()
+	var middle_y: float = get_bounds().get_center().y
+	if middle_y > start_bounds.end.y:
+		return Backdrop.Altitude.UNDERGROUND
+	if middle_y < start_bounds.position.y:
+		return Backdrop.Altitude.SKYLINE
+	return Backdrop.Altitude.SURFACE
 
 
 ## Where the player's feet go when respawning in this room.

@@ -2,18 +2,23 @@ class_name EditorOverlay
 extends Node2D
 ## EditorOverlay: what the level editor draws ON TOP of the level (Level_editor.md §4).
 ## In the map view (M, Stage L7) only the map: room outlines, names, the start
-## room's star, green openings and the room being dragged (_draw_map). In the room
+## room's star, each room's backdrop (look and altitude, "auto" when guessed),
+## green openings and the room being dragged (_draw_map). In the room
 ## view, rooms other than the current one are dimmed, and then:
 ## room outlines and names, the 8 px grid (G), spawn points, stand-ins for objects
 ## that draw nothing while editing (a wind zone is only moving particles, frozen
 ## here) with an arrow for their direction, the selected object, the tile or
-## object under the mouse, the rectangle or spike strip being dragged, and links:
+## object under the mouse (for terrain and the eraser: the whole brush square,
+## [ and ]), the rectangle or spike strip being dragged, and links:
 ## a line from each door to each of its switches (dim; bright for the selected
 ## object), and in link mode an outline round everything that can be linked.
 ## Vines (after the L10 play-test): a pivot mark on each vine's anchor (the point
 ## everything it holds swings round), and for a crate or plank hanging on ONE vine,
 ## the arc its knot swings along when let go (from where it is to the same height
 ## on the other side).
+## Also: the Select tool's region (dashed cyan) and where a paste would land, the
+## last play-test's trail and this level's deaths (PlaytestRecord, T), and while J
+## is held the jump's reach from the tile under the mouse (JumpReach).
 ## Hidden chambers: wide diagonal purple stripes over every chamber cell (the room
 ## shows the tunnel open while editing), a purple outline round each chamber, and
 ## a thick RED edge where a chamber touches open air (RoomLook.get_exposed_chamber_edges).
@@ -73,6 +78,15 @@ const STAR_COLOR: Color = Color(1.0, 0.85, 0.2)
 const OPENING_SCREEN_WIDTH: float = 3.0
 const MAP_OUTLINE_SCREEN_WIDTH: float = 2.0
 const STAR_SCREEN_RADIUS: float = 6.0
+## The map's backdrop line under each room's name, tinted by altitude, and a
+## strip of the same tint along the room's bottom edge, so a level's climb from
+## caves to sky reads at a glance.
+const ALTITUDE_COLORS: Dictionary = {
+	Backdrop.Altitude.UNDERGROUND: Color(0.85, 0.6, 0.35),
+	Backdrop.Altitude.SURFACE: Color(0.55, 0.9, 0.5),
+	Backdrop.Altitude.SKYLINE: Color(0.55, 0.8, 1.0),
+}
+const ALTITUDE_STRIP_SCREEN_HEIGHT: float = 3.0
 ## Hidden chambers: purple, the tint tools/build_earth_rooms.gd gives them. The
 ## stripes repeat every STRIPE_PERIOD_TILES tiles, STRIPE_WIDTH level pixels wide,
 ## so neighbouring cells' stripes join into long diagonal bands.
@@ -86,9 +100,32 @@ const STRIPE_WIDTH: int = 7
 ## The red edge, screen pixels thick.
 const EXPOSED_EDGE_SCREEN_WIDTH: float = 3.0
 
+## Play-test record (PlaytestRecord): the trail see-through yellow-green, deaths red.
+const TRAIL_COLOR: Color = Color(0.85, 1.0, 0.3, 0.55)
+const DEATH_COLOR: Color = Color(1.0, 0.2, 0.2, 0.95)
+## A death X's half size, screen pixels, and how far above the feet it's drawn, px.
+const DEATH_MARK_SCREEN_SIZE: float = 2.5
+const DEATH_MARK_LIFT: float = 6.0
+## The Select tool's region and the paste preview: cyan, like link mode's targets.
+const REGION_COLOR: Color = Color(0.3, 0.9, 1.0, 0.95)
+## Jump reach (hold J): the jump white, the jump-and-glide light blue; traced
+## until this many tiles below the start.
+const JUMP_REACH_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
+const GLIDE_REACH_COLOR: Color = Color(0.6, 0.85, 1.0, 0.7)
+## The jump with one gust (dashed): a whiter blue than the glide.
+const GUST_REACH_COLOR: Color = Color(0.82, 0.93, 1.0, 0.85)
+## Gust arcs' dash and gap length, screen pixels.
+const GUST_REACH_DASH_SCREEN: float = 3.0
+const JUMP_REACH_DROP_TILES: int = 6
+
 var editor: LevelEditor
 ## The stripe picture (one period square), made on first use (_get_stripe_texture).
 var stripe_texture: ImageTexture = null
+## The jump reach arcs for one start point: tracing the gusts tries every frame of
+## the jump, too much to redo each frame while J is held. [jump, glide, gusts...]
+## per direction, keyed by direction (-1.0 / 1.0).
+var jump_reach_start: Vector2 = Vector2.INF
+var jump_reach_arcs: Dictionary = {}
 
 
 func _process(_delta: float) -> void:
@@ -122,6 +159,11 @@ func _draw() -> void:
 	_draw_pivots()
 	if editor.link_source != null:
 		_draw_link_targets()
+	if editor.play_record.is_shown:
+		_draw_play_record(editor.play_record)
+	_draw_region_and_paste()
+	if Input.is_action_pressed("editor_jump_reach") and editor.hover_room != null:
+		_draw_jump_reach()
 
 	# is_inside_tree(): an undo can take the selected object out of the level.
 	var selected: Node2D = editor.selected_object
@@ -142,9 +184,111 @@ func _draw() -> void:
 		draw_rect(PaletteCatalog.get_bounds(editor.hover_object).grow(OUTLINE_MARGIN),
 			ERASER_HOVER_COLOR if is_eraser else HOVER_COLOR, false, -1.0)
 	elif editor.hover_room != null:
-		var cell_rect: Rect2 = Rect2(editor.hover_room.global_position + Vector2(editor.hover_cell * LevelEditor.TILE),
-			Vector2.ONE * LevelEditor.TILE)
-		draw_rect(cell_rect, HOVER_COLOR, false, -1.0)
+		var kind: int = editor.current_entry.kind if editor.current_entry != null else -1
+		if kind == PaletteCatalog.Kind.TERRAIN or kind == PaletteCatalog.Kind.ERASER:
+			# The whole brush square ([ and ]), so you see what a stroke will cover.
+			draw_rect(editor.get_brush_outline(),
+				ERASER_HOVER_COLOR if kind == PaletteCatalog.Kind.ERASER else HOVER_COLOR, false, -1.0)
+		else:
+			var cell_rect: Rect2 = Rect2(editor.hover_room.global_position + Vector2(editor.hover_cell * LevelEditor.TILE),
+				Vector2.ONE * LevelEditor.TILE)
+			draw_rect(cell_rect, HOVER_COLOR, false, -1.0)
+
+
+## The last play-test's trail (thin lines) and every death of this level (red X).
+func _draw_play_record(record: PlaytestRecord) -> void:
+	for segment: PackedVector2Array in record.trail:
+		if segment.size() >= 2:
+			draw_polyline(segment, TRAIL_COLOR, -1.0)
+	var arm: float = DEATH_MARK_SCREEN_SIZE / editor.camera.get_zoom_factor()
+	for death: Vector2 in record.deaths:
+		# Drawn at the middle of the body, not the feet: that's where you see it die.
+		var center: Vector2 = death + Vector2(0, -DEATH_MARK_LIFT)
+		draw_line(center + Vector2(-arm, -arm), center + Vector2(arm, arm), DEATH_COLOR, -1.0)
+		draw_line(center + Vector2(-arm, arm), center + Vector2(arm, -arm), DEATH_COLOR, -1.0)
+
+
+## The Select tool's region (dashed), and with the Select tool on and something
+## copied, where Ctrl+V would paste it (the clipboard's size at the mouse's tile).
+func _draw_region_and_paste() -> void:
+	var region: Rect2 = editor.get_region_rect()
+	if region.size != Vector2.ZERO:
+		_draw_dashed_rect(region, REGION_COLOR)
+	var is_select: bool = editor.current_entry != null and editor.current_entry.kind == PaletteCatalog.Kind.SELECT
+	if is_select and editor.clipboard != null and not editor.clipboard.is_empty() and editor.hover_room != null:
+		var paste_cells: Rect2i = Rect2i(editor.hover_cell, editor.clipboard.size_cells)
+		var paste_rect: Rect2 = Rect2(editor.hover_room.global_position + Vector2(paste_cells.position * LevelEditor.TILE),
+			Vector2(paste_cells.size * LevelEditor.TILE))
+		draw_rect(paste_rect, Color(REGION_COLOR, 0.12))
+		_draw_dashed_rect(paste_rect, Color(REGION_COLOR, 0.5))
+
+
+## Hold J: the full jump's arc from the tile under the mouse, each way, the same
+## with a glide from the top, and dashed, with one gust at its farthest-reaching
+## moment: aimed back (shoves you on), back-and-down, and down (JumpReach).
+## Labelled with how high and far the plain jump goes.
+func _draw_jump_reach() -> void:
+	var room: Room = editor.hover_room
+	var cell: Vector2i = editor.hover_cell
+	# Standing ON the tile under the mouse if it's solid, else on the tile below it.
+	var feet_cell_bottom: int = cell.y if editor.is_solid_cell(room, cell) else cell.y + 1
+	var start: Vector2 = room.global_position + Vector2((cell.x + 0.5) * LevelEditor.TILE, feet_cell_bottom * LevelEditor.TILE)
+	if start != jump_reach_start:
+		_trace_jump_reach(start)
+	var pixel: float = 1.0 / editor.camera.get_zoom_factor()
+	for direction: float in [-1.0, 1.0]:
+		var arcs: Array = jump_reach_arcs[direction]
+		var jump_arc: PackedVector2Array = arcs[0]
+		draw_polyline(arcs[1], GLIDE_REACH_COLOR, -1.0)
+		for gust_index: int in range(2, arcs.size()):
+			_draw_dashed_polyline(arcs[gust_index], GUST_REACH_COLOR, GUST_REACH_DASH_SCREEN * pixel)
+		draw_polyline(jump_arc, JUMP_REACH_COLOR, -1.0)
+		if direction > 0.0:
+			# How high, and how far across at the start height, in tiles.
+			var reach: Vector2 = JumpReach.summary(jump_arc) / LevelEditor.TILE
+			var text: String = "jump %.1f up, %.1f across" % [reach.y, reach.x]
+			draw_set_transform(start + Vector2(4, -4) * pixel, 0.0, Vector2.ONE * pixel)
+			draw_string(ThemeDB.fallback_font, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, JUMP_REACH_COLOR)
+			draw_set_transform(Vector2.ZERO)
+	draw_circle(start, 1.5 * pixel, JUMP_REACH_COLOR)
+
+
+## Works out (and keeps) the reach arcs from `start`. For a jump to the right the
+## gusts blow left, left-and-down and down: the air goes the other way to you.
+func _trace_jump_reach(start: Vector2) -> void:
+	var tuning: PlayerTuning = editor.player_tuning
+	var max_drop: float = JUMP_REACH_DROP_TILES * LevelEditor.TILE
+	jump_reach_start = start
+	jump_reach_arcs.clear()
+	for direction: float in [-1.0, 1.0]:
+		var arcs: Array = [
+			JumpReach.trace(tuning, start, direction, false, max_drop),
+			JumpReach.trace(tuning, start, direction, true, max_drop),
+		]
+		for gust_aim: Vector2 in [Vector2(-direction, 0.0), Vector2(-direction, 1.0).normalized(), Vector2.DOWN]:
+			arcs.append(JumpReach.trace_gust(tuning, start, direction, gust_aim, max_drop))
+		jump_reach_arcs[direction] = arcs
+
+
+## A polyline drawn as dashes `dash` long with gaps as long, measured along the line
+## (its points are a frame apart, far shorter than a dash, so per-segment dashes
+## like draw_dashed_line's wouldn't show).
+func _draw_dashed_polyline(points: PackedVector2Array, color: Color, dash: float) -> void:
+	var distance: float = 0.0
+	for index: int in range(1, points.size()):
+		var from: Vector2 = points[index - 1]
+		var to: Vector2 = points[index]
+		# Even dash periods are drawn, odd ones are the gaps (by where the segment starts).
+		if int(distance / dash) % 2 == 0:
+			draw_line(from, to, color, -1.0)
+		distance += from.distance_to(to)
+
+
+## A rectangle outline of dashes (draw_dashed_line per side).
+func _draw_dashed_rect(rect: Rect2, color: Color) -> void:
+	var corners: Array[Vector2] = [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]
+	for side: int in 4:
+		draw_dashed_line(corners[side], corners[(side + 1) % 4], color, -1.0, 3.0)
 
 
 ## A line from each linking object to each of its targets, with a dot at the
@@ -198,20 +342,22 @@ func _draw_swing_arc(holder: Node2D, vine: Node2D) -> void:
 
 ## The map view: every room's outline (yellow if selected, bright if under the
 ## mouse), its name, a star on the start room, the green openings on shared
-## edges, and the room being made, moved, resized or imported (red if refused).
+## edges, the room being made, moved, resized or imported (red if refused), and
+## the selection box while one is dragged (yellow, never refused).
 func _draw_map(map: MapView) -> void:
 	var pixel: float = 1.0 / editor.camera.get_zoom_factor()  # one screen pixel, in level pixels
 	var start_room: Room = editor.get_start_room()
 	for room: Room in editor.get_rooms():
 		var bounds: Rect2 = MapView.room_rect(room)
 		var color: Color = ROOM_OUTLINE_COLOR
-		if room == map.selected_room:
+		if map.selected_rooms.has(room):
 			color = SELECTED_COLOR
 		elif room == map.hovered_room:
 			color = HOVER_COLOR
 		draw_rect(bounds, color, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
 		# Inside the room: above it, the name would cover the room on top.
 		_draw_room_name(room, bounds, true)
+		_draw_room_backdrop(room, bounds, start_room, pixel)
 		if room == start_room:
 			var star_offset: float = (STAR_SCREEN_RADIUS + 3.0) * pixel
 			_draw_star(Vector2(bounds.end.x - star_offset, bounds.position.y + star_offset), STAR_SCREEN_RADIUS * pixel)
@@ -220,6 +366,10 @@ func _draw_map(map: MapView) -> void:
 		_draw_edges(MapView.room_rect(map.hovered_room), map.hovered_edges, MAP_OUTLINE_SCREEN_WIDTH * 2.0 * pixel)
 	for opening: Array in map.get_openings():
 		draw_line(opening[0], opening[1], OPENING_COLOR, OPENING_SCREEN_WIDTH * pixel)
+	if map.drag == MapView.Drag.SELECT:
+		draw_rect(map.preview_rect, Color(SELECTED_COLOR, 0.12))
+		draw_rect(map.preview_rect, SELECTED_COLOR, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
+		return
 	var is_dragging: bool = map.drag != MapView.Drag.NONE and map.preview_rect.size.x > 0.0
 	if is_dragging or map.importing_room != null:
 		var preview_color: Color = PREVIEW_COLOR if map.preview_valid else REFUSED_COLOR
@@ -371,6 +521,24 @@ func _draw_room_name(room: Room, bounds: Rect2, inside: bool = false) -> void:
 	draw_set_transform(bounds.position + baseline / zoom_factor, 0.0, Vector2.ONE / zoom_factor)
 	draw_string(ThemeDB.fallback_font, Vector2.ZERO, title, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, ROOM_NAME_COLOR)
 	draw_set_transform(Vector2.ZERO)
+
+
+## Under the room's name on the map: its backdrop, e.g. "Forest, skyline", with
+## "(auto)" when the room leaves it to Room's guess, in the altitude's tint; and a
+## thin strip of that tint along the room's bottom edge.
+func _draw_room_backdrop(room: Room, bounds: Rect2, start_room: Room, pixel: float) -> void:
+	var look: Backdrop.Look = room.get_backdrop_theme()
+	var altitude: Backdrop.Altitude = room.get_backdrop_altitude(start_room)
+	var text: String = Backdrop.describe(look, altitude)
+	if look != Backdrop.Look.NONE and (room.backdrop_theme == Backdrop.Look.AUTO or room.backdrop_altitude == Backdrop.Altitude.AUTO):
+		text += " (auto)"
+	var color: Color = ALTITUDE_COLORS.get(altitude, ROOM_NAME_COLOR) if look != Backdrop.Look.NONE else ROOM_NAME_COLOR
+	var zoom_factor: float = editor.camera.get_zoom_factor()
+	draw_set_transform(bounds.position + Vector2(4.0, NAME_FONT_SIZE * 2.0 + 5.0) / zoom_factor, 0.0, Vector2.ONE / zoom_factor)
+	draw_string(ThemeDB.fallback_font, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, Color(color, 0.85))
+	draw_set_transform(Vector2.ZERO)
+	var strip_height: float = ALTITUDE_STRIP_SCREEN_HEIGHT * pixel
+	draw_rect(Rect2(bounds.position.x, bounds.end.y - strip_height, bounds.size.x, strip_height), Color(color, 0.5))
 
 
 ## A small green figure standing where the player's feet go.

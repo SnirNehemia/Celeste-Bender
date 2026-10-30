@@ -4,14 +4,18 @@ extends CanvasLayer
 ## LevelEditor tells it what to show and owns all the logic.
 ##   - top bar:     level title, unsaved dot, current tool, zoom
 ##   - help:        the quick reference (EditorHelp), from the top bar's "?" or H
+##   - backdrop_preview: every backdrop look on its own (BackdropPreview), from K
 ##   - palette:     left column: the tools without a family (Select, Eraser,
-##                  Fill) in a row at the very top, then a tab per family
+##                  Brush, Fill) in a row at the very top, the search box
+##                  (PaletteSearch: its matches replace the tabs while it has
+##                  text), then a tab per family
 ##                  (Terrain, Basics, Triggers...), below it one button per
 ##                  PaletteCatalog entry of the open tab (a scrolling list when it
 ##                  is taller than the screen); emits `entry_chosen` when an entry
 ##                  is clicked. Each button shows a small picture of its thing
 ##                  (PaletteIcons) and is tinted in its element's color (Air cyan,
 ##                  Earth tan, Fire orange), with a stripe of it on the left.
+##                  At the bottom, the QuickBar: the 9 things used last (keys 1-9).
 ##   - menu:        a pop-up list at the mouse (show_menu): the Select tool's
 ##                  "which one?" and the map's right-click room menu
 ##   - property panel: right column, the selected object's (or room's) settings
@@ -49,15 +53,15 @@ const TERRAIN_HINTS: String = "Left: paint  Right: erase  Shift+drag: rectangle"
 const OBJECT_HINTS: String = "Left: place / drag  Alt: free  Right: delete  Del  Ctrl+D: copy  L: link"
 const STRIP_HINTS: String = "Drag along a row or column: spikes  R: turn selected  Right: delete"
 const ERASER_HINTS: String = "Click or drag: remove objects (zones too), else tiles  Shift+drag: a block  E: eraser off"
-const SELECT_HINTS: String = "Left: select (a list when several overlap), drag to move  Del: delete  Ctrl+D: copy  L: link"
-const FILL_HINTS: String = "Left: fill the connected area  Right: clear it  Pick the terrain in its tab"
-const MAP_HINTS: String = "Drag empty: new room  Drag room / edge: move / resize  Double-click: edit  Right: copy / paste  S: start  Del  I: import  M: back"
+const SELECT_HINTS: String = "Left: select, drag to move  Shift+drag: region  Ctrl+C/X/V: copy, cut, paste  Ctrl+Shift+V: mirrored"
+const FILL_HINTS: String = "Left: fill the connected area  Shift: all over the room  Right: clear it  B: back to the brush"
+const MAP_HINTS: String = "Drag empty: select rooms  Ctrl+click: add  Drag room / edge: move / resize  Double-click: edit  Right: new room, backdrop, copy  K: backdrops  S: start  Del  M: back"
 ## How strongly a palette button is tinted in its element's color: resting,
 ## under the mouse, chosen.
 const ELEMENT_TINT: Array[float] = [0.22, 0.34, 0.6]
 ## The element stripe on a button's left edge, px.
 const ELEMENT_STRIPE_WIDTH: int = 2
-const COMMON_HINTS: String = "H: all keys  M: map  Tab: play  Space/Middle: pan  Wheel: zoom  G: grid  E: eraser  Ctrl+Z/Y  Ctrl+S"
+const COMMON_HINTS: String = "H: all keys  M: map  Tab: play  J: jump reach  P: pick  Ctrl+F: find  1-9: recent  E: eraser  Ctrl+Z/Y  Ctrl+S"
 
 var title_label: Label
 var dirty_dot: ColorRect
@@ -71,6 +75,7 @@ var property_panel: PropertyPanel
 var status_bar: PanelContainer
 var prompt: PromptPanel
 var help: EditorHelp
+var backdrop_preview: BackdropPreview
 ## The "Import room as a copy" list (Stage L7).
 var import_picker: RoomImportPicker
 ## The hints for the current tool (set_tool_hints), shown when there's no message.
@@ -93,6 +98,12 @@ var message_time_left: float = 0.0
 ## The pop-up list (show_menu) and what to call with the chosen row's index.
 var menu: PopupMenu
 var menu_callback: Callable = Callable()
+## The palette's search box (Ctrl+F) and recent-things row (1-9), and the parts
+## the search hides while it shows its matches.
+var search: PaletteSearch
+var quick_bar: QuickBar
+var palette_tab_grid: GridContainer
+var palette_scroll: ScrollContainer
 
 
 func _ready() -> void:
@@ -166,6 +177,8 @@ func _ready() -> void:
 	root.add_child(prompt)
 	help = EditorHelp.new()
 	root.add_child(help)
+	backdrop_preview = BackdropPreview.new()
+	root.add_child(backdrop_preview)
 	import_picker = RoomImportPicker.new()
 	root.add_child(import_picker)
 	# A PopupMenu is a small window of clickable rows; it closes itself when a row
@@ -207,6 +220,8 @@ func show_chosen_entry(entry: PaletteCatalog.Entry, fill_terrain: PaletteCatalog
 	# set_pressed_no_signal() skips the ButtonGroup's "release the others", so set all.
 	for id: StringName in palette_buttons:
 		var pressed: bool = id == entry.id or (fill_terrain != null and id == fill_terrain.id)
+		# The Brush tool is pressed while any terrain paints (it stands for "painting").
+		pressed = pressed or (id == &"brush" and entry.kind == PaletteCatalog.Kind.TERRAIN)
 		(palette_buttons[id] as Button).set_pressed_no_signal(pressed)
 		for extra_button: Button in extra_palette_buttons.get(id, []):
 			extra_button.set_pressed_no_signal(pressed)
@@ -308,13 +323,20 @@ func is_over_panels(screen_point: Vector2) -> bool:
 	for panel: Control in [top_bar, palette, property_panel, status_bar]:
 		if panel.get_global_rect().has_point(screen_point):
 			return true
-	return prompt.visible or help.visible or import_picker.visible or menu.visible
+	return prompt.visible or help.visible or import_picker.visible or menu.visible or backdrop_preview.visible
 
 
 ## LevelEditor changes the window back while leaving, which fires size_changed;
 ## by then this node is out of the tree, so stop listening first.
 func _exit_tree() -> void:
 	get_viewport().size_changed.disconnect(_fit_palette)
+
+
+## While the search box has text, its matches replace the tabs and their lists.
+func _on_search_changed() -> void:
+	var searching: bool = search.is_searching()
+	palette_tab_grid.visible = not searching
+	palette_scroll.visible = not searching
 
 
 ## Opens a family's tab: its entries show, the other families' hide.
@@ -344,8 +366,13 @@ func _build_palette(column: VBoxContainer) -> void:
 			tool_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			tool_row.add_child(tool_button)
 	column.add_child(HSeparator.new())
+	search = PaletteSearch.new()
+	search.entry_chosen.connect(func(entry: PaletteCatalog.Entry) -> void: entry_chosen.emit(entry))
+	search.search_changed.connect(_on_search_changed)
+	column.add_child(search)
 
 	var tab_grid: GridContainer = GridContainer.new()
+	palette_tab_grid = tab_grid
 	tab_grid.columns = TAB_COLUMNS
 	column.add_child(tab_grid)
 	column.add_child(HSeparator.new())  # under the tabs
@@ -357,6 +384,12 @@ func _build_palette(column: VBoxContainer) -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	column.add_child(scroll)
+	palette_scroll = scroll
+	# The recent things, at the very bottom (keys 1-9).
+	column.add_child(HSeparator.new())
+	quick_bar = QuickBar.new()
+	quick_bar.entry_chosen.connect(func(entry: PaletteCatalog.Entry) -> void: entry_chosen.emit(entry))
+	column.add_child(quick_bar)
 	var lists: VBoxContainer = VBoxContainer.new()
 	lists.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(lists)

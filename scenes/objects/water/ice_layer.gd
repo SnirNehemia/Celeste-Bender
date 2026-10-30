@@ -55,6 +55,20 @@ const TILE_SHAPES: Dictionary = {
 const EDGE_PIECE: int = 4
 
 
+## Each slope tile and its left-right mirror image (the level editor's mirrored
+## paste). A rising-right LOW tile mirrors to a rising-left LOW one, and so on.
+const MIRRORED_TILES: Dictionary = {
+	SLOPE_UP_RIGHT: SLOPE_UP_LEFT, SLOPE_UP_LEFT: SLOPE_UP_RIGHT,
+	GENTLE_UP_RIGHT_LOW: GENTLE_UP_LEFT_LOW, GENTLE_UP_LEFT_LOW: GENTLE_UP_RIGHT_LOW,
+	GENTLE_UP_RIGHT_HIGH: GENTLE_UP_LEFT_HIGH, GENTLE_UP_LEFT_HIGH: GENTLE_UP_RIGHT_HIGH,
+}
+
+
+## The tile at `atlas` seen in a mirror (the same tile for the full one).
+static func get_mirrored_tile(atlas: Vector2i) -> Vector2i:
+	return MIRRORED_TILES.get(atlas, atlas)
+
+
 ## The solid polygon of the tile at `atlas` (TILE_SHAPES; the full tile for any other).
 static func get_tile_shape(atlas: Vector2i) -> PackedVector2Array:
 	return PackedVector2Array(TILE_SHAPES.get(atlas, TILE_SHAPES[ICE_TILE]))

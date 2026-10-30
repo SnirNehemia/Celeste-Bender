@@ -77,6 +77,12 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"eraser":
 			_rect(image, 1, 4, 8, 4, Color(1.0, 0.55, 0.6))
 			_rect(image, 1, 4, 3, 4, WHITE)
+		&"brush":
+			# A paintbrush leaning right: handle, ferrule, a cyan tip.
+			for step: int in 5:
+				_rect(image, 6 - step, 1 + step, 2, 1, Color(0.75, 0.55, 0.35))
+			_rect(image, 2, 6, 2, 1, GRAY)
+			_rect(image, 1, 7, 2, 2, CYAN)
 		&"fill":
 			# A tipped bucket pouring a drop.
 			_rect(image, 2, 2, 5, 5, GRAY)

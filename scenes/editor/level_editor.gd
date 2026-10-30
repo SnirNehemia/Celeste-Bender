@@ -16,6 +16,9 @@ extends Node2D
 ##
 ## Tools: the palette's chosen entry (`current_entry`) decides what the mouse does.
 ##   - Terrain (Ground): left paints, right erases, Shift+drag fills a rectangle.
+##     [ and ] size the free-hand brush. Strokes and rectangles carry on into the
+##     rooms next door (each tile goes to the room it lies in; one undo step); the
+##     Fill tool stays in its room.
 ##   - Objects (spawn point, goal, Air objects): left on an object selects and
 ##     drags it (by whole tiles), left on empty ground places one (its outline
 ##     snapped to the grid, see PaletteCatalog.placement_position), right deletes.
@@ -32,6 +35,15 @@ extends Node2D
 ##   - Fill: a click floods the connected area of the same tiles (or of empty air)
 ##     with the last terrain brush chosen (fill_region); right-click clears it.
 ##     Choosing a terrain while Fill is on keeps Fill, with that terrain.
+##     Shift+click: every matching cell of the room, connected or not.
+##   - Brush (B): back to painting with the last terrain. P: eyedropper (pick_at).
+##     Ctrl+F searches the palette; 1-9 choose the quick bar's recent things.
+##   - Select + Shift+drag marks a region; Ctrl+C / Ctrl+X / Ctrl+V (+Shift:
+##     mirrored) copy, cut and paste it through EditorClipboard (begin_paste,
+##     paste_tile, finish_paste: one undo step).
+##   - Play-tests leave a trail and death markers (PlaytestRecord, T / Ctrl+T) and
+##     get cheats (PlaytestCheats). Hold J: the jump's reach (JumpReach, drawn
+##     by EditorOverlay).
 ##   - H: the quick reference (EditorHelp), every key, read from the InputMap.
 ##   - Strips (spikes): drag along a row or column; facing comes from the ground
 ##     next to them; R turns the selected strip.
@@ -108,13 +120,29 @@ const STRIP_PREVIEW_COLOR: Color = Color(0.9, 0.2, 0.2, 0.4)
 ## The Room settings the property panel shows when nothing is selected
 ## (Level_editor.md §5). The room's size is changed on the map (Stage L7).
 const ROOM_SETTINGS: Array[StringName] = [&"display_title", &"air_allowed", &"earth_allowed",
-	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake", &"painted_ground"]
+	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake", &"painted_ground", &"backdrop_theme",
+	&"backdrop_altitude"]
 ## How close to a zone's edge a click must be to pick the zone, screen pixels.
 const EDGE_PICK_SCREEN_PIXELS: float = 3.0
 ## Seconds the play-test keeps running after the goal, so you see you made it.
 const GOAL_RETURN_DELAY: float = 0.6
 ## R turns spikes a quarter turn clockwise: up -> right -> down -> left.
 const SPIKE_TURN_ORDER: Array[Spikes.Facing] = [Spikes.Facing.UP, Spikes.Facing.RIGHT, Spikes.Facing.DOWN, Spikes.Facing.LEFT]
+
+
+## One room's share of a terrain stroke (see stroke_parts): which brushes paint
+## or erase there. The brushes themselves live in stroke_layer_brushes.
+class StrokePart:
+	var room: Room
+	## The chosen terrain's brush (and those of the layers it carves), or, for the
+	## eraser, one per terrain layer the room has.
+	var brushes: Array[TileBrush] = []
+	## Brushes that erase while the stroke paints: the layers a carving terrain
+	## cuts its shape out of (catalog `carves_layers`, a hidden chamber).
+	var carving_brushes: Array[TileBrush] = []
+
+	func _init(new_room: Room) -> void:
+		room = new_room
 
 ## The file being edited.
 var level_path: String = ""
@@ -167,6 +195,9 @@ var dragged_handle_start_value: Variant = null
 ## The room and tile (room-local cell) under the mouse; null when outside rooms.
 var hover_room: Room = null
 var hover_cell: Vector2i = Vector2i.ZERO
+## Width and height, in tiles, of the free-hand terrain / eraser brush ([ and ]).
+const MAX_BRUSH_SIZE: int = 8
+var brush_size: int = 1
 ## The object under the mouse while an object tool is chosen, or null.
 var hover_object: Node2D = null
 ## A preview the overlay draws: the rectangle or spike strip being dragged.
@@ -174,26 +205,33 @@ var preview_active: bool = false
 var preview_rect: Rect2 = Rect2()
 var preview_color: Color = PAINT_PREVIEW_COLOR
 
-## A free-hand terrain stroke: its room and brush, paint or erase, the last cell.
+## A terrain stroke (free-hand, rectangle, fill). It can cross into the rooms next
+## door: each room it reaches gets a StrokePart, and end_stroke makes ONE undo step.
+## stroke_room: the room it began in (null = no stroke going); room-local cells
+## (_stroke_cell) and a brush outside every room use its tile grid.
 var stroke_room: Room = null
-## The brushes the stroke works with: the chosen terrain's, or, for the eraser,
-## one per terrain layer the room has.
-var stroke_brushes: Array[TileBrush] = []
+## {Room: StrokePart}, made as the stroke reaches each room (_stroke_part).
+var stroke_parts: Dictionary = {}
+## {TileMapLayer: TileBrush}: one brush per layer the stroke touches, in any room
+## (also a room below whose top edge changed), so each cell's undo is recorded once.
+var stroke_layer_brushes: Dictionary = {}
 var stroke_painting: bool = true
-## Brushes of the stroke that erase while it paints: the layers a carving terrain
-## cuts its shape out of (catalog `carves_layers`, a hidden chamber).
-var stroke_carving_brushes: Array[TileBrush] = []
-## How many chamber edges touched open air before the stroke (RoomLook): more after
-## it, and the status line warns.
-var stroke_exposed_edges_before: int = 0
-## Room settings the stroke's first paint of a new layer changes:
-## {setting: [before, after]} (PaletteCatalog.Entry.room_settings_on_create).
+## The eraser's stroke: it erases on every terrain layer each room has.
+var stroke_every_layer: bool = false
+## The terrain the stroke paints (unused by the eraser's).
+var stroke_terrain: PaletteCatalog.Entry = null
+## {Room: how many chamber edges touched open air before the stroke} (RoomLook):
+## more after it, and the status line warns.
+var stroke_exposed_edges_before: Dictionary = {}
+## Room settings the stroke's first paint of a new layer changes, per room:
+## {Room: {setting: [before, after]}} (PaletteCatalog.Entry.room_settings_on_create).
 var stroke_room_settings: Dictionary = {}
 ## The tool to go back to when E switches the eraser off again.
 var tool_before_eraser: PaletteCatalog.Entry = null
 ## True while the eraser is held down and dragged.
 var is_erasing: bool = false
-var last_stroke_cell: Vector2i = Vector2i.ZERO
+## Where the mouse was at the free-hand stroke's last stamp (level pixels).
+var last_stroke_point: Vector2 = Vector2.ZERO
 ## Shift-drag rectangle in progress: its room, start cell, and paint or erase.
 var rectangle_active: bool = false
 var rectangle_room: Room = null
@@ -202,6 +240,15 @@ var rectangle_painting: bool = true
 ## The rectangle is the eraser's (Shift+drag): it clears every layer and the
 ## objects inside, not one terrain.
 var rectangle_erases_block: bool = false
+## The Select tool's region (Shift+drag): the cells of `region_room`'s grid it
+## covers (it may reach into the rooms next door). null room = no region.
+var region_room: Room = null
+var region_cells: Rect2i = Rect2i()
+## A region being dragged out: from this cell of region_room's grid.
+var region_dragging: bool = false
+var region_start_cell: Vector2i = Vector2i.ZERO
+## What Ctrl+C / Ctrl+X copied last (EditorClipboard), or null.
+var clipboard: EditorClipboard = null
 ## A spike strip being dragged out: its room and first cell.
 var strip_active: bool = false
 var strip_room: Room = null
@@ -216,6 +263,12 @@ var is_panning: bool = false
 var is_playtesting: bool = false
 var play_root: RoomManager = null
 var playtest_warnings: Array[String] = []
+## The play-test's cheats (I, N, O, P, .), inside the play copy; null when not playing.
+var play_cheats: PlaytestCheats = null
+## The trail of the last play-test and this level's deaths (T, Ctrl+T).
+var play_record: PlaytestRecord = PlaytestRecord.new()
+## The player's tuning, for the jump-reach overlay (hold J).
+var player_tuning: PlayerTuning = preload("res://resources/player_tuning.tres")
 
 ## The window's stretch settings before the editor changed them (the game's).
 var game_scale_mode: Window.ContentScaleMode
@@ -245,7 +298,7 @@ func _ready() -> void:
 	ui.name = "EditorUI"
 	add_child(ui)
 	ui.entry_chosen.connect(choose_entry)
-	ui.property_panel.property_changed.connect(set_property)
+	ui.property_panel.property_changed.connect(_on_panel_property_changed)
 	map_view = MapView.new(self)
 	ui.import_picker.room_chosen.connect(_on_import_room_chosen)
 	# version_changed: UndoRedo's signal for any commit, undo or redo. Values the
@@ -265,6 +318,8 @@ func _exit_tree() -> void:
 	if is_playtesting:
 		stop_playtest()
 	map_view.close()  # also frees a room copy still waiting to be placed
+	if clipboard != null:
+		clipboard.free_templates()  # loose copies of objects: nothing else frees them
 	_use_editor_window(false)
 	for node: Node in set_aside_nodes:
 		node.free()  # loose nodes: nothing else would ever free them
@@ -314,6 +369,7 @@ func open_level(path: String) -> Error:
 	undo_redo.clear_history()
 	saved_version = undo_redo.get_version()
 	selected_object = null
+	play_record.load_level(path)  # this level's death markers from earlier play-tests
 	ui.set_title(_level_title())
 	var start_room: Room = get_start_room()
 	current_room = start_room
@@ -431,6 +487,12 @@ func room_cell_rect(room: Room) -> Rect2i:
 
 ## Makes `entry` the mouse's tool (the palette calls this).
 func choose_entry(entry: PaletteCatalog.Entry) -> void:
+	# The Brush tool is a way back: it IS the last terrain chosen (Ground at first).
+	if entry.kind == PaletteCatalog.Kind.BRUSH:
+		entry = last_terrain_entry if last_terrain_entry != null else PaletteCatalog.get_entry(&"ground")
+		if current_entry != null and current_entry.kind == PaletteCatalog.Kind.FILL:
+			current_entry = null  # so the terrain below is chosen, not kept as Fill's
+	ui.quick_bar.note_chosen(entry)
 	if entry.kind == PaletteCatalog.Kind.ERASER and current_entry != null and current_entry.kind != PaletteCatalog.Kind.ERASER:
 		tool_before_eraser = current_entry
 	# A terrain picked while Fill is on: Fill stays, and fills with that terrain.
@@ -449,6 +511,50 @@ func choose_entry(entry: PaletteCatalog.Entry) -> void:
 		last_terrain_entry = entry
 		if selected_object == null:
 			_show_selection_in_panel()  # the Fill edges button names the terrain
+
+
+## P, the eyedropper: the object under the mouse, else the top terrain on the
+## tile there, becomes the current tool. Returns what was picked, or null.
+func pick_at(world_point: Vector2) -> PaletteCatalog.Entry:
+	var picked: PaletteCatalog.Entry = null
+	var hit: Node2D = object_at(world_point, true)
+	if hit != null:
+		picked = PaletteCatalog.entry_for_node(hit)
+	else:
+		var room: Room = room_at(world_point)
+		if room != null:
+			picked = terrain_entry_at(room, cell_at(room, world_point))
+	if picked == null:
+		ui.show_message("Nothing to pick there.")
+		return null
+	# Fill keeps its tool and takes the terrain (as a palette click does).
+	choose_entry(picked)
+	ui.show_message("Picked %s." % picked.display_name)
+	return picked
+
+
+## The terrain entry of the top layer with a tile at `room`'s `cell`, or null.
+## Two entries can share a layer (the Overgrown looks, the ice slopes): the one
+## whose tiles match the cell's tile wins.
+func terrain_entry_at(room: Room, cell: Vector2i) -> PaletteCatalog.Entry:
+	var children: Array[Node] = room.get_children()
+	children.reverse()  # later children draw on top
+	for child: Node in children:
+		var layer: TileMapLayer = child as TileMapLayer
+		if layer == null or layer.get_cell_source_id(cell) == -1:
+			continue
+		var atlas: Vector2i = layer.get_cell_atlas_coords(cell)
+		var first_on_layer: PaletteCatalog.Entry = null
+		for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+			if entry.kind != PaletteCatalog.Kind.TERRAIN or entry.layer_name != layer.name:
+				continue
+			if atlas == entry.tile_plain or atlas == entry.tile_top_edge or atlas == entry.tile_odd_column:
+				return entry
+			if first_on_layer == null:
+				first_on_layer = entry
+		if first_on_layer != null:
+			return first_on_layer
+	return null
 
 
 ## E: the eraser on, or back off to the tool chosen before it.
@@ -471,22 +577,22 @@ func erase_at(world_point: Vector2, is_drag: bool = false) -> void:
 			return
 		delete_object(hit)
 		return
+	if stroke_room != null:
+		_continue_stroke(world_point)  # also into the next room: the same stroke
+		return
 	var room: Room = room_at(world_point)
 	if room == null:
 		return
-	if stroke_room != room:
-		end_stroke()
-		begin_stroke(room, false, true)
-		last_stroke_cell = cell_at(room, world_point)
-		_stroke_cell(last_stroke_cell)
-	else:
-		_continue_stroke(cell_at(room, world_point))
+	begin_stroke(room, false, true)
+	last_stroke_point = world_point
+	_stamp(world_point)
 
 
 # --- Terrain (also what the smoke test calls) ---
 
 ## Paints (or erases) `cells` in `room` with the Ground brush as ONE undo step.
-## `terrain`: the brush to use (the current terrain tool if null).
+## `terrain`: the brush to use (the current terrain tool if null). Only `room`'s
+## own cells: the others are ignored (strokes and rectangles cross rooms, this doesn't).
 func paint_cells(room: Room, cells: Array[Vector2i], painting: bool, terrain: PaletteCatalog.Entry = null) -> void:
 	begin_stroke(room, painting, false, terrain)
 	for cell: Vector2i in cells:
@@ -494,148 +600,198 @@ func paint_cells(room: Room, cells: Array[Vector2i], painting: bool, terrain: Pa
 	end_stroke()
 
 
-## Fills (or clears) the rectangle between two room-local cells as one undo step.
+## Fills (or clears) the rectangle between two cells of `room`'s grid as one undo
+## step. It may reach past the room: those cells go to the rooms next door.
 func fill_rectangle(room: Room, corner_a: Vector2i, corner_b: Vector2i, painting: bool) -> void:
-	var cells: Array[Vector2i] = []
-	var top_left: Vector2i = Vector2i(mini(corner_a.x, corner_b.x), mini(corner_a.y, corner_b.y))
-	var bottom_right: Vector2i = Vector2i(maxi(corner_a.x, corner_b.x), maxi(corner_a.y, corner_b.y))
-	for y: int in range(top_left.y, bottom_right.y + 1):
-		for x: int in range(top_left.x, bottom_right.x + 1):
-			cells.append(Vector2i(x, y))
-	paint_cells(room, cells, painting)
+	var cells: Rect2i = _rect_between(corner_a, corner_b)
+	begin_stroke(room, painting)
+	for y: int in range(cells.position.y, cells.end.y):
+		for x: int in range(cells.position.x, cells.end.x):
+			_stroke_routed(room, Vector2i(x, y))
+	end_stroke()
 
 
-## Starts a stroke with the current terrain entry's brush (Ground if the current
-## tool isn't terrain, e.g. when the smoke test paints). `every_layer` (the
-## eraser): erase on every terrain layer the room has, making none.
+## Starts a stroke in `room` with the current terrain entry's brush (Ground if the
+## current tool isn't terrain, e.g. when the smoke test paints). `every_layer` (the
+## eraser): erase on every terrain layer each room has, making none. Rooms the
+## stroke reaches later join it then (_stroke_part).
 func begin_stroke(room: Room, painting: bool, every_layer: bool = false, terrain_entry: PaletteCatalog.Entry = null) -> void:
 	stroke_room = room
 	stroke_painting = painting
-	stroke_brushes = []
-	stroke_carving_brushes = []
+	stroke_every_layer = every_layer
+	stroke_terrain = terrain_entry if terrain_entry != null else current_entry
+	if stroke_terrain == null or stroke_terrain.kind != PaletteCatalog.Kind.TERRAIN:
+		stroke_terrain = PaletteCatalog.get_entry(&"ground")
+	stroke_parts = {}
+	stroke_layer_brushes = {}
 	stroke_room_settings = {}
-	stroke_exposed_edges_before = RoomLook.get_exposed_chamber_edges(room).size()
-	if every_layer:
+	stroke_exposed_edges_before = {}
+	_stroke_part(room)
+
+
+## `room`'s part of the current stroke, set up the first time the stroke reaches it.
+func _stroke_part(room: Room) -> StrokePart:
+	if stroke_parts.has(room):
+		return stroke_parts[room]
+	var part: StrokePart = StrokePart.new(room)
+	stroke_parts[room] = part
+	stroke_exposed_edges_before[room] = RoomLook.get_exposed_chamber_edges(room).size()
+	if stroke_every_layer:
 		# Two brushes can share a layer (the two Overgrown looks): one brush each.
 		var layer_names: Array[StringName] = []
 		for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 			if entry.kind != PaletteCatalog.Kind.TERRAIN or layer_names.has(entry.layer_name):
 				continue
 			layer_names.append(entry.layer_name)
-			var brush: TileBrush = _brush_for(entry)
-			var layer: TileMapLayer = brush.get_layer(room, level_root, false)
+			var layer: TileMapLayer = _brush_for(entry).get_layer(room, level_root, false)
 			if layer != null:
-				brush.begin_stroke(layer)
-				stroke_brushes.append(brush)
-		return
-	var terrain: PaletteCatalog.Entry = terrain_entry if terrain_entry != null else current_entry
-	if terrain == null or terrain.kind != PaletteCatalog.Kind.TERRAIN:
-		terrain = PaletteCatalog.get_entry(&"ground")
-	var terrain_brush: TileBrush = _brush_for(terrain)
-	var had_layer: bool = terrain_brush.get_layer(room, level_root, false) != null
-	var terrain_layer: TileMapLayer = terrain_brush.get_layer(room, level_root, true)
+				part.brushes.append(_layer_brush(_brush_for(entry), room, layer))
+		return part
+	var terrain: PaletteCatalog.Entry = stroke_terrain
+	var had_layer: bool = _brush_for(terrain).get_layer(room, level_root, false) != null
+	# Only painting makes the layer: erasing in a room without it has nothing to do.
+	var terrain_layer: TileMapLayer = _brush_for(terrain).get_layer(room, level_root, stroke_painting)
+	if terrain_layer == null:
+		return part
 	# The room's first stroke of this terrain: the room settings it implies
 	# (painting Earth turns Earth on, Stage L8), kept for end_stroke's undo step.
 	if not had_layer:
+		var settings: Dictionary = {}
 		for setting: StringName in terrain.room_settings_on_create:
-			stroke_room_settings[setting] = [room.get(setting), terrain.room_settings_on_create[setting]]
-	terrain_brush.begin_stroke(terrain_layer)
+			settings[setting] = [room.get(setting), terrain.room_settings_on_create[setting]]
+		stroke_room_settings[room] = settings
+	part.brushes.append(_layer_brush(_brush_for(terrain), room, terrain_layer))
 	RoomLook.show_tiles_while_painting(room, terrain_layer)
-	stroke_brushes.append(terrain_brush)
 	# A carving terrain (a hidden chamber) erases the solid layers where it paints.
-	if painting:
+	if stroke_painting:
 		for carved_name: StringName in terrain.carves_layers:
-			var carved_brush: TileBrush = _brush_for_layer(carved_name)
-			var carved_layer: TileMapLayer = carved_brush.get_layer(room, level_root, false) if carved_brush != null else null
+			var carved_entry: PaletteCatalog.Entry = _terrain_entry_for_layer(carved_name)
+			var carved_layer: TileMapLayer = _brush_for(carved_entry).get_layer(room, level_root, false) if carved_entry != null else null
 			if carved_layer != null:
-				carved_brush.begin_stroke(carved_layer)
-				stroke_brushes.append(carved_brush)
-				stroke_carving_brushes.append(carved_brush)
+				var carved_brush: TileBrush = _layer_brush(_brush_for(carved_entry), room, carved_layer)
+				part.brushes.append(carved_brush)
+				part.carving_brushes.append(carved_brush)
+	return part
+
+
+## The stroke's brush for `layer` (in `room`): made the first time, as a twin of
+## `template` (the terrain's brush), its stroke begun and told how to read the room above.
+func _layer_brush(template: TileBrush, room: Room, layer: TileMapLayer) -> TileBrush:
+	if stroke_layer_brushes.has(layer):
+		return stroke_layer_brushes[layer]
+	var brush: TileBrush = template.make_twin()
+	brush.begin_stroke(layer)
+	brush.room_cells = room_cell_rect(room)
+	# bind(): the Callable gets these two after the cell the brush passes.
+	brush.outside_reader = _read_neighbour_cell.bind(room, layer.name)
+	stroke_layer_brushes[layer] = brush
+	return brush
+
+
+## For TileBrush.outside_reader: the value of the cell at `room`'s cell `cell`
+## (just outside the room) on the layer named `layer_name` of the room that's there.
+func _read_neighbour_cell(cell: Vector2i, room: Room, layer_name: StringName) -> Vector3i:
+	var point: Vector2 = _cell_center(room, cell)
+	var other: Room = room_at(point)
+	if other == null or other == room:
+		return TileBrush.EMPTY
+	var layer: TileMapLayer = other.get_node_or_null(NodePath(layer_name)) as TileMapLayer
+	if layer == null:
+		return TileBrush.EMPTY
+	return TileBrush.read_cell(layer, cell_at(other, point))
 
 
 ## Ends the stroke and records it as one undo step (if anything changed).
 func end_stroke() -> void:
 	if stroke_room == null:
 		return
-	var room: Room = stroke_room
+	var rooms: Array = stroke_parts.keys()
 	var changes: Array[Array] = _finish_stroke()
 	if changes.is_empty():
 		stroke_room_settings = {}
-		RoomLook.refresh(room)  # hides the layer shown while painting again
+		for room: Room in rooms:
+			RoomLook.refresh(room)  # hides the layer shown while painting again
 		return
 	undo_redo.create_action("Paint tiles" if stroke_painting else "Erase tiles")
-	_add_stroke_steps(room, changes)
+	_add_stroke_steps(changes)
 	# true: run the "do" now. The cells are already painted (setting them again
 	# changes nothing), but the room settings and the room's look need it.
 	undo_redo.commit_action(true)
-	_warn_if_chamber_exposed(room)
+	_warn_if_chamber_exposed()
 
 
-## After a change to `room`'s tiles: if more hidden-chamber edges touch open air
-## than before the stroke, the status line says what the red edges mean.
-func _warn_if_chamber_exposed(room: Room) -> void:
-	if RoomLook.get_exposed_chamber_edges(room).size() > stroke_exposed_edges_before:
-		ui.show_message("Red edge: this hidden chamber touches open air there, so its cover is a wall you can walk through before anyone digs. Wall it in, unless that's meant.")
+## After a change to the stroke's rooms' tiles: if more hidden-chamber edges touch
+## open air in one than before the stroke, the status line says what the red edges mean.
+func _warn_if_chamber_exposed() -> void:
+	for room: Room in stroke_exposed_edges_before:
+		if RoomLook.get_exposed_chamber_edges(room).size() > stroke_exposed_edges_before[room]:
+			ui.show_message("Red edge: this hidden chamber touches open air there, so its cover is a wall you can walk through before anyone digs. Wall it in, unless that's meant.")
+			return
 
 
 ## Ends the stroke's brushes. Returns [brush, layer, {"before", "after"}] for each
-## layer it changed (TileBrush.end_stroke).
+## layer it changed (TileBrush.end_stroke), in any room.
 func _finish_stroke() -> Array[Array]:
 	stroke_room = null
 	var changes: Array[Array] = []
-	for brush: TileBrush in stroke_brushes:
-		var layer: TileMapLayer = brush.stroke_layer
+	for layer: TileMapLayer in stroke_layer_brushes:
+		var brush: TileBrush = stroke_layer_brushes[layer]
 		var change: Dictionary = brush.end_stroke()
 		if not change.is_empty():
 			changes.append([brush, layer, change])
-	stroke_brushes = []
-	stroke_carving_brushes = []
+	stroke_parts = {}
+	stroke_layer_brushes = {}
 	return changes
 
 
 ## Inside the undo action being made: the stroke's tile changes (both ways) and
-## the room settings its first paint of a new layer implies.
-func _add_stroke_steps(room: Room, changes: Array[Array]) -> void:
+## the room settings its first paint of a new layer implies, in every room.
+func _add_stroke_steps(changes: Array[Array]) -> void:
 	for brush_change: Array in changes:
 		var brush: TileBrush = brush_change[0]
 		undo_redo.add_do_method(_set_layer_cells.bind(brush, brush_change[1], brush_change[2]["after"]))
 		undo_redo.add_undo_method(_set_layer_cells.bind(brush, brush_change[1], brush_change[2]["before"]))
-	for setting: StringName in stroke_room_settings:
-		var values: Array = stroke_room_settings[setting]  # [before, after]
-		if values[0] != values[1]:
-			undo_redo.add_do_property(room, setting, values[1])
-			undo_redo.add_undo_property(room, setting, values[0])
+	for room: Room in stroke_room_settings:
+		var settings: Dictionary = stroke_room_settings[room]
+		for setting: StringName in settings:
+			var values: Array = settings[setting]  # [before, after]
+			if values[0] != values[1]:
+				undo_redo.add_do_property(room, setting, values[1])
+				undo_redo.add_undo_property(room, setting, values[0])
 	stroke_room_settings = {}
 
 
-## The eraser's Shift+drag: clears the block of cells between two room-local cells
-## on every terrain layer, and deletes the objects whose outline lies inside it
-## (not the spawn point). One undo step.
+## The eraser's Shift+drag: clears the block of cells between two cells of `room`'s
+## grid on every terrain layer, and deletes the objects whose outline lies inside
+## it (not the spawn point). The block may reach into the rooms next door. One undo step.
 func erase_block(room: Room, corner_a: Vector2i, corner_b: Vector2i) -> void:
 	var cells: Rect2i = _rect_between(corner_a, corner_b)
 	begin_stroke(room, false, true)
 	for y: int in range(cells.position.y, cells.end.y):
 		for x: int in range(cells.position.x, cells.end.x):
-			_stroke_cell(Vector2i(x, y))
+			_stroke_routed(room, Vector2i(x, y))
 	var changes: Array[Array] = _finish_stroke()
 	var block: Rect2 = Rect2(room.global_position + Vector2(cells.position * TILE), Vector2(cells.size * TILE))
 	var doomed: Array[Node2D] = []
-	for child: Node in room.get_children():
-		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(child)
-		var is_inside: bool = entry != null and block.encloses(PaletteCatalog.get_bounds(child as Node2D))
-		if is_inside and entry.kind != PaletteCatalog.Kind.SPAWN_POINT:
-			doomed.append(child)
+	for block_room: Room in get_rooms():
+		if not block_room.get_bounds().intersects(block):
+			continue
+		for child: Node in block_room.get_children():
+			var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(child)
+			var is_inside: bool = entry != null and block.encloses(PaletteCatalog.get_bounds(child as Node2D))
+			if is_inside and entry.kind != PaletteCatalog.Kind.SPAWN_POINT:
+				doomed.append(child)
 	if changes.is_empty() and doomed.is_empty():
 		return
 	# Last child first: removing it doesn't shift the indices of the ones before
 	# it, and undo (which runs backwards) puts them back first-child first.
 	doomed.reverse()
 	undo_redo.create_action("Erase block")
-	_add_stroke_steps(room, changes)
+	_add_stroke_steps(changes)
 	for node: Node2D in doomed:
 		_add_delete_steps(node)
 	undo_redo.commit_action(true)
-	_warn_if_chamber_exposed(room)
+	_warn_if_chamber_exposed()
 
 
 ## The terrain the Fill tool uses: the last terrain brush chosen, else Ground.
@@ -648,7 +804,9 @@ func _get_fill_terrain() -> PaletteCatalog.Entry:
 ## that holds the same terrain layers: the same tiles, or the same empty air.
 ## `painting`: it becomes the fill terrain (other terrain there is erased);
 ## else it's cleared. Returns how many cells the area had (0 = nothing changed).
-func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
+## `everywhere` (Shift+click): every cell of the room holding the same layers,
+## connected or not: "replace all Ground in this room with Earth".
+func fill_region(room: Room, start_cell: Vector2i, painting: bool, everywhere: bool = false) -> int:
 	var bounds: Rect2i = room_cell_rect(room)
 	if not bounds.has_point(start_cell):
 		return 0
@@ -669,10 +827,18 @@ func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
 	var start_contents: int = _cell_contents(layers, start_cell)
 	if not painting and start_contents == 0:
 		return 0  # clearing empty air: nothing to do
-	# The connected area (breadth-first search over the 4 neighbours).
+	# The connected area (breadth-first search over the 4 neighbours), or, for
+	# `everywhere`, every matching cell of the room.
 	var area: Array[Vector2i] = [start_cell]
 	var seen: Dictionary = {start_cell: true}
-	var next: int = 0
+	if everywhere:
+		for y: int in range(bounds.position.y, bounds.end.y):
+			for x: int in range(bounds.position.x, bounds.end.x):
+				var cell: Vector2i = Vector2i(x, y)
+				if not seen.has(cell) and _cell_contents(layers, cell) == start_contents:
+					seen[cell] = true
+					area.append(cell)
+	var next: int = area.size() if everywhere else 0
 	while next < area.size():
 		var cell: Vector2i = area[next]
 		next += 1
@@ -683,14 +849,14 @@ func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
 				seen[neighbour] = true
 				area.append(neighbour)
 	# 1. Erase the other layers in the area (all of them when clearing).
-	stroke_room = room
-	stroke_painting = false
-	stroke_brushes = []
+	# A stroke made by hand: the room's part erases these layers only.
+	_begin_manual_stroke(room, false)
+	var erase_part: StrokePart = StrokePart.new(room)
+	stroke_parts[room] = erase_part
 	for layer_index: int in layers.size():
 		if painting and layers[layer_index].name == terrain.layer_name:
 			continue  # the fill's own layer: painted below, not erased first
-		layer_brushes[layer_index].begin_stroke(layers[layer_index])
-		stroke_brushes.append(layer_brushes[layer_index])
+		erase_part.brushes.append(_layer_brush(layer_brushes[layer_index], room, layers[layer_index]))
 	for cell: Vector2i in area:
 		_stroke_cell(cell)
 	var changes: Array[Array] = _finish_stroke()
@@ -706,11 +872,130 @@ func fill_region(room: Room, start_cell: Vector2i, painting: bool) -> int:
 		RoomLook.refresh(room)
 		return 0
 	undo_redo.create_action("Fill" if painting else "Clear area")
-	_add_stroke_steps(room, changes)
+	_add_stroke_steps(changes)
 	undo_redo.commit_action(true)
-	stroke_exposed_edges_before = exposed_edges_before
-	_warn_if_chamber_exposed(room)
+	stroke_exposed_edges_before = {room: exposed_edges_before}
+	_warn_if_chamber_exposed()
 	return area.size()
+
+
+## A stroke whose brushes the caller sets up itself (the Fill tool, a paste):
+## nothing made in any room yet.
+func _begin_manual_stroke(room: Room, painting: bool) -> void:
+	stroke_room = room
+	stroke_painting = painting
+	stroke_every_layer = false
+	stroke_parts = {}
+	stroke_layer_brushes = {}
+	stroke_room_settings = {}
+	stroke_exposed_edges_before = {}
+
+
+# --- Paste (EditorClipboard calls these) ---
+
+## Starts a paste whose cells are in `grid_room`'s grid. Then paste_tile() for each
+## tile and finish_paste() with the new objects: all of it is one undo step.
+func begin_paste(grid_room: Room) -> void:
+	end_stroke()
+	_begin_manual_stroke(grid_room, true)
+
+
+## Puts `value` on the layer named `layer_name` at the cell `cell` of the paste's
+## grid, in whichever room that is; the room gets the layer if it has none (and the
+## room settings that come with it, like a stroke's first paint).
+func paste_tile(cell: Vector2i, layer_name: StringName, value: Vector3i) -> void:
+	var target: Array = route_cell(stroke_room, cell)
+	var entry: PaletteCatalog.Entry = _terrain_entry_for_layer(layer_name)
+	if target.is_empty() or entry == null:
+		return
+	var room: Room = target[0]
+	var room_cell: Vector2i = target[1]
+	var had_layer: bool = _brush_for(entry).get_layer(room, level_root, false) != null
+	var layer: TileMapLayer = _brush_for(entry).get_layer(room, level_root, true)
+	if not stroke_parts.has(room):
+		stroke_parts[room] = StrokePart.new(room)
+		stroke_exposed_edges_before[room] = RoomLook.get_exposed_chamber_edges(room).size()
+	if not had_layer:
+		var settings: Dictionary = stroke_room_settings.get(room, {})
+		for setting: StringName in entry.room_settings_on_create:
+			settings[setting] = [room.get(setting), entry.room_settings_on_create[setting]]
+		stroke_room_settings[room] = settings
+	var part: StrokePart = stroke_parts[room]
+	var brush: TileBrush = _layer_brush(_brush_for(entry), room, layer)
+	if not part.brushes.has(brush):
+		part.brushes.append(brush)
+	brush.write_value(room_cell, value)
+	if room_cell.y == room_cell_rect(room).end.y - 1:
+		_refresh_edge_below(room, room_cell, part)
+
+
+## Ends the paste: its tiles and `new_objects` ([room, node] pairs, not in the
+## tree yet) become one undo step. Returns false if there was nothing to paste.
+func finish_paste(new_objects: Array[Array]) -> bool:
+	var changes: Array[Array] = _finish_stroke()
+	if changes.is_empty() and new_objects.is_empty():
+		stroke_room_settings = {}
+		return false
+	undo_redo.create_action("Paste")
+	_add_stroke_steps(changes)
+	for room_and_node: Array in new_objects:
+		_add_object_steps(room_and_node[0], room_and_node[1])
+	undo_redo.commit_action(true)
+	_warn_if_chamber_exposed()
+	return true
+
+
+## True if there's a region (its room may have been deleted or undone away since).
+func has_region() -> bool:
+	return region_room != null and is_instance_valid(region_room) and region_room.is_inside_tree()
+
+
+## The Select tool's region (Shift+drag) as a level rectangle, or an empty Rect2.
+func get_region_rect() -> Rect2:
+	if not has_region():
+		return Rect2()
+	return _cells_to_world(region_room, region_cells, false)
+
+
+## Ctrl+C / Ctrl+X: the region's tiles and objects go on the clipboard; `cut`
+## also erases them (one undo step, the eraser's block).
+func copy_region(cut: bool) -> bool:
+	if not has_region():
+		ui.show_message("Mark a region first: Select tool, Shift+drag.", true)
+		return false
+	var copied: EditorClipboard = EditorClipboard.copy_from(self, region_room, region_cells)
+	if copied.is_empty():
+		copied.free_templates()
+		ui.show_message("Nothing in that region to copy.")
+		return false
+	if clipboard != null:
+		clipboard.free_templates()
+	clipboard = copied
+	if cut:
+		erase_block(region_room, region_cells.position, region_cells.end - Vector2i.ONE)
+	ui.show_message("%s %d tiles and %d objects. Ctrl+V pastes at the mouse, Ctrl+Shift+V mirrored." %
+		["Cut" if cut else "Copied", clipboard.tiles.size(), clipboard.objects.size()])
+	return true
+
+
+## Ctrl+V / Ctrl+Shift+V: the clipboard with its top-left corner on the tile
+## under the mouse (mirrored left-right with `mirrored`). The pasted area becomes
+## the region, so it can be copied again or moved.
+func paste_at(world_point: Vector2, mirrored: bool) -> bool:
+	if clipboard == null or clipboard.is_empty():
+		ui.show_message("The clipboard is empty: Shift+drag a region with Select, then Ctrl+C.", true)
+		return false
+	var grid_room: Room = room_at(world_point)
+	if grid_room == null:
+		ui.show_message("Paste: point the mouse inside a room.", true)
+		return false
+	var top_left: Vector2i = cell_at(grid_room, world_point)
+	if not clipboard.paste(self, grid_room, top_left, mirrored):
+		return false
+	region_room = grid_room
+	region_cells = Rect2i(top_left, clipboard.size_cells)
+	ui.show_message("Pasted%s." % (" mirrored" if mirrored else ""))
+	return true
 
 
 ## What a cell holds, for fill_region: one bit per layer with a tile there.
@@ -767,15 +1052,105 @@ func _set_layer_cells(brush: TileBrush, layer: TileMapLayer, values: Dictionary)
 	RoomLook.refresh(Room.find_room_of(layer))
 
 
-## Paints or erases one cell of the current stroke, if it's inside the room.
+## Free-hand strokes stamp a brush_size x brush_size square around the mouse's
+## tile, in the grid of the room under it (the stroke's first room when it's
+## between rooms); each tile goes to the room it lies in.
+func _stamp(world_point: Vector2) -> void:
+	var grid_room: Room = room_at(world_point)
+	if grid_room == null:
+		grid_room = stroke_room
+	var square: Rect2i = brush_cells_at(cell_at(grid_room, world_point))
+	for y: int in range(square.position.y, square.end.y):
+		for x: int in range(square.position.x, square.end.x):
+			_stroke_routed(grid_room, Vector2i(x, y))
+
+
+## The brush_size square of room-local cells a free-hand stroke at `cell` covers.
+## For an even size it leans down-right, so size 2 covers cell..cell+1.
+func brush_cells_at(cell: Vector2i) -> Rect2i:
+	var first_offset: int = -((brush_size - 1) >> 1)
+	return Rect2i(cell + Vector2i.ONE * first_offset, Vector2i.ONE * brush_size)
+
+
+## The overlay's hover outline for terrain and the eraser: the brush square
+## under the mouse, in level pixels (it may reach into the next room, as the
+## stroke does). Empty without a hovered room.
+func get_brush_outline() -> Rect2:
+	if hover_room == null:
+		return Rect2()
+	return _cells_to_world(hover_room, brush_cells_at(hover_cell), false)
+
+
+## [ and ]: changes the free-hand brush size and says what it is now.
+func change_brush_size(delta: int) -> void:
+	brush_size = clampi(brush_size + delta, 1, MAX_BRUSH_SIZE)
+	ui.show_message("Brush size: %d x %d tiles" % [brush_size, brush_size])
+
+
+## Paints or erases one cell of the stroke's first room, if it's inside it
+## (paint_cells, the Fill tool and the smoke test: they stay in one room).
 func _stroke_cell(cell: Vector2i) -> void:
-	if not room_cell_rect(stroke_room).has_point(cell):
+	_stroke_cell_in(stroke_room, cell)
+
+
+## Paints or erases the cell `cell` of `grid_room`'s grid in whichever room it
+## lies in: its own cells in `grid_room`, others by their center (rooms next to
+## each other can have grids half a tile apart: a 180 px room is 22.5 tiles tall).
+## Cells outside every room are dropped.
+func _stroke_routed(grid_room: Room, cell: Vector2i) -> void:
+	var target: Array = route_cell(grid_room, cell)
+	if not target.is_empty():
+		_stroke_cell_in(target[0], target[1])
+
+
+## Where the cell `cell` of `grid_room`'s grid really is: [room, room-local cell],
+## its own cells in `grid_room`, others by their center (see _stroke_routed), or
+## [] outside every room.
+func route_cell(grid_room: Room, cell: Vector2i) -> Array:
+	if room_cell_rect(grid_room).has_point(cell):
+		return [grid_room, cell]
+	var point: Vector2 = _cell_center(grid_room, cell)
+	var room: Room = room_at(point)
+	if room == null:
+		return []
+	return [room, cell_at(room, point)]
+
+
+## Paints or erases `room`'s cell `cell` (room-local), if it's inside the room.
+func _stroke_cell_in(room: Room, cell: Vector2i) -> void:
+	var room_cells: Rect2i = room_cell_rect(room)
+	if not room_cells.has_point(cell):
 		return
-	for brush: TileBrush in stroke_brushes:
-		if stroke_painting and not stroke_carving_brushes.has(brush):
+	var part: StrokePart = _stroke_part(room)
+	for brush: TileBrush in part.brushes:
+		if stroke_painting and not part.carving_brushes.has(brush):
 			brush.paint_cell(cell)
 		else:
 			brush.erase_cell(cell)
+	if cell.y == room_cells.end.y - 1:
+		_refresh_edge_below(room, cell, part)
+
+
+## `room`'s bottom-row cell `cell` just changed: the tile under it is the top row
+## of the room below (if there is one), whose top edge depends on it.
+func _refresh_edge_below(room: Room, cell: Vector2i, part: StrokePart) -> void:
+	# Half a tile down: a 180 px room's last row is centered ON the border, and
+	# a whole tile down would skip the next room's top row.
+	var below_point: Vector2 = _cell_center(room, cell) + Vector2(0, TILE / 2.0)
+	var below_room: Room = room_at(below_point)
+	if below_room == null or below_room == room:
+		return
+	var below_cell: Vector2i = cell_at(below_room, below_point)
+	for brush: TileBrush in part.brushes:
+		# Only a layer the room below already has: an edge fix never makes one.
+		var below_layer: TileMapLayer = below_room.get_node_or_null(NodePath(brush.stroke_layer.name)) as TileMapLayer
+		if below_layer != null:
+			_layer_brush(brush, below_room, below_layer).refresh_edge(below_cell)
+
+
+## The center of `room`'s cell `cell` (room-local, may be outside it), in level pixels.
+func _cell_center(room: Room, cell: Vector2i) -> Vector2:
+	return room.global_position + (Vector2(cell) + Vector2(0.5, 0.5)) * TILE
 
 
 func _brush_for(entry: PaletteCatalog.Entry) -> TileBrush:
@@ -785,12 +1160,12 @@ func _brush_for(entry: PaletteCatalog.Entry) -> TileBrush:
 	return brushes[entry.id]
 
 
-## The brush of the first terrain entry painting the layer named `layer_name` (only
-## erasing is asked of it, so which of two brushes sharing a layer doesn't matter).
-func _brush_for_layer(layer_name: StringName) -> TileBrush:
+## The first terrain entry painting the layer named `layer_name` (only erasing is
+## asked of its brush, so which of two entries sharing a layer doesn't matter).
+func _terrain_entry_for_layer(layer_name: StringName) -> PaletteCatalog.Entry:
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
 		if entry.kind == PaletteCatalog.Kind.TERRAIN and entry.layer_name == layer_name:
-			return _brush_for(entry)
+			return entry
 	return null
 
 
@@ -856,6 +1231,56 @@ func set_property(target: Object, property: StringName, value: Variant, old_valu
 	undo_redo.commit_action()
 
 
+## The property panel changed a setting. A room setting with several rooms
+## selected on the map goes to all of them; anything else to its own target.
+func _on_panel_property_changed(target: Object, property: StringName, value: Variant) -> void:
+	var rooms: Array[Room] = _get_panel_rooms()
+	if target is Room and rooms.size() > 1 and rooms.has(target):
+		set_rooms_property(rooms, property, value)
+	else:
+		set_property(target, property, value)
+
+
+## The rooms the room panel stands for: the map's selection when the map is open,
+## else only the current room.
+func _get_panel_rooms() -> Array[Room]:
+	if map_view != null and map_view.is_open and not map_view.selected_rooms.is_empty():
+		return map_view.selected_rooms
+	var rooms: Array[Room] = []
+	if current_room != null and is_instance_valid(current_room):
+		rooms.append(current_room)
+	return rooms
+
+
+## Sets `property` to `value` on every room of `rooms`, as ONE undo step (one
+## Ctrl+Z puts all of them back). For the map's selection.
+func set_rooms_property(rooms: Array[Room], property: StringName, value: Variant) -> void:
+	undo_redo.create_action("Set %s of %d rooms" % [property, rooms.size()])
+	for room: Room in rooms:
+		undo_redo.add_do_method(_apply_property.bind(room, property, value))
+		undo_redo.add_undo_method(_apply_property.bind(room, property, room.get(property)))
+	undo_redo.commit_action()
+	if rooms.size() > 1:
+		ui.show_message("%s set in %d rooms." % [String(property).capitalize(), rooms.size()])
+
+
+## K: the backdrop preview, starting on the look of the room(s) the panel shows;
+## Enter there sets that look and altitude in them (one undo step).
+func open_backdrop_preview() -> void:
+	var rooms: Array[Room] = _get_panel_rooms().duplicate()
+	if rooms.is_empty():
+		ui.backdrop_preview.open(Backdrop.Look.MOUNTAIN, Backdrop.Altitude.SURFACE)
+		return
+	var start_room: Room = get_start_room()
+	var target_text: String = room_title(rooms[0]) if rooms.size() == 1 else "the %d selected rooms" % rooms.size()
+	ui.backdrop_preview.open(rooms[0].get_backdrop_theme(), rooms[0].get_backdrop_altitude(start_room),
+		func(look: Backdrop.Look, altitude: Backdrop.Altitude) -> void:
+			set_rooms_property(rooms, &"backdrop_theme", look)
+			set_rooms_property(rooms, &"backdrop_altitude", altitude)
+			ui.show_message("%s for %s." % [Backdrop.describe(look, altitude), target_text]),
+		target_text)
+
+
 ## Sets the property and keeps what depends on it in step: start-up positions
 ## (a sail's rail ends follow `rail_start`) and the drawing.
 func _apply_property(target: Object, property: StringName, value: Variant) -> void:
@@ -899,7 +1324,13 @@ func _show_selection_in_panel() -> void:
 			ui.property_panel.add_button("Link / unlink (L)", toggle_link_mode)
 		_update_link_footer()
 	elif current_room != null and is_instance_valid(current_room):
-		ui.property_panel.show_target(current_room, "Room\n%s" % room_title(current_room), ROOM_SETTINGS)
+		var title: String = "Room\n%s" % room_title(current_room)
+		var room_count: int = _get_panel_rooms().size()
+		if room_count > 1:
+			title = "%d rooms selected\n(changes go to all)" % room_count
+		ui.property_panel.show_target(current_room, title, ROOM_SETTINGS)
+		ui.property_panel.add_button("Preview backdrops (%s)" % EditorHelp.key_text("editor_backdrop_preview"),
+			open_backdrop_preview)
 		# Walls in the room's edges with the terrain chosen last (Ground at first).
 		var terrain: PaletteCatalog.Entry = last_terrain_entry if last_terrain_entry != null else PaletteCatalog.get_entry(&"ground")
 		var room: Room = current_room
@@ -1103,10 +1534,10 @@ func get_grounded_position(node: Node2D, room: Room, from_mount: bool = false) -
 	else:
 		cell = Vector2i((outline.get_center() / TILE).floor())
 		cell.y = clampi(cell.y, 0, room_rows - 1)
-		while cell.y > 0 and cell.y < room_rows - 1 and _is_solid_cell(room, cell):
+		while cell.y > 0 and cell.y < room_rows - 1 and is_solid_cell(room, cell):
 			cell.y -= step  # out of the tile, on the side away from the search
 	while cell.y >= 0 and cell.y < room_rows:
-		if _is_solid_cell(room, cell):
+		if is_solid_cell(room, cell):
 			# Its top meets the tile's bottom (hanging), or its bottom the tile's top.
 			if hangs:
 				return node.position + Vector2(0.0, (cell.y + 1) * TILE - outline.position.y)
@@ -1135,17 +1566,17 @@ func _snap_sentry_to_nearest_wall(sentry: Sentry, room: Room) -> Vector2:
 	# Each candidate: [origin, body rectangle, ceiling?, wall_side].
 	var candidates: Array = []
 	for y: int in range(1, room_size.y - 1):
-		if _is_solid_cell(room, Vector2i(column, y)) and not _is_solid_cell(room, Vector2i(column, y - 1)):
+		if is_solid_cell(room, Vector2i(column, y)) and not is_solid_cell(room, Vector2i(column, y - 1)):
 			var floor_origin: Vector2 = Vector2(side_x, y * TILE)
 			candidates.append([floor_origin, Rect2(floor_origin + Vector2(-size.x / 2.0, -size.y), size), false, 0])
-		if _is_solid_cell(room, Vector2i(column, y - 1)) and not _is_solid_cell(room, Vector2i(column, y)):
+		if is_solid_cell(room, Vector2i(column, y - 1)) and not is_solid_cell(room, Vector2i(column, y)):
 			var ceiling_origin: Vector2 = Vector2(side_x, y * TILE)
 			candidates.append([ceiling_origin, Rect2(ceiling_origin + Vector2(-size.x / 2.0, 0.0), size), true, 0])
 	for x: int in range(1, room_size.x - 1):
-		if _is_solid_cell(room, Vector2i(x - 1, row)) and not _is_solid_cell(room, Vector2i(x, row)):
+		if is_solid_cell(room, Vector2i(x - 1, row)) and not is_solid_cell(room, Vector2i(x, row)):
 			var left_origin: Vector2 = Vector2(x * TILE, side_y)
 			candidates.append([left_origin, Rect2(left_origin + Vector2(0.0, -size.y / 2.0), size), false, -1])
-		if _is_solid_cell(room, Vector2i(x, row)) and not _is_solid_cell(room, Vector2i(x - 1, row)):
+		if is_solid_cell(room, Vector2i(x, row)) and not is_solid_cell(room, Vector2i(x - 1, row)):
 			var right_origin: Vector2 = Vector2(x * TILE, side_y)
 			candidates.append([right_origin, Rect2(right_origin + Vector2(-size.x, -size.y / 2.0), size), false, 1])
 	var best: Array = []
@@ -1173,13 +1604,13 @@ func _is_body_free(room: Room, body: Rect2, room_size: Vector2i) -> bool:
 		return false
 	for y: int in range(first.y, last.y + 1):
 		for x: int in range(first.x, last.x + 1):
-			if _is_solid_cell(room, Vector2i(x, y)):
+			if is_solid_cell(room, Vector2i(x, y)):
 				return false
 	return true
 
 
 ## True if any terrain layer of `room` has a tile at `cell`.
-func _is_solid_cell(room: Room, cell: Vector2i) -> bool:
+func is_solid_cell(room: Room, cell: Vector2i) -> bool:
 	for child: Node in room.get_children():
 		var layer: TileMapLayer = child as TileMapLayer
 		if layer is HiddenLayer:
@@ -1377,6 +1808,14 @@ func toggle_grid() -> void:
 
 func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void:
 	undo_redo.create_action(action_name)
+	_add_object_steps(room, node)
+	undo_redo.commit_action()
+	selected_object = node
+
+
+## Inside the undo action being made: adds `node` (not in the tree yet) to `room`,
+## with the room settings it comes with; undo takes it out again.
+func _add_object_steps(room: Room, node: Node2D) -> void:
 	undo_redo.add_do_method(attach_node.bind(room, node, -1))
 	undo_redo.add_undo_method(detach_node.bind(node))
 	# Room settings the object comes with (a brazier turns Fire on), in the same step.
@@ -1389,8 +1828,6 @@ func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void
 	# The do side holds the new node: if the placing is undone and then dropped
 	# from the history, UndoRedo frees the node.
 	undo_redo.add_do_reference(node)
-	undo_redo.commit_action()
-	selected_object = node
 
 
 ## Puts `node` into `parent` (at `index`, or last if -1) as part of the saved level.
@@ -1517,8 +1954,24 @@ func start_playtest(start_point: Variant = null) -> bool:
 	get_tree().root.add_child(play_root)
 	play_root.camera.make_current()
 	GameState.run_finished.connect(_on_playtest_goal_reached)
+	# The cheats live in the play copy, so they go when it's freed.
+	play_cheats = PlaytestCheats.new(play_root.player)
+	play_root.add_child(play_cheats)
+	play_record.begin_trail()
+	play_root.player.died.connect(_on_playtest_player_died)
 	is_playtesting = true
 	return true
+
+
+## Every physics frame of a play-test: the player's feet join the trail.
+func _physics_process(_delta: float) -> void:
+	if is_playtesting and play_root != null and is_instance_valid(play_root.player):
+		play_record.add_point(play_root.player.global_position)
+
+
+func _on_playtest_player_died() -> void:
+	if is_playtesting and play_root != null:
+		play_record.add_death(play_root.player.global_position)
 
 
 ## See start_playtest. Skipped if the play-test already ended meanwhile.
@@ -1534,9 +1987,14 @@ func stop_playtest() -> void:
 	is_playtesting = false
 	if GameState.run_finished.is_connected(_on_playtest_goal_reached):
 		GameState.run_finished.disconnect(_on_playtest_goal_reached)
-	# The pause, freeze and slow motion are global: switch them all off.
+	# The pause, freeze and slow motion are global: switch them all off (the
+	# cheats' pause and speed too).
+	if is_instance_valid(play_cheats):
+		play_cheats.switch_all_off()
+	play_cheats = null
 	FX.set_menu_pause(false)
 	FX.clear_slow_motion()
+	play_record.save()
 	play_root.queue_free()
 	play_root = null
 	if level_root.get_parent() == null:
@@ -1611,7 +2069,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			stop_playtest()
 			viewport.set_input_as_handled()
 		return
-	if level_root == null or ui.prompt.visible or ui.help.visible or ui.import_picker.visible:
+	if level_root == null or ui.prompt.visible or ui.help.visible or ui.import_picker.visible \
+			or ui.backdrop_preview.visible:
 		return  # those handle their own keys (H and Esc close the help)
 	var mouse_world: Vector2 = get_global_mouse_position()
 
@@ -1621,10 +2080,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			camera.pan_by(motion.relative)
 		elif map_view.is_open:
 			map_view.mouse_moved(mouse_world)
+		elif region_dragging:
+			region_cells = _rect_between(region_start_cell, cell_at(region_room, mouse_world))
 		elif is_erasing:
 			erase_at(mouse_world, true)
 		elif stroke_room != null:
-			_continue_stroke(cell_at(stroke_room, mouse_world))
+			_continue_stroke(mouse_world)
 		elif not dragged_handle.is_empty():
 			var value: Variant = EditorHandles.value_for_drag(selected_object, dragged_handle, mouse_world,
 				Input.is_action_pressed("editor_free_place"))
@@ -1639,6 +2100,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_set_object_position(dragged_object, drag_start_position + moved)
 		return
 
+	var quick_slot: int = _quick_slot_pressed(event)
 	if event.is_action_pressed("editor_zoom_in") or event.is_action_pressed("editor_zoom_out"):
 		var steps: int = 1 if event.is_action_pressed("editor_zoom_in") else -1
 		camera.zoom_by(steps, get_viewport().get_mouse_position())
@@ -1671,6 +2133,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_eraser()
 	elif event.is_action_pressed("editor_help"):
 		ui.help.open()
+	elif event.is_action_pressed("editor_backdrop_preview"):
+		open_backdrop_preview()
 	elif event.is_action_pressed("editor_import"):
 		# Imports happen on the map, where you see where the copy fits.
 		toggle_map()
@@ -1694,14 +2158,56 @@ func _unhandled_input(event: InputEvent) -> void:
 			ui.show_message("Only spikes and hanging platforms can be turned.", true)
 	elif event.is_action_pressed("editor_toggle_grid"):
 		toggle_grid()
+	elif event.is_action_pressed("editor_brush_bigger"):
+		change_brush_size(1)
+	elif event.is_action_pressed("editor_brush_smaller"):
+		change_brush_size(-1)
+	# The Ctrl (and Ctrl+Shift) keys before plain keys on the same letter: a plain
+	# key's action also matches with Ctrl held.
+	elif event.is_action_pressed("editor_search"):
+		ui.search.focus()
+	elif event.is_action_pressed("editor_paste_mirrored"):
+		paste_at(mouse_world, true)
+	elif event.is_action_pressed("editor_paste"):
+		paste_at(mouse_world, false)
+	elif event.is_action_pressed("editor_copy"):
+		copy_region(false)
+	elif event.is_action_pressed("editor_cut"):
+		copy_region(true)
+	elif event.is_action_pressed("editor_clear_deaths"):
+		ui.show_message("Cleared %d death markers." % play_record.clear_deaths())
+	elif event.is_action_pressed("editor_toggle_trail"):
+		play_record.is_shown = not play_record.is_shown
+		ui.show_message("Play-test trail and deaths %s." % ("shown" if play_record.is_shown else "hidden"))
+	elif event.is_action_pressed("editor_brush_tool"):
+		end_link_mode()
+		choose_entry(PaletteCatalog.get_entry(&"brush"))
+	elif event.is_action_pressed("editor_fill_tool"):
+		end_link_mode()
+		choose_entry(PaletteCatalog.get_entry(&"fill"))
+	elif event.is_action_pressed("editor_pick"):
+		end_link_mode()
+		pick_at(mouse_world)
+	elif quick_slot != -1:
+		ui.quick_bar.choose_slot(quick_slot)
 	elif event.is_action_pressed("editor_back"):
 		if link_source != null:
-			end_link_mode()  # Esc first leaves link mode, then the editor
+			end_link_mode()  # Esc first leaves link mode, then the region, then the editor
+		elif has_region():
+			region_room = null
 		else:
 			request_leave()
 	else:
 		return
 	viewport.set_input_as_handled()
+
+
+## The quick bar slot (0-8) whose key (editor_quick_1 ... _9) `event` presses, or -1.
+func _quick_slot_pressed(event: InputEvent) -> int:
+	for slot: int in QuickBar.SLOT_COUNT:
+		if event.is_action_pressed("editor_quick_%d" % (slot + 1)):
+			return slot
+	return -1
 
 
 func _on_left_pressed(mouse_world: Vector2) -> void:
@@ -1720,7 +2226,8 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 		_start_erasing(room, mouse_world)
 		return
 	if current_entry.kind == PaletteCatalog.Kind.FILL:
-		if room != null and fill_region(room, cell_at(room, mouse_world), true) == 0:
+		var everywhere: bool = Input.is_action_pressed("editor_rectangle")  # Shift: the whole room
+		if room != null and fill_region(room, cell_at(room, mouse_world), true, everywhere) == 0:
 			ui.show_message("Already %s there." % _get_fill_terrain().display_name)
 		return
 	# The selected object's handles come first: they can sit on top of anything.
@@ -1735,6 +2242,13 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 			_start_terrain(room, mouse_world, true)
 		return
 	if current_entry.kind == PaletteCatalog.Kind.SELECT:
+		if Input.is_action_pressed("editor_rectangle") and room != null:
+			# Shift+drag: mark a region to copy (Ctrl+C) or cut (Ctrl+X).
+			region_dragging = true
+			region_room = room
+			region_start_cell = cell_at(room, mouse_world)
+			region_cells = Rect2i(region_start_cell, Vector2i.ONE)
+			return
 		_select_at(mouse_world)
 		return
 	# Object tools: an object under the mouse is picked up, else a new one is placed.
@@ -1769,7 +2283,7 @@ func _on_right_pressed(mouse_world: Vector2) -> void:
 	if current_entry.kind == PaletteCatalog.Kind.FILL:
 		var fill_room: Room = room_at(mouse_world)
 		if fill_room != null:
-			fill_region(fill_room, cell_at(fill_room, mouse_world), false)
+			fill_region(fill_room, cell_at(fill_room, mouse_world), false, Input.is_action_pressed("editor_rectangle"))
 		return
 	if current_entry.kind == PaletteCatalog.Kind.SELECT:
 		return  # right-click does nothing with Select (it never deletes by surprise)
@@ -1784,7 +2298,11 @@ func _on_right_pressed(mouse_world: Vector2) -> void:
 
 
 func _on_mouse_released(mouse_world: Vector2) -> void:
-	if is_erasing:
+	if region_dragging:
+		region_dragging = false
+		region_cells = _rect_between(region_start_cell, cell_at(region_room, mouse_world))
+		ui.show_message("Region %d x %d tiles: Ctrl+C copies, Ctrl+X cuts, Esc drops it." % [region_cells.size.x, region_cells.size.y])
+	elif is_erasing:
 		is_erasing = false
 		end_stroke()
 	elif not dragged_handle.is_empty():
@@ -1843,8 +2361,8 @@ func _start_terrain(room: Room, mouse_world: Vector2, painting: bool) -> void:
 		_start_rectangle(room, mouse_world, painting, false)
 	else:
 		begin_stroke(room, painting)
-		last_stroke_cell = cell_at(room, mouse_world)
-		_stroke_cell(last_stroke_cell)
+		last_stroke_point = mouse_world
+		_stamp(mouse_world)
 
 
 ## Starts a Shift-drag rectangle in `room` from the mouse's cell.
@@ -1856,21 +2374,24 @@ func _start_rectangle(room: Room, mouse_world: Vector2, painting: bool, erases_b
 	rectangle_erases_block = erases_block
 
 
-## Paints every cell on the line from the last cell to `cell`: a fast mouse
-## skips cells between two motion events, and this fills the gap.
-func _continue_stroke(cell: Vector2i) -> void:
-	var steps: int = maxi(absi(cell.x - last_stroke_cell.x), absi(cell.y - last_stroke_cell.y))
+## Stamps the brush along the line from the last mouse point to `world_point`, at
+## most a tile apart: a fast mouse skips tiles between two motion events, and this
+## fills the gap. Works in level pixels, so the line runs on into the next room.
+func _continue_stroke(world_point: Vector2) -> void:
+	var travel: Vector2 = world_point - last_stroke_point
+	var steps: int = ceili(maxf(absf(travel.x), absf(travel.y)) / TILE)
 	for step: int in range(1, steps + 1):
-		var point: Vector2 = Vector2(last_stroke_cell).lerp(Vector2(cell), float(step) / steps)
-		_stroke_cell(Vector2i(point.round()))
-	last_stroke_cell = cell
+		_stamp(last_stroke_point.lerp(world_point, float(step) / steps))
+	last_stroke_point = world_point
 
 
 ## What the overlay previews this frame: the rectangle or spike strip being dragged.
 func _update_preview() -> void:
 	preview_active = rectangle_active or strip_active
 	if rectangle_active:
-		preview_rect = _cells_to_world(rectangle_room, _rect_between(rectangle_start_cell, cell_at(rectangle_room, get_global_mouse_position())))
+		# Not cut to the room: the rectangle carries on into the rooms next door.
+		preview_rect = _cells_to_world(rectangle_room, _rect_between(rectangle_start_cell,
+			cell_at(rectangle_room, get_global_mouse_position())), false)
 		preview_color = PAINT_PREVIEW_COLOR if rectangle_painting else ERASE_PREVIEW_COLOR
 	elif strip_active:
 		preview_rect = _cells_to_world(strip_room, _strip_cells(strip_start_cell, cell_at(strip_room, get_global_mouse_position())))
@@ -1910,10 +2431,10 @@ func _rect_between(corner_a: Vector2i, corner_b: Vector2i) -> Rect2i:
 	return Rect2i(top_left, (corner_a - corner_b).abs() + Vector2i.ONE)
 
 
-## Room-local cells -> a level rectangle, cut to the room.
-func _cells_to_world(room: Room, cells: Rect2i) -> Rect2:
+## Room-local cells -> a level rectangle, cut to the room unless `cut_to_room` is false.
+func _cells_to_world(room: Room, cells: Rect2i, cut_to_room: bool = true) -> Rect2:
 	var rect: Rect2 = Rect2(room.global_position + Vector2(cells.position * TILE), Vector2(cells.size * TILE))
-	return rect.intersection(room.get_bounds())
+	return rect.intersection(room.get_bounds()) if cut_to_room else rect
 
 
 func _draw_backdrop() -> void:

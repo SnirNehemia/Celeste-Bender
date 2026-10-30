@@ -16,6 +16,10 @@ const SECTION_COLOR: Color = Color(1.0, 0.85, 0.2)
 const KEY_COLOR: Color = Color(0.75, 0.92, 1.0)
 const KEY_COLUMN_WIDTH: float = 78.0
 const TEXT_COLUMN_WIDTH: float = 150.0
+## The columns' most height on the 360 px editor screen (title and Close fit
+## around it); taller, they scroll. And the width left for the scroll bar.
+const MAX_COLUMNS_HEIGHT: float = 290.0
+const SCROLL_BAR_ROOM: float = 10.0
 
 ## [section title, [[action name or key text, what it does], ...]], in two columns.
 const LEFT_SECTIONS: Array = [
@@ -23,6 +27,21 @@ const LEFT_SECTIONS: Array = [
 		["editor_paint", "paint tiles (drag for more)"],
 		["editor_erase", "erase tiles"],
 		["editor_rectangle", "+ drag: fill / clear a rectangle"],
+		["editor_brush_tool", "Brush: paint with the last terrain"],
+		["editor_fill_tool", "Fill: the connected area"],
+		["editor_rectangle", "+ Fill click: all such tiles in the room"],
+		["editor_pick", "pick what's under the mouse"],
+	]],
+	["Finding things", [
+		["editor_search", "search the palette (Enter: first)"],
+		["1 - 9", "the things used last (bottom row)"],
+	]],
+	["Copy and paste (Select tool)", [
+		["editor_rectangle", "+ drag: mark a region"],
+		["editor_copy", "copy the region (tiles + objects)"],
+		["editor_cut", "cut the region"],
+		["editor_paste", "paste at the mouse"],
+		["editor_paste_mirrored", "paste mirrored left-right"],
 	]],
 	["Objects (Basics, Air tabs)", [
 		["editor_paint", "place, or pick up and drag"],
@@ -41,7 +60,11 @@ const LEFT_SECTIONS: Array = [
 	]],
 	["Map of rooms", [
 		["editor_map", "map on / off"],
-		["Drag", "empty space: new room; room: move; edge: resize"],
+		["Drag", "empty space: select rooms; room: move; edge: resize"],
+		["Ctrl+click", "add a room to the selection, or take it out"],
+		["Right-click", "new room; backdrop of the selected rooms; copy"],
+		["Room panel", "with several rooms selected, changes all of them"],
+		["editor_backdrop_preview", "preview every backdrop (Enter: use it)"],
 		["Fill edges", "room panel button: wall a room in"],
 		["Double-click", "edit that room"],
 		["editor_start_room", "make the selected room the start"],
@@ -61,12 +84,22 @@ const RIGHT_SECTIONS: Array = [
 		["editor_zoom_in", "zoom in (on the mouse)"],
 		["editor_zoom_out", "zoom out"],
 		["editor_toggle_grid", "grid on / off"],
+		["editor_brush_bigger", "bigger terrain / eraser brush"],
+		["editor_brush_smaller", "smaller terrain / eraser brush"],
 	]],
 	["Play-test", [
 		["editor_playtest", "play from the start / back to editor"],
 		["editor_playtest_here", "play from the mouse"],
 		["pause", "in play: pause menu, Back to editor"],
 		["restart_room", "in play: restart the room"],
+		["playtest_invincible", "in play: invincible on / off"],
+		["playtest_fly", "in play: fly through walls (arrows)"],
+		["playtest_slow_motion", "in play: 1x, 1/2x, 1/4x speed"],
+		["playtest_pause", "in play: pause / resume"],
+		["playtest_step", "in play, paused: one frame"],
+		["editor_toggle_trail", "show / hide trail and deaths"],
+		["editor_clear_deaths", "clear this level's deaths"],
+		["editor_jump_reach", "hold: the jump's reach from the mouse"],
 	]],
 	["File", [
 		["editor_undo", "undo"],
@@ -110,11 +143,17 @@ func _ready() -> void:
 	title.text = "Level editor: quick reference"
 	title.add_theme_font_size_override("font_size", 12)
 	page.add_child(title)
+	# The two columns scroll (mouse wheel) when taller than the screen allows.
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page.add_child(scroll)
 	var columns: HBoxContainer = HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 16)
-	page.add_child(columns)
+	scroll.add_child(columns)
 	columns.add_child(_build_column(LEFT_SECTIONS))
 	columns.add_child(_build_column(RIGHT_SECTIONS))
+	var columns_size: Vector2 = columns.get_combined_minimum_size()
+	scroll.custom_minimum_size = Vector2(columns_size.x + SCROLL_BAR_ROOM, minf(columns_size.y, MAX_COLUMNS_HEIGHT))
 
 	close_button = Button.new()
 	close_button.text = "Close (H or Esc)"

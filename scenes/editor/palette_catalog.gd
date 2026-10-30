@@ -37,6 +37,7 @@ enum Kind {
 	ERASER,       ## not a thing to place: the tool that removes whatever is clicked
 	SELECT,       ## not a thing to place: picks what's under the mouse (a list if several)
 	FILL,         ## not a thing to place: floods a connected area with the last terrain
+	BRUSH,        ## not a thing to place: back to painting with the last terrain (LevelEditor.choose_entry)
 }
 
 ## How an object's outline is worked out, relative to its origin.
@@ -250,8 +251,10 @@ static func _build() -> void:
 	select_tool.hint = "Selects the object under the mouse (drag to move it). Where several overlap, a list asks which one. Empty space: the room's settings."
 	var eraser: Entry = _add(&"eraser", "Eraser", "", Kind.ERASER)
 	eraser.hint = "Removes the object under the mouse (zones from inside too), else the tiles of every layer. Shift+drag: a whole block, objects inside it too."
+	var brush: Entry = _add(&"brush", "Brush", "", Kind.BRUSH)
+	brush.hint = "Paints with the terrain chosen last (B). The way back from Fill or another tool without hunting for the terrain's tab."
 	var fill: Entry = _add(&"fill", "Fill", "", Kind.FILL)
-	fill.hint = "Left: fills the connected area of the same tiles (or of empty air) with the chosen terrain; pick it in the Terrain or Breakable tab. Right: clears that area."
+	fill.hint = "Left: fills the connected area of the same tiles (or of empty air) with the chosen terrain; pick it in the Terrain or Breakable tab. Shift+left: replaces those tiles all over the room, connected or not. Right: clears that area (F)."
 
 	# --- Terrain ---
 	var ground: Entry = _add(&"ground", "Ground", "Terrain", Kind.TERRAIN)

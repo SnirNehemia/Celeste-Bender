@@ -106,6 +106,10 @@ const ELEMENT_WATER: StringName = &"water"
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
 
+## Play-test cheat (the level editor's PlaytestCheats): hazards and enemies can't
+## kill. A pit or R still do (die(true)). Always false in the real game.
+var is_invincible: bool = false
+
 @onready var state_machine: PlayerStateMachine = $StateMachine
 @onready var hitbox: CollisionShape2D = $CollisionShape2D
 @onready var visual: ColorRect = $SquashPivot/Visual
@@ -151,6 +155,9 @@ var is_on_ice: bool = false
 ## gently instead of at air control's rate. Cleared on landing anywhere else, or
 ## once we're back down to run speed.
 var carries_ice_speed: bool = false
+## Seconds left in which a mid-air gust's sideways shove above run speed fades gently
+## (tuning.gust_overspeed_time, set by GustRecoil). 0 on the ground.
+var gust_overspeed_remaining: float = 0.0
 ## Belly-sliding (Stage W6): the hitbox is the low TUCK one (see set_tucked).
 var is_tucked: bool = false
 ## The standing hitbox's shape and its tucked twin (half as tall), and where each sits.
@@ -224,6 +231,7 @@ func _update_timers(delta: float) -> void:
 		carries_ice_speed = true
 	elif is_on_floor() or absf(velocity.x) <= tuning.max_run_speed:
 		carries_ice_speed = false
+	gust_overspeed_remaining = 0.0 if is_on_floor() else maxf(gust_overspeed_remaining - delta, 0.0)
 
 	# is_action_just_pressed is true only on the one physics frame the key went down.
 	if Input.is_action_just_pressed("jump"):
@@ -249,9 +257,10 @@ func _update_timers(delta: float) -> void:
 # --- Death, respawn, freezing -------------------------------------------------
 
 ## Kills the player. Safe to call repeatedly (e.g. spikes touching every frame):
-## only the first call does anything until the player respawns.
-func die() -> void:
-	if is_dead():
+## only the first call does anything until the player respawns. `forced`: dies
+## even while is_invincible (a pit, the restart key).
+func die(forced: bool = false) -> void:
+	if is_dead() or (is_invincible and not forced):
 		return
 	state_machine.transition_to(&"Dead")
 	FX.play_sfx(&"death")
@@ -895,6 +904,9 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 	# A long jump off ice (Stage W5): the speed above run speed fades gently.
 	if carries_ice_speed and not is_on_floor() and overspeed_deceleration < 0.0:
 		overspeed_deceleration = water_tuning.ice_air_overspeed_fade
+	# Just after a sideways gust: its shove outruns run speed for a moment.
+	if gust_overspeed_remaining > 0.0 and overspeed_deceleration < 0.0:
+		overspeed_deceleration = tuning.gust_overspeed_fade
 	if overspeed_deceleration >= 0.0 and not is_on_floor():
 		# Speed relative to the wind, so a current isn't counted as "extra" speed.
 		var own_speed: float = velocity.x - wind_x

@@ -9,7 +9,10 @@ extends PlayerState
 ##   RECOIL (aimed gust, an arrow held)
 ##     enter():  shoved the opposite way at gust_recoil_speed; a down-gust in mid-air
 ##               is an "extra jump" (it spends the airtime's gust charge, like any air gust);
-##               an up-gust pushes you down. On the ground the sideways shove is
+##               an up-gust pushes you down. A diagonal's sideways shove is
+##               gust_diagonal_recoil_share of the full one (not the unit vector's
+##               0.71), and in mid-air a shove above run speed fades gently for
+##               gust_overspeed_time. On the ground the sideways shove is
 ##               weaker (gust_ground_recoil_multiplier) and braked hard by friction
 ##               (gust_ground_recoil_friction), so you stay planted near a ledge
 ##               while the enemy flies. Exception: standing on a floor that
@@ -70,7 +73,13 @@ func enter() -> void:
 			var recoil_speed: float = tuning.gust_recoil_speed
 			if player.is_on_floor():
 				recoil_speed *= tuning.gust_ground_recoil_multiplier
-			player.velocity.x = -direction.x * recoil_speed
+			else:
+				# In the air the shove may outrun run speed for a moment (Player.apply_horizontal_movement).
+				player.gust_overspeed_remaining = tuning.gust_overspeed_time
+			# A diagonal's sideways share is its own tuning value, not the unit vector's
+			# 0.71: the harder-to-aim diagonal gets more reach.
+			var sideways_share: float = tuning.gust_diagonal_recoil_share if direction.y != 0.0 else 1.0
+			player.velocity.x = -signf(direction.x) * recoil_speed * sideways_share
 
 	if direction.y > 0.0:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward

@@ -62,6 +62,7 @@ func _ready() -> void:
 	if current_room == null:
 		push_error("[RoomManager] Player does not start inside any room")
 		return
+	_add_backdrop()
 	GameState.current_room = current_room
 	camera.snap_to_room(current_room.get_bounds())
 	_update_awake_rooms()
@@ -84,9 +85,25 @@ func _physics_process(_delta: float) -> void:
 	if next_room != null:
 		_transition_to_room(next_room)
 	elif player_center.y > current_room.get_bounds().end.y:
-		# Fell out of the bottom with no room below: that's a pit.
-		player.die()
+		# Fell out of the bottom with no room below: that's a pit (even for a
+		# play-test's invincible player, who would otherwise fall forever).
+		player.die(true)
 	# Otherwise (e.g. jumped above the top of the room): allowed, keep going.
+
+
+## Adds the parallax background (Backdrop) behind the rooms. Before the first room
+## is set, so it hears GameState.room_entered and shows that room's look at once.
+## Its start room (AUTO backdrop altitudes are measured from it) is the level's
+## LevelInfo.start_room in editor levels, else the room the player starts in.
+func _add_backdrop() -> void:
+	var backdrop: Backdrop = Backdrop.new()
+	backdrop.name = "Backdrop"
+	backdrop.camera = camera
+	backdrop.start_room = current_room
+	var level_info: LevelInfo = get_node_or_null(NodePath(LevelInfo.NODE_NAME)) as LevelInfo
+	if level_info != null and level_info.start_room != null:
+		backdrop.start_room = level_info.start_room
+	add_child(backdrop)
 
 
 ## _unhandled_input receives key presses not already used by UI.
@@ -100,7 +117,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## over then, and a restart must not add a death to the final score.
 func restart_room() -> void:
 	if not is_transitioning and not GameState.is_run_finished:
-		player.die()
+		player.die(true)  # R works even with the play-test's invincibility on
 
 
 func _transition_to_room(next_room: Room) -> void:

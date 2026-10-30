@@ -107,6 +107,16 @@ extends Resource
 @export var gust_diamond_charges: int = 2
 ## Speed the player is shoved the OPPOSITE way of the gust, px/s.
 @export var gust_recoil_speed: float = 120.0
+## A DIAGONAL gust's sideways shove, as a share of gust_recoil_speed. Plain geometry
+## (a unit-length diagonal) would give 0.71; more rewards the harder-to-aim diagonal
+## with more reach. 1.0 = as hard sideways as a straight sideways gust.
+@export_range(0.5, 1.5) var gust_diagonal_recoil_share: float = 1.0
+## After a sideways (or diagonal) gust in mid-air, the shove's speed above
+## max_run_speed is kept for a moment: for this long, s, it fades at only
+## gust_overspeed_fade px/s² instead of being pulled back by air control (~650 px/s²).
+## Landing ends it. The Glide state has its own rule (glide_overspeed_deceleration).
+@export var gust_overspeed_time: float = 0.3
+@export var gust_overspeed_fade: float = 150.0
 ## Gusting while standing on the ground: the recoil is multiplied by this (0.5 = half),
 ## so you can shove an enemy off a platform without shoving yourself off too.
 @export_range(0.0, 1.0) var gust_ground_recoil_multiplier: float = 0.5
