@@ -1,15 +1,13 @@
 extends BackdropTheme
 ## DESERT backdrop (the Earth chapter's look): a dusk sky over a setting sun cut
-## by bars of haze, far flat-topped mesas with layered rock, rolling dunes with a
-## lit crest, and near buttes in dark banded stone with saguaro cacti; sand
-## blows past. Layers far to near; see BackdropTheme.
+## by bars of haze, giant rock towers and an arch rising up out of view (both
+## shared with the skyline: DesertStyle), far flat-topped mesas with layered rock,
+## rolling dunes with a lit crest, near buttes in dark banded stone with saguaro
+## cacti, and a big saguaro and yucca right in front; sand blows past. Layers far
+## to near; see BackdropTheme.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
-
-const SKY_BANDS: Array[Color] = [Color(0.12, 0.11, 0.24), Color(0.18, 0.14, 0.3), Color(0.27, 0.18, 0.33),
-	Color(0.38, 0.23, 0.33), Color(0.5, 0.3, 0.32), Color(0.6, 0.38, 0.33)]
-const SUN_COLOR: Color = Color(0.9, 0.6, 0.38)
 
 const MESA_BODY: Color = Color(0.36, 0.22, 0.3)
 const MESA_LIT: Color = Color(0.46, 0.29, 0.34)
@@ -27,10 +25,13 @@ const NEAR_RIM: Color = Color(0.32, 0.19, 0.18)
 
 
 func _build_layers() -> void:
-	add_painted_layer("Sky", Vector2(0.01, 0.0), _paint_sky)
+	add_tall_layer(DesertStyle.NAME, "Sky", Vector2(0.01, 0.0), DesertStyle.paint_sky, SURFACE_SECTION)
+	add_tall_layer(DesertStyle.NAME, "Clouds", Vector2(0.03, 0.01), DesertStyle.paint_clouds, SURFACE_SECTION, 3.0)
 	add_painted_layer("Mesas", Vector2(0.06, 0.03), _paint_mesas)
+	add_tall_layer(DesertStyle.NAME, "Spires", Vector2(0.1, 0.04), DesertStyle.paint_spires, SURFACE_SECTION)
 	add_painted_layer("Dunes", Vector2(0.18, 0.07), _paint_dunes)
 	add_painted_layer("Buttes", Vector2(0.38, 0.12), _paint_buttes)
+	add_painted_layer("Front", DesertStyle.FRONT_SCROLL, _paint_front)
 
 	var sand: BackdropMotes = BackdropMotes.new()
 	sand.shape = BackdropMotes.Shape.STREAK
@@ -53,23 +54,6 @@ func _build_layers() -> void:
 	grains.scroll_factor = 0.7
 	grains.seed_value = 42
 	add_motes(grains)
-
-
-func _paint_sky() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, SKY_BANDS, BackdropPaint.row(0), BackdropPaint.row(125))
-	# A big setting sun, with horizontal bars of sky cut through its lower half
-	# (thicker further down): the classic striped sunset.
-	var sun_center: Vector2 = Vector2(150.0, BackdropPaint.row(102))
-	var radius: float = 30.0
-	for dy: int in range(-ceili(radius), 1):
-		var y: int = roundi(sun_center.y) + dy
-		var gap_height: int = 0 if dy < -14 else (1 if dy < -6 else 2)
-		if gap_height > 0 and posmod(dy, 5) < gap_height:
-			continue
-		var half_width: float = sqrt(maxf(0.0, radius * radius - dy * dy))
-		BackdropPaint.put_rect(image, Rect2i(roundi(sun_center.x - half_width), y, roundi(half_width * 2.0), 1), SUN_COLOR)
-	return image
 
 
 func _paint_mesas() -> Image:
@@ -138,3 +122,15 @@ func _paint_cactus(image: Image, center_x: int, foot_row: int, height: int, seed
 		BackdropPaint.put_rect(image, Rect2i(arm_x, arm_row - arm_height, 3, arm_height + 3), NEAR_BODY)
 		BackdropPaint.put_rect(image, Rect2i(arm_x, arm_row - arm_height, 1, arm_height + 3), NEAR_LIT)
 		BackdropPaint.put_pixel(image, arm_x + 1, arm_row - arm_height - 1, NEAR_RIM)
+
+
+## Right in front: a big saguaro and yucca bursts on a rocky lip along the bottom.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	var lip: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(194), [Vector2(120.0, 10.0), Vector2(30.0, 4.0)] as Array[Vector2], 97, false)
+	DesertStyle.paint_big_cactus(image, 520.0, lip[520] + 2.0, 92.0, 6.0, 98)
+	DesertStyle.paint_spiky_plant(image, Vector2(70.0, lip[70] + 2.0), 11, 40.0, 99)
+	DesertStyle.paint_spiky_plant(image, Vector2(250.0, lip[250] + 2.0), 7, 26.0, 100)
+	BackdropPaint.fill_below(image, lip, DesertStyle.FRONT_BODY)
+	BackdropPaint.paint_rim(image, lip, DesertStyle.FRONT_RIM)
+	return image

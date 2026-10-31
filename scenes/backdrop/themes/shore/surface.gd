@@ -1,10 +1,11 @@
 extends BackdropTheme
-## SHORE, SURFACE: a beach on the open sea at midday. A blue sky with clouds over
-## a wide sea that glitters, a far island with a lighthouse on the horizon, a rocky
-## headland with sea stacks in the surf, a sandy beach where the waves wash in and
-## out, and palm trees and dunes in front; gulls drift by. Layers far to near; see
-## BackdropTheme. (Under it: underground.gd, a sea cave; high up: skyline.gd, the
-## cliff top.)
+## SHORE, SURFACE: a beach on the open sea at midday. A blue sky under the low
+## cloud bank and a wide sea that glitters (both shared with the cliff top above:
+## ShoreStyle), a far island with a lighthouse on the horizon, a rocky headland
+## with sea stacks in the surf, a sandy beach where the waves wash in and out,
+## palm trees and dunes, and big palm fronds hanging in right in front; gulls
+## drift by. Layers far to near; see BackdropTheme. (Under it: underground.gd, a
+## sea cave; high up: skyline.gd, the cliff top.)
 ##
 ## The sea's layers move only sideways (vertical factor 0), so the horizon stays
 ## level with the islands on it.
@@ -12,16 +13,8 @@ extends BackdropTheme
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
 
-const HORIZON_SCREEN_ROW: int = 96
+const HORIZON_SCREEN_ROW: int = ShoreStyle.SURFACE_HORIZON_SCREEN_ROW
 
-const SKY_BANDS: Array[Color] = [Color(0.3, 0.5, 0.76), Color(0.38, 0.58, 0.8), Color(0.48, 0.66, 0.84),
-	Color(0.6, 0.75, 0.86), Color(0.74, 0.84, 0.88)]
-const SEA_BANDS: Array[Color] = [Color(0.2, 0.42, 0.62), Color(0.18, 0.46, 0.63), Color(0.17, 0.51, 0.63),
-	Color(0.19, 0.57, 0.63), Color(0.23, 0.63, 0.64)]
-const HORIZON_LINE: Color = Color(0.55, 0.72, 0.82)
-const CLOUD_BODY: Color = Color(0.86, 0.9, 0.93)
-const CLOUD_LIT: Color = Color(0.98, 0.98, 0.98)
-const CLOUD_SHADE: Color = Color(0.72, 0.8, 0.88)
 const GLITTER: Color = Color(1.0, 1.0, 0.95)
 
 const ISLAND_BODY: Color = Color(0.42, 0.56, 0.7)
@@ -55,15 +48,17 @@ const PALMS: Array[Vector2] = [Vector2(90, 30), Vector2(130, -18), Vector2(420, 
 
 
 func _build_layers() -> void:
-	var sky: BackdropLayer = add_painted_layer("SkyAndSea", Vector2(0.01, 0.0), _paint_sky_and_sea)
+	var sky: BackdropLayer = add_tall_layer(ShoreStyle.NAME, "SkyAndSea", Vector2(0.01, 0.0), ShoreStyle.paint_sky_and_sea, SURFACE_SECTION)
 	sky.draw_extra = _draw_glitter
 	add_painted_layer("Clouds", Vector2(0.03, 0.0), _paint_clouds, 3.0)
+	add_tall_layer(ShoreStyle.NAME, "CloudBank", Vector2(0.05, 0.0), ShoreStyle.paint_cloud_bank, SURFACE_SECTION, 4.0)
 	add_painted_layer("Island", Vector2(0.04, 0.0), _paint_island)
 	var headland: BackdropLayer = add_painted_layer("Headland", Vector2(0.14, 0.0), _paint_headland)
 	headland.draw_extra = _draw_surf
 	var beach: BackdropLayer = add_painted_layer("Beach", Vector2(0.28, 0.08), _paint_beach)
 	beach.draw_extra = _draw_waves
 	add_painted_layer("Palms", Vector2(0.45, 0.14), _paint_palms)
+	add_painted_layer("Front", ShoreStyle.FRONT_SCROLL, _paint_front)
 
 	var gulls: BackdropMotes = BackdropMotes.new()
 	gulls.shape = BackdropMotes.Shape.BIRD
@@ -77,17 +72,6 @@ func _build_layers() -> void:
 	gulls.vertical_range = Vector2(16.0, 80.0)
 	gulls.seed_value = 1511
 	add_motes(gulls)
-
-
-func _paint_sky_and_sea() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	var horizon: int = BackdropPaint.row(HORIZON_SCREEN_ROW)
-	BackdropPaint.paint_bands(image, SEA_BANDS, horizon, BackdropPaint.row(170))
-	var sky: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(sky, SKY_BANDS, BackdropPaint.row(-10), horizon)
-	image.blit_rect(sky, Rect2i(0, 0, BackdropPaint.STRIP_WIDTH, horizon), Vector2i.ZERO)
-	image.fill_rect(Rect2i(0, horizon, BackdropPaint.STRIP_WIDTH, 1), HORIZON_LINE)
-	return image
 
 
 ## Sun glitter on the sea: short bright dashes that blink, more of them near shore.
@@ -107,9 +91,9 @@ func _paint_clouds() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for cloud_index: int in 6:
 		var center: Vector2 = Vector2((cloud_index + BackdropPaint.random01(cloud_index, 1, 1521) * 0.6) * BackdropPaint.STRIP_WIDTH / 6.0,
-			BackdropPaint.row(18 + BackdropPaint.random01(cloud_index, 2, 1521) * 50.0))
+			BackdropPaint.row(40 + BackdropPaint.random01(cloud_index, 2, 1521) * 36.0))
 		var half_width: float = 14.0 + BackdropPaint.random01(cloud_index, 3, 1521) * 20.0
-		BackdropPaint.paint_cloud(image, center, half_width, CLOUD_BODY, CLOUD_LIT, CLOUD_SHADE, cloud_index + 1522)
+		BackdropPaint.paint_cloud(image, center, half_width, ShoreStyle.CLOUD_BODY, ShoreStyle.CLOUD_LIT, ShoreStyle.CLOUD_SHADE, cloud_index + 1522)
 	return image
 
 
@@ -223,3 +207,17 @@ static func paint_palm(image: Image, foot: Vector2, control: Vector2, top: Vecto
 			NEAR_BODY, NEAR_LIT)
 	for coconut: int in 3:
 		BackdropPaint.put_circle(image, top + Vector2(coconut * 3 - 3, 3 + coconut % 2), 1.5, TRUNK.darkened(0.2))
+
+
+## Right in front: the crown of a palm leaning in from off the top corner, its big
+## fronds hanging down across the corner.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	var crown: Vector2 = Vector2(18.0, BackdropPaint.row(-14))
+	for frond_index: int in 6:
+		var angle: float = PI * 0.05 + frond_index * PI * 0.17
+		var bend: float = 0.7 if cos(angle) > 0.0 else -0.7
+		BackdropPaint.paint_frond(image, crown, angle, 70.0 + (frond_index % 3) * 14.0, bend, 13.0,
+			ShoreStyle.FRONT_BODY, ShoreStyle.FRONT_LIT)
+	BackdropPaint.put_circle(image, crown, 6.0, TRUNK.darkened(0.4))
+	return image

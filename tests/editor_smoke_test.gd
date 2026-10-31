@@ -2629,11 +2629,22 @@ func _check_l17_backdrops() -> void:
 	var backdrop: Backdrop = Backdrop.new()
 	backdrop.camera = camera
 	add_child(backdrop)
+	_check(Backdrop.get_transition(Backdrop.Look.SHORE, Backdrop.Altitude.UNDERGROUND, Backdrop.Look.SHORE, Backdrop.Altitude.SURFACE) == Backdrop.Transition.BREAK
+		and Backdrop.get_transition(Backdrop.Look.SHORE, Backdrop.Altitude.SURFACE, Backdrop.Look.SHORE, Backdrop.Altitude.SKYLINE) == Backdrop.Transition.SOFT
+		and Backdrop.get_transition(Backdrop.Look.UNDERWATER, Backdrop.Altitude.UNDERGROUND, Backdrop.Look.UNDERWATER, Backdrop.Altitude.SURFACE) == Backdrop.Transition.SOFT,
+		"out of the ground is a break (not under water); surface to skyline is soft")
 	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.UNDERGROUND)
 	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.SURFACE, Vector2.UP)
-	_check(backdrop.is_sliding() and backdrop.get_child_count() == 2, "a new altitude scrolls in beside the old one")
-	await get_tree().create_timer(Backdrop.SLIDE_TIME + 0.2).timeout
-	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1, "after the scroll only the new look is left")
+	_check(backdrop.is_sliding() and backdrop.get_child_count() == 3 and backdrop.get_node_or_null(^"Crust") != null,
+		"breaking out of the ground pushes the looks apart with a band of rock between")
+	await get_tree().create_timer(Backdrop.BREAK_TIME + 0.2).timeout
+	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1, "after the break only the new look is left")
+	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.SKYLINE, Vector2.UP)
+	var new_group: CanvasGroup = backdrop.get_child(backdrop.get_child_count() - 1).get_node(^"Group") as CanvasGroup
+	_check(backdrop.is_sliding() and backdrop.get_child_count() == 2 and new_group.material != null,
+		"surface to skyline wipes softly over the old look")
+	await get_tree().create_timer(Backdrop.SOFT_TIME + 0.2).timeout
+	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1 and new_group.material == null, "after the wipe the new look rests")
 	backdrop.queue_free()
 	camera.queue_free()
 

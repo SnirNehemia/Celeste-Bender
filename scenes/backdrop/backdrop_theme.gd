@@ -3,7 +3,8 @@ extends Node2D
 ## One complete backdrop look (a mountain range, a temple hall, a forest...): a stack
 ## of BackdropLayers from far to near plus BackdropMotes. This is the base script;
 ## each look is a small script in themes/ that extends it and overrides
-## _build_layers(), calling add_painted_layer / add_drawn_layer / add_motes in
+## _build_layers(), calling add_painted_layer / add_tall_layer (a slice of a
+## picture its look's three altitudes share) / add_drawn_layer / add_motes in
 ## far-to-near order (later children draw on top).
 ##
 ## Made by Backdrop (backdrop.gd), which calls build() once and then
@@ -15,6 +16,19 @@ extends Node2D
 
 ## Painted textures by "<theme script path>:<layer name>".
 static var texture_cache: Dictionary = {}
+## Tall pictures (BackdropPaint.new_tall) by "<style>:<layer name>": painted once,
+## sliced by each altitude of the look.
+static var tall_cache: Dictionary = {}
+
+## Which slice of a look's tall pictures each altitude shows (BackdropPaint header).
+const SKYLINE_SECTION: int = 0
+const SURFACE_SECTION: int = 1
+const UNDERGROUND_SECTION: int = 2
+
+## The band of rock drawn when the backdrop breaks through the ground (Backdrop,
+## Transition.BREAK): [body, lit rim]. Underground looks set their own rock's.
+const DEFAULT_CRUST_COLORS: Array[Color] = [Color(0.07, 0.06, 0.07), Color(0.2, 0.18, 0.17)]
+var crust_colors: Array[Color] = DEFAULT_CRUST_COLORS
 
 ## The layers and motes, far to near; each has follow_camera(offset, delta).
 var _parallax_children: Array[Node2D] = []
@@ -46,6 +60,27 @@ func add_painted_layer(layer_name: String, scroll_factor: Vector2, painter: Call
 		texture_cache[cache_key] = ImageTexture.create_from_image(image)
 	var layer: BackdropLayer = add_drawn_layer(layer_name, scroll_factor, Callable())
 	layer.texture = texture_cache[cache_key]
+	layer.drift_speed = drift_speed
+	return layer
+
+
+## Adds a layer showing `section`'s slice of a TALL picture that `painter` paints:
+## func(tall: Image) -> void, given a BackdropPaint.new_tall() to paint on. The
+## same `style_name` + `layer_name` gives the same tall picture to every altitude
+## of a look (themes/<look>/style.gd holds the painter), so what one altitude shows
+## carries on in the next. Give the layer the same scroll_factor in each.
+func add_tall_layer(style_name: String, layer_name: String, scroll_factor: Vector2, painter: Callable,
+		section: int, drift_speed: float = 0.0) -> BackdropLayer:
+	var tall_key: String = "%s:%s" % [style_name, layer_name]
+	var slice_key: String = "%s:%d" % [tall_key, section]
+	if not texture_cache.has(slice_key):
+		if not tall_cache.has(tall_key):
+			var tall: Image = BackdropPaint.new_tall()
+			painter.call(tall)
+			tall_cache[tall_key] = tall
+		texture_cache[slice_key] = ImageTexture.create_from_image(BackdropPaint.tall_slice(tall_cache[tall_key], section))
+	var layer: BackdropLayer = add_drawn_layer(layer_name, scroll_factor, Callable())
+	layer.texture = texture_cache[slice_key]
 	layer.drift_speed = drift_speed
 	return layer
 

@@ -2,8 +2,9 @@ extends BackdropTheme
 ## JUNGLE, UNDERGROUND: a cenote, a sinkhole cave under the rainforest. Daylight
 ## pours through holes in the ceiling in shafts, vines hang down through them and
 ## sway, mossy rocks and stalactites fill the middle, and a still green pool lies
-## at the bottom, glinting; fireflies and drips. Layers far to near; see
-## BackdropTheme. (Surface: surface.gd; high up: skyline.gd.)
+## at the bottom, glinting; big leaves droop in through the holes right in front;
+## fireflies and drips. Layers far to near; see BackdropTheme. (Surface:
+## surface.gd; high up: skyline.gd; shared: JungleStyle.)
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -34,12 +35,14 @@ const POOL_SCREEN_ROW: int = 164
 
 
 func _build_layers() -> void:
+	crust_colors = [JungleStyle.GROUND_BODY, JungleStyle.GROUND_RIM]
 	add_painted_layer("Depths", Vector2(0.01, 0.0), _paint_depths)
 	var far: BackdropLayer = add_painted_layer("Sinkhole", Vector2(0.06, 0.02), _paint_sinkhole)
 	far.draw_extra = _draw_light_and_vines
 	add_painted_layer("MossyRocks", Vector2(0.2, 0.07), _paint_mossy_rocks)
 	var pool: BackdropLayer = add_painted_layer("Pool", Vector2(0.42, 0.13), _paint_pool)
 	pool.draw_extra = _draw_pool_glints
+	add_painted_layer("Front", JungleStyle.FRONT_SCROLL, _paint_front)
 
 	var fireflies: BackdropMotes = BackdropMotes.new()
 	fireflies.shape = BackdropMotes.Shape.FIREFLY
@@ -166,3 +169,12 @@ func _draw_pool_glints(layer: BackdropLayer, copy_x: float, time: float) -> void
 		if shimmer > 0.4:
 			var y: float = waterline + 2.0 + floorf(BackdropPaint.random01(glint_index, 2, 1343) * 6.0) * 2.0
 			layer.draw_rect(Rect2(copy_x + x, y, 3.0 + roundf(shimmer * 3.0), 1.0), Color(POOL_LINE, 0.7))
+
+
+## Right in front: big leaves drooping in from the jungle above, through the
+## ceiling's holes, and a clump rising from the pool's edge.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	JungleStyle.paint_big_leaves(image, [Vector3(HOLES[0].x - 30.0, BackdropPaint.row(-30), PI * 0.4), Vector3(HOLES[1].x + 20.0, BackdropPaint.row(-34), PI * 0.6),
+		Vector3(300.0, BackdropPaint.row(214), -PI * 0.5)] as Array[Vector3], Vector2(48.0, 74.0), 1351)
+	return image

@@ -38,6 +38,7 @@ const FALLS: Array[float] = [110.0, 350.0, 520.0]
 
 
 func _build_layers() -> void:
+	crust_colors = [VolcanoStyle.GROUND_BODY, VolcanoStyle.GROUND_RIM]
 	add_painted_layer("Depths", Vector2(0.01, 0.0), _paint_depths)
 	add_painted_layer("FarCave", Vector2(0.06, 0.02), _paint_far_cave)
 	add_drawn_layer("LavaFalls", Vector2(0.12, 0.04), _draw_lava_falls)
@@ -45,6 +46,7 @@ func _build_layers() -> void:
 	var lake: BackdropLayer = add_painted_layer("LavaLake", Vector2(0.3, 0.0), _paint_lake)
 	lake.draw_extra = _draw_lake_bubbles
 	add_painted_layer("NearRock", Vector2(0.45, 0.14), _paint_near_rock)
+	add_painted_layer("Front", VolcanoStyle.FRONT_SCROLL, _paint_front)
 
 	var embers: BackdropMotes = BackdropMotes.new()
 	embers.shape = BackdropMotes.Shape.FIREFLY
@@ -149,4 +151,20 @@ func _paint_near_rock() -> Image:
 	var rocks: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(200), Vector2(8.0, 20.0), 60, 1953)
 	BackdropPaint.fill_below(image, rocks, NEAR_BODY)
 	BackdropPaint.paint_rim(image, rocks, NEAR_RIM)
+	return image
+
+
+## Right in front: huge shards of obsidian, black glass, in a bottom corner, and
+## a dark rock fang hanging from above with a glowing drip on its tip.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	for shard: Vector3 in [Vector3(460.0, 90.0, -0.25), Vector3(482.0, 60.0, 0.15), Vector3(440.0, 46.0, -0.6), Vector3(500.0, 36.0, 0.5)]:
+		BackdropPaint.paint_shard(image, Vector2(shard.x, BackdropPaint.STRIP_HEIGHT), -PI * 0.5 + shard.z, shard.y, 9.0,
+			VolcanoStyle.FRONT_BODY, OBSIDIAN_LIT.darkened(0.5))
+	var fang_x: int = 150
+	for step: int in 70:
+		var half_width: int = roundi(12.0 * (1.0 - step / 70.0))
+		BackdropPaint.put_rect(image, Rect2i(fang_x - half_width, step, half_width * 2 + 1, 1), VolcanoStyle.FRONT_BODY)
+		BackdropPaint.put_pixel(image, fang_x + half_width, step, NEAR_RIM.darkened(0.3))
+	BackdropPaint.put_rect(image, Rect2i(fang_x - 1, 70, 2, 3), FALL_CORE)
 	return image

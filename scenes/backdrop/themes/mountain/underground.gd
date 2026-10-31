@@ -1,8 +1,9 @@
 extends BackdropTheme
 ## MOUNTAIN, UNDERGROUND: an ice cavern inside the mountain. Dark blue depths, far
 ## cave walls with icicles, clusters of glowing ice crystals, and a near ceiling of
-## dark rock with long icicles; water drips and the crystals glint. Layers far to
-## near; see BackdropTheme. (Surface: surface.gd; high up: skyline.gd.)
+## dark rock with long icicles; huge icicles and a crystal cluster right in
+## front; water drips and the crystals glint. Layers far to near; see
+## BackdropTheme. (Surface: surface.gd; high up: skyline.gd; shared: MountainStyle.)
 
 const DEPTH_BANDS: Array[Color] = [Color(0.03, 0.05, 0.1), Color(0.05, 0.08, 0.14), Color(0.07, 0.12, 0.19),
 	Color(0.05, 0.09, 0.15), Color(0.03, 0.05, 0.1)]
@@ -26,11 +27,14 @@ const CLUSTERS: Array[Vector2] = [Vector2(40, 1), Vector2(130, -1), Vector2(210,
 
 
 func _build_layers() -> void:
+	# Breaking out to the surface goes through the surface's own dark ground.
+	crust_colors = [MountainStyle.GROUND_BODY, MountainStyle.GROUND_RIM]
 	add_painted_layer("Depths", Vector2(0.01, 0.0), _paint_depths)
 	add_painted_layer("FarCave", Vector2(0.07, 0.03), _paint_far_cave)
 	var crystals: BackdropLayer = add_painted_layer("Crystals", Vector2(0.2, 0.07), _paint_crystals)
 	crystals.draw_extra = _draw_crystal_glow
 	add_painted_layer("NearRock", Vector2(0.42, 0.13), _paint_near_rock)
+	add_painted_layer("Front", MountainStyle.FRONT_SCROLL, _paint_front)
 
 	var drips: BackdropMotes = BackdropMotes.new()
 	drips.mote_count = 6
@@ -107,4 +111,26 @@ func _paint_near_rock() -> Image:
 	var floor_tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(190), octaves, 143, false)
 	BackdropPaint.fill_below(image, floor_tops, NEAR_BODY)
 	BackdropPaint.paint_rim(image, floor_tops, NEAR_RIM)
+	return image
+
+
+## Right in front: a few huge icicles hanging from rock above the screen, and a
+## big crystal cluster in a bottom corner.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	var rock: PackedFloat32Array = BackdropPaint.hanging(BackdropPaint.row(-14), [Vector2(160.0, 14.0), Vector2(40.0, 5.0)] as Array[Vector2], 151, true)
+	BackdropPaint.fill_above(image, rock, MountainStyle.FRONT_BODY)
+	BackdropPaint.paint_bottom_rim(image, rock, MountainStyle.FRONT_LIT)
+	for icicle: Vector3 in [Vector3(40.0, 58.0, 9.0), Vector3(70.0, 30.0, 5.0), Vector3(270.0, 46.0, 7.0), Vector3(520.0, 64.0, 10.0), Vector3(548.0, 26.0, 4.0)]:
+		var top: float = rock[int(icicle.x)] - 2.0
+		for step: int in roundi(icicle.y):
+			var half_width: int = roundi(icicle.z * (1.0 - float(step) / icicle.y))
+			var y: int = roundi(top) + step
+			BackdropPaint.put_rect(image, Rect2i(roundi(icicle.x) - half_width, y, half_width * 2 + 1, 1), MountainStyle.FRONT_BODY)
+			BackdropPaint.put_pixel(image, roundi(icicle.x) - half_width, y, MountainStyle.FRONT_SNOW)
+	for shard_index: int in 5:
+		var spread: float = (shard_index - 2) * 0.3
+		var length: float = (54.0 - absf(shard_index - 2) * 14.0)
+		BackdropPaint.paint_shard(image, Vector2(400.0 + (shard_index - 2) * 7.0, BackdropPaint.row(196)), -PI * 0.5 + spread, length, 6.0,
+			MountainStyle.FRONT_BODY, CRYSTAL_BODY.darkened(0.45))
 	return image

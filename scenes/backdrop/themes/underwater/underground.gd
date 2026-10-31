@@ -1,15 +1,10 @@
 extends BackdropTheme
-## UNDERWATER, UNDERGROUND: a sea cave in the abyss, where no sunlight reaches.
-## Near-black blue, far cave walls, glowing jellyfish drifting up through the
-## dark, and near rock with tube worms whose tips glow; glowing specks and a few
-## bubbles. Layers far to near; see BackdropTheme. (Surface: surface.gd, the reef;
-## high up: skyline.gd, at the water's surface.)
-
-const DEPTH_BANDS: Array[Color] = [Color(0.01, 0.025, 0.05), Color(0.015, 0.035, 0.07), Color(0.02, 0.05, 0.09),
-	Color(0.015, 0.035, 0.07), Color(0.01, 0.025, 0.05)]
-
-const FAR_BODY: Color = Color(0.03, 0.07, 0.11)
-const FAR_RIM: Color = Color(0.05, 0.12, 0.17)
+## UNDERWATER, UNDERGROUND: the abyss, the bottom of the same column of sea as
+## the reef above (UnderwaterStyle): near-black water, the last faint rays dying
+## out, the dark feet of the rock towers, glowing jellyfish drifting up, near
+## rock with tube worms whose tips glow, and a great dark anemone right in front;
+## glowing specks and a few bubbles. Layers far to near; see BackdropTheme.
+## (Surface: surface.gd, the reef; high up: skyline.gd, at the water's surface.)
 
 const JELLY_COLORS: Array[Color] = [Color(0.95, 0.5, 0.85), Color(0.5, 0.9, 1.0), Color(0.75, 0.6, 1.0)]
 
@@ -21,7 +16,7 @@ const TUBE_TIP_COLORS: Array[Color] = [Color(0.4, 1.0, 0.85), Color(0.85, 0.5, 1
 const JELLY_COUNT: int = 6
 ## Tube worm clumps on the near floor: strip x.
 const TUBE_XS: Array[int] = [40, 170, 300, 430, 560]
-const NEAR_FLOOR_ROW: float = 206.0  # BackdropPaint.row(186)
+const NEAR_FLOOR_ROW: float = BackdropPaint.SCREEN_TOP_ROW + 186.0  # BackdropPaint.row(186)
 const NEAR_ROUGHNESS: float = 16.0
 const NEAR_SEED: int = 531
 
@@ -38,11 +33,14 @@ func _build_layers() -> void:
 		for tube_index: int in 5:
 			var x: int = TUBE_XS[clump_index] + tube_index * 4 - 8
 			_tube_tips.append(Vector2(x, ceili(floor_tops[posmod(x, BackdropPaint.STRIP_WIDTH)]) + 2 - _tube_height(clump_index, tube_index)))
-	add_painted_layer("Depths", Vector2(0.0, 0.0), _paint_depths)
-	add_painted_layer("FarCave", Vector2(0.07, 0.03), _paint_far_cave)
+	add_tall_layer(UnderwaterStyle.NAME, "Water", Vector2(0.01, 0.0), UnderwaterStyle.paint_water, UNDERGROUND_SECTION)
+	add_drawn_layer("Rays", Vector2(0.06, 0.0), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
+		UnderwaterStyle.draw_rays(layer, copy_x, time, UNDERGROUND_SECTION))
+	add_tall_layer(UnderwaterStyle.NAME, "Spires", Vector2(0.07, 0.0), UnderwaterStyle.paint_spires, UNDERGROUND_SECTION)
 	add_drawn_layer("Jellies", Vector2(0.18, 0.06), _draw_jellies)
 	var near: BackdropLayer = add_painted_layer("Tubes", Vector2(0.42, 0.13), _paint_tubes)
 	near.draw_extra = _draw_tube_tips
+	add_painted_layer("Front", UnderwaterStyle.FRONT_SCROLL, _paint_front)
 
 	var specks: BackdropMotes = BackdropMotes.new()
 	specks.shape = BackdropMotes.Shape.FIREFLY
@@ -66,18 +64,6 @@ func _build_layers() -> void:
 	bubbles.scroll_factor = 0.5
 	bubbles.seed_value = 512
 	add_motes(bubbles)
-
-
-func _paint_depths() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, DEPTH_BANDS, 0, BackdropPaint.STRIP_HEIGHT)
-	return image
-
-
-func _paint_far_cave() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_cave(image, BackdropPaint.row(18), BackdropPaint.row(155), 22.0, FAR_BODY, FAR_RIM, 26, 20.0, 521)
-	return image
 
 
 ## Jellyfish: each a glowing bell that squeezes and relaxes (the pulse), with
@@ -108,7 +94,13 @@ func _draw_jellies(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 func _paint_tubes() -> Image:
 	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_cave(image, BackdropPaint.row(-2), NEAR_FLOOR_ROW, NEAR_ROUGHNESS, NEAR_BODY, NEAR_RIM, 14, 26.0, NEAR_SEED)
+	# Only the floor (the same line paint_cave would make, so the tube tips found in
+	# _build_layers sit on it): no ceiling, the sea goes on up.
+	var octaves: Array[Vector2] = [Vector2(110.0, NEAR_ROUGHNESS), Vector2(30.0, NEAR_ROUGHNESS * 0.4), Vector2(9.0, 2.0)]
+	var floor_tops: PackedFloat32Array = BackdropPaint.ridge(NEAR_FLOOR_ROW, octaves, NEAR_SEED + 1, false)
+	BackdropPaint.fill_below(image, floor_tops, NEAR_BODY)
+	BackdropPaint.paint_rim(image, floor_tops, NEAR_RIM)
+	BackdropPaint.paint_spikes(image, floor_tops, -1, 7, 16.0, NEAR_BODY, NEAR_RIM, NEAR_SEED + 3)
 	for tip: Vector2 in _tube_tips:
 		BackdropPaint.put_rect(image, Rect2i(int(tip.x), int(tip.y), 2, 30), TUBE_COLOR)
 	return image
@@ -128,3 +120,23 @@ func _draw_tube_tips(layer: BackdropLayer, copy_x: float, time: float) -> void:
 			var tip: Vector2 = _tube_tips[clump_index * 5 + tube_index]
 			var glow: float = 0.5 + 0.5 * sin(time * 1.5 - tube_index * 0.8 + clump_index)
 			layer.draw_rect(Rect2(copy_x + tip.x, tip.y - 1.0, 2.0, 2.0), Color(tip_color, 0.4 + 0.5 * glow))
+
+
+## Right in front: a great dark anemone on a rock in a bottom corner, its
+## tentacles curling up, the tips faintly lit.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	var foot: Vector2 = Vector2(110.0, BackdropPaint.row(186))
+	BackdropPaint.paint_crag(image, foot.x, 46.0, 30.0, UnderwaterStyle.FRONT_BODY, UnderwaterStyle.FRONT_LIT, UnderwaterStyle.FRONT_LIT, 541)
+	for tentacle: int in 13:
+		var angle: float = -PI * 0.5 + (tentacle - 6) * 0.19
+		var length: float = 26.0 + BackdropPaint.random01(tentacle, 1, 542) * 16.0
+		var curl: float = (tentacle - 6) * 0.05
+		var point: Vector2 = foot + Vector2(0.0, -2.0)
+		for step: int in roundi(length):
+			var heading: float = angle + curl * step * 0.2
+			var next: Vector2 = point + Vector2(cos(heading), sin(heading))
+			BackdropPaint.put_line(image, point, next, UnderwaterStyle.FRONT_BODY, 3 if step < length * 0.6 else 2)
+			point = next
+		BackdropPaint.put_rect(image, Rect2i(roundi(point.x) - 1, roundi(point.y) - 1, 2, 2), TUBE_TIP_COLORS[tentacle % 2].darkened(0.6))
+	return image

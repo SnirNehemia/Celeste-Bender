@@ -29,11 +29,13 @@ const SANDFALL_XS: Array[float] = [105.0, 330.0, 555.0]
 
 
 func _build_layers() -> void:
+	crust_colors = [DesertStyle.GROUND_BODY, DesertStyle.GROUND_RIM]
 	add_painted_layer("Depths", Vector2(0.01, 0.0), _paint_depths)
 	add_painted_layer("FarCave", Vector2(0.07, 0.03), _paint_far_cave)
 	var ruins: BackdropLayer = add_painted_layer("Ruins", Vector2(0.2, 0.07), _paint_ruins)
 	ruins.draw_extra = _draw_sandfalls
 	add_painted_layer("NearCave", Vector2(0.42, 0.13), _paint_near_cave)
+	add_painted_layer("Front", DesertStyle.FRONT_SCROLL, _paint_front)
 
 	var dust: BackdropMotes = BackdropMotes.new()
 	dust.mote_count = 24
@@ -112,4 +114,26 @@ func _paint_near_cave() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var edges: Array[PackedFloat32Array] = BackdropPaint.paint_cave(image, BackdropPaint.row(0), BackdropPaint.row(188), 14.0, NEAR_BODY, NEAR_RIM, 20, 30.0, 431)
 	BackdropPaint.paint_strata(image, edges[1], NEAR_STRATA, 432)
+	return image
+
+
+## Right in front: a huge fallen column lying across a bottom corner, broken, and
+## a great column standing at the strip's other side going up out of view.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	var bottom: int = BackdropPaint.row(186)
+	# The fallen drum: a long block with a fluted face and a broken end.
+	BackdropPaint.put_rect(image, Rect2i(-30, bottom - 26, 150, 40), DesertStyle.FRONT_BODY)
+	BackdropPaint.put_rect(image, Rect2i(-30, bottom - 26, 150, 1), DesertStyle.FRONT_RIM)
+	for flute: int in range(bottom - 20, bottom + 14, 6):
+		BackdropPaint.put_rect(image, Rect2i(-30, flute, 146, 1), DesertStyle.FRONT_LIT)
+	for step: int in 12:
+		BackdropPaint.put_rect(image, Rect2i(120 + (step % 3) * 2, bottom - 26 + step * 3, 4, 3), Color(0.0, 0.0, 0.0, 0.0))
+	# The standing column: a shaft with flutes, a capital up out of view.
+	BackdropPaint.put_rect(image, Rect2i(400, 0, 26, BackdropPaint.STRIP_HEIGHT), DesertStyle.FRONT_BODY)
+	BackdropPaint.put_rect(image, Rect2i(400, 0, 2, BackdropPaint.STRIP_HEIGHT), DesertStyle.FRONT_RIM)
+	for flute: int in range(406, 424, 5):
+		BackdropPaint.put_rect(image, Rect2i(flute, 0, 1, BackdropPaint.STRIP_HEIGHT), DesertStyle.FRONT_LIT)
+	BackdropPaint.put_rect(image, Rect2i(392, bottom - 4, 42, 30), DesertStyle.FRONT_BODY)
+	BackdropPaint.put_rect(image, Rect2i(392, bottom - 4, 42, 1), DesertStyle.FRONT_RIM)
 	return image

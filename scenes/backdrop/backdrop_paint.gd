@@ -12,21 +12,34 @@ extends RefCounted
 ##
 ## Rows: the strip is taller than the screen (180) by SCREEN_TOP_ROW above and
 ## below, so a layer can shift up or down a little with the camera (vertical
-## parallax) without showing its edge. Row SCREEN_TOP_ROW is the top of the screen
+## parallax, BackdropLayer.MAX_VERTICAL_SHIFT) without showing its edge, and the
+## soft seam of a change between looks has rows to blend over (Backdrop). Row SCREEN_TOP_ROW is the top of the screen
 ## when the camera is where it started; row SCREEN_TOP_ROW + 180 is the bottom.
+##
+## TALL pictures (new_tall()): one look's three altitudes stacked as one picture,
+## skyline on top, surface under it, underground at the bottom, TALL_HEIGHT rows.
+## Each altitude shows its own strip-sized slice (BackdropTheme.add_tall_layer),
+## so a sky, a far range or a giant tree painted once runs on unbroken from one
+## altitude into the next: the look reads as one scene. tall_row() turns an
+## altitude's screen row into a row of the tall picture. Every helper here works
+## on strips and tall pictures alike (they ask the image for its height).
 ##
 ## Style, like Celeste's backgrounds (and our ground): flat shapes, a bright rim
 ## along every top, LIT faces on the side the light comes from (upper left), colors
 ## in a few hard BANDS with a 1-2 row checker DITHER between them instead of smooth
-## gradients, and further layers mixed toward the sky color (haze).
+## gradients, and further layers painted in hazier colors, closer to the sky.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
 
 const STRIP_WIDTH: int = 640
-const STRIP_HEIGHT: int = 220
+const STRIP_HEIGHT: int = 260
 ## The strip's row at the top of the screen when the layer is at rest.
-const SCREEN_TOP_ROW: int = 20
+const SCREEN_TOP_ROW: int = 40
+## A tall picture: three screens stacked (skyline, surface, underground) plus the
+## strip's spare rows above the first and below the last.
+const SCREEN_HEIGHT: int = 180
+const TALL_HEIGHT: int = STRIP_HEIGHT + SCREEN_HEIGHT * 2
 
 
 ## A new, fully transparent strip.
@@ -37,6 +50,22 @@ static func new_strip() -> Image:
 ## A screen row (0 = top of the screen at rest) as a strip row.
 static func row(screen_y: float) -> int:
 	return int(screen_y) + SCREEN_TOP_ROW
+
+
+## A new, fully transparent tall picture (see the header).
+static func new_tall() -> Image:
+	return Image.create_empty(STRIP_WIDTH, TALL_HEIGHT, false, Image.FORMAT_RGBA8)
+
+
+## Screen row `screen_y` of `section` (BackdropTheme.SKYLINE_SECTION, SURFACE_SECTION,
+## UNDERGROUND_SECTION: 0, 1, 2) as a row of a tall picture.
+static func tall_row(screen_y: float, section: int) -> int:
+	return int(screen_y) + SCREEN_TOP_ROW + section * SCREEN_HEIGHT
+
+
+## The slice of a tall picture that `section` shows: a normal strip.
+static func tall_slice(tall: Image, section: int) -> Image:
+	return tall.get_region(Rect2i(0, section * SCREEN_HEIGHT, STRIP_WIDTH, STRIP_HEIGHT))
 
 
 ## A repeatable random number in [0, 1) for the integers (a, b) and a seed: a hash,
@@ -83,21 +112,21 @@ static func ridge(base_row: float, octaves: Array[Vector2], seed_value: int, pea
 ## Fills every column from its top row down to the strip's bottom with `color`.
 static func fill_below(image: Image, tops: PackedFloat32Array, color: Color) -> void:
 	for x: int in STRIP_WIDTH:
-		var top: int = clampi(ceili(tops[x]), 0, STRIP_HEIGHT)
-		image.fill_rect(Rect2i(x, top, 1, STRIP_HEIGHT - top), color)
+		var top: int = clampi(ceili(tops[x]), 0, image.get_height())
+		image.fill_rect(Rect2i(x, top, 1, image.get_height() - top), color)
 
 
 ## Sets one pixel, wrapping x around the strip (so shapes cross the seam) and
 ## ignoring rows outside it.
 static func put_pixel(image: Image, x: int, y: int, color: Color) -> void:
-	if y < 0 or y >= STRIP_HEIGHT:
+	if y < 0 or y >= image.get_height():
 		return
 	image.set_pixel(posmod(x, STRIP_WIDTH), y, color)
 
 
 ## Paints a see-through `color` OVER the pixel that's there (wraps x like put_pixel).
 static func blend_pixel(image: Image, x: int, y: int, color: Color) -> void:
-	if y < 0 or y >= STRIP_HEIGHT:
+	if y < 0 or y >= image.get_height():
 		return
 	var wrapped_x: int = posmod(x, STRIP_WIDTH)
 	# base.blend(over): `over` painted on top of `base`, alpha included.
@@ -106,16 +135,19 @@ static func blend_pixel(image: Image, x: int, y: int, color: Color) -> void:
 
 ## A filled rectangle that wraps around the strip sideways.
 static func put_rect(image: Image, rect: Rect2i, color: Color) -> void:
-	var top: int = clampi(rect.position.y, 0, STRIP_HEIGHT)
-	var bottom: int = clampi(rect.end.y, 0, STRIP_HEIGHT)
+	var top: int = clampi(rect.position.y, 0, image.get_height())
+	var bottom: int = clampi(rect.end.y, 0, image.get_height())
 	if bottom <= top:
 		return
 	for x: int in range(rect.position.x, rect.end.x):
 		image.fill_rect(Rect2i(posmod(x, STRIP_WIDTH), top, 1, bottom - top), color)
 
 
-## A filled pixel circle (wraps sideways), cut off below `max_row` if given.
-static func put_circle(image: Image, center: Vector2, radius: float, color: Color, max_row: int = STRIP_HEIGHT) -> void:
+## A filled pixel circle (wraps sideways), cut off below `max_row` if given (-1:
+## the image's bottom).
+static func put_circle(image: Image, center: Vector2, radius: float, color: Color, max_row: int = -1) -> void:
+	if max_row < 0:
+		max_row = image.get_height()
 	var reach: int = ceili(radius)
 	for dy: int in range(-reach, mini(reach, max_row - roundi(center.y)) + 1):
 		# Half the width of the circle at this row (Pythagoras).
@@ -143,7 +175,7 @@ static func checker(x: int, y: int) -> bool:
 ## (a checkerboard row, then a sparse one), the pixel-art way to fake a gradient.
 static func paint_bands(image: Image, colors: Array[Color], from_row: int, to_row: int) -> void:
 	var band_height: float = float(to_row - from_row) / colors.size()
-	image.fill_rect(Rect2i(0, 0, STRIP_WIDTH, STRIP_HEIGHT), colors[colors.size() - 1])
+	image.fill_rect(Rect2i(0, 0, STRIP_WIDTH, image.get_height()), colors[colors.size() - 1])
 	image.fill_rect(Rect2i(0, 0, STRIP_WIDTH, from_row), colors[0])
 	for band_index: int in colors.size():
 		var top: int = from_row + roundi(band_index * band_height)
@@ -156,7 +188,7 @@ static func paint_bands(image: Image, colors: Array[Color], from_row: int, to_ro
 		for x: int in STRIP_WIDTH:
 			if checker(x, top):
 				image.set_pixel(x, top, above)
-			if x % 4 == top % 4 and top + 1 < STRIP_HEIGHT:
+			if x % 4 == top % 4 and top + 1 < image.get_height():
 				image.set_pixel(x, top + 1, above)
 
 
@@ -186,7 +218,7 @@ static func paint_mountains(image: Image, tops: PackedFloat32Array, body: Color,
 		var top: int = ceili(tops[x])
 		var is_lit: bool = slopes[x] < -0.5
 		var face_depth: int = roundi(lit_depth * (0.6 + 0.4 * periodic_noise(x, 24.0, seed_value)))
-		for y: int in range(maxi(top, 0), mini(top + face_depth, STRIP_HEIGHT)):
+		for y: int in range(maxi(top, 0), mini(top + face_depth, image.get_height())):
 			var depth: int = y - top
 			if slopes[posmod(x - roundi(depth * SPINE_LEAN), STRIP_WIDTH)] >= -0.5:
 				continue
@@ -195,14 +227,14 @@ static func paint_mountains(image: Image, tops: PackedFloat32Array, body: Color,
 			if (rows_left <= 2 and not checker(x, y)) or (rows_left <= 5 and x % 4 != y % 4 and rows_left > 2):
 				continue
 			image.set_pixel(x, y, lit)
-		if top >= 0 and top < STRIP_HEIGHT:
+		if top >= 0 and top < image.get_height():
 			image.set_pixel(x, top, rim)
 		if top < snowline_row:
 			# More snow the higher the peak; a little per-column wobble makes it ragged.
 			var snow_depth: int = 1 + roundi((snowline_row - top) * 0.12 + random01(x, 5, seed_value) * 2.0)
 			if not is_lit:
 				snow_depth = maxi(1, snow_depth / 3)
-			for y: int in range(top, mini(top + snow_depth, STRIP_HEIGHT)):
+			for y: int in range(top, mini(top + snow_depth, image.get_height())):
 				image.set_pixel(x, y, snow if is_lit else snow_shadow)
 
 
@@ -210,7 +242,7 @@ static func paint_mountains(image: Image, tops: PackedFloat32Array, body: Color,
 static func paint_rim(image: Image, tops: PackedFloat32Array, color: Color, thickness: int = 1) -> void:
 	for x: int in STRIP_WIDTH:
 		var top: int = ceili(tops[x])
-		for y: int in range(maxi(top, 0), mini(top + thickness, STRIP_HEIGHT)):
+		for y: int in range(maxi(top, 0), mini(top + thickness, image.get_height())):
 			image.set_pixel(x, y, color)
 
 
@@ -218,7 +250,7 @@ static func paint_rim(image: Image, tops: PackedFloat32Array, color: Color, thic
 ## top: the same stripes our ground's dark inside has, faint here.
 static func paint_hatch(image: Image, tops: PackedFloat32Array, color: Color, spacing: int, start_depth: int) -> void:
 	for x: int in STRIP_WIDTH:
-		for y: int in range(maxi(ceili(tops[x]) + start_depth, 0), STRIP_HEIGHT):
+		for y: int in range(maxi(ceili(tops[x]) + start_depth, 0), image.get_height()):
 			if (x + y) % spacing == 0:
 				image.set_pixel(x, y, color)
 
@@ -240,12 +272,6 @@ static func paint_pine(image: Image, center_x: int, foot_row: int, height: int, 
 	put_rect(image, Rect2i(center_x, foot_row - 1, 1, 3), color)
 
 
-## Mixes `color` toward `haze` by `amount` (0 = unchanged, 1 = all haze): further
-## layers of a backdrop are hazier.
-static func haze(color: Color, haze_color: Color, amount: float) -> Color:
-	return color.lerp(haze_color, amount)
-
-
 ## A CEILING line, the mirror of ridge(): for every column, the row of the BOTTOM
 ## of a shape hanging from the top. `peaky` makes it hang in points (cave rock).
 static func hanging(base_row: float, octaves: Array[Vector2], seed_value: int, peaky: bool) -> PackedFloat32Array:
@@ -258,7 +284,7 @@ static func hanging(base_row: float, octaves: Array[Vector2], seed_value: int, p
 ## Fills every column from the strip's top down to its bottom row with `color`.
 static func fill_above(image: Image, bottoms: PackedFloat32Array, color: Color) -> void:
 	for x: int in STRIP_WIDTH:
-		var bottom: int = clampi(floori(bottoms[x]) + 1, 0, STRIP_HEIGHT)
+		var bottom: int = clampi(floori(bottoms[x]) + 1, 0, image.get_height())
 		image.fill_rect(Rect2i(x, 0, 1, bottom), color)
 
 
@@ -267,7 +293,7 @@ static func fill_above(image: Image, bottoms: PackedFloat32Array, color: Color) 
 static func paint_bottom_rim(image: Image, bottoms: PackedFloat32Array, color: Color, thickness: int = 1) -> void:
 	for x: int in STRIP_WIDTH:
 		var bottom: int = floori(bottoms[x])
-		for y: int in range(maxi(bottom - thickness + 1, 0), mini(bottom + 1, STRIP_HEIGHT)):
+		for y: int in range(maxi(bottom - thickness + 1, 0), mini(bottom + 1, image.get_height())):
 			image.set_pixel(x, y, color)
 
 
@@ -341,12 +367,12 @@ static func paint_strata(image: Image, tops: PackedFloat32Array, color: Color, s
 	# Which rows (before the wobble) carry a line: a random gap of 3-8 rows each time.
 	var is_line_row: Dictionary = {}
 	var line_row: int = 0
-	while line_row < STRIP_HEIGHT + 8:
+	while line_row < image.get_height() + 8:
 		is_line_row[line_row] = true
 		line_row += 3 + roundi(random01(line_row, 7, seed_value) * 5.0)
 	for x: int in STRIP_WIDTH:
 		var wobble: int = roundi(periodic_noise(x, 50.0, seed_value) * 3.0)
-		for y: int in range(maxi(ceili(tops[x]) + 2, 0), STRIP_HEIGHT):
+		for y: int in range(maxi(ceili(tops[x]) + 2, 0), image.get_height()):
 			# Only on rock: open (transparent) pixels stay open.
 			if is_line_row.has(y + wobble) and image.get_pixel(x, y).a > 0.0:
 				image.set_pixel(x, y, color)
@@ -459,7 +485,8 @@ static func paint_frond(image: Image, base: Vector2, angle: float, length: float
 				# Out to the side, swept back along the stem and pulled down a little.
 				var out: Vector2 = Vector2(-direction.y, direction.x) * side
 				var tip: Vector2 = spine + (out * 0.8 - direction * 0.45 + Vector2(0.0, 0.5)).normalized() * leaflet
-				put_line(image, spine, tip, color if side > 0 else lit)
+				# Mostly the body color; every fourth leaflet catches the light.
+				put_line(image, spine, tip, lit if step % 8 == 0 and side < 0 else color)
 		spine += direction
 
 
@@ -491,3 +518,32 @@ static func paint_puff(image: Image, center: Vector2, radius: float, body: Color
 		put_circle(image, Vector2(circle.x, circle.y), circle.z, lit)
 	for circle: Vector3 in circles:
 		put_circle(image, Vector2(circle.x + 1.0, circle.y + 1.5), circle.z - 1.0, body)
+
+
+## A clump of `count` broad leaves (paint_leaf) fanning out from `base`: centered
+## on `angle`, spread over `spread` radians, lengths in `length_range`, each one
+## drooping by `droop` (radians, toward the outside of the fan). The big foreground
+## leaves of the green looks.
+static func paint_leaf_clump(image: Image, base: Vector2, count: int, angle: float, spread: float, length_range: Vector2,
+		droop: float, body: Color, lit: Color, rib: Color, seed_value: int) -> void:
+	for leaf_index: int in count:
+		var along: float = float(leaf_index) / maxf(1.0, count - 1.0) - 0.5  # -0.5..0.5 across the fan
+		var length: float = lerpf(length_range.x, length_range.y, random01(leaf_index, 1, seed_value))
+		var heading: float = angle + along * spread + (random01(leaf_index, 2, seed_value) - 0.5) * 0.2
+		paint_leaf(image, base + Vector2(along * 6.0, 0.0), heading, length, 5.0 + length * 0.14, signf(along) * droop,
+			body, lit, rib)
+
+
+## A big crag rising from the bottom edge of `image`: a jagged rock `half_width`
+## px each side of `foot_x`, `height` px tall, a lit left face, and `cap` lying on
+## its tops and ledges (snow, sand, moss; pass `lit` for none). For foregrounds.
+static func paint_crag(image: Image, foot_x: float, half_width: float, height: float, body: Color, lit: Color,
+		cap: Color, seed_value: int) -> void:
+	var tops: PackedFloat32Array = flat_line(image.get_height() + 4.0)
+	for dx: int in range(-ceili(half_width), ceili(half_width) + 1):
+		var shape: float = 1.0 - pow(absf(dx) / half_width, 1.6)
+		var rough: float = (periodic_noise(foot_x + dx, 8.0, seed_value) - 0.5) * 10.0
+		var column: int = posmod(roundi(foot_x) + dx, STRIP_WIDTH)
+		tops[column] = minf(tops[column], image.get_height() - height * shape + rough * shape)
+	paint_mountains(image, tops, body, lit, lit, cap, lit, image.get_height(), 10.0, seed_value)
+

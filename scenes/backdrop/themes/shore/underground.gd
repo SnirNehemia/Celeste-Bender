@@ -9,8 +9,6 @@ extends BackdropTheme
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
 
-const OUTSIDE_SKY: Array[Color] = [Color(0.5, 0.68, 0.84), Color(0.62, 0.77, 0.87), Color(0.76, 0.85, 0.88)]
-const OUTSIDE_SEA: Array[Color] = [Color(0.22, 0.5, 0.64), Color(0.2, 0.44, 0.6), Color(0.17, 0.38, 0.55)]
 const OUTSIDE_HORIZON_SCREEN_ROW: int = 104
 
 const MOUTH_BODY: Color = Color(0.09, 0.11, 0.15)
@@ -36,13 +34,16 @@ const ARCHES: Array[Vector3] = [Vector3(150, 56, 36), Vector3(460, 40, 52)]
 
 
 func _build_layers() -> void:
+	crust_colors = [ShoreStyle.DUNE_BODY.darkened(0.3), ShoreStyle.DUNE_LIT]
 	add_painted_layer("Outside", Vector2(0.01, 0.0), _paint_outside)
+	add_painted_layer("OutsideClouds", Vector2(0.03, 0.0), _paint_outside_clouds, 4.0)
 	var mouth: BackdropLayer = add_painted_layer("CaveMouth", Vector2(0.05, 0.0), _paint_cave_mouth)
 	mouth.draw_extra = _draw_bounced_light
 	add_painted_layer("Grotto", Vector2(0.18, 0.06), _paint_grotto)
 	var water: BackdropLayer = add_painted_layer("Water", Vector2(0.28, 0.0), _paint_water)
 	water.draw_extra = _draw_ripples
 	add_painted_layer("TidePools", Vector2(0.45, 0.14), _paint_tide_pools)
+	add_painted_layer("Front", ShoreStyle.FRONT_SCROLL, _paint_front)
 
 	var drips: BackdropMotes = BackdropMotes.new()
 	drips.mote_count = 6
@@ -68,11 +69,21 @@ func _build_layers() -> void:
 func _paint_outside() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var horizon: int = BackdropPaint.row(OUTSIDE_HORIZON_SCREEN_ROW)
-	BackdropPaint.paint_bands(image, OUTSIDE_SEA, horizon, BackdropPaint.STRIP_HEIGHT)
+	BackdropPaint.paint_bands(image, ShoreStyle.SEA_BANDS, horizon, BackdropPaint.STRIP_HEIGHT)
 	var sky: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(sky, OUTSIDE_SKY, BackdropPaint.row(10), horizon)
+	BackdropPaint.paint_bands(sky, ShoreStyle.SKY_BANDS, BackdropPaint.row(10), horizon)
 	image.blit_rect(sky, Rect2i(0, 0, BackdropPaint.STRIP_WIDTH, horizon), Vector2i.ZERO)
-	image.fill_rect(Rect2i(0, horizon, BackdropPaint.STRIP_WIDTH, 1), Color(0.75, 0.88, 0.9))
+	image.fill_rect(Rect2i(0, horizon, BackdropPaint.STRIP_WIDTH, 1), ShoreStyle.HORIZON_LINE)
+	return image
+
+
+## The same white clouds as outside the beach, seen through the arches.
+func _paint_outside_clouds() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	for cloud_index: int in 5:
+		var center: Vector2 = Vector2((cloud_index + 0.3) * BackdropPaint.STRIP_WIDTH / 5.0, BackdropPaint.row(50 + (cloud_index % 3) * 14))
+		BackdropPaint.paint_cloud(image, center, 16.0 + (cloud_index % 2) * 10.0, ShoreStyle.CLOUD_BODY, ShoreStyle.CLOUD_LIT,
+			ShoreStyle.CLOUD_SHADE, cloud_index + 1622)
 	return image
 
 
@@ -207,4 +218,23 @@ func _paint_tide_pools() -> Image:
 	var ceiling: PackedFloat32Array = BackdropPaint.hanging(BackdropPaint.row(-6), [Vector2(140.0, 12.0), Vector2(30.0, 5.0)] as Array[Vector2], 1653, true)
 	BackdropPaint.fill_above(image, ceiling, NEAR_BODY)
 	BackdropPaint.paint_bottom_rim(image, ceiling, NEAR_RIM)
+	return image
+
+
+## Right in front: dark wet rock in the top corners with seaweed hanging off it in
+## long strands.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	var rock: PackedFloat32Array = BackdropPaint.hanging(BackdropPaint.row(-30), [Vector2(160.0, 26.0), Vector2(30.0, 6.0)] as Array[Vector2], 1661, false)
+	BackdropPaint.fill_above(image, rock, ShoreStyle.FRONT_ROCK)
+	BackdropPaint.paint_bottom_rim(image, rock, ShoreStyle.FRONT_ROCK_LIT)
+	for strand: int in 22:
+		var x: int = floori(BackdropPaint.random01(strand, 1, 1662) * BackdropPaint.STRIP_WIDTH)
+		var top: float = rock[x]
+		if top < BackdropPaint.row(-4):
+			continue  # only where the rock comes down into view
+		var length: float = 10.0 + BackdropPaint.random01(strand, 2, 1662) * 30.0
+		for y: int in roundi(length):
+			var wave: int = roundi(sin(y * 0.3 + strand) * 1.5)
+			BackdropPaint.put_rect(image, Rect2i(x + wave, roundi(top) + y, 2 if y < length * 0.7 else 1, 1), ShoreStyle.FRONT_BODY)
 	return image

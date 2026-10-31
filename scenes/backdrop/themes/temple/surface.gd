@@ -1,21 +1,17 @@
 extends BackdropTheme
-## TEMPLE backdrop (an ancient hall, for rooms set indoors): a back wall of big dark
-## stone blocks, a far arcade of arches with a cold glow beyond, slanted light
-## shafts from high windows, and near pillars with hanging banners and flickering
-## torches; dust drifts in the air. Layers far to near; see BackdropTheme.
+## TEMPLE backdrop (an ancient hall, for rooms set indoors): an open arcade of
+## arches looking out on the dusk sky, the low sun and the cloud sea, with the
+## hall's roof beams overhead (all shared with the skyline, up on that roof:
+## TempleStyle), slanted light shafts, near pillars with hanging banners and
+## flickering torches, and a big lantern on a chain right in front; dust drifts
+## in the air. Layers far to near; see BackdropTheme.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
 
-const WALL_BANDS: Array[Color] = [Color(0.06, 0.05, 0.09), Color(0.09, 0.08, 0.13), Color(0.11, 0.1, 0.15),
-	Color(0.09, 0.08, 0.13), Color(0.07, 0.06, 0.1)]
-const BRICK_LINE: Color = Color(0.05, 0.04, 0.07)
-const BRICK_TOP: Color = Color(0.14, 0.12, 0.18)
-
 const ARCADE_BODY: Color = Color(0.15, 0.12, 0.2)
 const ARCADE_LIT: Color = Color(0.21, 0.17, 0.27)
 const ARCADE_DARK: Color = Color(0.1, 0.08, 0.14)
-const ARCH_GLOW_BANDS: Array[Color] = [Color(0.14, 0.15, 0.3), Color(0.17, 0.2, 0.36), Color(0.21, 0.25, 0.42)]
 ## Arches per strip and their size (px).
 const ARCH_COUNT: int = 8
 const ARCH_PILLAR_WIDTH: int = 16
@@ -39,13 +35,18 @@ const TORCH_GLOW: Color = Color(1.0, 0.55, 0.2, 0.08)
 
 
 func _build_layers() -> void:
-	add_painted_layer("Wall", Vector2(0.04, 0.02), _paint_wall)
+	add_tall_layer(TempleStyle.NAME, "Sky", Vector2(0.01, 0.0), TempleStyle.paint_sky, SURFACE_SECTION)
+	add_tall_layer(TempleStyle.NAME, "Towers", Vector2(0.04, 0.02), TempleStyle.paint_towers, SURFACE_SECTION)
+	add_tall_layer(TempleStyle.NAME, "Clouds", Vector2(0.12, 0.05), TempleStyle.paint_clouds, SURFACE_SECTION, 3.0)
 	add_painted_layer("Arcade", Vector2(0.14, 0.06), _paint_arcade)
 	var shaft_xs: Array[float] = [60.0, 250.0, 420.0]
 	add_drawn_layer("Shafts", Vector2(0.2, 0.08), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
 		BackdropTheme.draw_light_shafts(layer, copy_x, time, shaft_xs, 14.0, 0.45, 200.0, SHAFT_COLOR))
 	var pillars: BackdropLayer = add_painted_layer("Pillars", Vector2(0.4, 0.12), _paint_pillars)
 	pillars.draw_extra = _draw_torches
+	add_tall_layer(TempleStyle.NAME, "Roof", Vector2(0.42, 0.13), TempleStyle.paint_roof, SURFACE_SECTION)
+	add_drawn_layer("Front", TempleStyle.FRONT_SCROLL, func(layer: BackdropLayer, copy_x: float, time: float) -> void:
+		TempleStyle.draw_big_lantern(layer, Vector2(copy_x + 180.0, BackdropPaint.row(-10)), 44.0, time))
 
 	var dust: BackdropMotes = BackdropMotes.new()
 	dust.mote_count = 30
@@ -56,30 +57,6 @@ func _build_layers() -> void:
 	dust.scroll_factor = 0.5
 	dust.seed_value = 21
 	add_motes(dust)
-
-
-func _paint_wall() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, WALL_BANDS, 0, BackdropPaint.STRIP_HEIGHT)
-	# Big blocks, 32x16, every row shifted half a block (like a real wall), each a
-	# little lighter or darker than the next, a dark mortar line and a lit top edge.
-	var block_size: Vector2i = Vector2i(32, 16)
-	for row_index: int in BackdropPaint.STRIP_HEIGHT / block_size.y + 1:
-		var y: int = row_index * block_size.y
-		var shift: int = (row_index % 2) * block_size.x / 2
-		for column_index: int in BackdropPaint.STRIP_WIDTH / block_size.x:
-			var x: int = column_index * block_size.x + shift
-			var shade: float = (BackdropPaint.random01(column_index, row_index, 31) - 0.5) * 0.04
-			var block_color: Color = image.get_pixel(posmod(x + 8, BackdropPaint.STRIP_WIDTH), mini(y + 8, BackdropPaint.STRIP_HEIGHT - 1))
-			block_color = Color(block_color.r + shade, block_color.g + shade, block_color.b + shade)
-			BackdropPaint.put_rect(image, Rect2i(x + 1, y + 1, block_size.x - 1, block_size.y - 1), block_color)
-			BackdropPaint.put_rect(image, Rect2i(x, y, block_size.x, 1), BRICK_LINE)
-			BackdropPaint.put_rect(image, Rect2i(x, y, 1, block_size.y), BRICK_LINE)
-			BackdropPaint.put_rect(image, Rect2i(x + 1, y + 1, block_size.x - 2, 1), block_color.lerp(BRICK_TOP, 0.6))
-			# A few blocks are chipped: a missing corner.
-			if BackdropPaint.random01(column_index, row_index, 32) > 0.85:
-				BackdropPaint.put_rect(image, Rect2i(x + block_size.x - 5, y + block_size.y - 4, 4, 3), BRICK_LINE)
-	return image
 
 
 func _paint_arcade() -> Image:
@@ -97,17 +74,16 @@ func _paint_arcade() -> Image:
 		var width: int = spacing - ARCH_PILLAR_WIDTH
 		var radius: float = width * 0.5
 		var spring_row: int = top_row + roundi(radius)
-		# The opening: a round top (half circle) over a rectangle, glowing cold blue
-		# in bands from beyond (lighter low down, like light coming up from below).
+		# The opening: a round top (half circle) over a rectangle, cut right
+		# through, so the sky and clouds behind (TempleStyle) show.
 		for y: int in range(top_row, floor_row):
 			var half_width: float = radius
 			if y < spring_row:
 				var dy: float = spring_row - y
 				half_width = sqrt(maxf(0.0, radius * radius - dy * dy))
-			var band: int = clampi((y - top_row) * ARCH_GLOW_BANDS.size() / (floor_row - top_row), 0, ARCH_GLOW_BANDS.size() - 1)
 			var center_x: float = left + radius
 			for x: int in range(roundi(center_x - half_width), roundi(center_x + half_width)):
-				image.set_pixel(posmod(x, BackdropPaint.STRIP_WIDTH), y, ARCH_GLOW_BANDS[band])
+				image.set_pixel(posmod(x, BackdropPaint.STRIP_WIDTH), y, Color(0.0, 0.0, 0.0, 0.0))
 			# The arch's lit inner edge on the right (light from the upper left
 			# falls on the far side of the opening).
 			BackdropPaint.put_pixel(image, roundi(center_x + half_width) - 1, y, ARCADE_LIT)

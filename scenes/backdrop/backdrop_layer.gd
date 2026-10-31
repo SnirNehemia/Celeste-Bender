@@ -23,8 +23,10 @@ var texture: Texture2D = null
 ## func(layer: BackdropLayer, copy_x: float, time: float) -> void, drawn on each copy.
 ## copy_x is the copy's left edge in this layer's own coordinates.
 var draw_extra: Callable = Callable()
-## Seconds since the layer was made; the clock for drift_speed and draw_extra.
-var elapsed_time: float = 0.0
+## The clock for drift_speed and draw_extra, in seconds. It starts from the game's
+## running time, not 0, so two looks showing the same tall layer (a soft change
+## between altitudes) have it drifted to the same place.
+var elapsed_time: float = Time.get_ticks_msec() / 1000.0
 
 ## How far a layer may shift up or down with the camera, in px: the strip is that
 ## much taller than the screen at each end (BackdropPaint.SCREEN_TOP_ROW).

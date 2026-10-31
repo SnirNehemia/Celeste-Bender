@@ -1,17 +1,15 @@
 extends BackdropTheme
 ## JUNGLE, SURFACE: the floor of a rainforest, denser and wetter than the Forest.
-## Green light filters down from a canopy you never see the top of: misty far
-## trunks, slanting sun shafts, near giant trunks with buttress roots tied together
-## by sagging lianas, and big broad leaves and fronds right in front; pollen drifts
-## and a leaf falls now and then. Layers far to near; see BackdropTheme.
+## Green light filters down from the canopy overhead (both shared with the
+## skyline, up above that canopy: JungleStyle): misty far trunks, slanting sun
+## shafts, giant trunks with buttress roots going up into the canopy, tied
+## together by sagging lianas, and big broad leaves right in front, from below
+## and hanging from above; pollen drifts and a leaf falls now and then. Layers far
+## to near; see BackdropTheme.
 ## (Under it: underground.gd, a cenote; high up: skyline.gd, the karst pillars.)
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
-
-## Lighter at the top, where the light comes through the canopy.
-const AIR_BANDS: Array[Color] = [Color(0.6, 0.72, 0.52), Color(0.5, 0.65, 0.5), Color(0.41, 0.57, 0.46),
-	Color(0.33, 0.49, 0.42), Color(0.26, 0.41, 0.37)]
 
 const FAR_BODY: Color = Color(0.36, 0.5, 0.43)
 const FAR_LIT: Color = Color(0.44, 0.58, 0.47)
@@ -21,8 +19,6 @@ const SHAFT_COLOR: Color = Color(1.0, 0.96, 0.7, 0.07)
 const MID_BODY: Color = Color(0.13, 0.24, 0.2)
 const MID_LIT: Color = Color(0.21, 0.34, 0.25)
 const MID_DARK: Color = Color(0.09, 0.17, 0.15)
-const CANOPY_BODY: Color = Color(0.12, 0.26, 0.18)
-const CANOPY_LIT: Color = Color(0.2, 0.36, 0.22)
 const VINE_COLOR: Color = Color(0.17, 0.3, 0.17)
 
 const NEAR_BODY: Color = Color(0.05, 0.12, 0.08)
@@ -34,11 +30,13 @@ const TRUNKS: Array[Vector2] = [Vector2(40, 9), Vector2(175, 6), Vector2(290, 11
 
 
 func _build_layers() -> void:
-	add_painted_layer("Air", Vector2(0.01, 0.0), _paint_air)
+	add_tall_layer(JungleStyle.NAME, "Sky", Vector2(0.01, 0.0), JungleStyle.paint_sky, SURFACE_SECTION)
 	var far: BackdropLayer = add_painted_layer("FarTrees", Vector2(0.05, 0.02), _paint_far_trees)
 	far.draw_extra = _draw_shafts
 	add_painted_layer("Trunks", Vector2(0.2, 0.07), _paint_trunks)
+	add_tall_layer(JungleStyle.NAME, "Canopy", Vector2(0.2, 0.07), JungleStyle.paint_canopy, SURFACE_SECTION)
 	add_painted_layer("Leaves", Vector2(0.42, 0.13), _paint_leaves)
+	add_painted_layer("Front", JungleStyle.FRONT_SCROLL, _paint_front)
 
 	var pollen: BackdropMotes = BackdropMotes.new()
 	pollen.mote_count = 26
@@ -60,12 +58,6 @@ func _build_layers() -> void:
 	leaves.scroll_factor = 0.6
 	leaves.seed_value = 1212
 	add_motes(leaves)
-
-
-func _paint_air() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, AIR_BANDS, BackdropPaint.row(0), BackdropPaint.row(170))
-	return image
 
 
 ## A hanging canopy line: bumps() turned upside down around `base_row`.
@@ -117,9 +109,7 @@ func _paint_trunks() -> Image:
 			if flare > 0.3:
 				BackdropPaint.put_pixel(image, center - half_width / 2, y, MID_DARK)
 				BackdropPaint.put_pixel(image, center + half_width / 2, y, MID_DARK)
-	var canopy: PackedFloat32Array = hanging_bumps(BackdropPaint.row(6), Vector2(10.0, 20.0), 16, 1231)
-	BackdropPaint.fill_above(image, canopy, CANOPY_BODY)
-	BackdropPaint.paint_bottom_rim(image, canopy, CANOPY_LIT, 2)
+	# (The canopy above them is JungleStyle's Canopy layer.)
 	# Lianas: sagging curves between neighbouring trunks, a few hanging straight down.
 	for trunk_index: int in TRUNKS.size():
 		var from: Vector2 = Vector2(TRUNKS[trunk_index].x, BackdropPaint.row(18 + BackdropPaint.random01(trunk_index, 1, 1232) * 30.0))
@@ -134,7 +124,7 @@ func _paint_trunks() -> Image:
 			BackdropPaint.put_pixel(image, roundi(point.x), roundi(point.y), VINE_COLOR)
 		var drop_x: int = roundi((from.x + next_x) / 2.0 + 20.0)
 		var drop_length: int = 30 + roundi(BackdropPaint.random01(trunk_index, 4, 1232) * 60.0)
-		for y: int in range(ceili(canopy[posmod(drop_x, BackdropPaint.STRIP_WIDTH)]), BackdropPaint.row(drop_length)):
+		for y: int in range(BackdropPaint.row(10), BackdropPaint.row(drop_length)):
 			BackdropPaint.put_pixel(image, drop_x + (1 if (y / 9) % 2 == 0 else 0), y, VINE_COLOR)
 	var ground: PackedFloat32Array = BackdropPaint.ridge(ground_row, [Vector2(90.0, 6.0), Vector2(20.0, 2.0)] as Array[Vector2], 1233, false)
 	BackdropPaint.fill_below(image, ground, MID_BODY)
@@ -166,4 +156,13 @@ func _paint_leaves() -> Image:
 			var side: float = -1.0 if leaf_index == 0 else 1.0
 			BackdropPaint.paint_leaf(image, Vector2(top_x + side * 4.0, BackdropPaint.row(-8)), PI * 0.5 - side * 0.5,
 				34.0 + leaf_index * 8.0, 7.0, side * 0.7, NEAR_BODY, NEAR_LIT, NEAR_RIB)
+	return image
+
+
+## Nearest of all: giant leaves hanging into the top corners and rising from the
+## bottom between the Leaves layer's clumps.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	JungleStyle.paint_big_leaves(image, [Vector3(30.0, BackdropPaint.row(-24), PI * 0.42), Vector3(360.0, BackdropPaint.row(-30), PI * 0.6),
+		Vector3(230.0, BackdropPaint.row(214), -PI * 0.5)] as Array[Vector3], Vector2(56.0, 84.0), 1251)
 	return image

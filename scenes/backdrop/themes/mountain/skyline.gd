@@ -1,26 +1,13 @@
 extends BackdropTheme
-## MOUNTAIN, SKYLINE: above the clouds, near the summit. A deep twilight sky with
-## a few stars, the highest peaks poking through a sea of clouds, nearer puffy
-## clouds drifting by, and a rocky summit ridge strung with prayer flags that
-## flutter; strong wind. Layers far to near; see BackdropTheme. (Surface:
-## surface.gd; inside the mountain: underground.gd.)
+## MOUNTAIN, SKYLINE: above the clouds, near the summit. The same dusk sky, range
+## and bank of cloud as the surface below (MountainStyle): here the summits stand
+## above the cloud tops. Nearer puffy clouds drift by, a rocky summit ridge is
+## strung with prayer flags that flutter, and dark crags rise in front; strong
+## wind. Layers far to near; see BackdropTheme. (Surface: surface.gd; inside the
+## mountain: underground.gd.)
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
-
-const SKY_BANDS: Array[Color] = [Color(0.06, 0.08, 0.2), Color(0.09, 0.12, 0.27), Color(0.14, 0.17, 0.35),
-	Color(0.21, 0.22, 0.42), Color(0.3, 0.28, 0.48), Color(0.42, 0.36, 0.54)]
-const STAR_COLOR: Color = Color(0.8, 0.82, 1.0)
-
-const PEAK_BODY: Color = Color(0.24, 0.22, 0.4)
-const PEAK_LIT: Color = Color(0.36, 0.33, 0.53)
-const PEAK_RIM: Color = Color(0.5, 0.47, 0.66)
-const PEAK_SNOW: Color = Color(0.72, 0.72, 0.88)
-const PEAK_SNOW_SHADOW: Color = Color(0.5, 0.48, 0.68)
-
-const CLOUD_SEA_BODY: Color = Color(0.38, 0.34, 0.54)
-const CLOUD_SEA_LIT: Color = Color(0.56, 0.52, 0.7)
-const CLOUD_SEA_SHADE: Color = Color(0.3, 0.27, 0.46)
 
 const CLOUD_BODY: Color = Color(0.46, 0.42, 0.62)
 const CLOUD_LIT: Color = Color(0.68, 0.65, 0.82)
@@ -38,12 +25,13 @@ const FLAG_COUNT: int = 14
 
 
 func _build_layers() -> void:
-	add_painted_layer("Sky", Vector2(0.01, 0.0), _paint_sky)
-	add_painted_layer("Peaks", Vector2(0.04, 0.02), _paint_peaks)
-	add_painted_layer("CloudSea", Vector2(0.09, 0.04), _paint_cloud_sea, 2.0)
+	add_tall_layer(MountainStyle.NAME, "Sky", Vector2(0.01, 0.0), MountainStyle.paint_sky, SKYLINE_SECTION)
+	add_tall_layer(MountainStyle.NAME, "Peaks", Vector2(0.04, 0.02), MountainStyle.paint_peaks, SKYLINE_SECTION)
+	add_tall_layer(MountainStyle.NAME, "CloudBank", Vector2(0.07, 0.03), MountainStyle.paint_cloud_bank, SKYLINE_SECTION, 2.0)
 	add_painted_layer("Clouds", Vector2(0.22, 0.08), _paint_clouds, 6.0)
 	var summit: BackdropLayer = add_painted_layer("Summit", Vector2(0.42, 0.13), _paint_summit)
 	summit.draw_extra = _draw_flags
+	add_painted_layer("Front", MountainStyle.FRONT_SCROLL, _paint_front)
 
 	var wind: BackdropMotes = BackdropMotes.new()
 	wind.shape = BackdropMotes.Shape.STREAK
@@ -56,47 +44,6 @@ func _build_layers() -> void:
 	wind.scroll_factor = 0.55
 	wind.seed_value = 611
 	add_motes(wind)
-
-
-func _paint_sky() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, SKY_BANDS, BackdropPaint.row(0), BackdropPaint.row(110))
-	for star_index: int in 70:
-		var x: int = roundi(BackdropPaint.random01(star_index, 1, 612) * BackdropPaint.STRIP_WIDTH)
-		var depth: float = BackdropPaint.random01(star_index, 2, 612)
-		BackdropPaint.blend_pixel(image, x, BackdropPaint.row(depth * depth * 60.0), Color(STAR_COLOR, 0.3 + BackdropPaint.random01(star_index, 3, 612) * 0.5))
-	# Thin streaks of high cloud.
-	for streak_index: int in 6:
-		var y: int = BackdropPaint.row(40 + BackdropPaint.random01(streak_index, 1, 613) * 40.0)
-		var x: int = roundi(BackdropPaint.random01(streak_index, 2, 613) * BackdropPaint.STRIP_WIDTH)
-		var length: int = 30 + roundi(BackdropPaint.random01(streak_index, 3, 613) * 60.0)
-		for offset: int in length:
-			if (offset + streak_index) % 7 != 0:
-				BackdropPaint.blend_pixel(image, x + offset, y + (1 if offset > length / 2 else 0), Color(CLOUD_LIT, 0.25))
-	return image
-
-
-func _paint_peaks() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	# Only the tops show: big and sharp, sitting low so the cloud sea hides their feet.
-	var octaves: Array[Vector2] = [Vector2(213.0, 70.0), Vector2(60.0, 20.0), Vector2(16.0, 4.0)]
-	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(140), octaves, 621, true)
-	BackdropPaint.paint_mountains(image, tops, PEAK_BODY, PEAK_LIT, PEAK_RIM, PEAK_SNOW, PEAK_SNOW_SHADOW,
-		BackdropPaint.row(95), 60.0, 621)
-	return image
-
-
-func _paint_cloud_sea() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	var tops: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(122), Vector2(6.0, 14.0), 12, 622)
-	BackdropPaint.fill_below(image, tops, CLOUD_SEA_BODY)
-	BackdropPaint.paint_rim(image, tops, CLOUD_SEA_LIT, 2)
-	# Deeper in, the cloud sea darkens in a dithered band.
-	for x: int in BackdropPaint.STRIP_WIDTH:
-		for y: int in range(ceili(tops[x]) + 14, BackdropPaint.STRIP_HEIGHT):
-			if y > ceili(tops[x]) + 22 or BackdropPaint.checker(x, y):
-				image.set_pixel(x, y, CLOUD_SEA_SHADE)
-	return image
 
 
 func _paint_clouds() -> Image:
@@ -140,3 +87,11 @@ func _draw_flags(layer: BackdropLayer, copy_x: float, time: float) -> void:
 		var flap: float = roundf(sin(time * 7.0 + flag_index * 0.8) * 1.5)
 		var flag_color: Color = FLAG_COLORS[flag_index % FLAG_COLORS.size()]
 		layer.draw_rect(Rect2(point.x + 2.0 + maxf(flap, 0.0), point.y + 1.0, 5.0 - absf(flap), 5.0), flag_color)
+
+
+## Right in front: two dark crags with snow on their ledges, rising from below.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	MountainStyle.paint_crag(image, 70.0, 56.0, 70.0, 641)
+	MountainStyle.paint_crag(image, 400.0, 38.0, 48.0, 642)
+	return image

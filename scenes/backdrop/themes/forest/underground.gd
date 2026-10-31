@@ -1,8 +1,9 @@
 extends BackdropTheme
 ## FOREST, UNDERGROUND: caves among the roots under the forest. Dark earthy
 ## depths, far cave walls, tangled roots hanging from the ceiling, and near rock
-## with clumps of glowing mushrooms; spores drift up. Layers far to near; see
-## BackdropTheme. (Surface: surface.gd; high up: skyline.gd, the treetops.)
+## with clumps of glowing mushrooms; great roots hang right in front; spores
+## drift up. Layers far to near; see BackdropTheme. (Surface: surface.gd; high up:
+## skyline.gd, the treetops; shared: ForestStyle.)
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -30,11 +31,13 @@ const CLUMP_XS: Array[int] = [60, 190, 340, 470, 590]
 
 
 func _build_layers() -> void:
+	crust_colors = [ForestStyle.GROUND_BODY, ForestStyle.GROUND_RIM]
 	add_painted_layer("Depths", Vector2(0.01, 0.0), _paint_depths)
 	add_painted_layer("FarCave", Vector2(0.07, 0.03), _paint_far_cave)
 	add_painted_layer("Roots", Vector2(0.2, 0.07), _paint_roots)
 	var near: BackdropLayer = add_painted_layer("Mushrooms", Vector2(0.42, 0.13), _paint_mushrooms)
 	near.draw_extra = _draw_mushroom_glow
+	add_painted_layer("Front", ForestStyle.FRONT_SCROLL, _paint_front)
 
 	var spores: BackdropMotes = BackdropMotes.new()
 	spores.shape = BackdropMotes.Shape.FIREFLY
@@ -118,3 +121,28 @@ func _draw_mushroom_glow(layer: BackdropLayer, copy_x: float, time: float) -> vo
 	for clump_index: int in CLUMP_XS.size():
 		var pulse: float = 0.55 + 0.45 * sin(time * 0.7 + clump_index * 2.3)
 		BackdropTheme.draw_glow(layer, Vector2(copy_x + CLUMP_XS[clump_index], BackdropPaint.row(172)), 26.0, CAP_GLOW, pulse)
+
+
+## Right in front: great roots hanging from above the screen, thick and twisting,
+## splitting as they go down (_paint_root, drawn bigger and darker).
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	for root: Vector3 in [Vector3(30.0, 70.0, 0.25), Vector3(250.0, 50.0, -0.2), Vector3(470.0, 84.0, 0.15)]:
+		_paint_big_root(image, Vector2(root.x, BackdropPaint.row(-30)), PI * 0.5 + root.z, root.y, 4, int(root.x))
+	return image
+
+
+## One great root: like _paint_root, but each part `depth` + 2 px thick with a
+## lit left edge.
+func _paint_big_root(image: Image, start: Vector2, angle: float, length: float, depth: int, seed_value: int) -> void:
+	var bend: float = (BackdropPaint.random01(seed_value, depth, 344) - 0.5) * 0.7
+	var middle: Vector2 = start + Vector2(cos(angle + bend), sin(angle + bend)) * length * 0.5
+	var end: Vector2 = middle + Vector2(cos(angle - bend), sin(angle - bend)) * length * 0.5
+	var width: int = depth + 2
+	BackdropPaint.put_line(image, start, middle, ForestStyle.FRONT_BODY, width)
+	BackdropPaint.put_line(image, middle, end, ForestStyle.FRONT_BODY, width)
+	BackdropPaint.put_line(image, start - Vector2(width * 0.5, 0.0), middle - Vector2(width * 0.5, 0.0), ForestStyle.FRONT_LIT)
+	if depth == 0:
+		return
+	for side: int in [-1, 1]:
+		_paint_big_root(image, end, angle + side * 0.4, length * 0.62, depth - 1, seed_value * 3 + side + 5)

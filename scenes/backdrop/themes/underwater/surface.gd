@@ -1,18 +1,10 @@
 extends BackdropTheme
-## UNDERWATER backdrop (the Water chapter's look): deep water darkening downward
-## under a rippling bright surface, swaying light rays, far rock spires, a mid bed
-## of kelp that sways, and near coral and rocks; bubbles rise and specks of "marine
-## snow" sink. Layers far to near; see BackdropTheme.
-
-const WATER_BANDS: Array[Color] = [Color(0.12, 0.33, 0.43), Color(0.09, 0.27, 0.38), Color(0.07, 0.21, 0.32),
-	Color(0.05, 0.16, 0.26), Color(0.04, 0.12, 0.21), Color(0.03, 0.09, 0.16), Color(0.02, 0.06, 0.12)]
-const SURFACE_LIGHT: Color = Color(0.35, 0.6, 0.65)
-
-const RAY_COLOR: Color = Color(0.6, 0.9, 0.95, 0.06)
-
-const SPIRE_BODY: Color = Color(0.06, 0.18, 0.26)
-const SPIRE_LIT: Color = Color(0.09, 0.24, 0.32)
-const SPIRE_RIM: Color = Color(0.13, 0.31, 0.38)
+## UNDERWATER backdrop (the Water chapter's look): the middle of one column of sea
+## (shared with the surface above and the deep below: UnderwaterStyle), water
+## darkening downward, swaying light rays, rock towers rising past, a mid bed of
+## kelp that sways, near coral and rocks, and big kelp blades and a sea fan right
+## in front; bubbles rise and specks of "marine snow" sink. Layers far to near;
+## see BackdropTheme.
 
 const KELP_COLOR: Color = Color(0.07, 0.2, 0.18)
 const KELP_LEAF: Color = Color(0.1, 0.26, 0.2)
@@ -31,15 +23,17 @@ const NEAR_KELP_COUNT: int = 5
 
 
 func _build_layers() -> void:
-	add_painted_layer("Water", Vector2(0.0, 0.0), _paint_water)
-	add_drawn_layer("Rays", Vector2(0.05, 0.02), _draw_rays)
-	add_painted_layer("Spires", Vector2(0.07, 0.03), _paint_spires)
+	add_tall_layer(UnderwaterStyle.NAME, "Water", Vector2(0.01, 0.0), UnderwaterStyle.paint_water, SURFACE_SECTION)
+	add_drawn_layer("Rays", Vector2(0.06, 0.0), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
+		UnderwaterStyle.draw_rays(layer, copy_x, time, SURFACE_SECTION))
+	add_tall_layer(UnderwaterStyle.NAME, "Spires", Vector2(0.07, 0.0), UnderwaterStyle.paint_spires, SURFACE_SECTION)
 	var seabed: BackdropLayer = add_painted_layer("Seabed", Vector2(0.18, 0.07), _paint_seabed)
 	seabed.draw_extra = func(layer: BackdropLayer, copy_x: float, time: float) -> void:
 		_draw_kelp(layer, copy_x, time, MID_KELP_COUNT, 71, 168.0, Vector2(30.0, 90.0), KELP_COLOR, KELP_LEAF, 1.0)
 	var near: BackdropLayer = add_painted_layer("Coral", Vector2(0.4, 0.12), _paint_coral)
 	near.draw_extra = func(layer: BackdropLayer, copy_x: float, time: float) -> void:
 		_draw_kelp(layer, copy_x, time, NEAR_KELP_COUNT, 72, 200.0, Vector2(60.0, 130.0), NEAR_KELP, NEAR_LIT, 2.0)
+	add_painted_layer("Front", UnderwaterStyle.FRONT_SCROLL, _paint_front)
 
 	var bubbles: BackdropMotes = BackdropMotes.new()
 	bubbles.shape = BackdropMotes.Shape.BUBBLE
@@ -62,46 +56,6 @@ func _build_layers() -> void:
 	marine_snow.scroll_factor = 0.45
 	marine_snow.seed_value = 52
 	add_motes(marine_snow)
-
-
-func _paint_water() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, WATER_BANDS, BackdropPaint.row(0), BackdropPaint.row(185))
-	# The surface far above: a wavy band of light along the very top, broken into
-	# dashes (the ripples), dithered below.
-	for x: int in BackdropPaint.STRIP_WIDTH:
-		var wave: int = roundi(BackdropPaint.periodic_noise(x, 20.0, 61) * 4.0)
-		var surface_row: int = BackdropPaint.row(2) + wave
-		image.fill_rect(Rect2i(x, 0, 1, surface_row), SURFACE_LIGHT)
-		if BackdropPaint.checker(x, surface_row):
-			image.set_pixel(x, surface_row, SURFACE_LIGHT)
-		if BackdropPaint.periodic_noise(x, 9.0, 62) > 0.55:
-			image.set_pixel(x, surface_row + 2, SURFACE_LIGHT)
-	return image
-
-
-## Light rays from the surface: wide, faint, swaying side to side.
-func _draw_rays(layer: BackdropLayer, copy_x: float, time: float) -> void:
-	for ray_index: int in 5:
-		var top_x: float = copy_x + ray_index * 128.0 + 30.0
-		var sway: float = sin(time * 0.35 + ray_index * 1.3) * 10.0
-		var breathing: float = 0.6 + 0.4 * sin(time * 0.5 + ray_index * 2.1)
-		var color: Color = Color(RAY_COLOR, RAY_COLOR.a * breathing)
-		var top_width: float = 18.0 + ray_index % 3 * 8.0
-		var points: PackedVector2Array = PackedVector2Array([
-			Vector2(top_x, BackdropPaint.row(0)), Vector2(top_x + top_width, BackdropPaint.row(0)),
-			Vector2(top_x + top_width * 2.2 + sway + 40.0, BackdropPaint.row(190)),
-			Vector2(top_x + sway + 40.0, BackdropPaint.row(190))])
-		layer.draw_colored_polygon(points, color)
-
-
-func _paint_spires() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	# Tall, narrow rock towers: a peaky ridge, steep (big, short noise cells).
-	var octaves: Array[Vector2] = [Vector2(90.0, 60.0), Vector2(30.0, 25.0), Vector2(9.0, 4.0)]
-	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(175), octaves, 81, true)
-	BackdropPaint.paint_mountains(image, tops, SPIRE_BODY, SPIRE_LIT, SPIRE_RIM, SPIRE_RIM, SPIRE_RIM, 0, 22.0, 81)
-	return image
 
 
 func _paint_seabed() -> Image:
@@ -164,3 +118,26 @@ func _draw_kelp(layer: BackdropLayer, copy_x: float, time: float, count: int, se
 				var leaf_side: float = 1.0 if segment % 4 == 1 else -1.0
 				layer.draw_rect(Rect2(next + Vector2(leaf_side * 2.0 - (2.0 if leaf_side < 0.0 else 0.0), 0.0), Vector2(3.0, 2.0)), leaf_color)
 			previous = next
+
+
+## Right in front: big kelp blades from below and a sea fan, a flat lacy fan of
+## branches, in a bottom corner.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	for blade: Vector3 in [Vector3(16.0, 110.0, 0.15), Vector3(36.0, 74.0, -0.05), Vector3(290.0, 96.0, -0.1), Vector3(306.0, 64.0, 0.18)]:
+		UnderwaterStyle.paint_kelp_blade(image, Vector2(blade.x, BackdropPaint.STRIP_HEIGHT), blade.y, blade.z, int(blade.x))
+	var fan_foot: Vector2 = Vector2(500.0, BackdropPaint.row(196))
+	for branch: int in 9:
+		var angle: float = -PI * 0.5 + (branch - 4) * 0.17
+		var tip: Vector2 = fan_foot + Vector2(cos(angle), sin(angle)) * (46.0 + (branch % 3) * 6.0)
+		BackdropPaint.put_line(image, fan_foot, tip, UnderwaterStyle.FRONT_BODY, 2)
+		# Cross-links between neighbouring branches: the fan's lace.
+		for link: int in range(1, 6):
+			var along: float = link / 6.0
+			var next_angle: float = angle + 0.17
+			var here: Vector2 = fan_foot + Vector2(cos(angle), sin(angle)) * 46.0 * along
+			var there: Vector2 = fan_foot + Vector2(cos(next_angle), sin(next_angle)) * 46.0 * along
+			if branch < 8:
+				BackdropPaint.put_line(image, here, there, UnderwaterStyle.FRONT_LIT)
+	BackdropPaint.paint_crag(image, 500.0, 26.0, 18.0, UnderwaterStyle.FRONT_BODY, UnderwaterStyle.FRONT_LIT, UnderwaterStyle.FRONT_LIT, 104)
+	return image

@@ -1,18 +1,14 @@
 extends BackdropTheme
 ## JUNGLE, SKYLINE: high among karst pillars, tall stone towers rising out of the
-## rainforest mist. A pale morning sky, far pillars in the haze, a sea of mist
-## between them, nearer pillars with jungle on their flat tops and vines down their
-## sides, more mist below, and treetops with fronds right in front; birds pass far
-## off. Layers far to near; see BackdropTheme. (Surface: surface.gd, the rainforest
-## floor; under it: underground.gd.)
+## rainforest. A pale morning sky, far pillars in the haze, a sea of mist between
+## them, nearer pillars with jungle on their flat tops and vines down their sides,
+## the canopy of the forest below with mist in its hollows (sky and canopy shared
+## with the surface: JungleStyle), and big leaves right in front; birds pass far
+## off. Layers far to near; see BackdropTheme. (Surface: surface.gd, the
+## rainforest floor; under it: underground.gd.)
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
-
-const SKY_BANDS: Array[Color] = [Color(0.42, 0.55, 0.68), Color(0.52, 0.62, 0.71), Color(0.63, 0.7, 0.73),
-	Color(0.75, 0.78, 0.73), Color(0.85, 0.84, 0.72)]
-const SUN_COLOR: Color = Color(0.98, 0.94, 0.78)
-const SUN_RING: Color = Color(0.92, 0.88, 0.74)
 
 const FAR_BODY: Color = Color(0.55, 0.62, 0.67)
 const FAR_LIT: Color = Color(0.63, 0.69, 0.71)
@@ -28,17 +24,15 @@ const MID_DARK: Color = Color(0.19, 0.27, 0.3)
 const CROWN_BODY: Color = Color(0.19, 0.34, 0.23)
 const CROWN_RIM: Color = Color(0.32, 0.48, 0.3)
 
-const NEAR_BODY: Color = Color(0.06, 0.13, 0.09)
-const NEAR_LIT: Color = Color(0.12, 0.23, 0.13)
 
 
 func _build_layers() -> void:
-	add_painted_layer("Sky", Vector2(0.01, 0.0), _paint_sky)
+	add_tall_layer(JungleStyle.NAME, "Sky", Vector2(0.01, 0.0), JungleStyle.paint_sky, SKYLINE_SECTION)
 	add_painted_layer("FarPillars", Vector2(0.03, 0.01), _paint_far_pillars)
 	add_painted_layer("Mist", Vector2(0.07, 0.02), _paint_mist, 3.0)
 	add_painted_layer("Pillars", Vector2(0.15, 0.05), _paint_near_pillars)
-	add_painted_layer("LowMist", Vector2(0.22, 0.07), _paint_low_mist, 6.0)
-	add_painted_layer("Treetops", Vector2(0.42, 0.13), _paint_treetops)
+	add_tall_layer(JungleStyle.NAME, "Canopy", Vector2(0.2, 0.07), JungleStyle.paint_canopy, SKYLINE_SECTION)
+	add_painted_layer("Front", JungleStyle.FRONT_SCROLL, _paint_front)
 
 	var birds: BackdropMotes = BackdropMotes.new()
 	birds.shape = BackdropMotes.Shape.BIRD
@@ -63,14 +57,6 @@ func _build_layers() -> void:
 	leaves.scroll_factor = 0.65
 	leaves.seed_value = 1412
 	add_motes(leaves)
-
-
-func _paint_sky() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	BackdropPaint.paint_bands(image, SKY_BANDS, BackdropPaint.row(0), BackdropPaint.row(150))
-	BackdropPaint.put_circle(image, Vector2(420.0, BackdropPaint.row(70)), 20.0, SUN_RING)
-	BackdropPaint.put_circle(image, Vector2(420.0, BackdropPaint.row(70)), 14.0, SUN_COLOR)
-	return image
 
 
 ## Karst pillars: `count` stone towers with wobbly sides, a lit left edge, a dark
@@ -136,26 +122,10 @@ func _paint_near_pillars() -> Image:
 	return image
 
 
-## Mist again, lower and nearer, hiding the near pillars' feet.
-func _paint_low_mist() -> Image:
+## Right in front: clumps of big leaves rising into the bottom corners (from the
+## crown we're standing in) and one hanging in from above.
+func _paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
-	var tops: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(160), Vector2(8.0, 16.0), 17, 1451)
-	BackdropPaint.fill_below(image, tops, MIST_SHADE)
-	BackdropPaint.paint_rim(image, tops, MIST_BODY, 2)
-	return image
-
-
-## The tops of the trees we stand in: round crowns along the bottom with fronds
-## sticking up out of them.
-func _paint_treetops() -> Image:
-	var image: Image = BackdropPaint.new_strip()
-	var tops: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(194), Vector2(9.0, 18.0), 22, 1461)
-	BackdropPaint.fill_below(image, tops, NEAR_BODY)
-	BackdropPaint.paint_rim(image, tops, NEAR_LIT)
-	for frond_index: int in 10:
-		var x: float = (frond_index + BackdropPaint.random01(frond_index, 1, 1462)) * BackdropPaint.STRIP_WIDTH / 10.0
-		var foot: Vector2 = Vector2(x, tops[posmod(roundi(x), BackdropPaint.STRIP_WIDTH)] + 3.0)
-		var side: float = 1.0 if frond_index % 2 == 0 else -1.0
-		BackdropPaint.paint_frond(image, foot, -PI * 0.5 + side * 0.4, 26.0 + BackdropPaint.random01(frond_index, 2, 1462) * 14.0,
-			side * 1.1, 6.0, NEAR_BODY, NEAR_LIT)
+	JungleStyle.paint_big_leaves(image, [Vector3(20.0, BackdropPaint.row(204), -PI * 0.38), Vector3(300.0, BackdropPaint.row(210), -PI * 0.55),
+		Vector3(520.0, BackdropPaint.row(-26), PI * 0.5)] as Array[Vector3], Vector2(50.0, 78.0), 1471)
 	return image

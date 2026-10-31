@@ -33,10 +33,12 @@ const NICHE_ROW_SPACING: int = 30
 
 
 func _build_layers() -> void:
+	crust_colors = [TempleStyle.STONE_BODY, TempleStyle.STONE_LIT]
 	var wall: BackdropLayer = add_painted_layer("Niches", Vector2(0.05, 0.02), _paint_niches)
 	wall.draw_extra = _draw_candles
 	add_painted_layer("Vaults", Vector2(0.18, 0.06), _paint_vaults)
 	add_painted_layer("Crypt", Vector2(0.42, 0.13), _paint_crypt)
+	add_painted_layer("Front", TempleStyle.FRONT_SCROLL, _paint_front)
 
 	var dust: BackdropMotes = BackdropMotes.new()
 	dust.mote_count = 20
@@ -152,4 +154,34 @@ func _paint_crypt() -> Image:
 		BackdropPaint.put_rect(image, Rect2i(left - 3, top - 4, 52, 5), NEAR_BODY)
 		BackdropPaint.put_rect(image, Rect2i(left - 3, top - 4, 52, 1), NEAR_LIT)
 		BackdropPaint.put_rect(image, Rect2i(left, top + 6, 46, 1), NEAR_LIT)
+	return image
+
+
+## Right in front: two heavy chains hanging from above with a hook, and a broken
+## column standing in a bottom corner.
+func _paint_front() -> Image:
+	var image: Image = BackdropPaint.new_strip()
+	for chain: Vector2 in [Vector2(120.0, 96.0), Vector2(470.0, 60.0)]:
+		var y: int = 0
+		var link: int = 0
+		while y < BackdropPaint.row(chain.y):
+			if link % 2 == 0:
+				BackdropPaint.put_rect(image, Rect2i(roundi(chain.x) - 3, y, 7, 9), TempleStyle.FRONT_BODY)
+				BackdropPaint.put_rect(image, Rect2i(roundi(chain.x) - 1, y + 2, 3, 5), Color(0.0, 0.0, 0.0, 0.0))
+				BackdropPaint.put_pixel(image, roundi(chain.x) - 3, y + 1, TempleStyle.FRONT_LIT)
+			else:
+				BackdropPaint.put_rect(image, Rect2i(roundi(chain.x) - 1, y, 2, 9), TempleStyle.FRONT_BODY)
+			y += 7
+			link += 1
+		# The hook at the end.
+		BackdropPaint.put_line(image, Vector2(chain.x, y), Vector2(chain.x, y + 8), TempleStyle.FRONT_BODY, 3)
+		BackdropPaint.put_line(image, Vector2(chain.x, y + 8), Vector2(chain.x + 6, y + 4), TempleStyle.FRONT_BODY, 3)
+	# The broken column: a fluted shaft with a jagged top, on a base block.
+	var bottom: int = BackdropPaint.row(190)
+	for x: int in range(300, 330):
+		var top: int = bottom - 70 + roundi(BackdropPaint.periodic_noise(x * 5.0, 12.0, 231) * 16.0)
+		BackdropPaint.put_rect(image, Rect2i(x, top, 1, BackdropPaint.STRIP_HEIGHT - top),
+			TempleStyle.FRONT_LIT if x < 302 or (x - 300) % 6 == 3 else TempleStyle.FRONT_BODY)
+	BackdropPaint.put_rect(image, Rect2i(292, bottom, 46, BackdropPaint.STRIP_HEIGHT - bottom), TempleStyle.FRONT_BODY)
+	BackdropPaint.put_rect(image, Rect2i(292, bottom, 46, 1), TempleStyle.FRONT_LIT)
 	return image
