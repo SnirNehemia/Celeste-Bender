@@ -1,17 +1,17 @@
 class_name IceLook
 extends RefCounted
 ## IceLook (Stage W5, look A + icicles, picked after the first W5 play-test): how
-## every piece of player-made ice is drawn, so blocks, frozen arcs, pillars and pool
-## sheets all look like the same GLASS. Ice keeps the exact outline of the water that
-## froze (IceOutline) and is drawn as:
+## every piece of ice is drawn, so painted ice, the player's grid ice (each connected
+## patch of tiles traced into one outline: IceLayer, PlayerIceLayer) and rafts all
+## look like the same GLASS. An outline is drawn as:
 ##   - a see-through pale blue BODY (the background, or the pool under a sheet, shows
 ##     through a little)
 ##   - a darker UNDERSIDE band along its lower edges and a light TOP band along its
 ##     upper edges: the outline shifted down/up and cut away (Geometry2D.clip_polygons),
 ##     so any shape gets them, round or long
 ##   - a 1 px light RIM all round, and a small white SHINE near its upper left
-##   - ICICLES hanging from the downward-facing edges of long shapes and sheets
-##     (not from a compact block)
+##   - ICICLES hanging from its downward-facing edges over open air (not from a
+##     raft)
 ##   - a GLINT that slides along as the player moves (ice.gdshader, one shared
 ##     material: update_glint is called once a frame by the room's WaterWorld)
 ## The geometry is worked out once (build) and drawn from the cache (draw): ice nodes
@@ -19,9 +19,11 @@ extends RefCounted
 
 const ICE_SHADER: Shader = preload("res://scenes/objects/water/ice.gdshader")
 ## Water_bending.md §12.1's ice family: pale cyan body, deeper underside, white top.
-const BODY_COLOR: Color = Color(0.62, 0.86, 0.97, 0.8)
-const UNDERSIDE_COLOR: Color = Color(0.22, 0.5, 0.74, 0.85)
-const TOP_COLOR: Color = Color(1.0, 1.0, 1.0, 0.6)
+## See-through (after the grid-ice play-test: the body was 0.8 opaque, now 0.55; the
+## glint in ice.gdshader still needs the body at 0.5 or more).
+const BODY_COLOR: Color = Color(0.62, 0.86, 0.97, 0.55)
+const UNDERSIDE_COLOR: Color = Color(0.22, 0.5, 0.74, 0.65)
+const TOP_COLOR: Color = Color(1.0, 1.0, 1.0, 0.5)
 ## The specular highlight: a small white streak near the upper left of each body.
 const SHINE_COLOR: Color = Color(1.0, 1.0, 1.0, 0.95)
 const RIM_COLOR: Color = Color(0.92, 0.98, 1.0, 1.0)

@@ -10,6 +10,13 @@
 // look (which reaches that far past its own edge) shows through the gaps. Where
 // both looks share a tall layer (BackdropTheme.add_tall_layer) the two pictures
 // match, so only the nearer layers blend.
+//
+// It is also on every look's group AT REST (leading edge far away: all shown),
+// because a CanvasGroup on its own gets the alpha of see-through children wrong:
+// a mote or light shaft drawn over the opaque sky left that pixel a little
+// see-through, and the dark clear color showed as gray specks. Every look is
+// opaque wherever it draws at all (its sky covers the strip), so here any
+// covered pixel is drawn solid, its color as it is.
 
 shader_type canvas_item;
 render_mode unshaded;
@@ -36,10 +43,9 @@ float bayer_threshold(ivec2 pixel) {
 
 void fragment() {
 	vec4 picture = textureLod(screen_texture, SCREEN_UV, 0.0);
-	// The group's picture is stored premultiplied by alpha: undo that.
-	if (picture.a > 0.0001) {
-		picture.rgb /= picture.a;
-	}
+	// Covered at all = solid (see the header). Its color is already the mix of the
+	// see-through thing over what's behind it.
+	picture.a = picture.a > 0.0001 ? 1.0 : 0.0;
 	vec2 pixel_position = SCREEN_UV * screen_pixels;
 	// How far inside the new look this pixel is, counted back from its leading edge.
 	float inside = 0.0;

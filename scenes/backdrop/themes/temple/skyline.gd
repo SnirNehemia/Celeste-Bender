@@ -1,3 +1,4 @@
+class_name TempleSkyline
 extends BackdropTheme
 ## TEMPLE, SKYLINE: up on the temple's roofs at dusk. The same sky, towers, cloud
 ## sea and roof as the hall below (TempleStyle): distant tiered towers stand on
@@ -20,13 +21,7 @@ const STRING_SAG: float = 18.0
 
 
 func _build_layers() -> void:
-	add_tall_layer(TempleStyle.NAME, "Sky", Vector2(0.01, 0.0), TempleStyle.paint_sky, SKYLINE_SECTION)
-	add_tall_layer(TempleStyle.NAME, "Towers", Vector2(0.04, 0.02), TempleStyle.paint_towers, SKYLINE_SECTION)
-	add_tall_layer(TempleStyle.NAME, "Clouds", Vector2(0.12, 0.05), TempleStyle.paint_clouds, SKYLINE_SECTION, 3.0)
-	var roof: BackdropLayer = add_tall_layer(TempleStyle.NAME, "Roof", Vector2(0.42, 0.13), TempleStyle.paint_roof, SKYLINE_SECTION)
-	roof.draw_extra = _draw_lanterns
-	add_drawn_layer("Front", TempleStyle.FRONT_SCROLL, func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		TempleStyle.draw_big_lantern(layer, Vector2(copy_x + 250.0, BackdropPaint.row(-30)), 56.0, time))
+	TempleStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var petals: BackdropMotes = BackdropMotes.new()
 	petals.shape = BackdropMotes.Shape.LEAF
@@ -43,7 +38,7 @@ func _build_layers() -> void:
 ## Paper lanterns on strings from one roof corner to the next: each string sags,
 ## and each lantern hangs from it on a short cord, swinging on its own slow
 ## pendulum, with a warm light inside and a soft glow.
-func _draw_lanterns(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_lanterns(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var corner_row: float = BackdropPaint.row(TempleStyle.EAVE_SCREEN_ROW) - 16.0
 	for section_index: int in BackdropPaint.STRIP_WIDTH / TempleStyle.ROOF_SECTION:
 		var from: Vector2 = Vector2(copy_x + section_index * TempleStyle.ROOF_SECTION, corner_row)

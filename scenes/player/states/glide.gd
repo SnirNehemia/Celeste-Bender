@@ -33,9 +33,6 @@ func physics_update(delta: float) -> void:
 	if player.try_start_water_hands():
 		transition_requested.emit(&"WaterHolding")
 		return
-	if player.try_start_freeze():
-		transition_requested.emit(player.get_freeze_start_state())
-		return
 	# Momentum is kept: speed above run speed (a gust shove) fades slowly
 	# instead of being snapped back by normal air control.
 	player.apply_horizontal_movement(delta, false, player.tuning.glide_overspeed_deceleration)

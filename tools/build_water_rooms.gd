@@ -26,30 +26,24 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     sweep off with a snake, and a wide pool on the
 ##                                     right to practise rising, tearing and whips
 ##                                     (_build_room_water_d)
-##   - tests/rooms/room_water_e.tscn   Stage W5 freeze and ice: a ledge too high to
-##                                     jump (freeze a thrown ball into a step), a
-##                                     pool beside spikes (freeze it, long-jump off
-##                                     it), a narrow pool under a high shelf (a snake
-##                                     frozen into a pillar), a waterfall from a
-##                                     source over a stream, a painted ice floor
-##                                     (_build_room_water_e)
-##   - tests/rooms/room_water_f.tscn   Stage W6 ice slides and pins: a snake laid
-##                                     over a pin bed and frozen into a slide to ride
-##                                     over a spike pit, a pin bed to cross on a frozen
-##                                     ball, a crate to send down a slide onto a
-##                                     pressure plate that opens a door
-##                                     (_build_room_water_f)
-##   - tests/rooms/room_water_g.tscn   the re-planned ice: a trail snake drawn over
-##                                     a spike pit and frozen into a slide, a thrown
-##                                     ball frozen in the air as a step, a puck
-##                                     gusted along a frozen pool onto a plate
+##   - tests/rooms/room_water_e.tscn   grid ice (Stages I1, I4): a 2x2 block frozen
+##                                     at a ledge's foot as a step (it stays), a
+##                                     crumbling step frozen in mid-air over a spike
+##                                     chasm (_build_room_water_e)
+##   - tests/rooms/room_water_f.tscn   grid ice (Stage I2): snake lines, a slide
+##                                     drawn from a plateau pool over a spike pit, a
+##                                     45° slope from a shelf pool that sends a crate
+##                                     onto a pressure plate (_build_room_water_f)
+##   - tests/rooms/room_water_g.tscn   grid ice (Stages I2, I3): a waterfall frozen
+##                                     into an ice wall to wall-jump up beside a
+##                                     tower, a raft on a wide clean pool
 ##                                     (_build_room_water_g)
 ##   - tests/rooms/room_water_h.tscn   Stage W7a black water and rafts: a black
 ##                                     channel to cross on a raft frozen from water
-##                                     carried from a clean pool, a black pit to throw
-##                                     a slick onto and freeze, painted ice slopes
-##                                     (45° and 22.5°) down to a ramp lip
-##                                     (_build_room_water_h)
+##                                     carried from a clean pool, a black pit to set a
+##                                     ball down on and freeze as a stepping stone,
+##                                     painted ice slopes (45° and 22.5°) down to a
+##                                     ramp lip (_build_room_water_h)
 ##   - tests/rooms/room_water_i.tscn   Stage W7b currents: a stream with a floating
 ##                                     crate over a spiked floor, a black channel with
 ##                                     a loop current to surf a raft on, a deep loop
@@ -93,7 +87,6 @@ const WATER_TILE_LINE_COLOR: Color = Color(0.75, 0.89, 1.0, 0.8)
 ## Black water's tile (Stage W7a): ink with an oily violet top line.
 const BLACK_WATER_TILE_COLOR: Color = Color(0.1, 0.08, 0.14, 0.85)
 const BLACK_WATER_TILE_LINE_COLOR: Color = Color(0.42, 0.35, 0.5, 0.9)
-const ICE_PINS_SCENE: PackedScene = preload("res://scenes/objects/water/ice_pins.tscn")
 const DOOR_SCENE: PackedScene = preload("res://scenes/objects/door.tscn")
 const PLATE_SCENE: PackedScene = preload("res://scenes/objects/pressure_plate.tscn")
 const ICE_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/ice_layer.gd")
@@ -464,146 +457,61 @@ func _build_room_water_d() -> void:
 	_finish_room(Vector2(7 * TILE, 16 * TILE), "res://tests/rooms/room_water_d.tscn")
 
 
-## Water test room E (Stage W5): freeze and ice. 80 x 23 tiles (640 px: it
-## scrolls), ground top at row 16 (y 128). Left to right:
-##   - a small pool (cols 5-8, 12 units) and a LEDGE (cols 13-19) 40 px over the
-##     floor, too high to jump: throw a ball and freeze it (2), stand on the 16 px
-##     block and jump up.
-##   - a POOL (cols 24-32, full to the ground's level) behind a rim of painted ice
-##     (col 33) and a SPIKE PIT (cols 34-41, 64 px) right after it: freeze the pool
-##     with the crystal (2 aimed down at it), run along the ice (it builds up to
-##     more than run speed) and long-jump the pit (too wide at run speed).
-##   - a NARROW DEEP POOL (cols 44-47) by a high SHELF (cols 48-55, 64 px up): raise
-##     a snake (1, then 3 and up), freeze it in your hands (2) into a pillar, climb
-##     it. Melted (a fireball, or the ice cap: a 7th piece melts the oldest), the
-##     pillar rains back and refills its pool.
-##   - a PAINTED ICE floor (cols 57-64): slide on it.
-##   - a WATERFALL from a source (x 572) into a shallow CHANNEL (cols 66-77, 8 px
-##     deep) drained at its right end: a stream. A crystal into the fall freezes it
-##     into an ice column (the source stops while ice blocks its mouth); one into the
-##     channel freezes it through: a dam, the water backs up behind it.
+## Water test room E (grid ice, Stages I1 and I4, Water_bending.md §16 "Re-planned:
+## grid ice"): BLOCKS and CRUMBLING steps. 50 x 23 tiles (400 px: it scrolls),
+## ground top at row 16 (y 128). Left to right:
+##   1. A small POOL (cols 5-8) and a LEDGE (cols 13-19) 40 px over the floor, too
+##      high to jump. Hold 1, gather 4 units (the ball is a square), steer it against
+##      the ledge's foot: the ghost is a solid 2x2 block. Freeze it (2): a step that
+##      stays (it touches rock).
+##   2. Past the ledge a small POOL (cols 21-22) and a SPIKE CHASM (cols 25-36, 96 px):
+##      far too wide to jump. Steer a ball out over it and freeze it there: the ghost
+##      is DASHED (it would hang in mid-air), so the block crumbles 2 s after you land
+##      on it. Jump on, then on to the far side before it shatters.
 func _build_room_water_e() -> void:
-	_begin_room("RoomWaterE", "Water E: freeze and ice (W5)",
-		"Stage W5 freeze and ice: 2 freezes the water you hold, else your last throw while it glints (a ring over your head runs down), else makes a snow puff whose flakes freeze the water they touch (tap: around you; hold: aim a toss in slow motion; wholly under water: an ice ball you float up in, 2 again shatters it). Freeze a thrown ball into a step to the ledge; freeze the pool and long-jump the spikes off the ice; freeze a snake into a pillar to climb the shelf; freeze the waterfall and the stream.",
-		Vector2(640, 180))
+	_begin_room("RoomWaterE", "Water E: blocks and crumbling ice (I1, I4)",
+		"Grid ice. Hold 1 and gather: the ball is a square, and a ghost shows the ice 2 would make, snapped to the tiles (red cells are blocked). Freeze a 2x2 block against the ledge's foot: ice touching rock stays. Over the chasm the ghost is dashed: ice hanging in mid-air crumbles 2 s after you touch it. Freeze a step over the spikes, land on it and jump on before it breaks.",
+		Vector2(400, 180))
 	room.painted_ground = true
 	room.water_allowed = true
 	room.earth_allowed = false
-	_gray(0, 0, 80, 1)    # ceiling
+	_gray(0, 0, 50, 1)    # ceiling
 	_gray(0, 0, 1, 23)    # left wall
-	_gray(79, 0, 1, 23)   # right wall
-	_gray(0, 16, 80, 7)   # the ground, top at y 128
+	_gray(49, 0, 1, 23)   # right wall
+	_gray(0, 16, 50, 7)   # the ground, top at y 128
 
-	# The small pool and the ledge.
+	# 1. The small pool and the ledge.
 	_open(5, 16, 4, 3)    # rows 16-18: floor y 152
 	_water(5, 16, 4, 3)
 	_gray(13, 11, 7, 5)   # rows 11-15: top at y 88, 40 px over the floor
 
-	# The pool and the spike pit after it.
-	_open(24, 16, 9, 3)   # rows 16-18: floor y 152, surface at the ground's level
-	_water(24, 16, 9, 3)
-	_ice(33, 16, 1, 3)    # an ice rim holds the pool in (rock would brake the run-up)
-	_open(34, 16, 8, 2)   # the pit, rows 16-17
-	_spikes("PitSpikes", 34, 17, 8)
-
-	# The narrow deep pool and the high shelf.
-	_open(44, 16, 4, 5)   # rows 16-20: floor y 168
-	_water(44, 16, 4, 5)
-	_gray(48, 8, 8, 8)    # rows 8-15: top at y 64
-
-	# Painted ice.
-	_ice(57, 16, 8, 1)
-
-	# The waterfall and the stream channel.
-	_open(66, 16, 12, 1)  # row 16: the channel's floor at y 136
-	_add(WATER_SOURCE_SCENE, "WaterfallSource", Vector2(71 * TILE + 4, 2 * TILE), {"rate": 2.0, "pour_width": 4.0})
-	_add(WATER_SINK_SCENE, "ChannelDrain", Vector2(76 * TILE, 16 * TILE), {"sink_size": Vector2(16, 8)})
+	# 2. A pool by the chasm, and the chasm.
+	_open(21, 16, 2, 3)
+	_water(21, 16, 2, 3)
+	_open(25, 16, 12, 2)  # the chasm, rows 16-17
+	_spikes("ChasmSpikes", 25, 17, 12)
 
 	_finish_room(Vector2(3 * TILE, 16 * TILE), "res://tests/rooms/room_water_e.tscn")
 
 
-## A bed of ice pins (Stage W6) on the floor of tile row `row` + 1: the node at the
-## top-left of the cells in row `row`, `count` tiles long.
-func _pins(node_name: String, column: int, row: int, count: int) -> void:
-	_add(ICE_PINS_SCENE, node_name, Vector2(column * TILE, row * TILE), {"tile_count": count})
-
-
-## Water test room F (Stage W6): ice slides and pins. 60 x 23 tiles (480 px: it
-## scrolls), ground top at row 16 (y 128). Left to right:
-##   1. A PLATEAU (cols 1-6, top y 96) with a narrow deep POOL (cols 7-8, surface
-##      y 96) and a wall (col 9) beside it, then a PIN BED on the floor (cols 10-15,
-##      tips y 121) and a SPIKE PIT (cols 16-23, 64 px). Far too far to jump. Stand
-##      on the wall, raise a snake from the pool (1, then 3 and up), lay it down the
-##      pins to the right (its rope drapes over the tips), freeze it (2): a slide
-##      from the pool down to the pins. Ride it and jump off its end over the pit.
-##   2. A small POOL (cols 27-28) and a PIN BED (cols 30-37, 64 px): throw a ball
-##      over the pins and freeze it: it falls, the pins catch it, and it's a step.
-##   3. A low SHELF (cols 40-45, top y 104) with a CRATE on it and a one-tile pool
-##      (col 43) in it, a PIN BED below its right edge (cols 46-49), then a PRESSURE
-##      PLATE (x 416) wired to a DOOR (col 56). Lay a snake from the little pool down
-##      over the pins and freeze it; gust the crate (Z) onto the slide: it slides
-##      down, off the end and onto the plate, and the door opens.
-func _build_room_water_f() -> void:
-	_begin_room("RoomWaterF", "Water F: ice slides and pins (W6)",
-		"Stage W6 ice slides: pins kill you but catch ice. Lay a snake over a pin bed and freeze it (2) into a slide; on ice steeper than 15 degrees you slide (hold down: belly slide, faster). Slides are one-way (jump up through them). Jump off the slide's end over the pit. Freeze a thrown ball over the second pin bed: it sticks as a step. Gust the crate down a slide onto the plate to open the door.",
-		Vector2(480, 180))
-	room.painted_ground = true
-	room.water_allowed = true
-	room.earth_allowed = false
-	_gray(0, 0, 60, 1)    # ceiling
-	_gray(0, 0, 1, 23)    # left wall
-	_gray(59, 0, 1, 23)   # right wall
-	_gray(0, 16, 60, 7)   # the ground, top at y 128
-
-	# 1. Plateau, pool, wall, pins, spike pit.
-	_gray(1, 12, 6, 4)    # the plateau, rows 12-15: top at y 96
-	_open(7, 16, 2, 3)    # the pool goes on down into the ground: floor at y 152
-	_water(7, 12, 2, 7)   # rows 12-18: surface at y 96
-	_gray(9, 12, 1, 4)    # the wall beside it, top at y 96
-	_pins("SlidePins", 10, 15, 6)
-	_open(16, 16, 8, 2)   # the pit, rows 16-17
-	_spikes("PitSpikes", 16, 17, 8)
-
-	# 2. A pool to throw from and a pin bed to cross on a frozen ball.
-	_open(27, 16, 2, 3)
-	_water(27, 16, 2, 3)
-	_pins("StepPins", 30, 15, 8)
-
-	# 3. The shelf with the crate and its one-tile pool, pins, the plate and its door.
-	_gray(40, 13, 6, 3)   # rows 13-15: top at y 104
-	_open(43, 13, 1, 5)   # the one-tile pool, into the ground: floor at y 144
-	_water(43, 13, 1, 5)
-	_add(CRATE_SCENE, "SlideCrate", Vector2(41 * TILE, 13 * TILE))
-	_pins("ShelfPins", 46, 15, 4)
-	var plate: Node2D = _add(PLATE_SCENE, "SlidePlate", Vector2(52 * TILE, 16 * TILE), {"plate_width": 24.0})
-	var door: Node2D = _add(DOOR_SCENE, "SlideDoor", Vector2(56 * TILE, 1 * TILE), {"door_size": Vector2(TILE, 15 * TILE)})
-	var door_switches: Array[Switch] = [plate as Switch]
-	door.set("switches", door_switches)
-
-	_finish_room(Vector2(3 * TILE, 12 * TILE), "res://tests/rooms/room_water_f.tscn")
-
-
-## Water test room G (the re-planned ice, Water_bending.md §16 "Re-planned:
-## predictable ice"): ice HANGS where it froze, the snake is a TRAIL snapped to
-## 22.5° steps, pushed blocks are PUCKS. No pins. 60 x 23 tiles (480 px: it
-## scrolls), ground top at row 16 (y 128). Left to right:
+## Water test room F (grid ice, Stage I2): SNAKE LINES. A frozen snake is the tiles
+## under its trail (flat runs full tiles, 45° runs slope tiles, gentle runs the
+## 22.5° pairs, upright runs a column). 60 x 23 tiles (480 px: it scrolls), ground
+## top at row 16 (y 128). Left to right:
 ##   1. A PLATEAU (cols 1-8, top y 96) with a deep POOL in it (cols 5-7, surface
-##      y 96; col 8 is its wall), then a SPIKE PIT (cols 9-18, 80 px) too wide to jump. Stand by the
-##      pool, raise a snake (1 into the water, then hold 3 and lift), draw it out to
-##      the right and down at 22.5° (→ and ↘ mixed, or tap ↓ while holding →) over
-##      the pit, freeze it (2): a slide. Ride it, jump off its end.
-##   2. A small POOL (cols 23-24) and a LEDGE (cols 27-31) 40 px over the floor:
-##      throw a ball up toward it and freeze it (2) while it glints: it hangs there
-##      as a step.
-##   3. A small POOL (cols 33-34) and a POOL (cols 36-45, full to the ground's
-##      level) to freeze into a SHEET with the crystal (2 aimed down at it); a
-##      PRESSURE PLATE just past its right end (x 376) wired to a DOOR (col 54).
-##      Gather a ball from the small pool, set it down on the sheet's left end and
-##      freeze it (2), then gust it (Z) to the right: a puck, it slides along the ice
-##      and stops on the rock, on the plate. The door opens.
-func _build_room_water_g() -> void:
-	_begin_room("RoomWaterG", "Water G: predictable ice",
-		"Re-planned ice: frozen water HANGS where it froze (no momentum). The snake is a TRAIL (1 in water, hold 3 and lift): it lies exactly along the ball's path, snapped to 22.5 degree runs; steer back over it to rewind it. Draw a slide over the spike pit and freeze it (2). Freeze a thrown ball by the ledge as a step. Freeze the pool (crystal: 2 aimed at it), freeze a ball on it and gust it (Z): pucks slide on ice until something stops them; open the door with the plate.",
+##      y 96; col 8 is its wall), then a SPIKE PIT (cols 9-18, 80 px) too wide to
+##      jump. Raise a snake (1 into the water, then hold 3 and lift) a tile up, draw
+##      it right and then down the slope over the pit, and freeze it (2): a slide (it
+##      rests on the pool: it stays). Ride it down and jump off its end.
+##   2. A SHELF (cols 30-35, top y 104) with a CRATE on it and a one-tile POOL (col 34,
+##      its surface a tile under the shelf's top; its lip col 35), then a PRESSURE PLATE
+##      (x 344) wired to a DOOR (col 50). Draw a snake up a tile (its column fills the
+##      pool's mouth flush with the shelf), right over the lip and down at 45° to the
+##      ground; freeze it; gust the crate (Z) along the shelf: it slides down the ice
+##      onto the plate and the door opens.
+func _build_room_water_f() -> void:
+	_begin_room("RoomWaterF", "Water F: snake lines (I2)",
+		"Grid ice: a frozen snake becomes the tiles under its trail (the ghost shows them): flat runs, 45 degree and gentle slopes, upright columns. Raise a snake from the plateau pool (1 in the water, hold 3, lift), draw it up, right and down over the spike pit, freeze it (2): slide down it (hold down: belly slide) and jump off its end. On the shelf, draw a 45 degree slope down to the ground and gust the crate (Z) down it onto the plate.",
 		Vector2(480, 180))
 	room.painted_ground = true
 	room.water_allowed = true
@@ -613,29 +521,61 @@ func _build_room_water_g() -> void:
 	_gray(59, 0, 1, 23)   # right wall
 	_gray(0, 16, 60, 7)   # the ground, top at y 128
 
-	# 1. Plateau with its pool, then the wide spike pit.
+	# 1. Plateau with its pool, then the spike pit.
 	_gray(1, 12, 8, 4)    # the plateau, rows 12-15: top at y 96
 	_open(5, 12, 3, 7)    # the pool, rows 12-18: floor at y 152 (col 8 is its wall)
 	_water(5, 12, 3, 7)
 	_open(9, 16, 10, 2)   # the pit, rows 16-17
 	_spikes("PitSpikes", 9, 17, 10)
 
-	# 2. A pool to throw from and a ledge too high to jump.
-	_open(23, 16, 2, 3)
-	_water(23, 16, 2, 3)
-	_gray(27, 11, 5, 5)   # rows 11-15: top at y 88
-
-	# 3. A small pool for the puck's water, the pool to freeze, the plate, the door.
-	_open(33, 16, 2, 3)
-	_water(33, 16, 2, 3)
-	_open(36, 16, 10, 3)  # rows 16-18: floor y 152, surface at the ground's level
-	_water(36, 16, 10, 3)
-	var plate: Node2D = _add(PLATE_SCENE, "PuckPlate", Vector2(47 * TILE, 16 * TILE), {"plate_width": 24.0})
-	var door: Node2D = _add(DOOR_SCENE, "PuckDoor", Vector2(54 * TILE, 1 * TILE), {"door_size": Vector2(TILE, 15 * TILE)})
+	# 2. The shelf with the crate and its one-tile pool, the plate and its door.
+	_gray(30, 13, 6, 3)   # rows 13-15: top at y 104
+	_open(34, 13, 1, 5)   # the one-tile pool, into the ground: floor at y 144
+	_water(34, 14, 1, 4)  # surface at y 112, a tile under the shelf's top
+	_add(CRATE_SCENE, "SlideCrate", Vector2(31 * TILE, 13 * TILE))
+	var plate: Node2D = _add(PLATE_SCENE, "SlidePlate", Vector2(43 * TILE, 16 * TILE), {"plate_width": 24.0})
+	var door: Node2D = _add(DOOR_SCENE, "SlideDoor", Vector2(50 * TILE, 1 * TILE), {"door_size": Vector2(TILE, 15 * TILE)})
 	var door_switches: Array[Switch] = [plate as Switch]
 	door.set("switches", door_switches)
 
-	_finish_room(Vector2(3 * TILE, 12 * TILE), "res://tests/rooms/room_water_g.tscn")
+	_finish_room(Vector2(3 * TILE, 12 * TILE), "res://tests/rooms/room_water_f.tscn")
+
+
+## Water test room G (grid ice, Stages I2 and I3): WATERFALL WALLS and RAFTS on clean
+## water. 60 x 23 tiles (480 px: it scrolls), ground top at row 16 (y 128). Left to
+## right:
+##   1. A WATERFALL from a source under the ceiling (x 84) into a drained BASIN
+##      (cols 8-11, one tile deep), and a TOWER (cols 13-18, top y 48) 80 px up, with
+##      a 16 px gap between the fall and the tower. Hold 1 and steer the ball into the
+##      falling water: the ghost is one tall column. Freeze it (2): an ice wall from
+##      the spout to the basin (the spout stops). Wall-jump up between the ice and the
+##      tower (ice gives no grip: you slide down it faster).
+##   2. A wide clean POOL (cols 22-41, surface y 136). Gather, rest the ball on the
+##      surface: the ghost is a flat slab. Freeze it (2): a RAFT. Ride it and gust (Z)
+##      back the way you came: the raft takes the recoil.
+func _build_room_water_g() -> void:
+	_begin_room("RoomWaterG", "Water G: waterfall walls and rafts (I2, I3)",
+		"Grid ice. Steer the ball into the waterfall: the ghost is one tall column. Freeze it (2): an ice wall from the spout to the basin, and the spout stops. Wall-jump up between the ice and the tower. Then rest a ball on the big pool's surface: the ghost is a flat slab; freeze it into a RAFT (rafts work on any water), ride it and gust back (Z) to push it across.",
+		Vector2(480, 180))
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	_gray(0, 0, 60, 1)    # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(59, 0, 1, 23)   # right wall
+	_gray(0, 16, 60, 7)   # the ground, top at y 128
+
+	# 1. The waterfall, its drained basin, and the tower.
+	_add(WATER_SOURCE_SCENE, "WaterfallSource", Vector2(10 * TILE + 4, 2 * TILE), {"rate": 2.0, "pour_width": 4.0})
+	_open(8, 16, 4, 1)    # the basin, row 16: floor y 136
+	_add(WATER_SINK_SCENE, "BasinDrain", Vector2(8 * TILE, 16 * TILE), {"sink_size": Vector2(32, 8)})
+	_gray(13, 6, 6, 10)   # the tower, rows 6-15: top at y 48
+
+	# 2. The wide clean pool.
+	_open(22, 16, 20, 4)  # rows 16-19: floor y 160
+	_water(22, 17, 20, 3)  # surface at y 136
+
+	_finish_room(Vector2(3 * TILE, 16 * TILE), "res://tests/rooms/room_water_g.tscn")
 
 
 ## Water test room H (Stage W7a): black water, rafts and painted ice slopes.
@@ -645,15 +585,15 @@ func _build_room_water_g() -> void:
 ##     the pool, steer the ball down onto the black surface and freeze it (2): a raft.
 ##     Hop on and gust back toward the start (Z): the raft takes the recoil across.
 ##   - a small clean pool (cols 27-28) by a BLACK PIT (cols 30-37, 64 px: too wide to
-##     jump; its surface at y 144, 16 px down, so a slick stays in it). Throw a ball onto it: it floats there like oil for a moment; freeze it
-##     (2) and use the raft as a stepping stone.
+##     jump; its surface at y 144, 16 px down). Carry a ball out over it, set it down
+##     on the black surface and freeze it (2): a raft, a stepping stone.
 ##   - painted ICE SLOPES: two steps and a plateau (y 80), then six 22.5° pairs down
 ##     to the ground (y 128), two tiles of flat ice, a 45° ramp two tiles high, and a
 ##     56 px spike pit (the ramp is ice, so you only reach it sliding). Slide down and
 ##     launch off the ramp.
 func _build_room_water_h() -> void:
 	_begin_room("RoomWaterH", "Water H: black water and rafts (W7a)",
-		"Stage W7a. BLACK water kills, can't be gathered or frozen. Carry clean water to it: hold 1 by the left pool, gather, steer the ball down onto the black channel and freeze it (2) into a RAFT. Ride it and gust back (Z): the raft takes the recoil. Jumping off pushes it back too. Then throw a ball onto the black pit: clean water floats on black like oil for a moment; freeze it (2) into a stepping stone. Last, painted ice slopes (22.5 degrees down, a 45 degree ramp): slide down and launch off the ramp over the spikes.",
+		"Stage W7a. BLACK water kills, can't be gathered or frozen. Carry clean water to it: hold 1 by the left pool, gather, steer the ball down onto the black channel (the ghost is a flat slab) and freeze it (2) into a RAFT. Ride it and gust back (Z): the raft takes the recoil. Jumping off pushes it back too. Then carry a ball over the black pit, set it down on the surface and freeze it: a stepping stone. Last, painted ice slopes (22.5 degrees down, a 45 degree ramp): slide down, keep your speed on the flat ice and launch off the ramp over the spikes.",
 		Vector2(584, 180))
 	room.painted_ground = true
 	room.water_allowed = true

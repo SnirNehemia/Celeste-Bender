@@ -40,6 +40,11 @@ const SCREEN_TOP_ROW: int = 40
 ## strip's spare rows above the first and below the last.
 const SCREEN_HEIGHT: int = 180
 const TALL_HEIGHT: int = STRIP_HEIGHT + SCREEN_HEIGHT * 2
+## paint_section's faded edge: how many rows it thins out over, and the ordered
+## (Bayer) dither it thins out in: each pixel of a 4x4 tile goes at its own step,
+## so the fade is an even pattern, not noise.
+const FADE_ROWS: int = 16
+const BAYER_4X4: Array[int] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
 
 
 ## A new, fully transparent strip.
@@ -66,6 +71,31 @@ static func tall_row(screen_y: float, section: int) -> int:
 ## The slice of a tall picture that `section` shows: a normal strip.
 static func tall_slice(tall: Image, section: int) -> Image:
 	return tall.get_region(Rect2i(0, section * SCREEN_HEIGHT, STRIP_WIDTH, STRIP_HEIGHT))
+
+
+## Copies `strip` (painted for one altitude, in row() rows) into `section` of a
+## tall picture, over what's there (BackdropTheme.add_split_layer): only that
+## section's own screen rows, plus its spare rows above when `with_top_margin` and
+## below when `with_bottom_margin` (where no other altitude's screen is). So two
+## altitudes' strips meet exactly at the screen edge between them, and neither
+## one's spare rows show in the other's screen. `fade_edge`: the strip's side that
+## meets the other altitude (its bottom, or its top when it has no top margin)
+## thins out over FADE_ROWS rows in an ordered dither instead of ending in a
+## straight cut, the way a thing sinks into mist or shadow. Changes `strip`.
+static func paint_section(tall: Image, strip: Image, section: int, with_top_margin: bool, with_bottom_margin: bool,
+		fade_edge: bool = false) -> void:
+	var from_row: int = 0 if with_top_margin else SCREEN_TOP_ROW
+	var to_row: int = STRIP_HEIGHT if with_bottom_margin else SCREEN_TOP_ROW + SCREEN_HEIGHT
+	if fade_edge:
+		var fades_bottom: bool = not with_bottom_margin
+		for band_row: int in FADE_ROWS:
+			var y: int = to_row - 1 - band_row if fades_bottom else from_row + band_row
+			# How much is kept: nothing at the edge, all of it FADE_ROWS in.
+			var keep: float = (band_row + 0.5) / FADE_ROWS
+			for x: int in STRIP_WIDTH:
+				if BAYER_4X4[(y % 4) * 4 + x % 4] / 16.0 >= keep:
+					strip.set_pixel(x, y, Color(0, 0, 0, 0))
+	tall.blend_rect(strip, Rect2i(0, from_row, STRIP_WIDTH, to_row - from_row), Vector2i(0, from_row + section * SCREEN_HEIGHT))
 
 
 ## A repeatable random number in [0, 1) for the integers (a, b) and a seed: a hash,

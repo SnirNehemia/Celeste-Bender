@@ -1,3 +1,4 @@
+class_name UnderwaterSurface
 extends BackdropTheme
 ## UNDERWATER backdrop (the Water chapter's look): the middle of one column of sea
 ## (shared with the surface above and the deep below: UnderwaterStyle), water
@@ -23,17 +24,7 @@ const NEAR_KELP_COUNT: int = 5
 
 
 func _build_layers() -> void:
-	add_tall_layer(UnderwaterStyle.NAME, "Water", Vector2(0.01, 0.0), UnderwaterStyle.paint_water, SURFACE_SECTION)
-	add_drawn_layer("Rays", Vector2(0.06, 0.0), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		UnderwaterStyle.draw_rays(layer, copy_x, time, SURFACE_SECTION))
-	add_tall_layer(UnderwaterStyle.NAME, "Spires", Vector2(0.07, 0.0), UnderwaterStyle.paint_spires, SURFACE_SECTION)
-	var seabed: BackdropLayer = add_painted_layer("Seabed", Vector2(0.18, 0.07), _paint_seabed)
-	seabed.draw_extra = func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		_draw_kelp(layer, copy_x, time, MID_KELP_COUNT, 71, 168.0, Vector2(30.0, 90.0), KELP_COLOR, KELP_LEAF, 1.0)
-	var near: BackdropLayer = add_painted_layer("Coral", Vector2(0.4, 0.12), _paint_coral)
-	near.draw_extra = func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		_draw_kelp(layer, copy_x, time, NEAR_KELP_COUNT, 72, 200.0, Vector2(60.0, 130.0), NEAR_KELP, NEAR_LIT, 2.0)
-	add_painted_layer("Front", UnderwaterStyle.FRONT_SCROLL, _paint_front)
+	UnderwaterStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var bubbles: BackdropMotes = BackdropMotes.new()
 	bubbles.shape = BackdropMotes.Shape.BUBBLE
@@ -58,7 +49,16 @@ func _build_layers() -> void:
 	add_motes(marine_snow)
 
 
-func _paint_seabed() -> Image:
+## The kelp of the seabed and of the near coral, swaying (draw_kelp), as draw_extras.
+static func draw_mid_kelp(layer: BackdropLayer, copy_x: float, time: float) -> void:
+	draw_kelp(layer, copy_x, time, MID_KELP_COUNT, 71, 168.0, Vector2(30.0, 90.0), KELP_COLOR, KELP_LEAF, 1.0)
+
+
+static func draw_near_kelp(layer: BackdropLayer, copy_x: float, time: float) -> void:
+	draw_kelp(layer, copy_x, time, NEAR_KELP_COUNT, 72, 200.0, Vector2(60.0, 130.0), NEAR_KELP, NEAR_LIT, 2.0)
+
+
+static func paint_seabed() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(172), [Vector2(120.0, 12.0), Vector2(25.0, 4.0)] as Array[Vector2], 91, false)
 	BackdropPaint.fill_below(image, tops, SEABED_BODY)
@@ -74,7 +74,7 @@ func _paint_seabed() -> Image:
 
 
 ## Near rocks with branching coral on them.
-func _paint_coral() -> Image:
+static func paint_coral() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(186), [Vector2(160.0, 24.0), Vector2(40.0, 8.0)] as Array[Vector2], 101, false)
 	BackdropPaint.fill_below(image, tops, NEAR_BODY)
@@ -82,13 +82,13 @@ func _paint_coral() -> Image:
 	for coral_index: int in 7:
 		var foot_x: float = (coral_index + BackdropPaint.random01(coral_index, 1, 102)) * BackdropPaint.STRIP_WIDTH / 7.0
 		var foot: Vector2 = Vector2(foot_x, tops[posmod(roundi(foot_x), BackdropPaint.STRIP_WIDTH)] + 2.0)
-		_paint_coral_branch(image, foot, -PI * 0.5, 16.0 + BackdropPaint.random01(coral_index, 2, 102) * 10.0, 3, coral_index * 10)
+		paint_coral_branch(image, foot, -PI * 0.5, 16.0 + BackdropPaint.random01(coral_index, 2, 102) * 10.0, 3, coral_index * 10)
 	return image
 
 
 ## One coral branch: a line that splits in two, each part shorter, `depth` times
 ## (a tiny recursive tree). Tips get a lighter, pinkish dot.
-func _paint_coral_branch(image: Image, start: Vector2, angle: float, length: float, depth: int, seed_value: int) -> void:
+static func paint_coral_branch(image: Image, start: Vector2, angle: float, length: float, depth: int, seed_value: int) -> void:
 	var end: Vector2 = start + Vector2(cos(angle), sin(angle)) * length
 	BackdropPaint.put_line(image, start, end, CORAL_COLOR, 2 if depth >= 2 else 1)
 	if depth == 0:
@@ -96,12 +96,12 @@ func _paint_coral_branch(image: Image, start: Vector2, angle: float, length: flo
 		return
 	for side: int in [-1, 1]:
 		var turn: float = side * (0.35 + BackdropPaint.random01(seed_value, side + depth * 3, 103) * 0.35)
-		_paint_coral_branch(image, end, angle + turn, length * 0.68, depth - 1, seed_value * 2 + side + 7)
+		paint_coral_branch(image, end, angle + turn, length * 0.68, depth - 1, seed_value * 2 + side + 7)
 
 
 ## Kelp: stalks from the bottom, each a chain of segments whose sway grows toward
 ## the tip (the base is anchored), with a leaf every other segment.
-func _draw_kelp(layer: BackdropLayer, copy_x: float, time: float, count: int, seed_value: int, base_row: float,
+static func draw_kelp(layer: BackdropLayer, copy_x: float, time: float, count: int, seed_value: int, base_row: float,
 		height_range: Vector2, stalk_color: Color, leaf_color: Color, width: float) -> void:
 	for stalk_index: int in count:
 		var base_x: float = copy_x + (stalk_index + BackdropPaint.random01(stalk_index, 1, seed_value) * 0.8) * BackdropPaint.STRIP_WIDTH / count
@@ -122,10 +122,11 @@ func _draw_kelp(layer: BackdropLayer, copy_x: float, time: float, count: int, se
 
 ## Right in front: big kelp blades from below and a sea fan, a flat lacy fan of
 ## branches, in a bottom corner.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for blade: Vector3 in [Vector3(16.0, 110.0, 0.15), Vector3(36.0, 74.0, -0.05), Vector3(290.0, 96.0, -0.1), Vector3(306.0, 64.0, 0.18)]:
 		UnderwaterStyle.paint_kelp_blade(image, Vector2(blade.x, BackdropPaint.STRIP_HEIGHT), blade.y, blade.z, int(blade.x))
+	UnderwaterStyle.paint_giant_kelp(image, BackdropTheme.SURFACE_SECTION)
 	var fan_foot: Vector2 = Vector2(500.0, BackdropPaint.row(196))
 	for branch: int in 9:
 		var angle: float = -PI * 0.5 + (branch - 4) * 0.17

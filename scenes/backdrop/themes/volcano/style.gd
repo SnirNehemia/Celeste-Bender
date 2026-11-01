@@ -13,8 +13,12 @@ extends RefCounted
 ##   AshBank   the ash cloud between the two: dark tops (the skyline looks down on
 ##             them) and an underside glowing red from the lava (the surface looks
 ##             up at it)
-## Each look adds nearer layers and a FOREGROUND (charred dead trees, black rock
+## Each altitude adds nearer layers and a FOREGROUND (charred dead trees, black rock
 ## spires, obsidian) right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -125,3 +129,28 @@ static func paint_dead_tree(image: Image, foot: Vector2, height: float, lean: fl
 	for ember: int in 5:
 		var spot: Vector2 = foot.lerp(top, 0.1 + BackdropPaint.random01(ember, 2, seed_value) * 0.7)
 		BackdropPaint.put_rect(image, Rect2i(roundi(spot.x) - 1, roundi(spot.y), 2, 1 + ember % 2), FRONT_EMBER)
+
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Sky", Vector2(0.01, 0.0), paint_sky, section)
+	var cone: BackdropLayer = theme.add_tall_layer(NAME, "Volcano", Vector2(0.03, 0.01), paint_volcano, section)
+	cone.draw_extra = BackdropTheme.section_extras({skyline: VolcanoSkyline.draw_eruption}, section)
+	theme.add_tall_layer(NAME, "AshBank", Vector2(0.08, 0.03), paint_ash_bank, section, 2.0)
+	theme.add_split_layer(NAME, "Ridges", Vector2(0.14, 0.05), {surface: VolcanoSurface.paint_ridges}, section)
+	theme.add_split_layer(NAME, "AshClouds", Vector2(0.2, 0.07), {skyline: VolcanoSkyline.paint_ash_clouds}, section, 6.0)
+	theme.add_split_layer(NAME, "LavaRiver", Vector2(0.24, 0.08), {surface: VolcanoSurface.paint_river}, section, 0.0,
+		{surface: VolcanoSurface.draw_river_flow})
+	# The skyline's crater rim and the surface's near rock: one layer of near ground.
+	theme.add_split_layer(NAME, "NearRock", Vector2(0.42, 0.13), {skyline: VolcanoSkyline.paint_crater_rim,
+		surface: VolcanoSurface.paint_near_rock}, section, 0.0,
+		{skyline: VolcanoSkyline.draw_crack_glow, surface: VolcanoSurface.draw_crack_glow}, [skyline])
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: VolcanoSkyline.paint_front, surface: VolcanoSurface.paint_front}, section, 0.0, {}, [skyline])

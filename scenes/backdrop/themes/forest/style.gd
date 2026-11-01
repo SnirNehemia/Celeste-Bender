@@ -11,8 +11,12 @@ extends RefCounted
 ##           crowns, with three giant trees standing above the rest; the surface
 ##           looks up at its dark underside and at the giants' trunks going up
 ##           into it
-## Each look adds nearer layers, and a FOREGROUND of big dark leaves and ferns
+## Each altitude adds nearer layers, and a FOREGROUND of big dark leaves and ferns
 ## (BackdropPaint.paint_leaf_clump, paint_frond) right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -100,3 +104,25 @@ static func paint_canopy(tall: Image) -> void:
 			elif y > bottom - 14 and (y > bottom - 6 or BackdropPaint.checker(x, y)):
 				color = CANOPY_UNDER
 			BackdropPaint.put_pixel(tall, x, y, color)
+
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Sky", Vector2(0.01, 0.0), paint_sky, section)
+	theme.add_split_layer(NAME, "FarCanopy", Vector2(0.04, 0.02), {skyline: ForestSkyline.paint_far_canopy}, section, 0.0, {}, [skyline])
+	theme.add_split_layer(NAME, "FarTrees", Vector2(0.06, 0.03), {surface: ForestSurface.paint_far_trees}, section)
+	theme.add_tall_layer(NAME, "Canopy", Vector2(0.15, 0.06), paint_canopy, section)
+	theme.add_split_layer(NAME, "MidForest", Vector2(0.16, 0.07), {surface: ForestSurface.paint_mid_forest}, section)
+	theme.add_split_layer(NAME, "Shafts", Vector2(0.22, 0.08), {}, section, 0.0, {surface: ForestSurface.draw_shafts})
+	# The surface's near trunks go up into the skyline's big branch: one layer.
+	theme.add_split_layer(NAME, "NearTrees", Vector2(0.42, 0.13), {skyline: ForestSkyline.paint_branch,
+		surface: ForestSurface.paint_near_trees}, section, 0.0, {}, [skyline, surface])
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: ForestSkyline.paint_front, surface: ForestSurface.paint_front}, section, 0.0, {}, [skyline])

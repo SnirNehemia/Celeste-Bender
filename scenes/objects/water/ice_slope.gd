@@ -4,8 +4,9 @@ extends RefCounted
 ## that slides down ice: the player's Sliding state, crates and ice blocks (Crate),
 ## and shells (Shell). Pure helpers; no nodes, never instanced.
 ##
-## Slopes exist only as ice (frozen snakes and ribbons lying at an angle). A body
-## on one is pulled down it by gravity's share along the slope, g x sin(angle).
+## Slopes exist only as ice (painted slope tiles and the slope tiles of a frozen
+## snake's trail, grid ice). A body on one is pulled down it by gravity's share along
+## the slope, g x sin(angle).
 ## Everything here works on the floor NORMAL that move_and_slide() reports (the
 ## unit vector pointing out of the surface, up-ish for a floor):
 ##   - the slope's TANGENT, pointing to the right along the surface:
@@ -21,25 +22,21 @@ extends RefCounted
 ##     follows the surface going downhill. Sliding bodies use slide_snap_length (4 px).
 ##     Godot never snaps a body moving UP, so a ramp's lip still launches you.
 ##
-## Two Godot details shape the code:
+## One Godot detail shapes the code:
 ##   - After a move that ends on the floor (not moving up), move_and_slide() drops
 ##     the velocity's vertical part ("reset the gravity accumulation"). Going down a
 ##     slope the velocity is then (speed x cos(angle), 0): reading the speed along
 ##     the slope back with a dot product would lose a factor cos(angle) every frame.
 ##     So the speed along the slope is read back from the HORIZONTAL speed:
 ##     along = velocity.x / tangent.x, which is exact either way (get_speed_along).
-##   - A box resting on the rounded END of a frozen snake touches it at one corner,
-##     and the contact's normal is flat: it would stand on the peak. So for ice that
-##     knows its own surface (get_slide_top_y: IceBlock, IcePiece) the slope is taken
-##     from that surface around the body's x (get_surface_normal).
+## The slope comes from the contact's normal: ice is tiles now (grid ice), whose
+## collision is the exact slope.
 
 ## The Water tuning (the same resource the player and the WaterWorlds use: Godot
 ## loads a .tres once, so the F5 panel reaches this too).
 const WATER_TUNING: WaterTuning = preload("res://resources/water_tuning.tres")
 ## A floor normal must point at least this much up to be a floor (45°, as the player).
 const MIN_FLOOR_NORMAL_UP: float = 0.7
-## The surface's slope is measured between this far left and right of the body, px.
-const SURFACE_SAMPLE_DISTANCE: float = 3.0
 
 
 ## The slope's tangent for a floor `normal`, pointing right along the surface.
@@ -59,15 +56,15 @@ static func is_slide_steep(normal: Vector2) -> bool:
 
 ## The ice floor `body` stands on, as its normal, or ZERO when it isn't on ice (or
 ## isn't on the floor). Looks through last frame's contacts for the one that faces
-## up and belongs to IceBlock.ICE_GROUP.
+## up and belongs to IceLayer.ICE_GROUP.
 static func get_ice_floor_normal(body: CharacterBody2D) -> Vector2:
 	var collision: KinematicCollision2D = get_floor_contact(body)
 	if collision == null:
 		return Vector2.ZERO
 	var collider: Node = collision.get_collider() as Node
-	if collider == null or not collider.is_in_group(IceBlock.ICE_GROUP):
+	if collider == null or not collider.is_in_group(IceLayer.ICE_GROUP):
 		return Vector2.ZERO
-	return get_surface_normal(collider, body.global_position.x, collision.get_normal())
+	return collision.get_normal()
 
 
 ## The contact with the floor `body` stands on (its collider and normal), or null
@@ -85,22 +82,6 @@ static func get_floor_contact(body: CharacterBody2D) -> KinematicCollision2D:
 	if body.test_move(body.global_transform, Vector2(0.0, body.floor_snap_length + 1.0), probe) 			and probe.get_normal().dot(Vector2.UP) > MIN_FLOOR_NORMAL_UP:
 		return probe
 	return null
-
-
-## The normal of `ice`'s top surface at global `x`, from its own outline (see the
-## header), or `fallback` (the contact's normal) for ice that doesn't know its
-## surface (painted tiles) or where it has none under both samples.
-static func get_surface_normal(ice: Object, x: float, fallback: Vector2) -> Vector2:
-	if not ice.has_method(&"get_slide_top_y"):
-		return fallback
-	var left_y: float = ice.call(&"get_slide_top_y", x - SURFACE_SAMPLE_DISTANCE)
-	var right_y: float = ice.call(&"get_slide_top_y", x + SURFACE_SAMPLE_DISTANCE)
-	if left_y == INF or right_y == INF:
-		return fallback
-	var along: Vector2 = Vector2(2.0 * SURFACE_SAMPLE_DISTANCE, right_y - left_y).normalized()
-	var normal: Vector2 = Vector2(along.y, -along.x)  # the tangent turned a quarter, to point up
-	# Steeper than a floor (a pillar's side): that's a wall, keep the contact's.
-	return normal if normal.dot(Vector2.UP) > MIN_FLOOR_NORMAL_UP else fallback
 
 
 ## The speed along the slope `tangent` (signed, + = to the right) of a body moving

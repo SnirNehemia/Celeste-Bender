@@ -95,6 +95,9 @@ func _physics_process(_delta: float) -> void:
 ## is set, so it hears GameState.room_entered and shows that room's look at once.
 ## Its start room (AUTO backdrop altitudes are measured from it) is the level's
 ## LevelInfo.start_room in editor levels, else the room the player starts in.
+## It paints every look the level's rooms use right away (Backdrop.paint_ahead):
+## a pause while loading instead of a stall on entering a room. Also adds the
+## BackRoomView, which shows a room's back room (Room.back_room) behind it.
 func _add_backdrop() -> void:
 	var backdrop: Backdrop = Backdrop.new()
 	backdrop.name = "Backdrop"
@@ -103,7 +106,14 @@ func _add_backdrop() -> void:
 	var level_info: LevelInfo = get_node_or_null(NodePath(LevelInfo.NODE_NAME)) as LevelInfo
 	if level_info != null and level_info.start_room != null:
 		backdrop.start_room = level_info.start_room
+	backdrop.paint_ahead(rooms)
 	add_child(backdrop)
+	# Rooms seen behind rooms (Room.back_room), between the backdrop and the rooms.
+	var back_room_view: BackRoomView = BackRoomView.new()
+	back_room_view.name = "BackRoomView"
+	back_room_view.camera = camera
+	back_room_view.rooms = rooms
+	add_child(back_room_view)
 
 
 ## _unhandled_input receives key presses not already used by UI.

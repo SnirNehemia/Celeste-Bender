@@ -1,3 +1,4 @@
+class_name ForestSkyline
 extends BackdropTheme
 ## FOREST, SKYLINE: up in the treetops at sunset. The same sky and forest roof as
 ## the surface below (ForestStyle): here you look down on its crowns, with three
@@ -15,11 +16,7 @@ const NEAR_BARK: Color = Color(0.08, 0.06, 0.04)
 
 
 func _build_layers() -> void:
-	add_tall_layer(ForestStyle.NAME, "Sky", Vector2(0.01, 0.0), ForestStyle.paint_sky, SKYLINE_SECTION)
-	add_painted_layer("FarCanopy", Vector2(0.04, 0.02), _paint_far_canopy)
-	add_tall_layer(ForestStyle.NAME, "Canopy", Vector2(0.15, 0.06), ForestStyle.paint_canopy, SKYLINE_SECTION)
-	add_painted_layer("Branch", Vector2(0.42, 0.13), _paint_branch)
-	add_painted_layer("Front", ForestStyle.FRONT_SCROLL, _paint_front)
+	ForestStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var leaves: BackdropMotes = BackdropMotes.new()
 	leaves.shape = BackdropMotes.Shape.LEAF
@@ -43,7 +40,7 @@ func _build_layers() -> void:
 	add_motes(wind)
 
 
-func _paint_far_canopy() -> Image:
+static func paint_far_canopy() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(146), Vector2(4.0, 8.0), 7, 821)
 	BackdropPaint.fill_below(image, tops, FAR_BODY)
@@ -53,7 +50,7 @@ func _paint_far_canopy() -> Image:
 
 ## A thick branch crossing the bottom of the view, with twigs and leaf clumps,
 ## and leaf clumps hanging in from the top corners of the strip.
-func _paint_branch() -> Image:
+static func paint_branch() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var branch_row: float = BackdropPaint.row(172)
 	for x: int in BackdropPaint.STRIP_WIDTH:
@@ -78,7 +75,7 @@ func _paint_branch() -> Image:
 
 
 ## Right in front: big leaves reaching up from below the branch, one corner each.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	BackdropPaint.paint_leaf_clump(image, Vector2(20.0, BackdropPaint.row(200)), 4, -PI * 0.4, 1.3, Vector2(34.0, 56.0), 0.6,
 		ForestStyle.FRONT_BODY, ForestStyle.FRONT_LIT, ForestStyle.FRONT_RIB, 851)

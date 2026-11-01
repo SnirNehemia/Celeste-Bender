@@ -1,3 +1,4 @@
+class_name ShoreSkyline
 extends BackdropTheme
 ## SHORE, SKYLINE: on top of the sea cliffs, high over the ocean. The same blue
 ## sky and sea as the beach below (ShoreStyle), the sea reaching to a high
@@ -37,13 +38,7 @@ const CLIFF_EDGE_X: int = 250
 
 
 func _build_layers() -> void:
-	add_tall_layer(ShoreStyle.NAME, "SkyAndSea", Vector2(0.01, 0.0), ShoreStyle.paint_sky_and_sea, SKYLINE_SECTION)
-	var stacks: BackdropLayer = add_painted_layer("SeaStacks", Vector2(0.03, 0.0), _paint_sea_stacks)
-	stacks.draw_extra = _draw_stack_foam
-	add_tall_layer(ShoreStyle.NAME, "CloudBank", Vector2(0.05, 0.0), ShoreStyle.paint_cloud_bank, SKYLINE_SECTION, 4.0)
-	var cliff: BackdropLayer = add_painted_layer("CliffTop", Vector2(0.42, 0.13), _paint_cliff_top)
-	cliff.draw_extra = _draw_lighthouse_beam
-	add_painted_layer("Front", ShoreStyle.FRONT_SCROLL, _paint_front)
+	ShoreStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var gulls: BackdropMotes = BackdropMotes.new()
 	gulls.shape = BackdropMotes.Shape.BIRD
@@ -70,7 +65,7 @@ func _build_layers() -> void:
 
 
 ## Tiny sea stacks and islets far out on the water.
-func _paint_sea_stacks() -> Image:
+static func paint_sea_stacks() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var horizon: float = BackdropPaint.row(HORIZON_SCREEN_ROW)
 	for stack_index: int in 7:
@@ -88,7 +83,7 @@ func _paint_sea_stacks() -> Image:
 
 
 ## A blinking ring of foam round each stack's foot.
-func _draw_stack_foam(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_stack_foam(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var horizon: float = BackdropPaint.row(HORIZON_SCREEN_ROW)
 	for stack_index: int in 7:
 		var x: float = roundf((stack_index + BackdropPaint.random01(stack_index, 1, 1721) * 0.7) * BackdropPaint.STRIP_WIDTH / 7.0)
@@ -99,7 +94,7 @@ func _draw_stack_foam(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 
 ## The cliff top we stand on, its grass, a rocky edge, and the lighthouse.
-func _paint_cliff_top() -> Image:
+static func paint_cliff_top() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(CLIFF_SCREEN_ROW + 14), [Vector2(200.0, 18.0), Vector2(40.0, 5.0)] as Array[Vector2], 1751, false)
 	# A headland, not a shelf: the cliff top runs from CLIFF_EDGE_X to the strip's
@@ -134,7 +129,7 @@ func _paint_cliff_top() -> Image:
 
 ## The lamp's beam sweeping round: a long wedge that is widest when it points
 ## sideways at us and thins to nothing as it turns away, plus the lamp's glow.
-func _draw_lighthouse_beam(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_lighthouse_beam(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var lamp: Vector2 = Vector2(copy_x + TOWER_X + 0.5, BackdropPaint.row(LAMP_SCREEN_ROW) + 1.5)
 	var turn: float = time * 0.9
 	var facing: float = cos(turn)  # +1 pointing right, -1 left, 0 toward or away from us
@@ -151,7 +146,7 @@ func _draw_lighthouse_beam(layer: BackdropLayer, copy_x: float, time: float) -> 
 
 ## Right in front: tall tufts of dune grass in the bottom corners, every blade
 ## bending the same way in the wind.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for tuft: Vector2 in [Vector2(30.0, 30.0), Vector2(70.0, 18.0), Vector2(380.0, 26.0)]:
 		for blade: int in 9:

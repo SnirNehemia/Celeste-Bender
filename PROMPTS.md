@@ -357,6 +357,28 @@ Written into `Level_editor.md` (spec v1) and the stages below.
 
 *Decided while building (L11):* files in `scenes/ui/`: `story_entry.gd` + `story_list.gd` (the resources), `story_progress.gd` (the ConfigFile), `story_player.gd` (runs the levels), `story_screen.gd/.tscn`. `LevelStorage.story_path()` is the only place that knows where story.tres lives. StoryPlayer is one node under the tree root, so it survives each level's scene change; it shows the level-complete card and, after the last level, an end card with the totals of that sitting, then goes back to the Story screen. The hook: `GameState.is_story_run`; the EndScreen then only freezes the player. The main menu and the Story screen end a story run. A finished entry stays open even if moved after an unfinished one. Shift+Up/Down are the InputMap actions `story_move_up` / `story_move_down`. The shipped story.tres is Air, the "Test" level, Earth.
 
+## Depth layers — Stages D1-D4 (rooms behind rooms, depth gates)
+
+Part of the level editor track, but D2-D3 touch gameplay (RoomManager, the player's Up, BackRoomView). Spec: `Level_editor.md` §5a. Builds on back rooms step 1 (BackRoomView, `back_room_haze.gdshader`).
+
+## Stage D1 — Depths in the world and the map
+> Read Level_editor.md §5a. Give Room a `depth` (int, 0 = front) and map helpers (`get_map_position`, `get_map_bounds`): a room's world position is its map position plus `depth * DEPTH_SPACING` down, so depths never touch. Make everything that measures heights (AUTO backdrop altitude, the map's openings and overlap checks) use map positions, overlap only within one depth. Replace step 1's `back_room` field: BackRoomView shows the next depth's band (all its rooms in view, pinned at the room's middle for now). In the map, Page Down / Page Up (`editor_depth_deeper` / `editor_depth_shallower`) step the shown depth ("Depth 1 of 3"); the next deeper one is drawn under it, hazed, outlines in a depth color; hovering a room outlines what's behind it; new rooms go to the shown depth. In the room view, the depth behind shows hazed, 1:1. Smoke-test section D1.
+
+**You should see:** a level with a front room and a room drawn behind it on the map; in play, the back room behind, solid and hazed; Page Down in the map edits the back depth.
+
+## Stage D2 — The depth gate
+> Add DepthGate (placeholder art: a stone arch with a swirl, in the palette's Objects tab). Its twin is the gate at the same map spot one depth deeper or shallower. Placing a gate where there's a room behind makes the twin in the same undo step; without one it shows red "no twin" and the map offers "Add twin"; moving or deleting moves or deletes both. Up (`move_up`) inside a gate: RoomManager freezes the player, plays the step (the front fades, the layer behind clears and comes forward, about 0.5 s), puts the player in the twin, switches the current room and depth, and BackRoomView now shows the next depth. Respawn stays in the room you're in. The map marks gate pairs and joins them. Smoke-test section D2 (through and back, a death after it, undo of a gate pair).
+
+**You should see:** stand in a gate, press Up, and step into the room behind; the room you left is gone, and what's behind is one depth deeper. Up again takes you back.
+
+## Stage D3 — Parallax pinned at gates
+> BackRoomView slides the layer behind at PARALLAX but pins it at the gate nearest the player in the current room (the room's middle if it has none): there the two layers line up exactly, measured from the player so the camera's clamping at room edges doesn't break it. When the nearest gate changes, the pin glides over ~0.3 s. Tune PARALLAX and the haze per depth. Smoke-test: standing in a gate, its twin is drawn at the same screen spot (within 1 px).
+
+**You should see:** the room behind slides slower as you run, but whenever you stand in a gate its twin is right behind it.
+
+## Stage D4 — Readability polish
+> The gate glows softly when its twin is reachable and shows a small Up arrow while the player stands in it; a gate whose twin is missing is dimmed in play. Play-test from the editor starts at the depth of the room it starts in. Check Story Mode and the backdrops across depths. Update the docs.
+
 ---
 
 ## Water (Chapter 4)
@@ -423,6 +445,34 @@ Spec v2 in `Water_bending.md`; stages W1–W13 are listed in its §14. W1 and W2
 *Decided while building (W7b):* see Water_bending.md §16 "Decided in Stage W7b".
 
 *After the W7a play-test:* rafts float higher (`raft_buoyancy`); water fills painted slope tiles; the SNOW PUFF replaces the ice crystal on 2 (tap: around you; hold: an aimed toss; each flake freezes what it touches, a pool a stretch each); wholly under water, 2 makes an ICE BALL that floats up, bobs, rolls with the arrows and shatters on 2. See Water_bending.md §16 "Decided after the W7a play-test". Smoke test section Snow.
+
+## Ice rework — Stages I1–I5 (grid ice)
+The developer's call on 31 Oct 2026: a complete rework of the ice, more gameplay-oriented. Read Water_bending.md §16 "Re-planned: grid ice" first; it overrides every earlier ice decision. Built in one go, then play-tested as a whole.
+
+## Stage I1 — Grid ice core
+> Read Water_bending.md §16 "Re-planned: grid ice". 2 freezes ONLY what you hold; with nothing held it fizzles. Remove the live-throw window and its indicator, the snow puff (`SnowPuff`), the ice crystal (`IceCrystal`), the ice ball (the `IceBall` state), free ice blocks and pucks, and the `ice_hangs` switch. Player ice becomes TILES: a `PlayerIceLayer` (extends `IceLayer`, made by every WaterWorld as the room's "PlayerIce" layer) that remembers which freeze each cell belongs to and how much water it holds, joins the WaterWorld's solid grid when it changes, and is reset with the room. The held ball is drawn as a soft wobbling SQUARE whose side is √(its water). A freeze is planned every frame while holding (`IcePlan`: the cells 2 would make, each free or blocked by rock, you, a crate or water) and drawn as a GHOST; 2 applies the plan: the ball becomes the most square block its whole units fill (wider than tall), on the cells nearest the ball; the water of blocked cells and the fraction of a unit left over drips off as loose water. The ice cap (`max_player_ice`) counts freezes; fire melts the freeze it touches back into loose water (the Flammable contract's `ignite_at`). Smoke test section Ice: the plan's shape for 1-4 units, a freeze places exactly those tiles, the books balance, blocked cells drip, the cap, fire, reset, 2 with nothing held does nothing.
+
+**You should see:** hold 1 by a pool and gather: the ball is a wobbling square of water, and a pale cyan outline of the block it would make follows it, snapped to the tiles. Steer it against a wall: the cells inside rock turn red. Press 2: the block is there, exactly as shown.
+
+## Stage I2 — Snake lines and waterfall walls
+> The trail snake's runs snap to the tile angles (0°, 22.5°, 45°, 90°) and its corners to the 8 px grid; the ghost shows the tiles under the line (flat full tiles, 45° slope tiles, 22.5° pairs, 90° columns). Frozen, the trail becomes those tiles; their water comes from the snake and the ball, then from the pool at the foot (any extra goes back), and a dry pool cuts the trail short. The ball inside a WaterSource's falling water plans a WALL: a column of full tiles from the source's mouth to where the fall lands (ground or a pool's surface); its water is counted as sourced, the ball's water drops, and the source stops while it stands. Smoke test: a 45° trail freezes into slope tiles you slide down; a vertical run into a column; the pool pays; a waterfall wall stops its source and melts back.
+
+**You should see:** raise a snake (1, 3 + arrows), draw it up and then down at 45°: the ghost is a staircase of slope tiles. Press 2: a ramp. Steer the ball into a waterfall: the ghost is one tall column. Press 2: an ice wall, and the spout stops.
+
+## Stage I3 — Rafts on any water
+> The ball touching a water surface (or under it) + 2 makes a raft (`IceRaft`, the old raft half of `IceBlock`), on clean water or black, as wide as its whole units in tiles. The ghost shows the slab at the surface. Remove pool sheets (`IcePiece`), their ceilings and dams. Smoke test: a raft on a clean pool floats and carries you; on black water as before (W7a).
+
+**You should see:** gather 4 units, rest the ball on a pool's surface: the ghost is a flat 32 px slab. Press 2: a raft you can ride and gust.
+
+## Stage I4 — Crumbling hanging ice
+> A connected patch of player ice that touches no terrain and doesn't rest on a pool is BRITTLE (the ghost draws it cracked). The first touch by you or a crate starts `crumble_time` (2 s): the patch shakes and a bright contour runs around it and closes; then it shatters into shards (spray) and its water falls as loose water. Ice that touches terrain stays. Patches are recomputed whenever player ice changes. Smoke test: a block in mid-air crumbles 2 s after you land on it and its water is conserved; a block on the ground doesn't.
+
+**You should see:** freeze a block in the air over a pool, jump on it: it shakes, the contour closes, and it breaks into water that falls into the pool. Freeze one on the ground: it stays.
+
+## Stage I5 — Speed pass and cleanup
+> On ice, speed above run speed isn't braked (`ice_overspeed_friction`, 0) unless you steer against it. Player ice is fully solid (one-way slides removed). Remove the ROPE snake, `IcePins`, `IcePiece`, `IceOutline`'s tracing, one-way slide code and every tuning value only they used. Rebuild rooms Water E–H around the new ice (E: blocks and crumbling steps, F: trails and ramps, G: waterfall walls and a clean-water raft, H: black water, rafts, painted slopes). Update the smoke test (sections W4-W7a and Snow replaced by Ice where they tested the old ice) and the docs.
+
+**You should see:** in Water E–H, each room's key move works as its sign says. `water_smoke_test` passes.
 
 ---
 

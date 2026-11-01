@@ -1,3 +1,4 @@
+class_name JungleSurface
 extends BackdropTheme
 ## JUNGLE, SURFACE: the floor of a rainforest, denser and wetter than the Forest.
 ## Green light filters down from the canopy overhead (both shared with the
@@ -30,13 +31,7 @@ const TRUNKS: Array[Vector2] = [Vector2(40, 9), Vector2(175, 6), Vector2(290, 11
 
 
 func _build_layers() -> void:
-	add_tall_layer(JungleStyle.NAME, "Sky", Vector2(0.01, 0.0), JungleStyle.paint_sky, SURFACE_SECTION)
-	var far: BackdropLayer = add_painted_layer("FarTrees", Vector2(0.05, 0.02), _paint_far_trees)
-	far.draw_extra = _draw_shafts
-	add_painted_layer("Trunks", Vector2(0.2, 0.07), _paint_trunks)
-	add_tall_layer(JungleStyle.NAME, "Canopy", Vector2(0.2, 0.07), JungleStyle.paint_canopy, SURFACE_SECTION)
-	add_painted_layer("Leaves", Vector2(0.42, 0.13), _paint_leaves)
-	add_painted_layer("Front", JungleStyle.FRONT_SCROLL, _paint_front)
+	JungleStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var pollen: BackdropMotes = BackdropMotes.new()
 	pollen.mote_count = 26
@@ -69,7 +64,7 @@ static func hanging_bumps(base_row: float, radius_range: Vector2, spacing: int, 
 
 
 ## Misty far trunks under a canopy, and the ground.
-func _paint_far_trees() -> Image:
+static func paint_far_trees() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for trunk_index: int in 16:
 		var x: int = roundi((trunk_index + BackdropPaint.random01(trunk_index, 1, 1221) * 0.7) * BackdropPaint.STRIP_WIDTH / 16.0)
@@ -86,14 +81,14 @@ func _paint_far_trees() -> Image:
 
 
 ## Sun shafts slanting down through the canopy gaps.
-func _draw_shafts(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_shafts(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	BackdropTheme.draw_light_shafts(layer, copy_x, time, [70.0, 205.0, 340.0, 470.0, 575.0] as Array[float],
 		9.0, 0.32, 200.0, SHAFT_COLOR)
 
 
 ## Giant trunks with buttress roots, the canopy above them, lianas sagging from
 ## trunk to trunk, and ferns on the ground.
-func _paint_trunks() -> Image:
+static func paint_trunks() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var ground_row: float = BackdropPaint.row(170)
 	for trunk: Vector2 in TRUNKS:
@@ -139,7 +134,7 @@ func _paint_trunks() -> Image:
 
 
 ## Big broad leaves rising from the bottom in clumps, more hanging in from the top.
-func _paint_leaves() -> Image:
+static func paint_leaves() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for clump_index: int in 5:
 		var clump_x: float = (clump_index + BackdropPaint.random01(clump_index, 1, 1241) * 0.6) * BackdropPaint.STRIP_WIDTH / 5.0
@@ -161,7 +156,7 @@ func _paint_leaves() -> Image:
 
 ## Nearest of all: giant leaves hanging into the top corners and rising from the
 ## bottom between the Leaves layer's clumps.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	JungleStyle.paint_big_leaves(image, [Vector3(30.0, BackdropPaint.row(-24), PI * 0.42), Vector3(360.0, BackdropPaint.row(-30), PI * 0.6),
 		Vector3(230.0, BackdropPaint.row(214), -PI * 0.5)] as Array[Vector3], Vector2(56.0, 84.0), 1251)

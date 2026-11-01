@@ -1,3 +1,4 @@
+class_name UnderwaterSkyline
 extends BackdropTheme
 ## UNDERWATER, SKYLINE: right at the sea's surface. The screen is split by the
 ## waterline: above it a dusk sky with distant islands and their reflections,
@@ -25,13 +26,7 @@ const SURFACE_CREST: Color = Color(0.85, 0.95, 0.95)
 
 
 func _build_layers() -> void:
-	add_tall_layer(UnderwaterStyle.NAME, "Water", Vector2(0.01, 0.0), UnderwaterStyle.paint_water, SKYLINE_SECTION)
-	add_painted_layer("Islands", Vector2(0.04, 0.0), _paint_islands)
-	add_drawn_layer("Rays", Vector2(0.06, 0.0), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		UnderwaterStyle.draw_rays(layer, copy_x, time, SKYLINE_SECTION))
-	add_tall_layer(UnderwaterStyle.NAME, "Spires", Vector2(0.07, 0.0), UnderwaterStyle.paint_spires, SKYLINE_SECTION)
-	add_drawn_layer("Surface", Vector2(0.3, 0.0), _draw_surface)
-	add_painted_layer("Front", UnderwaterStyle.FRONT_SCROLL, _paint_front)
+	UnderwaterStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var bubbles: BackdropMotes = BackdropMotes.new()
 	bubbles.shape = BackdropMotes.Shape.BUBBLE
@@ -47,7 +42,7 @@ func _build_layers() -> void:
 	add_motes(bubbles)
 
 
-func _paint_islands() -> Image:
+static func paint_islands() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var waterline: float = BackdropPaint.row(WATERLINE_SCREEN_ROW)
 	var tops: PackedFloat32Array = BackdropPaint.mesas(waterline + 1.0, 5, Vector2(4.0, 22.0), Vector2(6.0, 20.0), 1021)
@@ -66,7 +61,7 @@ func _paint_islands() -> Image:
 
 ## The surface: a rippling bright line along the waterline, with crests that
 ## glitter on and off as the waves pass.
-func _draw_surface(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_surface(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var waterline: float = BackdropPaint.row(WATERLINE_SCREEN_ROW)
 	for x: int in range(0, BackdropPaint.STRIP_WIDTH, 2):
 		var wave: float = roundf(sin(x * 0.07 + time * 1.6) * 1.0 + sin(x * 0.023 - time * 0.9) * 1.0)
@@ -77,8 +72,7 @@ func _draw_surface(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 
 ## Right in front: big kelp blades reaching up from the deep toward the light.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
-	for blade: Vector3 in [Vector3(30.0, 120.0, 0.12), Vector3(52.0, 90.0, -0.1), Vector3(400.0, 104.0, 0.08)]:
-		UnderwaterStyle.paint_kelp_blade(image, Vector2(blade.x, BackdropPaint.STRIP_HEIGHT), blade.y, blade.z, int(blade.x))
+	UnderwaterStyle.paint_giant_kelp(image, BackdropTheme.SKYLINE_SECTION)
 	return image

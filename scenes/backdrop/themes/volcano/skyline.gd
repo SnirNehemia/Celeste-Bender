@@ -1,3 +1,4 @@
+class_name VolcanoSkyline
 extends BackdropTheme
 ## VOLCANO, SKYLINE: high above the ash cloud. The same sky, cone and ash cloud
 ## as the slopes below (VolcanoStyle): here the great cone's summit erupts above
@@ -33,14 +34,7 @@ const LIGHTNING_TIME: float = 0.12
 
 
 func _build_layers() -> void:
-	add_tall_layer(VolcanoStyle.NAME, "Sky", Vector2(0.01, 0.0), VolcanoStyle.paint_sky, SKYLINE_SECTION)
-	var summit: BackdropLayer = add_tall_layer(VolcanoStyle.NAME, "Volcano", Vector2(0.03, 0.01), VolcanoStyle.paint_volcano, SKYLINE_SECTION)
-	summit.draw_extra = _draw_eruption
-	add_tall_layer(VolcanoStyle.NAME, "AshBank", Vector2(0.08, 0.03), VolcanoStyle.paint_ash_bank, SKYLINE_SECTION, 2.0)
-	add_painted_layer("AshClouds", Vector2(0.2, 0.07), _paint_ash_clouds, 6.0)
-	var rim: BackdropLayer = add_painted_layer("CraterRim", Vector2(0.42, 0.13), _paint_crater_rim)
-	rim.draw_extra = _draw_crack_glow
-	add_painted_layer("Front", VolcanoStyle.FRONT_SCROLL, _paint_front)
+	VolcanoStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var embers: BackdropMotes = BackdropMotes.new()
 	embers.shape = BackdropMotes.Shape.FIREFLY
@@ -66,7 +60,7 @@ func _build_layers() -> void:
 
 ## The eruption, live: lava sprays up from the crater in arcs and falls back, the
 ## crater glows, and now and then lightning cracks through the ash column.
-func _draw_eruption(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_eruption(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var crater: Vector2 = Vector2(copy_x + SUMMIT_X, BackdropPaint.row(SUMMIT_SCREEN_ROW))
 	var pulse: float = 0.6 + 0.3 * sin(time * 1.7) + 0.1 * sin(time * 5.3)
 	BackdropTheme.draw_glow(layer, crater + Vector2(0.0, -4.0), 30.0, CRATER_GLOW, pulse)
@@ -89,7 +83,7 @@ func _draw_eruption(layer: BackdropLayer, copy_x: float, time: float) -> void:
 			point = next
 
 
-func _paint_ash_clouds() -> Image:
+static func paint_ash_clouds() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for cloud_index: int in 6:
 		var center: Vector2 = Vector2((cloud_index + BackdropPaint.random01(cloud_index, 1, 2041) * 0.6) * BackdropPaint.STRIP_WIDTH / 6.0,
@@ -100,7 +94,7 @@ func _paint_ash_clouds() -> Image:
 
 
 ## The crater rim in front: jagged black rock, its edges and cracks glowing.
-func _paint_crater_rim() -> Image:
+static func paint_crater_rim() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var octaves: Array[Vector2] = [Vector2(130.0, 34.0), Vector2(30.0, 10.0), Vector2(8.0, 3.0)]
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(196), octaves, 2051, true)
@@ -119,14 +113,14 @@ static func _crack_x(crack_index: int) -> float:
 	return (crack_index + BackdropPaint.random01(crack_index, 1, 2054) * 0.6) * BackdropPaint.STRIP_WIDTH / 7.0
 
 
-func _draw_crack_glow(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_crack_glow(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	for crack_index: int in 7:
 		var pulse: float = 0.5 + 0.5 * sin(time * 1.2 + crack_index * 1.9)
 		BackdropTheme.draw_glow(layer, Vector2(copy_x + _crack_x(crack_index), BackdropPaint.row(190)), 16.0, CRACK_GLOW, pulse)
 
 
 ## Right in front: black rock spires rising from below, glowing along their edges.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	BackdropPaint.paint_crag(image, 40.0, 30.0, 120.0, VolcanoStyle.FRONT_BODY, VolcanoStyle.FRONT_LIT, RIM_EDGE, 2061)
 	BackdropPaint.paint_crag(image, 76.0, 18.0, 70.0, VolcanoStyle.FRONT_BODY, VolcanoStyle.FRONT_LIT, RIM_EDGE, 2062)

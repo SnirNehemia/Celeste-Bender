@@ -12,8 +12,12 @@ extends RefCounted
 ##              out of view; from the skyline their summits stand above the clouds
 ##   CloudBank  the clouds between the two: the skyline looks down on their tops,
 ##              the surface up at their undersides
-## Each look adds its own nearer layers, and a FOREGROUND of big dark shapes close
+## Each altitude adds nearer layers, and a FOREGROUND of big dark shapes close
 ## to the camera (pine boughs, crags, icicles) painted with the helpers below.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -148,3 +152,25 @@ static func paint_bough(image: Image, root: Vector2, tip: Vector2, sag: float, s
 ## snow on its ledges (BackdropPaint.paint_crag).
 static func paint_crag(image: Image, foot_x: float, half_width: float, height: float, seed_value: int) -> void:
 	BackdropPaint.paint_crag(image, foot_x, half_width, height, FRONT_BODY, FRONT_LIT, FRONT_SNOW, seed_value)
+
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Sky", Vector2(0.01, 0.0), paint_sky, section)
+	theme.add_tall_layer(NAME, "Peaks", Vector2(0.04, 0.02), paint_peaks, section)
+	theme.add_tall_layer(NAME, "CloudBank", Vector2(0.07, 0.03), paint_cloud_bank, section, 2.0)
+	theme.add_split_layer(NAME, "Mist", Vector2(0.1, 0.05), {surface: MountainSurface.paint_mist}, section, 3.0)
+	theme.add_split_layer(NAME, "MidPeaks", Vector2(0.18, 0.08), {surface: MountainSurface.paint_mid_peaks}, section)
+	theme.add_split_layer(NAME, "Clouds", Vector2(0.22, 0.08), {skyline: MountainSkyline.paint_clouds}, section, 6.0)
+	theme.add_split_layer(NAME, "Pines", Vector2(0.35, 0.14), {surface: MountainSurface.paint_pines}, section)
+	theme.add_split_layer(NAME, "Summit", Vector2(0.42, 0.13), {skyline: MountainSkyline.paint_summit}, section, 0.0,
+		{skyline: MountainSkyline.draw_flags}, [skyline])
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: MountainSkyline.paint_front, surface: MountainSurface.paint_front}, section, 0.0, {}, [skyline])

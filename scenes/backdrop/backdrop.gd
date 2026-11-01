@@ -3,7 +3,8 @@ extends CanvasLayer
 ## Backdrop: the multi-layer, parallax background behind the rooms, Celeste style.
 ## A room's backdrop has two parts, both Room settings:
 ##   LOOK      where the level is set: mountains, a temple, a forest, a desert, the
-##             sea, a jungle, a shore, a volcano
+##             sea, a jungle, a shore, a volcano, a light temple (sanctum), a
+##             very dense forest (deepwood)
 ##             (Room.backdrop_theme; AUTO picks from what's in the room)
 ##   ALTITUDE  where in that setting the room is: UNDERGROUND (caves, crypts, roots),
 ##             SURFACE, or SKYLINE (high up: above the clouds, the treetops, the roofs)
@@ -18,7 +19,9 @@ extends CanvasLayer
 ##          side it travels toward (above when climbing, the side walked to), and
 ##          where the two meet they blend in a dithered band instead of a line.
 ##          A look's shared tall layers (sky, far range...) simply continue from
-##          one altitude into the next. Surface <-> skyline, any change of look,
+##          one altitude into the next, and the surface and the skyline share
+##          ALL their layers (style.gd add_shared_layers), so between those two
+##          the picture just scrolls on. Surface <-> skyline, any change of look,
 ##          and every change underwater.
 ##   BREAK  the same scroll, but with a jagged band of the look's rock between the
 ##          two: breaking out of the ground (or into it), underground <-> above.
@@ -34,13 +37,14 @@ extends CanvasLayer
 ##
 ## Files: backdrop_theme.gd (one look = a stack of layers), backdrop_layer.gd (one
 ## scrolling strip), backdrop_paint.gd (paints the strips), backdrop_motes.gd (snow,
-## dust, bubbles...), themes/<look>/{underground,surface,skyline}.gd (the 24 looks).
+## dust, bubbles...), backdrop_terrain.gd (paints shapes the way the ground is
+## painted), themes/<look>/{underground,surface,skyline}.gd (the 30 looks).
 ## BackdropPreview (backdrop_preview.gd) shows them all without making rooms.
 
 ## Where a level is set. AUTO: picked from the room's contents. NONE: just the
 ## plain background color (project setting default_clear_color).
 ## New looks go at the END: rooms save the number, not the name.
-enum Look { AUTO, NONE, MOUNTAIN, TEMPLE, FOREST, DESERT, UNDERWATER, JUNGLE, SHORE, VOLCANO }
+enum Look { AUTO, NONE, MOUNTAIN, TEMPLE, FOREST, DESERT, UNDERWATER, JUNGLE, SHORE, VOLCANO, SANCTUM, DEEPWOOD }
 ## Where in that setting a room is. AUTO: from the room's height (Room).
 enum Altitude { AUTO, UNDERGROUND, SURFACE, SKYLINE }
 
@@ -86,6 +90,16 @@ const THEME_SCRIPTS: Dictionary = {
 		Altitude.SURFACE: preload("res://scenes/backdrop/themes/volcano/surface.gd"),
 		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/volcano/skyline.gd"),
 	},
+	Look.SANCTUM: {
+		Altitude.UNDERGROUND: preload("res://scenes/backdrop/themes/sanctum/underground.gd"),
+		Altitude.SURFACE: preload("res://scenes/backdrop/themes/sanctum/surface.gd"),
+		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/sanctum/skyline.gd"),
+	},
+	Look.DEEPWOOD: {
+		Altitude.UNDERGROUND: preload("res://scenes/backdrop/themes/deepwood/underground.gd"),
+		Altitude.SURFACE: preload("res://scenes/backdrop/themes/deepwood/surface.gd"),
+		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/deepwood/skyline.gd"),
+	},
 }
 ## How a change from one look to another is shown (see the header).
 enum Transition { SOFT, BREAK }
@@ -108,6 +122,8 @@ const SOFT_FEATHER_SIDEWAYS: float = 90.0
 const CRUST_HALF_HEIGHT: float = 5.0
 const CRUST_ROUGHNESS: float = 4.0
 const WIPE_SHADER: Shader = preload("res://scenes/backdrop/backdrop_wipe.gdshader")
+## A leading edge this far off shows all of a look: the wipe shader at rest.
+const AT_REST_EDGE: float = 100000.0
 ## Draw order: below the rooms (layer 0) and every UI CanvasLayer.
 const CANVAS_LAYER_INDEX: int = -10
 
@@ -130,6 +146,12 @@ var _slide_tween: Tween = null
 var _crust: Node2D = null
 var _crust_colors: Array[Color] = []
 var _crust_row: float = 0.0
+## Every frame's CanvasGroup draws through the wipe shader, also at rest (this
+## material: nothing hidden). A CanvasGroup on its own got the alpha of see-through
+## things (motes, light shafts) wrong: they left the look a little see-through
+## where they were, and the clear color showed as gray specks. The shader draws
+## every covered pixel solid (backdrop_wipe.gdshader).
+var _at_rest_material: ShaderMaterial = null
 ## Where the camera was when the backdrop started: offsets are measured from here.
 var _camera_start: Vector2 = Vector2.INF
 ## The middle of the room entered last: which way the player went decides which
@@ -281,7 +303,17 @@ func _end_change() -> void:
 	if _current_frame != null:
 		_current_frame.position = Vector2.ZERO
 		_current_frame.clip_contents = true
-		_group_in(_current_frame).material = null
+		_group_in(_current_frame).material = _get_at_rest_material()
+
+
+## The wipe shader showing everything (see _at_rest_material), made once.
+func _get_at_rest_material() -> ShaderMaterial:
+	if _at_rest_material == null:
+		_at_rest_material = ShaderMaterial.new()
+		_at_rest_material.shader = WIPE_SHADER
+		_at_rest_material.set_shader_parameter(&"enter_from", Vector2.UP)
+		_at_rest_material.set_shader_parameter(&"leading_edge", AT_REST_EDGE)
+	return _at_rest_material
 
 
 ## Which way to scroll from `old_altitude` to `new_altitude` when the player moved
@@ -293,6 +325,27 @@ static func get_slide_direction(old_altitude: Altitude, new_altitude: Altitude, 
 	if absf(travel.y) > absf(travel.x) * 2.0:
 		return Vector2.UP if travel.y < 0.0 else Vector2.DOWN
 	return Vector2.LEFT if travel.x < 0.0 else Vector2.RIGHT
+
+
+## Paints every look and altitude `level_rooms` will show, now (while the level
+## loads), so walking into a new one never stalls the game: a look's pictures are
+## painted pixel by pixel the first time it's built (the ground-style looks take a
+## second or so), then kept for the whole run (BackdropTheme's caches). Each theme
+## is built once and thrown away; only the caches stay.
+func paint_ahead(level_rooms: Array[Room]) -> void:
+	var painted: Dictionary = {}
+	for room: Room in level_rooms:
+		var look: Look = room.get_backdrop_theme()
+		var altitude: Altitude = room.get_backdrop_altitude(start_room)
+		if altitude == Altitude.AUTO:
+			altitude = Altitude.SURFACE
+		var key: Vector2i = Vector2i(look, altitude)
+		if painted.has(key) or not THEME_SCRIPTS.has(look):
+			continue
+		painted[key] = true
+		var theme: BackdropTheme = (THEME_SCRIPTS[look][altitude] as GDScript).new() as BackdropTheme
+		theme.build()
+		theme.free()
 
 
 ## True while a change is under way (the tests wait for it).
@@ -320,6 +373,7 @@ func _make_frame(look: Look, altitude: Altitude) -> Control:
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var group: CanvasGroup = CanvasGroup.new()
 	group.name = "Group"
+	group.material = _get_at_rest_material()
 	frame.add_child(group)
 	if THEME_SCRIPTS.has(look):
 		var theme: BackdropTheme = (THEME_SCRIPTS[look][altitude] as GDScript).new() as BackdropTheme

@@ -1,3 +1,4 @@
+class_name ShoreSurface
 extends BackdropTheme
 ## SHORE, SURFACE: a beach on the open sea at midday. A blue sky under the low
 ## cloud bank and a wide sea that glitters (both shared with the cliff top above:
@@ -48,17 +49,7 @@ const PALMS: Array[Vector2] = [Vector2(90, 30), Vector2(130, -18), Vector2(420, 
 
 
 func _build_layers() -> void:
-	var sky: BackdropLayer = add_tall_layer(ShoreStyle.NAME, "SkyAndSea", Vector2(0.01, 0.0), ShoreStyle.paint_sky_and_sea, SURFACE_SECTION)
-	sky.draw_extra = _draw_glitter
-	add_painted_layer("Clouds", Vector2(0.03, 0.0), _paint_clouds, 3.0)
-	add_tall_layer(ShoreStyle.NAME, "CloudBank", Vector2(0.05, 0.0), ShoreStyle.paint_cloud_bank, SURFACE_SECTION, 4.0)
-	add_painted_layer("Island", Vector2(0.04, 0.0), _paint_island)
-	var headland: BackdropLayer = add_painted_layer("Headland", Vector2(0.14, 0.0), _paint_headland)
-	headland.draw_extra = _draw_surf
-	var beach: BackdropLayer = add_painted_layer("Beach", Vector2(0.28, 0.08), _paint_beach)
-	beach.draw_extra = _draw_waves
-	add_painted_layer("Palms", Vector2(0.45, 0.14), _paint_palms)
-	add_painted_layer("Front", ShoreStyle.FRONT_SCROLL, _paint_front)
+	ShoreStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var gulls: BackdropMotes = BackdropMotes.new()
 	gulls.shape = BackdropMotes.Shape.BIRD
@@ -75,7 +66,7 @@ func _build_layers() -> void:
 
 
 ## Sun glitter on the sea: short bright dashes that blink, more of them near shore.
-func _draw_glitter(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_glitter(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var horizon: float = BackdropPaint.row(HORIZON_SCREEN_ROW)
 	for glint_index: int in 40:
 		var depth: float = BackdropPaint.random01(glint_index, 2, 1512)
@@ -87,7 +78,7 @@ func _draw_glitter(layer: BackdropLayer, copy_x: float, time: float) -> void:
 		layer.draw_rect(Rect2(x, y, 1.0 + roundf(depth * 3.0), 1.0), Color(GLITTER, 0.8))
 
 
-func _paint_clouds() -> Image:
+static func paint_clouds() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for cloud_index: int in 6:
 		var center: Vector2 = Vector2((cloud_index + BackdropPaint.random01(cloud_index, 1, 1521) * 0.6) * BackdropPaint.STRIP_WIDTH / 6.0,
@@ -98,7 +89,7 @@ func _paint_clouds() -> Image:
 
 
 ## A low far island on the horizon with a lighthouse on it.
-func _paint_island() -> Image:
+static func paint_island() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var horizon: float = BackdropPaint.row(HORIZON_SCREEN_ROW)
 	var tops: PackedFloat32Array = BackdropPaint.flat_line(horizon + 1.0)
@@ -119,7 +110,7 @@ func _paint_island() -> Image:
 
 
 ## A rocky headland standing in the sea, grass on top, and sea stacks.
-func _paint_headland() -> Image:
+static func paint_headland() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var foot: float = BackdropPaint.row(HEADLAND_FOOT_SCREEN_ROW)
 	var tops: PackedFloat32Array = BackdropPaint.flat_line(BackdropPaint.STRIP_HEIGHT + 4.0)
@@ -136,7 +127,7 @@ func _paint_headland() -> Image:
 
 
 ## White surf at the headland's foot, breaking in and sliding back.
-func _draw_surf(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_surf(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var foot: float = BackdropPaint.row(HEADLAND_FOOT_SCREEN_ROW)
 	for x: int in range(0, BackdropPaint.STRIP_WIDTH, 3):
 		var swell: float = sin(x * 0.05 + time * 1.4)
@@ -145,7 +136,7 @@ func _draw_surf(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 
 ## The beach: wet sand along the water's edge, dry sand behind.
-func _paint_beach() -> Image:
+static func paint_beach() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(SAND_SCREEN_ROW), [Vector2(200.0, 6.0), Vector2(50.0, 2.0)] as Array[Vector2], 1551, false)
 	BackdropPaint.fill_below(image, tops, SAND)
@@ -159,7 +150,7 @@ func _paint_beach() -> Image:
 
 
 ## The waves washing up the wet sand and back: a see-through sheet with a foam edge.
-func _draw_waves(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_waves(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var sand_row: float = BackdropPaint.row(SAND_SCREEN_ROW)
 	for x: int in range(0, BackdropPaint.STRIP_WIDTH, 2):
 		var reach: float = 2.0 + roundf((sin(time * 0.8 + x * 0.012) * 0.5 + 0.5) * 4.0 + sin(x * 0.09 + time) * 1.0)
@@ -169,7 +160,7 @@ func _draw_waves(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 
 ## Palms leaning over the beach, and dunes with beach grass in front.
-func _paint_palms() -> Image:
+static func paint_palms() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var dunes: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(186), [Vector2(160.0, 12.0), Vector2(40.0, 4.0)] as Array[Vector2], 1561, false)
 	for palm_index: int in PALMS.size():
@@ -211,7 +202,7 @@ static func paint_palm(image: Image, foot: Vector2, control: Vector2, top: Vecto
 
 ## Right in front: the crown of a palm leaning in from off the top corner, its big
 ## fronds hanging down across the corner.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var crown: Vector2 = Vector2(18.0, BackdropPaint.row(-14))
 	for frond_index: int in 6:

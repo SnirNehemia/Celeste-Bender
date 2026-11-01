@@ -1,3 +1,4 @@
+class_name DesertSurface
 extends BackdropTheme
 ## DESERT backdrop (the Earth chapter's look): a dusk sky over a setting sun cut
 ## by bars of haze, giant rock towers and an arch rising up out of view (both
@@ -25,13 +26,7 @@ const NEAR_RIM: Color = Color(0.32, 0.19, 0.18)
 
 
 func _build_layers() -> void:
-	add_tall_layer(DesertStyle.NAME, "Sky", Vector2(0.01, 0.0), DesertStyle.paint_sky, SURFACE_SECTION)
-	add_tall_layer(DesertStyle.NAME, "Clouds", Vector2(0.03, 0.01), DesertStyle.paint_clouds, SURFACE_SECTION, 3.0)
-	add_painted_layer("Mesas", Vector2(0.06, 0.03), _paint_mesas)
-	add_tall_layer(DesertStyle.NAME, "Spires", Vector2(0.1, 0.04), DesertStyle.paint_spires, SURFACE_SECTION)
-	add_painted_layer("Dunes", Vector2(0.18, 0.07), _paint_dunes)
-	add_painted_layer("Buttes", Vector2(0.38, 0.12), _paint_buttes)
-	add_painted_layer("Front", DesertStyle.FRONT_SCROLL, _paint_front)
+	DesertStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var sand: BackdropMotes = BackdropMotes.new()
 	sand.shape = BackdropMotes.Shape.STREAK
@@ -56,7 +51,7 @@ func _build_layers() -> void:
 	add_motes(grains)
 
 
-func _paint_mesas() -> Image:
+static func paint_mesas() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var base_row: float = BackdropPaint.row(132)
 	var tops: PackedFloat32Array = BackdropPaint.mesas(base_row, 5, Vector2(14.0, 40.0), Vector2(24.0, 52.0), 71)
@@ -69,7 +64,7 @@ func _paint_mesas() -> Image:
 	return image
 
 
-func _paint_dunes() -> Image:
+static func paint_dunes() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	# Dunes: long smooth swells, then folded (peaky) for the sharp crest.
 	var octaves: Array[Vector2] = [Vector2(210.0, 26.0), Vector2(70.0, 10.0)]
@@ -85,7 +80,7 @@ func _paint_dunes() -> Image:
 
 ## Near rocks: a few narrow buttes in dark banded stone on a rocky floor, with
 ## saguaro cacti standing between them.
-func _paint_buttes() -> Image:
+static func paint_buttes() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.mesas(BackdropPaint.row(184), 3, Vector2(8.0, 20.0), Vector2(36.0, 80.0), 91)
 	var floor_tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(180), [Vector2(60.0, 8.0), Vector2(15.0, 3.0)] as Array[Vector2], 92, false)
@@ -97,12 +92,12 @@ func _paint_buttes() -> Image:
 		var cactus_x: int = roundi((cactus_index + 0.5) * BackdropPaint.STRIP_WIDTH / 5.0 + (BackdropPaint.random01(cactus_index, 1, 95) - 0.5) * 50.0)
 		var foot_row: int = ceili(tops[posmod(cactus_x, BackdropPaint.STRIP_WIDTH)]) + 2
 		var height: int = 18 + roundi(BackdropPaint.random01(cactus_index, 2, 95) * 16.0)
-		_paint_cactus(image, cactus_x, foot_row, height, cactus_index)
+		paint_cactus(image, cactus_x, foot_row, height, cactus_index)
 	return image
 
 
 ## A saguaro: a round-topped trunk with one or two arms that bend up.
-func _paint_cactus(image: Image, center_x: int, foot_row: int, height: int, seed_value: int) -> void:
+static func paint_cactus(image: Image, center_x: int, foot_row: int, height: int, seed_value: int) -> void:
 	const TRUNK_WIDTH: int = 5
 	var left: int = center_x - TRUNK_WIDTH / 2
 	BackdropPaint.put_rect(image, Rect2i(left, foot_row - height + 1, TRUNK_WIDTH, height), NEAR_BODY)
@@ -125,8 +120,10 @@ func _paint_cactus(image: Image, center_x: int, foot_row: int, height: int, seed
 
 
 ## Right in front: a big saguaro and yucca bursts on a rocky lip along the bottom.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
+	# The feet of the skyline's two near towers, going on down to the ground.
+	DesertStyle.paint_front_towers(image, true)
 	var lip: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(194), [Vector2(120.0, 10.0), Vector2(30.0, 4.0)] as Array[Vector2], 97, false)
 	DesertStyle.paint_big_cactus(image, 520.0, lip[520] + 2.0, 92.0, 6.0, 98)
 	DesertStyle.paint_spiky_plant(image, Vector2(70.0, lip[70] + 2.0), 11, 40.0, 99)

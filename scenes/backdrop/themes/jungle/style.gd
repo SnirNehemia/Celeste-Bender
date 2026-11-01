@@ -10,8 +10,12 @@ extends RefCounted
 ##   Canopy  the rainforest roof between the two: the skyline looks down on its
 ##           crowns, wrapped in mist; the surface looks up at its dark underside,
 ##           lianas hanging from it, the giant trunks going up into it
-## Each look adds nearer layers and a FOREGROUND of BIG leaves (the look the
+## Each altitude adds nearer layers and a FOREGROUND of BIG leaves (the look the
 ## jungle is known for: BackdropPaint.paint_leaf_clump) right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -110,3 +114,25 @@ static func paint_big_leaves(image: Image, bases: Array[Vector3], length_range: 
 		var base: Vector3 = bases[clump_index]
 		BackdropPaint.paint_leaf_clump(image, Vector2(base.x, base.y), 4 + clump_index % 2, base.z, 1.4, length_range, 0.8,
 			FRONT_BODY, FRONT_LIT, FRONT_RIB, seed_value + clump_index)
+
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Sky", Vector2(0.01, 0.0), paint_sky, section)
+	theme.add_split_layer(NAME, "FarPillars", Vector2(0.03, 0.01), {skyline: JungleSkyline.paint_far_pillars}, section, 0.0, {}, [skyline])
+	theme.add_split_layer(NAME, "FarTrees", Vector2(0.05, 0.02), {surface: JungleSurface.paint_far_trees}, section, 0.0,
+		{surface: JungleSurface.draw_shafts})
+	theme.add_split_layer(NAME, "Mist", Vector2(0.07, 0.02), {skyline: JungleSkyline.paint_mist}, section, 3.0)
+	theme.add_split_layer(NAME, "Pillars", Vector2(0.15, 0.05), {skyline: JungleSkyline.paint_near_pillars}, section, 0.0, {}, [skyline])
+	theme.add_split_layer(NAME, "Trunks", Vector2(0.2, 0.07), {surface: JungleSurface.paint_trunks}, section)
+	theme.add_tall_layer(NAME, "Canopy", Vector2(0.2, 0.07), paint_canopy, section)
+	theme.add_split_layer(NAME, "Leaves", Vector2(0.42, 0.13), {surface: JungleSurface.paint_leaves}, section)
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: JungleSkyline.paint_front, surface: JungleSurface.paint_front}, section, 0.0, {}, [skyline])

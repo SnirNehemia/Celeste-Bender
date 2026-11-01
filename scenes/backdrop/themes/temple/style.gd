@@ -12,8 +12,12 @@ extends RefCounted
 ##           looks out under its hanging underside; a few puffs higher up
 ##   Roof    the hall's own roof: from above, tiles down to the eave; from inside,
 ##           the rafters and beams overhead
-## Each look adds nearer layers and a FOREGROUND (a hanging lantern, chains, a
+## Each altitude adds nearer layers and a FOREGROUND (a hanging lantern, chains, a
 ## great column) right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -148,3 +152,30 @@ static func draw_big_lantern(layer: BackdropLayer, anchor: Vector2, chain_length
 		layer.draw_rect(Rect2(body + Vector2(rib, 3.0), Vector2(1.0, 18.0)), FRONT_BODY)
 	layer.draw_rect(Rect2(body + Vector2(-9.0, 21.0), Vector2(19.0, 3.0)), FRONT_BODY)
 	layer.draw_rect(Rect2(body + Vector2(0.0, 24.0), Vector2(1.0, 6.0)), LANTERN_COLOR)
+
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Sky", Vector2(0.01, 0.0), paint_sky, section)
+	theme.add_tall_layer(NAME, "Towers", Vector2(0.04, 0.02), paint_towers, section)
+	theme.add_tall_layer(NAME, "Clouds", Vector2(0.12, 0.05), paint_clouds, section, 3.0)
+	theme.add_split_layer(NAME, "Arcade", Vector2(0.14, 0.06), {surface: TempleSurface.paint_arcade}, section)
+	theme.add_split_layer(NAME, "Shafts", Vector2(0.2, 0.08), {}, section, 0.0, {surface: TempleSurface.draw_shafts})
+	theme.add_split_layer(NAME, "Pillars", Vector2(0.4, 0.12), {surface: TempleSurface.paint_pillars}, section, 0.0,
+		{surface: TempleSurface.draw_torches})
+	var roof: BackdropLayer = theme.add_tall_layer(NAME, "Roof", Vector2(0.42, 0.13), paint_roof, section)
+	roof.draw_extra = BackdropTheme.section_extras({skyline: TempleSkyline.draw_lanterns}, section)
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {}, section, 0.0, {
+		skyline: func(layer: BackdropLayer, copy_x: float, time: float) -> void:
+			draw_big_lantern(layer, Vector2(copy_x + 250.0, BackdropPaint.row(-30)), 56.0, time),
+		surface: func(layer: BackdropLayer, copy_x: float, time: float) -> void:
+			draw_big_lantern(layer, Vector2(copy_x + 180.0, BackdropPaint.row(-10)), 44.0, time),
+	})

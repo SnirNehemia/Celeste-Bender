@@ -36,25 +36,26 @@ extends CharacterBody2D
 ##   ├─ WaterHandsAbility  Water move 1: the waterball, steered in slow motion,
 ##   │                     gathering and throwing (abilities/water/water_hands_ability.gd);
 ##   │                     held in WaterHolding
-##   ├─ FreezeAbility      Water move 2: freezes what you hold, your last throw, or
-##   │                     makes a snow puff (abilities/water/freeze_ability.gd; the
-##   │                     puff aims in GustAim); wholly under water, an ice ball
-##   │                     (the IceBall state)
+##   ├─ FreezeAbility      Water move 2: freezes what you hold into grid ice (the
+##   │                     ghost the hands draw); with nothing held it fizzles
+##   │                     (abilities/water/freeze_ability.gd)
 ##   └─ StateMachine       children: Idle, Run, Jump, Fall, WallSlide, Glide,
 ##                         GustAim, GustRecoil, EarthBend, Launched, BoulderHold,
-##                         SnakeSteer, Jetting, WaterHolding, Sliding, IceBall, Dead
+##                         SnakeSteer, Jetting, WaterHolding, Sliding, Dead
 ##
-## Ice (Stage W5, Water_bending.md §7.1): on an ice floor (IceBlock.ICE_GROUP: ice
-## blocks, frozen shapes and sheets, painted ice tiles) you speed up and slow down
-## slowly, can reach ice_max_run_scale x run speed, and a jump off ice keeps your
-## speed (it fades gently in the air): long jumps. Ice walls give no grip (you slide
-## down them faster). See apply_horizontal_movement and get_wall_slide_max_speed.
+## Ice (Stage W5, Water_bending.md §7.1; grid ice, §16): on an ice floor
+## (IceLayer.ICE_GROUP: painted ice, the player's grid ice, rafts) you speed up and
+## slow down slowly, can reach ice_max_run_scale x run speed, and speed ABOVE that
+## (a gust, a jet, a launch, a slide) isn't braked unless you steer against it
+## (ice_overspeed_friction, Stage I5). A jump off ice keeps your speed (it fades
+## gently in the air): long jumps. Ice walls give no grip (you slide down them
+## faster). See apply_horizontal_movement and get_wall_slide_max_speed.
 ##
 ## Ice slides (Stage W6, Water_bending.md §7.2): on ice steeper than slide_min_angle
 ## you can't walk: the Sliding state pulls you down the slope (states/sliding.gd).
 ## Holding down there is a BELLY SLIDE: faster, and the hitbox is half as tall
-## (set_tucked). Slides are ONE-WAY: you land on them from above but pass through
-## them from below and the sides (_update_one_way_slides).
+## (set_tucked). All ice is fully solid (the one-way slides of W6 went with the grid
+## ice: the ghost never puts ice inside you, so it can't trap you).
 ##
 ## Elements: rooms say which elements work in them (Room.air_allowed / earth_allowed /
 ## fire_allowed).
@@ -164,10 +165,6 @@ var is_tucked: bool = false
 var standing_shape: RectangleShape2D
 var tucked_shape: RectangleShape2D
 var standing_hitbox_position: Vector2
-## The slides we pass through this frame (one-way, Stage W6): the bodies we hold a
-## collision exception with. Kept here because the engine's own list
-## (get_collision_exceptions) errors once one of them has been freed.
-var ignored_slides: Array[PhysicsBody2D] = []
 
 
 func _ready() -> void:
@@ -199,8 +196,6 @@ func _physics_process(delta: float) -> void:
 	state_machine.physics_update(delta)
 	# 3) If we're about to clip a ceiling corner, shift sideways to slip past it.
 	_apply_ceiling_corner_correction(delta)
-	# 3b) One-way ice slides: solid only for feet above them (Stage W6).
-	_update_one_way_slides(delta)
 	# 4) Godot moves the body by velocity * delta, sliding along any solids it hits
 	#    and refreshing is_on_floor() / is_on_ceiling() / is_on_wall().
 	#    Remember the state BEFORE moving: after a landing, move_and_slide() has
@@ -503,28 +498,11 @@ func get_gust_start_state() -> StringName:
 
 # --- Elements ----------------------------------------------------------------
 
-## On the frame 2 (water_freeze) is pressed where Water is allowed (Stage W5): your
-## last throw, if still live, freezes at once (false: nothing else changes); else
-## the freeze makes itself the aim source and returns true, and the caller switches
-## to get_freeze_start_state(): GustAim (the snow puff: a tap bursts it around you, a
-## hold aims a toss in slow motion) or, wholly under water, IceBall.
-func try_start_freeze() -> bool:
-	if not freeze.try_start():
-		return false
-	aim_source = freeze
-	return true
-
-
-## The state a freeze press starts (after try_start_freeze() said true).
-func get_freeze_start_state() -> StringName:
-	return freeze.start_state
-
-
-## Is `thing` ice (Stage W5)? Ice blocks, frozen shapes and sheets, painted ice tiles:
-## everything in IceBlock.ICE_GROUP.
+## Is `thing` ice (Stage W5)? Painted ice, the player's grid ice, rafts: everything in
+## IceLayer.ICE_GROUP.
 func is_ice(thing: Object) -> bool:
 	var node: Node = thing as Node
-	return node != null and node.is_in_group(IceBlock.ICE_GROUP)
+	return node != null and node.is_in_group(IceLayer.ICE_GROUP)
 
 
 ## Standing on ice steep enough to slide on (Stage W6)? Idle and Run then switch to
@@ -569,61 +547,8 @@ func _has_room_to_stand() -> bool:
 	query.shape = standing_shape
 	query.transform = Transform2D(0.0, global_position + standing_hitbox_position)
 	query.collision_mask = collision_mask
-	var excluded: Array[RID] = [get_rid()]
-	for body: PhysicsBody2D in ignored_slides:
-		excluded.append(body.get_rid())
-	query.exclude = excluded
+	query.exclude = [get_rid()]
 	return get_world_2d().direct_space_state.intersect_shape(query, 1).is_empty()
-
-
-## ONE-WAY SLIDES (Stage W6): ice in IceBlock.SLIDE_GROUP holds us up only when our
-## feet are above it. Each frame, for every slide near us, we look at the ice's top
-## under our feet (left edge, middle, right edge): if the feet are above it
-## everywhere (within a little tolerance), we collide with it as usual; if not
-## (we're under it, or inside it coming up through it or from the side), we ignore
-## it for this frame. add_collision_exception_with() tells the physics engine "this
-## body and that one pass through each other", for move_and_slide AND test_move.
-## The tolerance grows with our sideways speed: running up a 45° slide, the ice
-## under the front foot rises by up to that much in one frame.
-func _update_one_way_slides(delta: float) -> void:
-	var feet_y: float = global_position.y
-	var hitbox_rect: Rect2 = get_hitbox_rect()
-	var tolerance: float = 2.0 + absf(velocity.x) * delta
-	var near: Rect2 = hitbox_rect.grow(8.0 + velocity.length() * delta)
-	for slide: Node in get_tree().get_nodes_in_group(IceBlock.SLIDE_GROUP):
-		var body: PhysicsBody2D = slide as PhysicsBody2D
-		if body == null:
-			continue
-		var bounds: Rect2 = slide.call(&"get_slide_bounds")
-		var solid: bool = true
-		if near.intersects(bounds):
-			var has_surface: bool = false
-			for x: float in [hitbox_rect.position.x + 0.5, hitbox_rect.get_center().x, hitbox_rect.end.x - 0.5]:
-				var top_y: float = slide.call(&"get_slide_top_y", x)
-				if top_y == INF:
-					continue
-				has_surface = true
-				if feet_y > top_y + tolerance:
-					solid = false
-			# Beside it (no ice under any foot): we may walk into its side, so pass.
-			solid = solid and has_surface
-		if solid:
-			if ignored_slides.has(body):
-				ignored_slides.erase(body)
-				remove_collision_exception_with(body)
-		elif not ignored_slides.has(body):
-			ignored_slides.append(body)
-			add_collision_exception_with(body)
-			# When it melts (or a reset frees it), forget it before it's gone.
-			body.tree_exiting.connect(_forget_slide.bind(body), CONNECT_ONE_SHOT)
-
-
-## A slide we were passing through leaves the tree: drop its exception while it
-## still exists.
-func _forget_slide(body: PhysicsBody2D) -> void:
-	if ignored_slides.has(body):
-		ignored_slides.erase(body)
-		remove_collision_exception_with(body)
 
 
 ## On the frame 1 (water_hands) is pressed where Water is allowed: true, and the
@@ -917,6 +842,17 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 			# the normal rules below take over again.
 			var cruise_speed: float = signf(own_speed) * tuning.max_run_speed + wind_x
 			velocity.x = move_toward(velocity.x, cruise_speed, overspeed_deceleration * delta)
+			return
+	# Ice keeps any speed (grid ice, Stage I5): above the ice's own top speed (a gust,
+	# a jet, a launch, a slide ending on flat ice), only ice_overspeed_friction brakes
+	# you, unless you steer against it (then the normal ice turn below slows you).
+	if is_on_ice and is_on_floor():
+		var own_speed: float = velocity.x - wind_x
+		var ice_top_speed: float = tuning.max_run_speed * water_tuning.ice_max_run_scale * swim.get_speed_multiplier()
+		var is_against: bool = input_direction != 0.0 and signf(input_direction) != signf(own_speed)
+		if absf(own_speed) > ice_top_speed and not is_against:
+			velocity.x = move_toward(velocity.x, signf(own_speed) * ice_top_speed + wind_x,
+				water_tuning.ice_overspeed_friction * delta)
 			return
 	var air_multiplier: float = 1.0 if is_on_floor() else tuning.air_acceleration_multiplier
 	# Ice (Stage W5): slow to start and slow to stop, and a higher top speed you only

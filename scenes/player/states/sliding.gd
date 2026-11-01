@@ -1,7 +1,8 @@
 extends PlayerState
 ## Sliding (Stage W6, Water_bending.md §7.2): on ice steeper than slide_min_angle.
-## Slopes exist only as ice (frozen snakes and ribbons lying at an angle), and you
-## can't walk on them: gravity pulls you down along the slope.
+## Slopes exist only as ice (painted slope tiles, and the slope tiles of a frozen
+## snake's trail: grid ice), and you can't walk on them: gravity pulls you down
+## along the slope.
 ##
 ## Entered from Idle and Run (player.wants_to_slide(): standing on steep ice). Each
 ## frame:
@@ -26,7 +27,8 @@ extends PlayerState
 ##     on, and speed above run speed fades gently (carries_ice_speed, as a long jump
 ##     off ice: Godot never snaps a body moving up back to the floor, so the lip
 ##     launches you);
-##   - onto flatter ice or onto ground, Run, with the slide's whole speed sideways.
+##   - onto flatter ice or onto ground, Run, with the slide's whole speed sideways
+##     (on flat ice it isn't braked: ice keeps any speed, Stage I5).
 
 var normal_snap_length: float = 1.0
 
@@ -54,9 +56,6 @@ func physics_update(delta: float) -> void:
 		return
 	if player.try_start_water_hands():
 		transition_requested.emit(&"WaterHolding")
-		return
-	if player.try_start_freeze():
-		transition_requested.emit(player.get_freeze_start_state())
 		return
 	if not player.is_on_floor():
 		# Off the end or off a ramp's lip: the velocity carries on.

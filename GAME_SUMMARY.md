@@ -167,7 +167,7 @@ Celeste-style painted ground. Lumpy cracked rocks that tumble in flight. Banded 
 
 - **Earth + Air combos:** gust pushes a resting rock, glide off a column's bounce, a gust-propelled throw.
 - Thicker earth layers allowing more bends; sand or mud variants of earth.
-- **Water:** now specified in `Water_bending.md` (Chapter 4, spec v2, 26 Oct 2026: hold 1 for slow motion and steer a waterball inside a ring; it gathers water, rises as a water snake when lifted slowly, flies on when released; 2 freezes the last thrown water or the water you touch. The water is simulated: height-field pools with waves + capped particles for loose water, under a 2 ms budget).
+- **Water:** now specified in `Water_bending.md` (Chapter 4, spec v2, 26 Oct 2026: hold 1 for slow motion and steer a waterball inside a ring; it gathers water, rises as a water snake when lifted slowly, flies on when released; 2 freezes the water you hold into ice TILES, shown first as a ghost (the grid ice of 31 Oct 2026: the ball a block, a snake its trail's tiles, a waterfall a wall, a ball at a surface a raft; ice hanging in mid-air crumbles after a touch; ice keeps your speed). The water is simulated: height-field pools with waves + capped particles for loose water, under a 2 ms budget).
 - **Fire:** now specified in `Fire_bending.md` (Chapter 3, spec v1: fire bar of pips, fireball, flame jet, burning grass).
 - An element wheel in slow motion once there are several elements. Plan: one stamina bar per element, showing only the active one.
 

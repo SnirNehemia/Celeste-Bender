@@ -1,3 +1,4 @@
+class_name JungleSkyline
 extends BackdropTheme
 ## JUNGLE, SKYLINE: high among karst pillars, tall stone towers rising out of the
 ## rainforest. A pale morning sky, far pillars in the haze, a sea of mist between
@@ -27,12 +28,7 @@ const CROWN_RIM: Color = Color(0.32, 0.48, 0.3)
 
 
 func _build_layers() -> void:
-	add_tall_layer(JungleStyle.NAME, "Sky", Vector2(0.01, 0.0), JungleStyle.paint_sky, SKYLINE_SECTION)
-	add_painted_layer("FarPillars", Vector2(0.03, 0.01), _paint_far_pillars)
-	add_painted_layer("Mist", Vector2(0.07, 0.02), _paint_mist, 3.0)
-	add_painted_layer("Pillars", Vector2(0.15, 0.05), _paint_near_pillars)
-	add_tall_layer(JungleStyle.NAME, "Canopy", Vector2(0.2, 0.07), JungleStyle.paint_canopy, SKYLINE_SECTION)
-	add_painted_layer("Front", JungleStyle.FRONT_SCROLL, _paint_front)
+	JungleStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var birds: BackdropMotes = BackdropMotes.new()
 	birds.shape = BackdropMotes.Shape.BIRD
@@ -95,7 +91,7 @@ static func paint_pillars(image: Image, count: int, half_width_range: Vector2, t
 			BackdropPaint.put_rect(image, Rect2i(vine_x, roundi(top), 1, length), crown)
 
 
-func _paint_far_pillars() -> Image:
+static func paint_far_pillars() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	paint_pillars(image, 9, Vector2(5.0, 11.0), Vector2(BackdropPaint.row(36), BackdropPaint.row(96)),
 		FAR_BODY, FAR_LIT, FAR_BODY, FAR_CROWN, FAR_LIT, 1421)
@@ -103,7 +99,7 @@ func _paint_far_pillars() -> Image:
 
 
 ## A sea of mist between the far and near pillars.
-func _paint_mist() -> Image:
+static func paint_mist() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(128), Vector2(6.0, 14.0), 13, 1431)
 	BackdropPaint.fill_below(image, tops, MIST_BODY)
@@ -115,7 +111,7 @@ func _paint_mist() -> Image:
 	return image
 
 
-func _paint_near_pillars() -> Image:
+static func paint_near_pillars() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	paint_pillars(image, 5, Vector2(12.0, 20.0), Vector2(BackdropPaint.row(24), BackdropPaint.row(80)),
 		MID_BODY, MID_LIT, MID_DARK, CROWN_BODY, CROWN_RIM, 1441)
@@ -124,7 +120,7 @@ func _paint_near_pillars() -> Image:
 
 ## Right in front: clumps of big leaves rising into the bottom corners (from the
 ## crown we're standing in) and one hanging in from above.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	JungleStyle.paint_big_leaves(image, [Vector3(20.0, BackdropPaint.row(204), -PI * 0.38), Vector3(300.0, BackdropPaint.row(210), -PI * 0.55),
 		Vector3(520.0, BackdropPaint.row(-26), PI * 0.5)] as Array[Vector3], Vector2(50.0, 78.0), 1471)

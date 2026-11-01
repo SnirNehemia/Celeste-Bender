@@ -23,7 +23,13 @@ extends Node2D
 ##     up to ball_max_units. That water is in the world's `held_area` while held, so
 ##     the books don't change
 ##   - hands the ball's dots to the WaterWorld (set_held_dots), which draws them with
-##     the loose water as metaballs: a sunflower disc as big as its water, wobbling
+##     the loose water as metaballs: a soft SQUARE as big as its water (its side is
+##     the square root of its area: 4 units is exactly 2x2 tiles), wobbling (grid ice,
+##     Stage I1: what you hold looks like the block it freezes into)
+##   - works out the ICE PLAN (IcePlan: what 2 would make right now: a block, a
+##     snake's tiles, a waterfall's wall or a raft) and draws it as the GHOST: the
+##     tiles' outlines, dashed where the ice would hang in mid-air (it would crumble),
+##     red where a cell is blocked (Stage I1)
 ##   - draws the RING (control_radius around you) and the empty ball's spark
 ##     (the W3 tendril to where it gathered from was removed in play-test 4: a
 ##     thin white line under the ball read as a glitch)
@@ -65,10 +71,10 @@ extends Node2D
 ##     feeding it (flying_snake, _update_flying) after the hold ends. Jump drops it
 ##   - its head (the ball) SHOVES what it moves into once per touch, like a gust
 ##     (Pushable.try_push: crates, leaf piles, wisps; _shove_with_head)
-##   - a TRAIL snake (WaterTuning.snake_shape, the default since the re-planned ice)
-##     lies along the ball's own path in snapped runs; its leash is its length along
-##     that path (snake_max_length): at full length the ball stops unless it comes
-##     back. Frozen (2), its dots are taken without the ripple: the exact shape
+##   - the snake is a TRAIL: it lies along the ball's own path in runs snapped to the
+##     tile angles; its leash is its length along that path (snake_max_length): at
+##     full length the ball stops unless it comes back. Frozen (2), it becomes the
+##     tiles under its trail (the ghost shows them)
 ## Water DOUSES (Stage W4): the ball (with water in it) and every point of a snake
 ## put out what burns where they are (Flammable.douse_near).
 ##
@@ -86,6 +92,15 @@ const SPARK_COLOR: Color = Color("#BFE4FF")
 ## Physics layers the snake's head shoves through (Pushable): 4 "pushable" and 5
 ## "enemies" (bit values).
 const HEAD_SHOVE_MASK: int = 8 | 16
+## The ghost of the ice plan (after the grid-ice play-test: quieter): a faint fill
+## per tile and ONE faint outline round the whole shape; where the ice would hang in
+## mid-air the outline pulses (between GHOST_PULSE_LOW and full, GHOST_PULSE_SPEED
+## per real second); blocked cells a faint red fill, no lines.
+const GHOST_COLOR: Color = Color(0.75, 0.95, 1.0, 0.45)
+const GHOST_FILL_COLOR: Color = Color(0.75, 0.95, 1.0, 0.18)
+const GHOST_BLOCKED_COLOR: Color = Color(1.0, 0.35, 0.35, 0.2)
+const GHOST_PULSE_LOW: float = 0.25
+const GHOST_PULSE_SPEED: float = 5.0
 ## How many px the drawn ball wobbles, and how fast (per real second).
 const WOBBLE_PX: float = 0.6
 const WOBBLE_SPEED: float = 7.0
@@ -148,8 +163,9 @@ var is_snake_hold: bool = false
 ## REST: real seconds the full ball has sat still in the pool, and armed.
 var rest_time: float = 0.0
 var is_rest_armed: bool = false
-## The throw group of the last release (Stage W5; WaterWorld THROW GROUPS), 0 = none.
-var last_throw_group: int = 0
+## What 2 would freeze right now (grid ice, Stage I1), refreshed every frame while
+## holding; null when not holding.
+var plan: IcePlan = null
 
 
 func _ready() -> void:
@@ -168,10 +184,10 @@ func is_holding() -> bool:
 	return holding
 
 
-## The ball's radius, px: its area is its water (4 units = about 18 px across).
-## An empty ball is a 1.5 px spark.
+## Half the ball's side, px: it's a square whose area is its water (4 units = 16 px
+## across). An empty ball is a 1.5 px spark.
 func get_ball_radius() -> float:
-	return maxf(1.5, sqrt(ball_units * WaterWorld.UNIT_AREA / PI))
+	return maxf(1.5, sqrt(ball_units * WaterWorld.UNIT_AREA) * 0.5)
 
 
 ## Called by WaterHolding.enter(): an empty ball at your hands.
@@ -218,13 +234,8 @@ func release(throw: bool) -> void:
 	var velocity: Vector2 = ball_velocity * tuning.throw_multiplier if throw else Vector2.ZERO
 	last_release_units = ball_units
 	last_release_velocity = velocity
-	# One THROW GROUP for the ball and its snake (Stage W5): the freeze (2) finds
-	# "the water you last threw" by it.
-	if world != null and (ball_units > 0.0 or snake != null):
-		last_throw_group = world.begin_throw_group(
-			ball_units * WaterWorld.UNIT_AREA + (snake.area if snake != null else 0.0))
+	plan = null
 	if snake != null:
-		snake.group_id = last_throw_group
 		# A ribbon: it flows out after the ball along the same path (or just falls).
 		if snake.release(velocity):
 			flying_snake = snake
@@ -232,7 +243,7 @@ func release(throw: bool) -> void:
 	if world != null:
 		var center: Vector2 = world.to_local(ball_position)
 		if ball_units > 0.0:
-			world.release_held(center, velocity, ball_units * WaterWorld.UNIT_AREA, last_throw_group)
+			world.release_held(center, velocity, ball_units * WaterWorld.UNIT_AREA)
 		else:
 			world.sparkle(center)  # an empty ball fizzles
 		world.set_held_dots(PackedVector2Array() if flying_snake == null
@@ -243,33 +254,31 @@ func release(throw: bool) -> void:
 	queue_redraw()
 
 
-## 2 while holding (Stage W5, the freeze's first rule): the water in your hands
-## freezes where it is, in the shape it's drawn with. With a snake it all becomes one
-## pillar standing in its pool; a ball alone becomes a block that hangs there (ice_hangs;
-## off: it falls). The hold
-## ends (WaterHolding leaves when is_holding() turns false). Returns the ice, or
-## null with empty hands (nothing happens, the hold goes on).
-func freeze_held() -> Node:
-	if not holding or world == null or (ball_units <= 0.0 and snake == null):
-		return null
-	# It freezes in exactly the shape it's drawn with: the dots of the ball and snake.
-	var dots: PackedVector2Array = _make_ball_dots()
-	var snake_area: float = 0.0
-	var has_snake: bool = snake != null
-	if has_snake:
-		dots.append_array(snake.get_dots(get_ball_radius() if ball_units > 0.0 else 0.0, hold_real_time, false))
-		snake_area = snake.area
-		snake.area = 0.0
+## 2 while holding (grid ice, Stage I1): the ICE PLAN (the ghost) is made real by the
+## WaterWorld: a block, a snake's tiles, a waterfall's wall or a raft. The hold ends
+## (WaterHolding leaves when is_holding() turns false). Returns the freeze's id, or -1
+## when the plan makes nothing (an empty ball, every cell blocked): nothing happens,
+## the hold goes on.
+func freeze_held() -> int:
+	if not holding or world == null or plan == null or plan.is_empty():
+		return -1
+	var snake_area: float = snake.area if snake != null else 0.0
+	var foot: Vector2 = world.to_local(snake.get_foot()) if snake != null else Vector2.ZERO
+	var freeze_id: int = world.apply_ice_plan(plan, world.to_local(ball_position),
+		ball_units * WaterWorld.UNIT_AREA, snake_area, foot)
+	if freeze_id < 0:
+		return -1
+	if snake != null:
+		snake.area = 0.0  # its water is ice now (or back in its pool)
 		snake = null
-	var ice: Node = world.freeze_held(world.to_local(ball_position), ball_units * WaterWorld.UNIT_AREA,
-		has_snake, snake_area, dots)
+	plan = null
 	holding = false
 	ball_units = 0.0
 	is_gathering = false
 	world.set_held_dots(PackedVector2Array() if flying_snake == null
 		else flying_snake.get_dots(0.0, hold_real_time))
 	queue_redraw()
-	return ice
+	return freeze_id
 
 
 ## Under water, the ball moving into you or a floating crate shoves it once (see the
@@ -498,22 +507,13 @@ func _update_ball(real_delta: float) -> void:
 	if snake != null:
 		ball_velocity = ball_velocity.limit_length(move_speed)
 	var push_velocity: Vector2 = ball_velocity
-	# Not GENTLE, a snake never tears: it's a leash instead. The ball can't get
-	# farther from the foot than the snake can stretch.
-	if snake != null and snake.is_trail:
-		# A TRAIL: the leash runs along the trail. At full length the ball can only
-		# come back along it (or turn: a new run starts shorter).
+	# A snake is a LEASH along its trail: at full length the ball can only come back
+	# along it (or turn: a new run starts shorter).
+	if snake != null:
 		var next_on_trail: Vector2 = ball_position + ball_velocity * real_delta
 		var next_length: float = snake.get_trail_length_to(next_on_trail)
 		if next_length > tuning.snake_max_length - 2.0 and next_length > snake.get_trail_length_to(ball_position):
 			ball_velocity = Vector2.ZERO
-	elif snake != null and tuning.snake_trigger != WaterTuning.SnakeTrigger.GENTLE:
-		var reach: float = tuning.snake_max_length / WaterSnake.ROPE_SLACK - 2.0
-		var foot: Vector2 = snake.get_foot()
-		var next: Vector2 = ball_position + ball_velocity * real_delta
-		if next.distance_to(foot) > reach:
-			var allowed: Vector2 = foot + (next - foot).limit_length(reach)
-			ball_velocity = (allowed - ball_position) / real_delta if real_delta > 0.0 else Vector2.ZERO
 	# Move one axis at a time, so a ball pushed into a floor still slides along it.
 	# Only moving INTO rock is blocked: a ball that's somehow in rock (the player
 	# pressed against a wall) can always move out of it.
@@ -563,6 +563,7 @@ func _update_ball(real_delta: float) -> void:
 			or hold_real_time >= tuning.max_hold_time:
 		release(true)
 		return
+	_update_plan()
 	if world != null:
 		var dots: PackedVector2Array = _make_ball_dots()
 		if snake != null:
@@ -572,34 +573,58 @@ func _update_ball(real_delta: float) -> void:
 		world.set_held_dots(dots)
 
 
-## The ball as dots, room-local: a sunflower disc as big as its water (the same
-## packing a released ball's particles start in), wobbling a little.
+## What 2 would freeze now (grid ice): the snake's tiles, a waterfall's wall, or the
+## ball as a block or a raft (IcePlan). The ghost draws it.
+func _update_plan() -> void:
+	if world == null:
+		plan = null
+		return
+	var center: Vector2 = world.to_local(ball_position)
+	if snake != null:
+		var path: PackedVector2Array = PackedVector2Array()
+		for point: Vector2 in snake.get_trail_path():
+			path.append(world.to_local(point))
+		plan = IcePlan.for_trail(world, path)
+		return
+	var waterfall: WaterSource = world.find_waterfall_at(center, get_ball_radius())
+	if waterfall != null:
+		plan = IcePlan.for_wall(world, waterfall)
+	else:
+		plan = IcePlan.for_ball(world, center, ball_units * WaterWorld.UNIT_AREA, get_ball_radius())
+
+
+## The ball as dots, room-local: a grid filling a SQUARE as big as its water (grid
+## ice: it looks like the block it freezes into; the metaballs round its corners a
+## little), each dot wobbling on its own phase.
 func _make_ball_dots() -> PackedVector2Array:
 	var dots: PackedVector2Array = PackedVector2Array()
 	if ball_units <= 0.0:
 		return dots  # the empty ball is a spark, drawn in _draw()
 	var count: int = clampi(ceili(ball_units / player.water_tuning.drop_units), 1, MAX_BALL_DOTS)
-	var radius: float = get_ball_radius()
+	var per_row: int = ceili(sqrt(float(count)))
+	# The dots are drawn as soft blobs blob_dot_radius px round: pulled in a little,
+	# the drawn square is about as big as the water.
+	var inset: float = player.water_tuning.blob_dot_radius * 0.6
+	var side: float = maxf(get_ball_radius() * 2.0 - inset * 2.0, 0.0)
 	var center: Vector2 = world.to_local(ball_position)
 	var wobble_phase: float = hold_real_time * WOBBLE_SPEED
 	for index: int in count:
-		var along: float = sqrt((index + 0.5) / count)
-		var angle: float = index * 2.39996
-		var offset: Vector2 = Vector2.from_angle(angle) * radius * along
+		var grid_x: int = index % per_row
+		var grid_y: int = floori(index / float(per_row))
+		var offset: Vector2 = (Vector2(grid_x + 0.5, grid_y + 0.5) / per_row - Vector2(0.5, 0.5)) * side
 		# Each dot sways on its own phase: the ball's outline wobbles like water.
-		offset += Vector2(sin(wobble_phase + angle), cos(wobble_phase * 1.3 + angle)) * WOBBLE_PX
+		var phase: float = index * 2.39996
+		offset += Vector2(sin(wobble_phase + phase), cos(wobble_phase * 1.3 + phase)) * WOBBLE_PX
 		dots.append(center + offset)
 	return dots
 
 
 ## Solid for the ball: anything on physics layer 1 ("world": walls, floors, crates,
-## doors) at that world point. With a snake hanging from it (Stage W6), pin tips too
-## (IcePins' layer "ice_catch"): the snake's head rests on a pin bed as its rope
-## does, so a snake laid along the pins freezes into a slide on them.
+## doors, ice) at that world point.
 func _is_solid(world_point: Vector2) -> bool:
 	var query: PhysicsPointQueryParameters2D = PhysicsPointQueryParameters2D.new()
 	query.position = world_point
-	query.collision_mask = 1 | (IcePins.CATCH_LAYER_BIT if snake != null else 0)
+	query.collision_mask = 1
 	return not get_world_2d().direct_space_state.intersect_point(query, 1).is_empty()
 
 
@@ -623,3 +648,41 @@ func _draw() -> void:
 		draw_circle(ball_position, 1.5 * twinkle, SPARK_COLOR)
 	if world == null and ball_units > 0.0:
 		draw_circle(ball_position, get_ball_radius(), SPARK_COLOR)  # never: no world, no water
+	_draw_ghost()
+
+
+## The GHOST of the ice plan (grid ice): a faint fill per tile, one faint outline
+## round the shape (IceLayer.trace_tiles), pulsing where the ice would hang in mid-air
+## (it would crumble); blocked cells a faint red fill; a raft as its slab.
+func _draw_ghost() -> void:
+	if plan == null or world == null or plan.kind == IcePlan.Kind.NONE:
+		return
+	var outline_color: Color = GHOST_COLOR
+	if plan.is_brittle:
+		var pulse: float = 0.5 + 0.5 * sin(hold_real_time * GHOST_PULSE_SPEED)
+		outline_color.a *= lerpf(GHOST_PULSE_LOW, 1.0, pulse)
+	if plan.kind == IcePlan.Kind.RAFT:
+		var slab: Rect2 = Rect2(world.to_global(plan.raft_rect.position), plan.raft_rect.size)
+		draw_rect(slab, GHOST_FILL_COLOR)
+		draw_rect(slab, outline_color, false, 1.0)
+		return
+	var free_cells: Array[Vector2i] = []
+	var free_atlases: Array[Vector2i] = []
+	for index: int in plan.cells.size():
+		var shape: PackedVector2Array = IceLayer.get_tile_shape(plan.atlases[index])
+		var origin: Vector2 = world.to_global(Vector2(plan.cells[index] * WaterWorld.TILE))
+		var corners: PackedVector2Array = PackedVector2Array()
+		for corner: Vector2 in shape:
+			corners.append(origin + corner)
+		draw_colored_polygon(corners, GHOST_BLOCKED_COLOR if plan.blocked[index] else GHOST_FILL_COLOR)
+		if not plan.blocked[index]:
+			free_cells.append(plan.cells[index])
+			free_atlases.append(plan.atlases[index])
+	# One outline round the ice (not one per tile, which read as a busy grid).
+	var tile_px: Vector2i = Vector2i(WaterWorld.TILE, WaterWorld.TILE)
+	for loop: PackedVector2Array in IceLayer.trace_tiles(free_cells, free_atlases, tile_px):
+		var points: PackedVector2Array = PackedVector2Array()
+		for point: Vector2 in loop:
+			points.append(world.to_global(point))
+		points.append(points[0])  # closed
+		draw_polyline(points, outline_color, 1.0)

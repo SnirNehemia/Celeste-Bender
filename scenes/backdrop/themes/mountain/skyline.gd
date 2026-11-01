@@ -1,3 +1,4 @@
+class_name MountainSkyline
 extends BackdropTheme
 ## MOUNTAIN, SKYLINE: above the clouds, near the summit. The same dusk sky, range
 ## and bank of cloud as the surface below (MountainStyle): here the summits stand
@@ -25,13 +26,7 @@ const FLAG_COUNT: int = 14
 
 
 func _build_layers() -> void:
-	add_tall_layer(MountainStyle.NAME, "Sky", Vector2(0.01, 0.0), MountainStyle.paint_sky, SKYLINE_SECTION)
-	add_tall_layer(MountainStyle.NAME, "Peaks", Vector2(0.04, 0.02), MountainStyle.paint_peaks, SKYLINE_SECTION)
-	add_tall_layer(MountainStyle.NAME, "CloudBank", Vector2(0.07, 0.03), MountainStyle.paint_cloud_bank, SKYLINE_SECTION, 2.0)
-	add_painted_layer("Clouds", Vector2(0.22, 0.08), _paint_clouds, 6.0)
-	var summit: BackdropLayer = add_painted_layer("Summit", Vector2(0.42, 0.13), _paint_summit)
-	summit.draw_extra = _draw_flags
-	add_painted_layer("Front", MountainStyle.FRONT_SCROLL, _paint_front)
+	MountainStyle.add_shared_layers(self, SKYLINE_SECTION)
 
 	var wind: BackdropMotes = BackdropMotes.new()
 	wind.shape = BackdropMotes.Shape.STREAK
@@ -46,7 +41,7 @@ func _build_layers() -> void:
 	add_motes(wind)
 
 
-func _paint_clouds() -> Image:
+static func paint_clouds() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	for cloud_index: int in 7:
 		var center: Vector2 = Vector2((cloud_index + BackdropPaint.random01(cloud_index, 1, 623) * 0.6) * BackdropPaint.STRIP_WIDTH / 7.0,
@@ -56,7 +51,7 @@ func _paint_clouds() -> Image:
 	return image
 
 
-func _paint_summit() -> Image:
+static func paint_summit() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var octaves: Array[Vector2] = [Vector2(160.0, 26.0), Vector2(40.0, 10.0), Vector2(10.0, 3.0)]
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(196), octaves, 631, true)
@@ -71,7 +66,7 @@ func _paint_summit() -> Image:
 
 ## The prayer flags: small squares hanging from a sagging line, each flapping
 ## sideways in the wind a little out of step with its neighbours.
-func _draw_flags(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_flags(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var from: Vector2 = Vector2(copy_x + FLAG_LINE_FROM.x, BackdropPaint.row(FLAG_LINE_FROM.y) - 3)
 	var to: Vector2 = Vector2(copy_x + FLAG_LINE_TO.x, BackdropPaint.row(FLAG_LINE_TO.y) - 3)
 	var previous: Vector2 = from
@@ -90,7 +85,7 @@ func _draw_flags(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 
 ## Right in front: two dark crags with snow on their ledges, rising from below.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	MountainStyle.paint_crag(image, 70.0, 56.0, 70.0, 641)
 	MountainStyle.paint_crag(image, 400.0, 38.0, 48.0, 642)

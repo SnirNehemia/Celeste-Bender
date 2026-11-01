@@ -11,8 +11,12 @@ extends RefCounted
 ##   CloudBank  low white clouds over the sea: the cliff top looks down on their
 ##              tops, the beach up at their shaded undersides
 ## The sea cave (underground) looks out at the same sky and sea through its arches.
-## Each look adds nearer layers and a FOREGROUND (palm fronds, dune grass,
+## Each altitude adds nearer layers and a FOREGROUND (palm fronds, dune grass,
 ## seaweed-hung rock) right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -83,3 +87,30 @@ static func paint_cloud_bank(tall: Image) -> void:
 			elif y > bottom - 2 or (y > bottom - 12 and BackdropPaint.checker(x, y)):
 				color = CLOUD_SHADE
 			BackdropPaint.put_pixel(tall, x, y, color)
+
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	var sky: BackdropLayer = theme.add_tall_layer(NAME, "SkyAndSea", Vector2(0.01, 0.0), paint_sky_and_sea, section)
+	sky.draw_extra = BackdropTheme.section_extras({surface: ShoreSurface.draw_glitter}, section)
+	theme.add_split_layer(NAME, "Clouds", Vector2(0.03, 0.0), {surface: ShoreSurface.paint_clouds}, section, 3.0)
+	theme.add_split_layer(NAME, "SeaStacks", Vector2(0.03, 0.0), {skyline: ShoreSkyline.paint_sea_stacks}, section, 0.0,
+		{skyline: ShoreSkyline.draw_stack_foam})
+	theme.add_tall_layer(NAME, "CloudBank", Vector2(0.05, 0.0), paint_cloud_bank, section, 4.0)
+	theme.add_split_layer(NAME, "Island", Vector2(0.04, 0.0), {surface: ShoreSurface.paint_island}, section)
+	theme.add_split_layer(NAME, "Headland", Vector2(0.14, 0.0), {surface: ShoreSurface.paint_headland}, section, 0.0,
+		{surface: ShoreSurface.draw_surf})
+	theme.add_split_layer(NAME, "Beach", Vector2(0.28, 0.08), {surface: ShoreSurface.paint_beach}, section, 0.0,
+		{surface: ShoreSurface.draw_waves})
+	theme.add_split_layer(NAME, "CliffTop", Vector2(0.42, 0.13), {skyline: ShoreSkyline.paint_cliff_top}, section, 0.0,
+		{skyline: ShoreSkyline.draw_lighthouse_beam}, [skyline])
+	theme.add_split_layer(NAME, "Palms", Vector2(0.45, 0.14), {surface: ShoreSurface.paint_palms}, section)
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: ShoreSkyline.paint_front, surface: ShoreSurface.paint_front}, section, 0.0, {}, [skyline])

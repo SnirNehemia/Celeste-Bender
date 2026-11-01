@@ -1,3 +1,4 @@
+class_name MountainSurface
 extends BackdropTheme
 ## MOUNTAIN backdrop (the Air chapter's look): a dusk sky with stars and a moon,
 ## the great snowy range rising up out of view under a ceiling of cloud (both
@@ -17,13 +18,7 @@ const MID_SNOW_SHADOW: Color = Color(0.3, 0.29, 0.45)
 
 
 func _build_layers() -> void:
-	add_tall_layer(MountainStyle.NAME, "Sky", Vector2(0.01, 0.0), MountainStyle.paint_sky, SURFACE_SECTION)
-	add_tall_layer(MountainStyle.NAME, "Peaks", Vector2(0.04, 0.02), MountainStyle.paint_peaks, SURFACE_SECTION)
-	add_tall_layer(MountainStyle.NAME, "CloudBank", Vector2(0.07, 0.03), MountainStyle.paint_cloud_bank, SURFACE_SECTION, 2.0)
-	add_painted_layer("Mist", Vector2(0.1, 0.05), _paint_mist, 3.0)
-	add_painted_layer("MidPeaks", Vector2(0.18, 0.08), _paint_mid_peaks)
-	add_painted_layer("Pines", Vector2(0.35, 0.14), _paint_pines)
-	add_painted_layer("Front", MountainStyle.FRONT_SCROLL, _paint_front)
+	MountainStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var wind: BackdropMotes = BackdropMotes.new()
 	wind.shape = BackdropMotes.Shape.STREAK
@@ -48,7 +43,7 @@ func _build_layers() -> void:
 	add_motes(snow)
 
 
-func _paint_mist() -> Image:
+static func paint_mist() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	# A billowy top: big slow swells plus small round puffs.
 	var octaves: Array[Vector2] = [Vector2(110.0, 10.0), Vector2(18.0, 5.0)]
@@ -65,7 +60,7 @@ func _paint_mist() -> Image:
 	return image
 
 
-func _paint_mid_peaks() -> Image:
+static func paint_mid_peaks() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var octaves: Array[Vector2] = [Vector2(128.0, 42.0), Vector2(40.0, 16.0), Vector2(12.0, 4.0)]
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(165), octaves, 401, true)
@@ -74,7 +69,7 @@ func _paint_mid_peaks() -> Image:
 	return image
 
 
-func _paint_pines() -> Image:
+static func paint_pines() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var octaves: Array[Vector2] = [Vector2(213.0, 22.0), Vector2(64.0, 8.0)]
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(190), octaves, 501, false)
@@ -93,7 +88,7 @@ func _paint_pines() -> Image:
 
 ## Right in front: pine boughs reaching in from trees just off the top of the
 ## screen, and a snowy crag rising from the bottom.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	MountainStyle.paint_bough(image, Vector2(-10.0, BackdropPaint.row(-8)), Vector2(96.0, BackdropPaint.row(26)), 16.0, 131)
 	MountainStyle.paint_bough(image, Vector2(-4.0, BackdropPaint.row(-16)), Vector2(60.0, BackdropPaint.row(4)), 8.0, 132)

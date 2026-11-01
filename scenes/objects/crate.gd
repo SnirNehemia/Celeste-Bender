@@ -318,8 +318,7 @@ func _physics_process(delta: float) -> void:
 		reset()
 
 
-## Does it slide down ice slopes (Stage W6)? Crates do; IceBlock says no for long
-## pieces (they lie where they land).
+## Does it slide down ice slopes (Stage W6)? Crates (and ice rafts) do.
 func can_slide_on_ice() -> bool:
 	return true
 
@@ -438,6 +437,22 @@ func _swing(delta: float) -> void:
 	var from_anchor: Vector2 = center - swing_vine.global_position
 	swing_angle = atan2(from_anchor.x, from_anchor.y)
 	rotation = -swing_angle
+
+
+## Player.WIND_CATCHER_METHOD (after the grid-ice play-test): standing on a FLOATING
+## crate and gusting sideways, your feet stay planted and the crate takes the gust's
+## recoil, so you both move AWAY from the gust, the way a gust always throws you
+## (before, the gust's cone hit the crate under you and carried you both into it).
+## The same share as a raft (raft_gust_recoil_share); IceRaft adds its sail moves.
+func absorb_gust_recoil(direction: Vector2, strength: float) -> void:
+	if water_world != null:
+		receive_gust(Vector2(-signf(direction.x), 0.0), strength * water_world.water_tuning.raft_gust_recoil_share)
+
+
+## Does standing on it take the gust's recoil (Player.get_wind_catching_floor)? Only
+## while it floats: on the ground you recoil as usual.
+func is_catching_wind() -> bool:
+	return submerged_share > 0.0 and burn_state != BurnState.GONE
 
 
 ## The Pushable contract: called by the gust when it hits us.

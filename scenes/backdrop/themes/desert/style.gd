@@ -11,8 +11,12 @@ extends RefCounted
 ##           surface's view, their tops rise into the skyline's
 ##   Clouds  warm clouds, most up in the skyline's sky, a few drifting low
 ##           across where the two meet
-## Each look adds nearer layers, and a FOREGROUND of big dark shapes (saguaros,
+## Each altitude adds nearer layers, and a FOREGROUND of big dark shapes (saguaros,
 ## yucca, crags) right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -41,6 +45,9 @@ const GROUND_RIM: Color = Color(0.32, 0.19, 0.18)
 const FRONT_BODY: Color = Color(0.07, 0.04, 0.06)
 const FRONT_LIT: Color = Color(0.14, 0.08, 0.1)
 const FRONT_RIM: Color = Color(0.22, 0.13, 0.13)
+## The two near towers in front (paint_front_towers): x = strip x of the middle,
+## y = half width, z = the top's screen row in the skyline.
+const FRONT_TOWERS: Array[Vector3] = [Vector3(14.0, 26.0, -40.0), Vector3(350.0, 16.0, 96.0)]
 const FRONT_SCROLL: Vector2 = Vector2(0.62, 0.18)
 
 ## The towers: strip x, half width, top (screen row in the skyline).
@@ -147,3 +154,43 @@ static func paint_spiky_plant(image: Image, base: Vector2, count: int, length: f
 		var along: float = float(leaf_index) / maxf(1.0, count - 1.0) - 0.5
 		var leaf_length: float = length * (0.6 + BackdropPaint.random01(leaf_index, 1, seed_value) * 0.4) * (1.0 - absf(along) * 0.6)
 		BackdropPaint.paint_leaf(image, base, -PI * 0.5 + along * 2.6, leaf_length, 2.5, along * 0.4, FRONT_BODY, FRONT_RIM, FRONT_BODY)
+
+
+
+## The two near towers right in front (the Front layer): their banded dark sides
+## on a strip. In the skyline's strip (`is_foot` false) they rise past the top of
+## the screen (one) or end in a broken top (the other); in the surface's (`is_foot`)
+## they're the same towers lower down, side to side, from the top to the ground,
+## so the soft change between the two scrolls straight down them.
+static func paint_front_towers(image: Image, is_foot: bool) -> void:
+	var towers: Image = BackdropPaint.new_strip()
+	for tower: Vector3 in FRONT_TOWERS:
+		var top: float = BackdropPaint.row(tower.z)
+		for dx: int in range(-roundi(tower.y), roundi(tower.y) + 1):
+			var x: int = roundi(tower.x) + dx
+			var column_top: int = 0 if is_foot else roundi(top + (BackdropPaint.periodic_noise(x, 6.0, 951) - 0.5) * 8.0 + absf(dx) * 0.25)
+			BackdropPaint.put_rect(towers, Rect2i(x, column_top, 1, BackdropPaint.STRIP_HEIGHT - column_top), FRONT_BODY)
+			if not is_foot:
+				BackdropPaint.put_pixel(towers, x, column_top, FRONT_RIM)
+		var lit_top: int = 0 if is_foot else roundi(top) + 4
+		BackdropPaint.put_rect(towers, Rect2i(roundi(tower.x - tower.y), lit_top, 2, BackdropPaint.STRIP_HEIGHT), FRONT_LIT)
+	BackdropPaint.paint_strata(towers, BackdropPaint.flat_line(-10.0), FRONT_LIT, 953)
+	image.blend_rect(towers, Rect2i(Vector2i.ZERO, towers.get_size()), Vector2i.ZERO)
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Sky", Vector2(0.01, 0.0), paint_sky, section)
+	theme.add_tall_layer(NAME, "Clouds", Vector2(0.03, 0.01), paint_clouds, section, 3.0)
+	theme.add_split_layer(NAME, "Mesas", Vector2(0.06, 0.03), {surface: DesertSurface.paint_mesas}, section)
+	theme.add_tall_layer(NAME, "Spires", Vector2(0.1, 0.04), paint_spires, section)
+	theme.add_split_layer(NAME, "Dunes", Vector2(0.18, 0.07), {surface: DesertSurface.paint_dunes}, section)
+	theme.add_split_layer(NAME, "Buttes", Vector2(0.38, 0.12), {surface: DesertSurface.paint_buttes}, section)
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: DesertSkyline.paint_front, surface: DesertSurface.paint_front}, section)

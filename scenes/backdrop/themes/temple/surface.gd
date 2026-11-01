@@ -1,3 +1,4 @@
+class_name TempleSurface
 extends BackdropTheme
 ## TEMPLE backdrop (an ancient hall, for rooms set indoors): an open arcade of
 ## arches looking out on the dusk sky, the low sun and the cloud sea, with the
@@ -19,6 +20,8 @@ const ARCH_TOP_ROW_SCREEN: int = 40
 const ARCH_FLOOR_ROW_SCREEN: int = 150
 
 const SHAFT_COLOR: Color = Color(0.95, 0.8, 0.55, 0.06)
+## Where the light shafts start (strip x).
+const SHAFT_XS: Array[float] = [60.0, 250.0, 420.0]
 
 const PILLAR_BODY: Color = Color(0.07, 0.06, 0.1)
 const PILLAR_LIT: Color = Color(0.13, 0.11, 0.17)
@@ -35,18 +38,7 @@ const TORCH_GLOW: Color = Color(1.0, 0.55, 0.2, 0.08)
 
 
 func _build_layers() -> void:
-	add_tall_layer(TempleStyle.NAME, "Sky", Vector2(0.01, 0.0), TempleStyle.paint_sky, SURFACE_SECTION)
-	add_tall_layer(TempleStyle.NAME, "Towers", Vector2(0.04, 0.02), TempleStyle.paint_towers, SURFACE_SECTION)
-	add_tall_layer(TempleStyle.NAME, "Clouds", Vector2(0.12, 0.05), TempleStyle.paint_clouds, SURFACE_SECTION, 3.0)
-	add_painted_layer("Arcade", Vector2(0.14, 0.06), _paint_arcade)
-	var shaft_xs: Array[float] = [60.0, 250.0, 420.0]
-	add_drawn_layer("Shafts", Vector2(0.2, 0.08), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		BackdropTheme.draw_light_shafts(layer, copy_x, time, shaft_xs, 14.0, 0.45, 200.0, SHAFT_COLOR))
-	var pillars: BackdropLayer = add_painted_layer("Pillars", Vector2(0.4, 0.12), _paint_pillars)
-	pillars.draw_extra = _draw_torches
-	add_tall_layer(TempleStyle.NAME, "Roof", Vector2(0.42, 0.13), TempleStyle.paint_roof, SURFACE_SECTION)
-	add_drawn_layer("Front", TempleStyle.FRONT_SCROLL, func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		TempleStyle.draw_big_lantern(layer, Vector2(copy_x + 180.0, BackdropPaint.row(-10)), 44.0, time))
+	TempleStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var dust: BackdropMotes = BackdropMotes.new()
 	dust.mote_count = 30
@@ -59,7 +51,12 @@ func _build_layers() -> void:
 	add_motes(dust)
 
 
-func _paint_arcade() -> Image:
+## Slanted light shafts through the gaps (BackdropTheme.draw_light_shafts), a draw_extra.
+static func draw_shafts(layer: BackdropLayer, copy_x: float, time: float) -> void:
+	BackdropTheme.draw_light_shafts(layer, copy_x, time, SHAFT_XS, 14.0, 0.45, 200.0, SHAFT_COLOR)
+
+
+static func paint_arcade() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var top_row: int = BackdropPaint.row(ARCH_TOP_ROW_SCREEN)
 	var floor_row: int = BackdropPaint.row(ARCH_FLOOR_ROW_SCREEN)
@@ -99,7 +96,7 @@ func _paint_arcade() -> Image:
 	return image
 
 
-func _paint_pillars() -> Image:
+static func paint_pillars() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var spacing: int = BackdropPaint.STRIP_WIDTH / PILLAR_COUNT
 	for pillar_index: int in PILLAR_COUNT:
@@ -116,7 +113,7 @@ func _paint_pillars() -> Image:
 			BackdropPaint.put_rect(image, Rect2i(left - 4, block_row + 6, PILLAR_WIDTH + 8, 1), PILLAR_FLUTE)
 		# Every other gap: a banner hanging from a rod, with a pointed bottom.
 		if pillar_index % 2 == 0:
-			_paint_banner(image, left + PILLAR_WIDTH + 40, BackdropPaint.row(22))
+			paint_banner(image, left + PILLAR_WIDTH + 40, BackdropPaint.row(22))
 	# Rubble along the floor.
 	var rubble_tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(176), [Vector2(20.0, 4.0), Vector2(7.0, 2.0)] as Array[Vector2], 41, false)
 	BackdropPaint.fill_below(image, rubble_tops, PILLAR_BODY)
@@ -124,7 +121,7 @@ func _paint_pillars() -> Image:
 	return image
 
 
-func _paint_banner(image: Image, left: int, top_row: int) -> void:
+static func paint_banner(image: Image, left: int, top_row: int) -> void:
 	var width: int = 22
 	var length: int = 70
 	BackdropPaint.put_rect(image, Rect2i(left - 3, top_row - 2, width + 6, 2), PILLAR_LIT)
@@ -145,7 +142,7 @@ func _paint_banner(image: Image, left: int, top_row: int) -> void:
 
 ## A torch on the right side of each pillar: a soft flickering glow and a small
 ## flame (drawn every frame, so it's a draw_extra, not part of the picture).
-func _draw_torches(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_torches(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var spacing: int = BackdropPaint.STRIP_WIDTH / PILLAR_COUNT
 	for pillar_index: int in PILLAR_COUNT:
 		var spot: Vector2 = Vector2(copy_x + pillar_index * spacing + 40 + PILLAR_WIDTH + 3, BackdropPaint.row(78))

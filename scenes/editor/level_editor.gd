@@ -121,7 +121,7 @@ const STRIP_PREVIEW_COLOR: Color = Color(0.9, 0.2, 0.2, 0.4)
 ## (Level_editor.md §5). The room's size is changed on the map (Stage L7).
 const ROOM_SETTINGS: Array[StringName] = [&"display_title", &"air_allowed", &"earth_allowed",
 	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake", &"painted_ground", &"backdrop_theme",
-	&"backdrop_altitude"]
+	&"backdrop_altitude", &"back_room"]
 ## How close to a zone's edge a click must be to pick the zone, screen pixels.
 const EDGE_PICK_SCREEN_PIXELS: float = 3.0
 ## Seconds the play-test keeps running after the goal, so you see you made it.

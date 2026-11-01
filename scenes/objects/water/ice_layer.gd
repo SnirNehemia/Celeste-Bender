@@ -4,10 +4,11 @@ extends TileMapLayer
 ## TileMapLayer named "Ice", painted with resources/tiles/ice_tileset.tres: one pale
 ## cyan tile, solid on physics layer 1 ("world") like rock.
 ##
-## It's ground you slide on: the player treats anything in IceBlock.ICE_GROUP as ice
-## (slow to start and stop, long jumps; no grip on its walls), and this layer joins
-## that group. Painted ice is part of the level: it never melts, and it doesn't count
-## toward the ice cap (only ice the freeze makes does, WaterWorld.player_ice).
+## It's ground you slide on: the player treats anything in ICE_GROUP as ice (slow to
+## start and stop, speed above run speed kept, long jumps; no grip on its walls), and
+## this layer joins that group. Painted ice is part of the level: it never melts, and
+## it doesn't count toward the ice cap. Ice the FREEZE makes (grid ice, Stages I1-I5)
+## is the same tiles in the room's PlayerIceLayer (player_ice_layer.gd, a subclass).
 ##
 ## THE LOOK (play-test 5: "the terrain ice is still in the older design"): it's drawn
 ## like the ice the freeze makes, glass (IceLook), not as tiles. The tiles stay for
@@ -27,6 +28,9 @@ extends TileMapLayer
 ## The tileset is made by tools/build_water_rooms.gd (when missing or out of date).
 
 const TILESET_PATH: String = "res://resources/tiles/ice_tileset.tres"
+## Everything the player (and crates, shells) treat as ice: both ice layers and rafts
+## (Player.is_ice, IceSlope).
+const ICE_GROUP: StringName = &"ice"
 ## The full (square) ice tile.
 const ICE_TILE: Vector2i = Vector2i(0, 0)
 ## 45° slopes: rising to the right (◢) and to the left (◣).
@@ -80,7 +84,7 @@ var is_rebuild_queued: bool = false
 
 
 func _ready() -> void:
-	add_to_group(IceBlock.ICE_GROUP)
+	add_to_group(ICE_GROUP)
 	self_modulate = Color(1.0, 1.0, 1.0, 0.0)  # hide the tiles; children still draw
 	look_node = Node2D.new()
 	look_node.name = "IceLook"
@@ -109,18 +113,34 @@ func _draw_look() -> void:
 		look.draw(look_node)
 
 
-## The outline of every connected patch of painted ice (local px). Every tile's
-## polygon (TILE_SHAPES) is walked clockwise as EDGES (straight ones cut into
-## EDGE_PIECE px pieces); an edge two tiles share is walked once each way, so the
-## pair cancels and only the patch's boundary is left. Those edges are linked end to
-## start into closed loops. Loops that wind the other way are holes, left out (a
-## hole in painted ice draws filled; collision is right).
+## The outline of every connected patch of painted ice (local px): _trace_cells over
+## every tile of the layer.
 func _trace_patches() -> Array[PackedVector2Array]:
-	var tile_px: Vector2i = tile_set.tile_size
+	return _trace_cells(get_used_cells())
+
+
+## The outline of the ice in `cells` (local px). Every tile's polygon (TILE_SHAPES) is
+## walked clockwise as EDGES (straight ones cut into EDGE_PIECE px pieces); an edge
+## two tiles share is walked once each way, so the pair cancels and only the patch's
+## boundary is left. Those edges are linked end to start into closed loops. Loops
+## that wind the other way are holes, left out (a hole in ice draws filled;
+## collision is right).
+func _trace_cells(cells: Array[Vector2i]) -> Array[PackedVector2Array]:
+	var atlases: Array[Vector2i] = []
+	for cell: Vector2i in cells:
+		atlases.append(get_cell_atlas_coords(cell))
+	return trace_tiles(cells, atlases, tile_set.tile_size)
+
+
+## _trace_cells for tiles that aren't in a layer: `cells` with the tile shapes
+## `atlases` (same order), `tile_px` a tile. The ice ghost (WaterHandsAbility) draws
+## an ice plan's outline with it.
+static func trace_tiles(cells: Array[Vector2i], atlases: Array[Vector2i], tile_px: Vector2i) -> Array[PackedVector2Array]:
 	# Every boundary edge as Vector4i(from.x, from.y, to.x, to.y), in whole px.
 	var edges: Dictionary = {}
-	for cell: Vector2i in get_used_cells():
-		var shape: PackedVector2Array = get_tile_shape(get_cell_atlas_coords(cell))
+	for cell_index: int in cells.size():
+		var cell: Vector2i = cells[cell_index]
+		var shape: PackedVector2Array = get_tile_shape(atlases[cell_index])
 		var origin: Vector2i = cell * tile_px
 		for index: int in shape.size():
 			var from: Vector2i = origin + Vector2i(shape[index])
@@ -154,13 +174,38 @@ func _trace_patches() -> Array[PackedVector2Array]:
 			corner = next
 			if corner == start:
 				break
-		loop = IceOutline.simplify(loop, 0.01)  # drops the corners along straight runs
-		if loop.size() >= 3 and IceOutline.polygon_area(loop) > 0.0:
-			loops.append(loop)
+		for piece: PackedVector2Array in _split_at_pinches(loop):
+			piece = IceOutline.simplify(piece, 0.01)  # drops the corners along straight runs
+			if piece.size() >= 3 and IceOutline.polygon_area(piece) > 0.0:
+				loops.append(piece)
 	return loops
 
 
-func _add_edge(next_corners: Dictionary, from: Vector2i, to: Vector2i) -> void:
+## A loop that passes through the same corner twice (two parts of the ice meeting
+## only at that corner: a snake that turns back on itself) cut there into simple
+## loops. Godot can't fill a polygon that touches itself (draw_colored_polygon draws
+## nothing), so such ice showed only its rim and bands, hollow (after the grid-ice
+## play-test; 1 snake shape in 9 did it). Each repeat closes off the stretch since the
+## corner's first visit as its own loop.
+static func _split_at_pinches(loop: PackedVector2Array) -> Array[PackedVector2Array]:
+	var pieces: Array[PackedVector2Array] = []
+	var stack: PackedVector2Array = PackedVector2Array()
+	var index_in_stack: Dictionary = {}  # corner -> its index in stack
+	for point: Vector2 in loop:
+		if index_in_stack.has(point):
+			var first: int = index_in_stack[point]
+			var piece: PackedVector2Array = stack.slice(first)
+			for cut_point: Vector2 in piece:
+				index_in_stack.erase(cut_point)
+			pieces.append(piece)
+			stack = stack.slice(0, first)
+		index_in_stack[point] = stack.size()
+		stack.append(point)
+	pieces.append(stack)
+	return pieces
+
+
+static func _add_edge(next_corners: Dictionary, from: Vector2i, to: Vector2i) -> void:
 	if not next_corners.has(from):
 		next_corners[from] = []
 	(next_corners[from] as Array).append(to)

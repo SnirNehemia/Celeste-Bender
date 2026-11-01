@@ -94,6 +94,12 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## level's start room (get_backdrop_altitude), so a level that climbs or digs
 ## moves through the three by itself; set it by hand where that guess is wrong.
 @export var backdrop_altitude: Backdrop.Altitude = Backdrop.Altitude.AUTO
+## Another room of the level to show BEHIND this one, one layer deeper (its title
+## or its node name): the real room, drawn hazed and moving more
+## slowly, between this room and the backdrop (BackRoomView). Only this room's own
+## back room shows. Empty: none. Put the back room somewhere in the level the
+## player can't walk to (it's a room like any other).
+@export var back_room: String = ""
 
 @onready var spawn_point: Marker2D = $SpawnPoint
 

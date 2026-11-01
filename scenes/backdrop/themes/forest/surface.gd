@@ -1,3 +1,4 @@
+class_name ForestSurface
 extends BackdropTheme
 ## FOREST backdrop (the Fire chapter's look): a warm evening sky with a low sun
 ## and the forest roof overhead with giant trunks going up into it (both shared
@@ -14,6 +15,8 @@ const MID_LIT: Color = Color(0.17, 0.23, 0.14)
 const MID_RIM: Color = Color(0.23, 0.29, 0.15)
 
 const SHAFT_COLOR: Color = Color(1.0, 0.82, 0.45, 0.07)
+## Where the light shafts start (strip x).
+const SHAFT_XS: Array[float] = [30.0, 150.0, 330.0, 470.0]
 
 const NEAR_BODY: Color = Color(0.05, 0.08, 0.06)
 const NEAR_LIT: Color = Color(0.1, 0.14, 0.08)
@@ -23,15 +26,7 @@ const VINE_LEAF: Color = Color(0.12, 0.2, 0.09)
 
 
 func _build_layers() -> void:
-	add_tall_layer(ForestStyle.NAME, "Sky", Vector2(0.01, 0.0), ForestStyle.paint_sky, SURFACE_SECTION)
-	add_painted_layer("FarTrees", Vector2(0.06, 0.03), _paint_far_trees)
-	add_tall_layer(ForestStyle.NAME, "Canopy", Vector2(0.15, 0.06), ForestStyle.paint_canopy, SURFACE_SECTION)
-	add_painted_layer("MidForest", Vector2(0.16, 0.07), _paint_mid_forest)
-	var shaft_xs: Array[float] = [30.0, 150.0, 330.0, 470.0]
-	add_drawn_layer("Shafts", Vector2(0.22, 0.08), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
-		BackdropTheme.draw_light_shafts(layer, copy_x, time, shaft_xs, 10.0, 0.35, 210.0, SHAFT_COLOR))
-	add_painted_layer("NearTrees", Vector2(0.42, 0.13), _paint_near_trees)
-	add_painted_layer("Front", ForestStyle.FRONT_SCROLL, _paint_front)
+	ForestStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var fireflies: BackdropMotes = BackdropMotes.new()
 	fireflies.shape = BackdropMotes.Shape.FIREFLY
@@ -56,7 +51,12 @@ func _build_layers() -> void:
 	add_motes(leaves)
 
 
-func _paint_far_trees() -> Image:
+## Slanted light shafts through the gaps (BackdropTheme.draw_light_shafts), a draw_extra.
+static func draw_shafts(layer: BackdropLayer, copy_x: float, time: float) -> void:
+	BackdropTheme.draw_light_shafts(layer, copy_x, time, SHAFT_XS, 10.0, 0.35, 210.0, SHAFT_COLOR)
+
+
+static func paint_far_trees() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.bumps(BackdropPaint.row(118), Vector2(8.0, 16.0), 14, 41)
 	BackdropPaint.fill_below(image, tops, FAR_BODY)
@@ -64,7 +64,7 @@ func _paint_far_trees() -> Image:
 	return image
 
 
-func _paint_mid_forest() -> Image:
+static func paint_mid_forest() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	# Slim trunks from the canopy (ForestStyle's Canopy layer) down, each with a lit left edge.
 	for trunk_index: int in 22:
@@ -84,7 +84,7 @@ func _paint_mid_forest() -> Image:
 	return image
 
 
-func _paint_near_trees() -> Image:
+static func paint_near_trees() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var trunk_lefts: Array[int] = [20, 230, 410]
 	for trunk_index: int in trunk_lefts.size():
@@ -131,7 +131,7 @@ func _paint_near_trees() -> Image:
 
 ## Right in front: clumps of big leaves rising from the bottom, tall fern fronds,
 ## and a leafy bough hanging in from the top.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var bottom: float = BackdropPaint.row(194)
 	BackdropPaint.paint_leaf_clump(image, Vector2(40.0, bottom), 5, -PI * 0.5, 1.6, Vector2(30.0, 52.0), 0.7,

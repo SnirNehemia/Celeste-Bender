@@ -1,3 +1,4 @@
+class_name VolcanoSurface
 extends BackdropTheme
 ## VOLCANO, SURFACE: the slopes of a lava mountain. An ash-red sky with a dim
 ## sun, the great cone rising up out of view with lava running down its flanks,
@@ -27,15 +28,7 @@ const RIVER_SCREEN_ROW: int = 160
 
 
 func _build_layers() -> void:
-	add_tall_layer(VolcanoStyle.NAME, "Sky", Vector2(0.01, 0.0), VolcanoStyle.paint_sky, SURFACE_SECTION)
-	add_tall_layer(VolcanoStyle.NAME, "Volcano", Vector2(0.03, 0.01), VolcanoStyle.paint_volcano, SURFACE_SECTION)
-	add_tall_layer(VolcanoStyle.NAME, "AshBank", Vector2(0.08, 0.03), VolcanoStyle.paint_ash_bank, SURFACE_SECTION, 2.0)
-	add_painted_layer("Ridges", Vector2(0.14, 0.05), _paint_ridges)
-	var river: BackdropLayer = add_painted_layer("LavaRiver", Vector2(0.24, 0.08), _paint_river)
-	river.draw_extra = _draw_river_flow
-	var near: BackdropLayer = add_painted_layer("NearRock", Vector2(0.45, 0.14), _paint_near_rock)
-	near.draw_extra = _draw_crack_glow
-	add_painted_layer("Front", VolcanoStyle.FRONT_SCROLL, _paint_front)
+	VolcanoStyle.add_shared_layers(self, SURFACE_SECTION)
 
 	var embers: BackdropMotes = BackdropMotes.new()
 	embers.shape = BackdropMotes.Shape.FIREFLY
@@ -60,7 +53,7 @@ func _build_layers() -> void:
 
 
 ## Basalt ridges, lit red along their tops by the lava below them.
-func _paint_ridges() -> Image:
+static func paint_ridges() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var octaves: Array[Vector2] = [Vector2(120.0, 30.0), Vector2(30.0, 10.0), Vector2(8.0, 3.0)]
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(166), octaves, 1831, true)
@@ -70,7 +63,7 @@ func _paint_ridges() -> Image:
 
 
 ## The lava river: glowing bands with dark crust floating on it.
-func _paint_river() -> Image:
+static func paint_river() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(RIVER_SCREEN_ROW), [Vector2(160.0, 4.0), Vector2(30.0, 2.0)] as Array[Vector2], 1841, false)
 	BackdropPaint.fill_below(image, tops, VolcanoStyle.LAVA)
@@ -87,7 +80,7 @@ func _paint_river() -> Image:
 
 
 ## Bright streaks drifting along the river, and its glow.
-func _draw_river_flow(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_river_flow(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	var river_top: float = BackdropPaint.row(RIVER_SCREEN_ROW)
 	for streak_index: int in 18:
 		var lane: float = floorf(BackdropPaint.random01(streak_index, 1, 1843) * 8.0)
@@ -100,7 +93,7 @@ func _draw_river_flow(layer: BackdropLayer, copy_x: float, time: float) -> void:
 
 
 ## Near jagged rock with glowing cracks running through it.
-func _paint_near_rock() -> Image:
+static func paint_near_rock() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var octaves: Array[Vector2] = [Vector2(110.0, 30.0), Vector2(26.0, 10.0), Vector2(8.0, 4.0)]
 	var tops: PackedFloat32Array = BackdropPaint.ridge(BackdropPaint.row(198), octaves, 1851, true)
@@ -121,14 +114,14 @@ static func _crack_x(crack_index: int) -> float:
 
 
 ## Each crack glows, out of step with the others.
-func _draw_crack_glow(layer: BackdropLayer, copy_x: float, time: float) -> void:
+static func draw_crack_glow(layer: BackdropLayer, copy_x: float, time: float) -> void:
 	for crack_index: int in 9:
 		var pulse: float = 0.5 + 0.5 * sin(time * 1.1 + crack_index * 2.1)
 		BackdropTheme.draw_glow(layer, Vector2(copy_x + _crack_x(crack_index), BackdropPaint.row(188)), 16.0, RIVER_GLOW, pulse)
 
 
 ## Right in front: charred dead trees, embers still glowing in their cracks.
-func _paint_front() -> Image:
+static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	VolcanoStyle.paint_dead_tree(image, Vector2(40.0, BackdropPaint.STRIP_HEIGHT), 150.0, 0.12, 1861)
 	VolcanoStyle.paint_dead_tree(image, Vector2(400.0, BackdropPaint.STRIP_HEIGHT), 110.0, -0.18, 1862)

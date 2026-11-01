@@ -261,144 +261,45 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## (6: 1 unit per ~11 px), drawn from its pool as it grows (and given back as it
 ## shortens). The pool running dry tears it.
 @export var snake_width: float = 6.0
-## Longer than this (px, along the rope) and it tears. Its pool drops as it fills
-## it, so a snake from the ring's edge down to a lowered surface needs some room.
+## Longer than this (px, along the trail) and it tears (GENTLE) or stops (a leash).
+## Its pool drops as it fills it, so a snake from the ring's edge down to a lowered
+## surface needs some room.
 @export var snake_max_length: float = 80.0
 ## The ball back down within this many px of the surface (or under it), not rising,
 ## and the snake sinks back into its pool (no tear).
 @export var snake_min_length: float = 4.0
-## The foot slides along the surface toward under the ball at this speed (px/s),
-## dragging a wave (snake_foot_wake x its speed pushes the water). 110: close behind
-## the faster snake (ball_move_speed x snake_speed_share), so a sideways sweep
-## doesn't stretch it to a tear.
-@export var snake_foot_speed: float = 110.0
-@export var snake_foot_wake: float = 0.6
-## The rope's own weight (px/s²): it sags and swings behind the ball.
-@export var snake_sag: float = 150.0
 ## Its head (the ball) shoves what it moves into once per touch, like a gust:
 ## crates, leaf piles, wisps (Pushable). px/s, like gust_push_strength.
 @export var snake_shove_strength: float = 160.0
 ## GENTLE, lifting too fast: this much of the pool (units) jumps up and rains back.
 @export var snake_tear_splash_units: float = 0.25
-## The snake's SHAPE (re-planned ice, Water_bending.md §16 "Re-planned: predictable
-## ice"):
-##   TRAIL (the default): its body lies exactly along the path the ball took since it
-##     left the pool, each straight run snapped to a multiple of
-##     snake_trail_angle_step, the corners rounded. Steering back over it rewinds it.
-##     Frozen, it's that exact shape: you DRAW slides and bridges.
-##   ROPE: the W4 verlet rope, sagging and swinging behind the ball.
-enum SnakeShape { TRAIL, ROPE }
-@export var snake_shape: SnakeShape = SnakeShape.TRAIL
-## TRAIL: the angles a straight run snaps to, degrees (22.5: 0, 22.5, 45, 67.5, 90...;
-## 45 = only the arrows' 8 directions).
-@export_range(5.0, 90.0) var snake_trail_angle_step: float = 22.5
-## TRAIL: a run's direction is judged once the ball is this far (px) from its start
-## (the AVERAGE direction over that stretch, which is how 22.5° comes out of mixed
-## arrows)...
+## THE TRAIL (Water_bending.md §16 "Re-planned: grid ice"): the snake lies along the
+## ball's path in runs snapped to the tile angles (flat, the gentle 1:2 slope, 45°,
+## straight up). A run's direction is judged once the ball is this far (px) from its
+## start (the AVERAGE direction over that stretch, which is how the gentle slope
+## comes out of mixed arrows)...
 @export_range(2.0, 32.0) var snake_trail_min_segment: float = 10.0
 ## ...and a corner is made where the ball strays more than this (px) off the run's line.
 @export_range(1.0, 12.0) var snake_trail_tolerance: float = 3.0
-## TRAIL: corners are rounded over this many px each side (at most half of each run).
+## Its drawn corners are rounded over this many px each side (at most half of each run).
 @export_range(0.0, 16.0) var snake_trail_corner_radius: float = 6.0
 
 @export_group("Freeze")
-## Stage W5 (Water_bending.md §5.3, as refined before W5): tap 2. Holding water: the
-## ball (and snake) freeze. Else, while your last throw is LIVE (see below), all of
-## it freezes at once, no aim. Else 2 throws an ICE CRYSTAL: a tap throws it at once
-## in the arrow direction (facing with none), holding 2 aims it in slow motion like
-## the fireball. It freezes the first water it touches.
+## GRID ICE (Water_bending.md §16 "Re-planned: grid ice"): 2 freezes only what you
+## hold, into the ghost the hands draw (IcePlan): a block of tiles, a snake's tiles, a
+## waterfall's wall or a raft. With nothing held it fizzles.
 ## Seconds (game time) between two freezes.
 @export_range(0.0, 2.0) var freeze_cooldown: float = 0.25
-## Frozen water HANGS where it froze (re-planned ice, Water_bending.md §16): no
-## momentum, no fall, one piece per freeze. A compact block comes loose only when
-## something pushes it (gust, the ball's shove, Earth) and is then a PUCK. Off: the
-## W5 rule (free ice flies on with the water's momentum, splats split into pieces).
-@export var ice_hangs: bool = true
-## The last throw is LIVE (2 freezes it) for this many game seconds after release...
-@export_range(0.2, 10.0) var freeze_live_time: float = 1.5
-## ...and only while at least this share of its water is still loose (in the air or
-## running: not merged into a pool or soaked in). Stray drops left after a splash
-## never take the key from the crystal.
-@export_range(0.0, 1.0) var freeze_live_share: float = 0.5
-## Frozen water no longer than this, px (or not twice as long as it is wide: a full
-## 4-unit ball is ~18 px round), becomes an ICE BLOCK that falls (and keeps its
-## momentum); longer and thin, a STATIC ice shape (a pillar, an arc, a frozen
-## waterfall).
-@export var compact_max_size: float = 16.0
-## A static ice shape is a thick line along the frozen water: its thickness is the
-## water's area / its length, kept between these, px.
-@export var ice_min_thickness: float = 4.0
-@export var ice_max_thickness: float = 10.0
-## A pool or stream frozen by the crystal: the ice covers this many px EACH SIDE of
-## where it hit (after the W5 planning: a stretch, not the whole pool), a sheet
-## ice_sheet_thickness px thick at the surface. Where the water is shallower than
-## the sheet it freezes to the floor: a stream frozen through is DAMMED there.
-@export_range(8.0, 320.0) var freeze_pool_reach: float = 56.0
-@export_range(2.0, 24.0) var ice_sheet_thickness: float = 8.0
-## Loose water the crystal hits that isn't a live throw (a waterfall, spray, a
-## puddle's spill): the drops joined to the hit (each within freeze_join_distance of
-## the next, more for fast drops: WaterWorld.STREAM_JOIN_TIME), at most
-## freeze_loose_reach px from it.
-@export var freeze_loose_reach: float = 48.0
-@export var freeze_join_distance: float = 6.0
-## At most this many pieces of player-made ice per room: a new one melts the oldest
-## (Water_bending.md §7.3). Ice placed in the level doesn't count.
+## At most this many FREEZES of player-made ice per room (a raft and a wall count
+## one each): a new one melts the oldest. Ice placed in the level doesn't count.
 @export_range(1, 20) var max_player_ice: int = 6
-## The ice crystal (Stage W5): speed (game px/s), how far it flies, px, and its aim
-## in slow motion (world speed, and real seconds before it flies by itself). Since
-## the snow puff replaced it on 2 it's only used by the smoke tests (IceCrystal).
-@export var crystal_speed: float = 320.0
-@export var crystal_range: float = 120.0
-@export_range(0.05, 1.0) var crystal_aim_time_scale: float = 0.3
-@export_range(0.2, 5.0) var crystal_aim_max_real_time: float = 1.5
-
-@export_group("Snow puff")
-## THE SNOW PUFF (after W7a, developer's idea; replaces the ice crystal on 2 when you
-## hold no water and have no live throw): a puff of snowflakes bursts out to
-## snow_puff_radius px around you, then rains gently down, and every flake freezes the
-## water it touches. Tap 2: around you. Hold 2: slow motion, aim with the arrows, and
-## the puff is tossed snow_toss_distance px that way before it rains down.
-## How many flakes, and how far they burst out from the puff's center, px.
-@export_range(1, 80) var snow_flake_count: int = 24
-@export_range(4.0, 80.0) var snow_puff_radius: float = 22.0
-## An aimed puff's center lands this far away, px (the flakes are tossed, then the
-## air stops them: a gentle throw).
-@export_range(0.0, 160.0) var snow_toss_distance: float = 48.0
-## The air slows a flake by this share of its speed per second: the burst and the
-## toss stop within about 1 / drag s.
-@export_range(0.5, 20.0) var snow_flake_drag: float = 6.0
-## Then they fall at this speed, px/s, swaying snow_sway px/s side to side.
-@export var snow_fall_speed: float = 28.0
-@export var snow_sway: float = 10.0
-## A flake melts away after this many game seconds (if it froze nothing first).
-@export_range(0.5, 10.0) var snow_flake_life: float = 2.5
-## A flake landing on a pool freezes a sheet this many px each side of where it lands
-## (each flake its own stretch; the stretches join up into one sheet's worth).
-@export_range(2.0, 64.0) var snow_pool_reach: float = 10.0
-## A press of 2 shorter than this (real seconds) is a TAP: the puff bursts around
-## you, wherever the arrows point. Longer is an aimed toss.
-@export_range(0.0, 0.5) var snow_tap_time: float = 0.15
-## The aim's slow motion (world speed) and how long it may last (real seconds).
-@export_range(0.05, 1.0) var snow_aim_time_scale: float = 0.3
-@export_range(0.2, 5.0) var snow_aim_max_real_time: float = 1.5
-
-@export_group("Ice ball")
-## THE ICE BALL (after W7a, developer's idea): 2 with you wholly under water (at
-## least ice_ball_min_share of you) freezes the water around you into a ball you sit
-## in. It floats up fast, bobs at the surface, and the arrows roll it along. 2 again
-## shatters it (its water comes back as loose water; you swim on).
-@export_range(0.5, 1.0) var ice_ball_min_share: float = 0.98
-## The water it takes from the pool, units, and the ball's radius, px.
-@export var ice_ball_units: float = 1.0
-@export var ice_ball_radius: float = 10.0
-## How strongly water lifts it (2 = it floats half under; higher floats higher and
-## rises faster), its drag in water per second, and its top rising speed, px/s.
-@export var ice_ball_buoyancy: float = 3.0
-@export var ice_ball_water_drag: float = 2.5
-@export var ice_ball_max_rise_speed: float = 220.0
-## Rolling with the arrows: top speed px/s and how fast it gets there, px/s².
-@export var ice_ball_roll_speed: float = 45.0
-@export var ice_ball_roll_accel: float = 160.0
+## Ice HANGING in mid-air (touching no terrain, not resting on a pool) CRUMBLES: the
+## first time you or a crate touch it, it shakes for this many game seconds while a
+## contour runs round it, then shatters into loose water (Stage I4).
+@export_range(0.2, 10.0) var crumble_time: float = 2.0
+## Shattering, each tile's water bursts out at up to this speed, px/s, then falls
+## (melting by fire or the ice cap just drops it).
+@export var ice_shatter_speed: float = 30.0
 
 @export_group("Ice")
 ## Ice ground (Water_bending.md §7.1): acceleration and friction are these shares
@@ -412,31 +313,21 @@ enum SnakeShape { TRAIL, ROPE }
 ## jump even with no other momentum; 1 = off). Faster than that (a jet, a launch),
 ## ice doesn't slow you to it.
 @export_range(1.0, 2.5) var ice_max_run_scale: float = 1.4
+## Speed ABOVE that on ice (a gust, a jet, a launch, a slide ending on flat ice) is
+## braked this much, px/s² (0: not at all, you keep it until you jump or leave the
+## ice), unless you steer against it (Stage I5: ice keeps any speed).
+@export var ice_overspeed_friction: float = 0.0
 ## Leaving ice above run speed (a long jump), the extra speed fades this gently in
 ## the air (px/s²) instead of air control's normal rate, unless you steer against it.
 @export var ice_air_overspeed_fade: float = 60.0
 ## On an ice wall you slide down this many times faster (no grip).
 @export_range(1.0, 4.0) var ice_wall_slide_scale: float = 2.0
-## Ice blocks (frozen compact water, built on the crate): friction on the ground,
-## px/s², and a fall of this many px or more SHATTERS one into loose water (6 tiles:
-## the spec's 4 tiles broke blocks frozen at the top of an ordinary throw).
-@export var ice_block_friction: float = 40.0
-@export var ice_block_shatter_fall: float = 48.0
-## PUCKS (with ice_hangs): a block that something pushed loose slides on ICE with this
-## friction (px/s², 0: it keeps going in a straight line until something stops it)
-## and on anything else with puck_ground_friction (it stops at once). Knocked off its
-## spot in the air, it falls straight down (its sideways push is dropped) until it lands.
-@export var puck_ice_friction: float = 0.0
-@export var puck_ground_friction: float = 2000.0
 
 @export_group("Slides")
-## Ice slides (Stage W6, Water_bending.md §7.2 and §16 "Planned in Stage W6"). Long
-## ice whose main direction is flatter than this, degrees, is a SLIDE (one-way: you
-## jump up through it); steeper long ice is a PILLAR (solid). 45 = the steepest
-## floor the player can stand on (Player.MIN_FLOOR_NORMAL_UP).
-@export_range(10.0, 80.0) var slide_pillar_angle: float = 45.0
-## On ice at least this steep, degrees, you SLIDE (the Sliding state): you can't
-## walk up it, gravity pulls you down it. Flatter ice is ice ground (§7.1).
+## Ice slides (Stage W6, Water_bending.md §7.2): painted slope tiles and the slope
+## tiles of a frozen snake. On ice at least this steep, degrees, you SLIDE (the
+## Sliding state): you can't walk up it, gravity pulls you down it. Flatter ice is
+## ice ground (§7.1).
 @export_range(2.0, 40.0) var slide_min_angle: float = 15.0
 ## Gravity along the slope is g x sin(angle) x this (the player's own gravity, 900).
 @export_range(0.1, 2.0) var slide_gravity_scale: float = 1.0
@@ -453,7 +344,7 @@ enum SnakeShape { TRAIL, ROPE }
 ## sliding: no lean, gravity along the slope and top speed x this, and a hitbox
 ## half as tall.
 @export_range(1.0, 2.0) var belly_slide_scale: float = 1.25
-## Crates, ice blocks and shells on an ice slope: they slow down along it this
+## Crates, rafts and shells on an ice slope: they slow down along it this
 ## much, px/s² (gravity along the slope still pulls them down it).
 @export var slope_object_friction: float = 30.0
 
@@ -522,8 +413,7 @@ enum SnakeShape { TRAIL, ROPE }
 ## deck bobbing at the surface doesn't kill whoever stands on it).
 @export_range(0.0, 6.0) var black_kill_depth: float = 1.0
 ## Clean water landing on black water doesn't mix at once: it floats on it like oil
-## (a SLICK) for this many game seconds, then sinks in and turns black. Freeze it
-## before then and it becomes a raft.
+## (a SLICK) for this many game seconds, then sinks in and turns black.
 @export_range(0.2, 10.0) var black_slick_time: float = 2.5
 ## A slick hardly slides on the surface: this share of its sideways speed is lost
 ## per second, so it stays a lens instead of spreading into a film.
@@ -531,14 +421,15 @@ enum SnakeShape { TRAIL, ROPE }
 ## How hard black water lifts a slick's drop per px it is under the surface, in
 ## shares of gravity: at 1/this px under, a drop is balanced (0.5: 2 px under).
 @export var black_slick_buoyancy: float = 0.5
-## RAFTS: water frozen within this many px of a water surface (above or below it)
-## becomes a raft, a flat floating slab, instead of a ball of ice.
+## RAFTS (grid ice, Stage I3): the held ball frozen with its bottom within this many
+## px above a water surface (clean or black), or under it, becomes a raft, a flat
+## floating slab, instead of a block.
 @export var raft_surface_reach: float = 8.0
-## A raft's size: this wide per unit of its water (4 units = 24 px, 3 tiles), never
-## narrower than raft_min_width, never wider than raft_max_width; raft_thickness tall.
-## (Its water stays exactly what froze, whatever its size: melting gives it all back.)
-@export var raft_width_per_unit: float = 6.0
-@export var raft_min_width: float = 10.0
+## A raft is one tile (8 px) wide per whole unit of the ball's water (4 units = 32
+## px), never narrower than raft_min_width, never wider than raft_max_width (or the
+## gap between the walls); raft_thickness tall. Its water is exactly those units:
+## melting gives it all back.
+@export var raft_min_width: float = 8.0
 @export var raft_max_width: float = 64.0
 @export var raft_thickness: float = 6.0
 ## How strongly water lifts a raft (crates use buoyancy, 2: half under). 4: alone it
@@ -559,7 +450,25 @@ enum SnakeShape { TRAIL, ROPE }
 @export var raft_jump_dip: float = 30.0
 ## Gusting sideways while standing on a raft: your feet stay planted and the raft
 ## takes the recoil (it moves away from the gust), at this share of a gust's push.
+## A floating crate uses it too (Crate.absorb_gust_recoil, after the grid-ice play-test).
 @export_range(0.0, 2.0) var raft_gust_recoil_share: float = 0.8
+## SAILING (after the grid-ice play-test): gusting down and back on a raft (↙ sailing
+## right) HOPS you and the raft together, up at raft_hop_speed px/s and forward at
+## the sideways push above. Gusting up and back (↖) DIVES: for raft_dive_time game
+## seconds the raft goes forward at that push, down at raft_dive_speed px/s for the
+## first half and back up for the second, carrying you (raft_dive_speed × half the
+## time is about how deep: 70 × 0.35 = 24.5 px, the water's drag takes some, so the
+## deck goes ~18 px under and your 11 px wholly under). On black water a dive kills you.
+@export var raft_hop_speed: float = 200.0
+@export var raft_dive_speed: float = 70.0
+@export_range(0.2, 2.0) var raft_dive_time: float = 0.7
+## In the air after a hop the raft chases your feet sideways, at up to
+## raft_follow_speed px/s, for at most raft_follow_time seconds (or until you land).
+@export var raft_follow_speed: float = 400.0
+@export_range(0.2, 3.0) var raft_follow_time: float = 1.5
+## Landing back on water after a hop, the raft's fall is cut to this many px/s on the
+## first touch (the splash takes the rest), so its deck stays above the surface.
+@export var raft_land_speed: float = 30.0
 
 @export_group("Currents")
 ## CURRENTS (Stage W7b, Water_bending.md §16 "Planned in Stage W7b"). A FLOW zone

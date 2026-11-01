@@ -13,8 +13,12 @@ extends RefCounted
 ##           peaks just under the surface in the skyline's view
 ## and light RAYS from the waterline that reach down into the dark, fading
 ## (draw_rays, drawn live by each look for its own slice).
-## Each look adds nearer layers and a FOREGROUND of big kelp blades, sea fans or
+## Each altitude adds nearer layers and a FOREGROUND of big kelp blades, sea fans or
 ## tube worms right in front.
+## The surface and the skyline share EVERY layer, the nearer ones too
+## (add_shared_layers, at the end; the ones only one of them paints are split
+## layers, BackdropTheme.add_split_layer), so the soft change between them is one
+## picture scrolling on: nothing appears or vanishes at the seam.
 
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
@@ -40,6 +44,9 @@ const FRONT_BODY: Color = Color(0.01, 0.05, 0.07)
 const FRONT_LIT: Color = Color(0.03, 0.1, 0.12)
 const FRONT_RIB: Color = Color(0.04, 0.12, 0.13)
 const FRONT_SCROLL: Vector2 = Vector2(0.62, 0.18)
+## The giant kelp in front (paint_giant_kelp): x = strip x of the root, y = length
+## from the reef up (px), z = lean.
+const GIANT_KELP: Array[Vector3] = [Vector3(64.0, 330.0, 0.04), Vector3(420.0, 300.0, -0.03)]
 
 ## The rays: how many per strip, and down to which screen row of the
 ## underground they reach (fading all the way).
@@ -123,3 +130,40 @@ static func paint_kelp_blade(image: Image, base: Vector2, length: float, lean: f
 			BackdropPaint.paint_leaf(image, next, heading + side * 0.7, blade_length, 3.0, side * 0.6, FRONT_BODY, FRONT_LIT, FRONT_RIB)
 			BackdropPaint.put_circle(image, next + Vector2(side * 2.0, 0.0), 1.5, FRONT_LIT)
 		point = next
+
+
+
+## The giant kelp right in front (the Front layer): GIANT_KELP plants rooted on
+## the reef below the surface's screen, reaching all the way up through it to the
+## sea's surface in the skyline. Each altitude paints its own strip of the same
+## plants (`section`: whose strip; the root is a screen further down from the
+## skyline's), so the soft change between them scrolls up the same stalks.
+static func paint_giant_kelp(image: Image, section: int) -> void:
+	# The root is at the bottom of the surface's strip; the skyline's strip starts a
+	# screen higher up, so there the same root is a screen further down.
+	var root_row: float = BackdropPaint.STRIP_HEIGHT + (BackdropTheme.SURFACE_SECTION - section) * BackdropPaint.SCREEN_HEIGHT
+	for plant: Vector3 in GIANT_KELP:
+		paint_kelp_blade(image, Vector2(plant.x, root_row), plant.y, plant.z, int(plant.x))
+
+## Adds every layer of the surface and the skyline, far to near, to `theme`
+## showing `section`: both call this, so their layers, scrolls and order are the
+## same and the soft change between them is one picture scrolling on. A layer only
+## one of them paints is a split layer (BackdropTheme.add_split_layer): in the
+## other it sits just off the screen and scrolls in with everything else.
+static func add_shared_layers(theme: BackdropTheme, section: int) -> void:
+	var skyline: int = BackdropTheme.SKYLINE_SECTION
+	var surface: int = BackdropTheme.SURFACE_SECTION
+	# add_split_layer(..., section, drift px/s, {section: moving things}, [sections
+	# that fade out at the seam instead of ending in a straight cut]).
+	theme.add_tall_layer(NAME, "Water", Vector2(0.01, 0.0), paint_water, section)
+	theme.add_split_layer(NAME, "Islands", Vector2(0.04, 0.0), {skyline: UnderwaterSkyline.paint_islands}, section)
+	# The rays already run on from one altitude's water into the next.
+	theme.add_drawn_layer("Rays", Vector2(0.06, 0.0), func(layer: BackdropLayer, copy_x: float, time: float) -> void:
+		draw_rays(layer, copy_x, time, section))
+	theme.add_tall_layer(NAME, "Spires", Vector2(0.07, 0.0), paint_spires, section)
+	theme.add_split_layer(NAME, "Seabed", Vector2(0.18, 0.07), {surface: UnderwaterSurface.paint_seabed}, section, 0.0,
+		{surface: UnderwaterSurface.draw_mid_kelp})
+	theme.add_split_layer(NAME, "Waterline", Vector2(0.3, 0.0), {}, section, 0.0, {skyline: UnderwaterSkyline.draw_surface})
+	theme.add_split_layer(NAME, "Coral", Vector2(0.4, 0.12), {surface: UnderwaterSurface.paint_coral}, section, 0.0,
+		{surface: UnderwaterSurface.draw_near_kelp})
+	theme.add_split_layer(NAME, "Front", FRONT_SCROLL, {skyline: UnderwaterSkyline.paint_front, surface: UnderwaterSurface.paint_front}, section)

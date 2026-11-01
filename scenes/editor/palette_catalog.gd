@@ -195,7 +195,7 @@ const LINE_THICKNESS: float = 4.0
 const TAB_ORDER: Array[String] = ["Terrain", "Basics", "Triggers", "Activated", "Crystals", "Breakable", "Objects", "Enemies"]
 ## Each entry's tab, where it isn't the family it's written with (_assign_tabs).
 const TAB_OF: Dictionary = {
-	&"wind_zone": "Basics", &"no_glide_zone": "Basics", &"ice_pins": "Basics",
+	&"wind_zone": "Basics", &"no_glide_zone": "Basics",
 	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
 	&"door": "Activated", &"switch_wall": "Activated", &"step_pad": "Triggers",
 	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
@@ -552,15 +552,6 @@ static func _build() -> void:
 		slope_entry.tile_top_edge = slope[2]
 		slope_entry.tile_odd_column = slope[3]
 		slope_entry.menu_group = "Ice slope"
-
-	# Ice pins (Stage W6; Water_bending.md §16 "Planned in Stage W6"): spikes that catch
-	# ice. Floor only: they always point up.
-	var ice_pins: Entry = _add(&"ice_pins", "Ice pins", "Water", Kind.STRIP)
-	ice_pins.hint = "Tall needles on a floor: they kill on touch, but CATCH ICE. Frozen water that touches the tips sticks there, so a frozen ball becomes a step; a held water snake drapes over them and freezes into a slide. Water falls through them. Drag along a row."
-	ice_pins.scene = preload("res://scenes/objects/water/ice_pins.tscn")
-	ice_pins.bounds = Bounds.SPIKE_STRIP
-	ice_pins.editable_properties = [&"tile_count"]
-	ice_pins.room_settings_on_create = {&"water_allowed": true}
 
 	# Sources and drains (Stage W2; Water_bending.md §6.2, §8.1). A room with a source
 	# gets a WaterWorld even without painted water.

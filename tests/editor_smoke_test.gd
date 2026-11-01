@@ -2641,10 +2641,11 @@ func _check_l17_backdrops() -> void:
 	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1, "after the break only the new look is left")
 	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.SKYLINE, Vector2.UP)
 	var new_group: CanvasGroup = backdrop.get_child(backdrop.get_child_count() - 1).get_node(^"Group") as CanvasGroup
-	_check(backdrop.is_sliding() and backdrop.get_child_count() == 2 and new_group.material != null,
+	_check(backdrop.is_sliding() and backdrop.get_child_count() == 2 and new_group.material != null and (new_group.material as ShaderMaterial).get_shader_parameter(&"leading_edge") < Backdrop.AT_REST_EDGE,
 		"surface to skyline wipes softly over the old look")
 	await get_tree().create_timer(Backdrop.SOFT_TIME + 0.2).timeout
-	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1 and new_group.material == null, "after the wipe the new look rests")
+	_check(not backdrop.is_sliding() and backdrop.get_child_count() == 1
+		and (new_group.material as ShaderMaterial).get_shader_parameter(&"leading_edge") == Backdrop.AT_REST_EDGE, "after the wipe the new look rests")
 	backdrop.queue_free()
 	camera.queue_free()
 
@@ -2658,6 +2659,37 @@ func _check_l17_backdrops() -> void:
 				empty_looks.append(Backdrop.describe(look, altitude))
 			theme.free()
 	_check(empty_looks.is_empty(), "every look x altitude has its layers (missing: %s)" % ", ".join(empty_looks))
+
+	# Painting ahead: a level's looks are painted when it loads, not on entering a room.
+	var ahead_room: Room = Room.new()
+	ahead_room.backdrop_theme = Backdrop.Look.DEEPWOOD
+	ahead_room.backdrop_altitude = Backdrop.Altitude.UNDERGROUND
+	var ahead_key: String = "res://scenes/backdrop/themes/deepwood/underground.gd:Roots"
+	BackdropTheme.texture_cache.erase(ahead_key)
+	var ahead_backdrop: Backdrop = Backdrop.new()
+	ahead_backdrop.paint_ahead([ahead_room] as Array[Room])
+	_check(BackdropTheme.texture_cache.has(ahead_key), "paint_ahead paints the looks a level's rooms use")
+	ahead_backdrop.free()
+	ahead_room.free()
+
+	# Back rooms (Room.back_room, BackRoomView): found by title or node name, never itself.
+	var front_room: Room = Room.new()
+	front_room.name = "FrontRoom"
+	var deep_room: Room = Room.new()
+	deep_room.name = "DeepRoom"
+	deep_room.display_title = "The Deep"
+	var view: BackRoomView = BackRoomView.new()
+	view.rooms = [front_room, deep_room] as Array[Room]
+	front_room.back_room = "The Deep"
+	var by_title: bool = view.find_back_room(front_room) == deep_room
+	front_room.back_room = "DeepRoom"
+	var by_name: bool = view.find_back_room(front_room) == deep_room
+	deep_room.back_room = "The Deep"
+	_check(by_title and by_name and view.find_back_room(deep_room) == null,
+		"a back room is found by its title or node name, and a room is never its own back room")
+	view.free()
+	front_room.free()
+	deep_room.free()
 	await get_tree().process_frame
 	finished_sections.append("L17 backdrops")
 

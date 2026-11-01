@@ -37,16 +37,16 @@ position = Vector2(1152, 0)
 position = Vector2(1472, 0)
 
 [node name="RoomWaterF" parent="." instance=ExtResource("12_room_water_f")]
-position = Vector2(2112, 0)
+position = Vector2(1872, 0)
 
 [node name="RoomWaterG" parent="." instance=ExtResource("13_room_water_g")]
-position = Vector2(2592, 0)
+position = Vector2(2352, 0)
 
 [node name="RoomWaterH" parent="." instance=ExtResource("14_room_water_h")]
-position = Vector2(3072, 0)
+position = Vector2(2832, 0)
 
 [node name="RoomWaterI" parent="." instance=ExtResource("15_room_water_i")]
-position = Vector2(3656, 0)
+position = Vector2(3416, 0)
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 position = Vector2(24, 112)
