@@ -80,6 +80,9 @@ static func prepare_for_editing(room: Room) -> void:
 ## painter away if it no longer needs one (painted_ground switched off). Plant
 ## layers grow their blades and leaves again.
 static func refresh(room: Room) -> void:
+	var rim: Node2D = room.get_node_or_null(NodePath(Room.RIM_NAME)) as Node2D
+	if rim != null:
+		rim.queue_redraw()  # the edge tiles may have changed
 	for child: Node in room.get_children():
 		if child is GrassLayer or child is ThicketLayer:
 			_regrow_plants(child as TileMapLayer)

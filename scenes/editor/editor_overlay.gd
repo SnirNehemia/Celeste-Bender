@@ -87,6 +87,17 @@ const ALTITUDE_COLORS: Dictionary = {
 	Backdrop.Altitude.SKYLINE: Color(0.55, 0.8, 1.0),
 }
 const ALTITUDE_STRIP_SCREEN_HEIGHT: float = 3.0
+## The depth behind (Level_editor.md §5a): its rooms' outlines and names, brighter
+## behind the room under the mouse; gate markers (linked, or red with no twin).
+const DEPTH_BEHIND_COLOR: Color = Color(0.35, 0.85, 0.9, 0.55)
+const DEPTH_BEHIND_BRIGHT_COLOR: Color = Color(0.45, 0.95, 1.0, 0.95)
+const DEPTH_LABEL_COLOR: Color = Color(0.45, 0.95, 1.0, 0.95)
+const GATE_LINKED_COLOR: Color = Color(0.45, 0.95, 1.0, 0.95)
+const GATE_NO_TWIN_COLOR: Color = Color(1.0, 0.25, 0.2, 0.95)
+const GATE_MARK_SCREEN_RADIUS: float = 4.0
+## The depth in front of the shown one, on the map: only faint outlines, to find
+## your way (it isn't drawn in play: from depth N you never see N-1).
+const DEPTH_IN_FRONT_COLOR: Color = Color(1.0, 1.0, 1.0, 0.14)
 ## Hidden chambers: purple, the tint tools/build_earth_rooms.gd gives them. The
 ## stripes repeat every STRIPE_PERIOD_TILES tiles, STRIPE_WIDTH level pixels wide,
 ## so neighbouring cells' stripes join into long diagonal bands.
@@ -138,7 +149,11 @@ func _draw() -> void:
 	if editor.map_view.is_open:
 		_draw_map(editor.map_view)
 		return
+	var shown_depth: int = editor.get_shown_depth()
+	_draw_depth_behind(shown_depth, null, 1.0 / editor.camera.get_zoom_factor())
 	for room: Room in editor.get_rooms():
+		if room.get_depth() != shown_depth:
+			continue  # another band, far off screen
 		# Rooms other than the one being edited are dimmed: you see what's next
 		# door, but the room you're working on stands out (Level_editor.md §5).
 		# Under the dimming: a neighbour's chambers are dimmed with it.
@@ -154,6 +169,7 @@ func _draw() -> void:
 		if spawn_point != null:
 			_draw_spawn_marker(spawn_point.global_position)
 		_draw_stand_ins(room)
+		_draw_lonely_gates(room)
 
 	_draw_links()
 	_draw_pivots()
@@ -347,7 +363,12 @@ func _draw_swing_arc(holder: Node2D, vine: Node2D) -> void:
 func _draw_map(map: MapView) -> void:
 	var pixel: float = 1.0 / editor.camera.get_zoom_factor()  # one screen pixel, in level pixels
 	var start_room: Room = editor.get_start_room()
+	_draw_depth_behind(map.shown_depth, map.hovered_room, pixel)
+	_draw_depth_in_front(map.shown_depth, pixel)
+	_draw_depth_label(map)
 	for room: Room in editor.get_rooms():
+		if room.get_depth() != map.shown_depth:
+			continue  # another depth: its own band, far away
 		var bounds: Rect2 = MapView.room_rect(room)
 		var color: Color = ROOM_OUTLINE_COLOR
 		if map.selected_rooms.has(room):
@@ -361,6 +382,7 @@ func _draw_map(map: MapView) -> void:
 		if room == start_room:
 			var star_offset: float = (STAR_SCREEN_RADIUS + 3.0) * pixel
 			_draw_star(Vector2(bounds.end.x - star_offset, bounds.position.y + star_offset), STAR_SCREEN_RADIUS * pixel)
+		_draw_gate_marks(room, pixel)
 	# The edge under the mouse, so you see what a drag would resize.
 	if map.hovered_edges != 0 and map.hovered_room != null and map.drag == MapView.Drag.NONE:
 		_draw_edges(MapView.room_rect(map.hovered_room), map.hovered_edges, MAP_OUTLINE_SCREEN_WIDTH * 2.0 * pixel)
@@ -377,6 +399,86 @@ func _draw_map(map: MapView) -> void:
 		draw_rect(map.preview_rect, preview_color, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
 		if map.importing_room != null:
 			_draw_room_name(map.importing_room, map.preview_rect, true)
+
+
+## The depth behind `shown_depth` (Level_editor.md §5a), over its hazed picture
+## (EditorDepthView): each room's outline at its map spot, moved into the shown
+## band, thin and in the depth color, and its name; brighter where it's behind
+## `hovered_room`, so you see which room is behind which.
+func _draw_depth_behind(shown_depth: int, hovered_room: Room, pixel: float) -> void:
+	var shift: Vector2 = Room.depth_offset(shown_depth) - Room.depth_offset(shown_depth + 1)
+	var hovered_rect: Rect2 = MapView.room_rect(hovered_room) if hovered_room != null else Rect2()
+	for room: Room in editor.get_rooms():
+		if room.get_depth() != shown_depth + 1:
+			continue
+		var bounds: Rect2 = Rect2(MapView.room_rect(room).position + shift, room.room_size)
+		var is_behind_hovered: bool = hovered_room != null and bounds.intersects(hovered_rect)
+		var color: Color = DEPTH_BEHIND_BRIGHT_COLOR if is_behind_hovered else DEPTH_BEHIND_COLOR
+		_draw_dashed_rect_width(bounds, color, (2.0 if is_behind_hovered else 1.0) * pixel, 6.0 * pixel)
+		var zoom_factor: float = editor.camera.get_zoom_factor()
+		draw_set_transform(Vector2(bounds.position.x, bounds.end.y) + Vector2(4.0, -4.0) / zoom_factor, 0.0, Vector2.ONE / zoom_factor)
+		var title: String = room.display_title if room.display_title != "" else String(room.name)
+		draw_string(ThemeDB.fallback_font, Vector2.ZERO, "behind: " + title, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, color)
+		draw_set_transform(Vector2.ZERO)
+
+
+## The depth in front of `shown_depth` (none for the front): each room's outline at
+## its map spot, moved into the shown band, faint.
+func _draw_depth_in_front(shown_depth: int, pixel: float) -> void:
+	if shown_depth == 0:
+		return
+	var shift: Vector2 = Room.depth_offset(shown_depth) - Room.depth_offset(shown_depth - 1)
+	for room: Room in editor.get_rooms():
+		if room.get_depth() == shown_depth - 1:
+			draw_rect(Rect2(MapView.room_rect(room).position + shift, room.room_size), DEPTH_IN_FRONT_COLOR, false, pixel)
+
+
+## A dashed rectangle with lines `width` thick and dashes `dash` long (level px).
+func _draw_dashed_rect_width(rect: Rect2, color: Color, width: float, dash: float) -> void:
+	var corners: Array[Vector2] = [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]
+	for side: int in 4:
+		draw_dashed_line(corners[side], corners[(side + 1) % 4], color, width, dash)
+
+
+## The map's depth label, top-left of the free space: "Depth 1 of 3" and the keys.
+func _draw_depth_label(map: MapView) -> void:
+	var zoom_factor: float = editor.camera.get_zoom_factor()
+	var visible_world: Rect2 = editor._visible_world_rect()
+	var corner: Vector2 = visible_world.position + Vector2(EditorUI.PALETTE_WIDTH + 6.0, EditorUI.BAR_HEIGHT + 14.0) / zoom_factor
+	var depth_count: int = map.get_deepest_depth() + 1
+	var text: String = "Depth %d of %d%s   %s: deeper  %s: shallower" % [map.shown_depth, depth_count,
+		" (front)" if map.shown_depth == 0 else ("" if map.shown_depth < depth_count else " (new)"),
+		EditorHelp.key_text("editor_depth_deeper"), EditorHelp.key_text("editor_depth_shallower")]
+	draw_set_transform(corner, 0.0, Vector2.ONE / zoom_factor)
+	draw_string(ThemeDB.fallback_font, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, DEPTH_LABEL_COLOR)
+	draw_set_transform(Vector2.ZERO)
+
+
+## On the map: a ring at each of the room's depth gates, in the depth color when
+## it has a twin (they're at the same spot, so the ring IS the pair), red without.
+func _draw_gate_marks(room: Room, pixel: float) -> void:
+	for child: Node in room.get_children():
+		var gate: DepthGate = child as DepthGate
+		if gate == null:
+			continue
+		var color: Color = GATE_LINKED_COLOR if gate.find_twin() != null else GATE_NO_TWIN_COLOR
+		var center: Vector2 = gate.get_gate_rect().get_center()
+		draw_arc(center, GATE_MARK_SCREEN_RADIUS * pixel, 0.0, TAU, 16, color, 2.0 * pixel)
+		draw_circle(center, GATE_MARK_SCREEN_RADIUS * 0.4 * pixel, color)
+
+
+## In the room view: a depth gate with no twin gets a red outline and "no twin".
+func _draw_lonely_gates(room: Room) -> void:
+	for child: Node in room.get_children():
+		var gate: DepthGate = child as DepthGate
+		if gate == null or gate.find_twin() != null:
+			continue
+		var outline: Rect2 = gate.get_gate_rect().grow(OUTLINE_MARGIN)
+		draw_rect(outline, GATE_NO_TWIN_COLOR, false, -1.0)
+		var zoom_factor: float = editor.camera.get_zoom_factor()
+		draw_set_transform(outline.position + Vector2(0.0, -2.0) / zoom_factor, 0.0, Vector2.ONE / zoom_factor)
+		draw_string(ThemeDB.fallback_font, Vector2.ZERO, "no twin", HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, GATE_NO_TWIN_COLOR)
+		draw_set_transform(Vector2.ZERO)
 
 
 ## The `edges` (MapView.EDGE_* bits) of `rect`, drawn thick.

@@ -29,6 +29,10 @@ extends Node2D
 ##     everything exactly as it was, so a fire left burning picks up where it stopped
 ##     when you come back. Without this, all rooms of a level ran every frame, and a
 ##     long level got slower the more fires you'd left behind.
+##   - Depths (Level_editor.md §5a): rooms behind rooms live in bands far below
+##     (Room.DEPTH_SPACING), so all of the above works inside a band as it is. Every
+##     DepthGate's use_requested is connected to go_through_gate: Up in a gate
+##     steps into its twin's room, one depth deeper or shallower.
 
 ## How far around the player's hitbox a room counts as "near" and stays awake, in
 ## pixels. A room wakes up a little BEFORE the player reaches it, so its doors,
@@ -37,6 +41,13 @@ extends Node2D
 ## you're clear of its edge. Tile collision doesn't need this: TileMapLayers stay
 ## solid even in a frozen room.
 const AWAKE_MARGIN: float = 16.0
+## Seconds of a depth gate's step (go_through_gate): the front fades while the
+## layer behind clears, or backwards for a gate leading to the front.
+## A look, not feel, so not in PlayerTuning.
+const GATE_STEP_TIME: float = 0.3
+## Seconds the camera glides from the view behind to where it settles in the new
+## room, after the step.
+const GATE_SETTLE_TIME: float = 0.2
 
 @export var player: Player
 @export var camera: RoomCamera
@@ -45,8 +56,13 @@ const AWAKE_MARGIN: float = 16.0
 var rooms: Array[Room] = []
 ## The room the camera is locked to and the player respawns in.
 var current_room: Room = null
-## True during the camera slide between rooms (player is frozen).
+## True during the camera slide between rooms (player is frozen), and during a
+## depth gate's step.
 var is_transitioning: bool = false
+## The parallax background and the depth behind the current room (made in
+## _add_backdrop).
+var backdrop: Backdrop = null
+var back_room_view: BackRoomView = null
 
 
 func _ready() -> void:
@@ -56,6 +72,11 @@ func _ready() -> void:
 
 	# Signals: connect() means "when player emits died, call _on_player_died".
 	player.died.connect(_on_player_died)
+	# Every gate of the level (they joined their group in their own _ready, which
+	# runs before ours: children are ready first).
+	for member: Node in get_tree().get_nodes_in_group(DepthGate.GROUP):
+		if is_ancestor_of(member):
+			(member as DepthGate).use_requested.connect(go_through_gate)
 
 	camera.follow_target = player
 	current_room = _find_room_containing(_get_player_center())
@@ -97,9 +118,9 @@ func _physics_process(_delta: float) -> void:
 ## LevelInfo.start_room in editor levels, else the room the player starts in.
 ## It paints every look the level's rooms use right away (Backdrop.paint_ahead):
 ## a pause while loading instead of a stall on entering a room. Also adds the
-## BackRoomView, which shows a room's back room (Room.back_room) behind it.
+## BackRoomView, which shows the depth behind the current room's (Level_editor.md §5a).
 func _add_backdrop() -> void:
-	var backdrop: Backdrop = Backdrop.new()
+	backdrop = Backdrop.new()
 	backdrop.name = "Backdrop"
 	backdrop.camera = camera
 	backdrop.start_room = current_room
@@ -108,10 +129,12 @@ func _add_backdrop() -> void:
 		backdrop.start_room = level_info.start_room
 	backdrop.paint_ahead(rooms)
 	add_child(backdrop)
-	# Rooms seen behind rooms (Room.back_room), between the backdrop and the rooms.
-	var back_room_view: BackRoomView = BackRoomView.new()
+	# The rooms one depth behind, between the backdrop and the rooms.
+	back_room_view = BackRoomView.new()
 	back_room_view.name = "BackRoomView"
 	back_room_view.camera = camera
+	back_room_view.player = player
+	back_room_view.backdrop = backdrop
 	back_room_view.rooms = rooms
 	add_child(back_room_view)
 
@@ -155,6 +178,101 @@ func _transition_to_room(next_room: Room) -> void:
 	await camera.slide_to_room(next_room.get_bounds(), player.tuning.room_transition_time)
 	player.set_frozen(false)
 	is_transitioning = false
+
+
+## Through a depth gate (DepthGate.use_requested: Up while standing in it) into
+## its twin's room, one depth deeper or shallower (Level_editor.md §5a). The
+## player freezes for the step; then:
+## The backdrop zooms to the new depth's size all through the step (Backdrop.zoom_to).
+##   GOING IN (_step_in): the rooms of this depth fade out while the layer behind
+##     loses its haze and grows to full size; then the swap (below), and the camera
+##     starts where the view behind was looking and glides to settle.
+##   GOING OUT (_step_out), the same backwards: the swap first; the room we left
+##     shows behind, clear and full size, exactly where we were looking, and hazes
+##     and shrinks back while the rooms of the new depth fade in over it; then the
+##     view behind and the camera glide to settle.
+## The swap: the player moves by the band difference (so they stand in the twin
+## exactly where they stood in the gate), and the twin's room becomes the current
+## room (GameState.room_entered: the backdrop and the view behind follow).
+## Respawning stays as it is: the current room's spawn, now in the new depth.
+func go_through_gate(gate: DepthGate) -> void:
+	var twin: DepthGate = gate.find_twin() if is_instance_valid(gate) else null
+	if twin == null or is_transitioning or player.is_dead() or GameState.is_run_finished:
+		return
+	var twin_room: Room = Room.find_room_of(twin)
+	if twin_room == null:
+		return
+	is_transitioning = true
+	player.velocity = Vector2.ZERO
+	player.set_frozen(true)
+	FX.play_sfx(&"gate")
+	# The backdrop zooms to the new depth's size during the step (Backdrop.ZOOM_PER_DEPTH).
+	backdrop.zoom_to(Backdrop.zoom_for_depth(twin.get_depth()), GATE_STEP_TIME + GATE_SETTLE_TIME)
+	if twin.get_depth() > gate.get_depth():
+		await _step_in(gate, twin, twin_room)
+	else:
+		await _step_out(gate, twin, twin_room)
+	player.set_frozen(false)
+	is_transitioning = false
+
+
+## See go_through_gate: into the layer behind.
+func _step_in(gate: DepthGate, twin: DepthGate, twin_room: Room) -> void:
+	var old_rooms: Array[Room] = _rooms_at_depth(current_room.get_depth())
+	var step: Tween = create_tween().set_parallel(true)
+	for room: Room in old_rooms:
+		step.tween_property(room, "modulate:a", 0.0, GATE_STEP_TIME)
+	var behind_step: Tween = back_room_view.begin_step(GATE_STEP_TIME)
+	await step.finished
+	if behind_step.is_valid() and behind_step.is_running():
+		await behind_step.finished
+	var view_start: Vector2 = back_room_view.get_view_center()
+	back_room_view.end_step()
+	_swap_to(gate, twin, twin_room)
+	for room: Room in old_rooms:
+		room.modulate.a = 1.0  # off in their own band now
+	camera.global_position = view_start.round()
+	camera.reset_smoothing()
+	await camera.slide_to_room(twin_room.get_bounds(), GATE_SETTLE_TIME)
+
+
+## See go_through_gate: back out to the layer in front.
+func _step_out(gate: DepthGate, twin: DepthGate, twin_room: Room) -> void:
+	var left_depth: int = current_room.get_depth()
+	var old_view: Vector2 = camera.get_screen_center_position()
+	var band_shift: Vector2 = twin.global_position - gate.global_position
+	_swap_to(gate, twin, twin_room)
+	# The camera looks straight through the gate at the same spot, held there.
+	camera.hold_at((old_view + band_shift).round())
+	var behind_step: Tween = back_room_view.begin_return(left_depth, old_view, GATE_STEP_TIME)
+	var arrive: Tween = create_tween().set_parallel(true)
+	for room: Room in _rooms_at_depth(twin_room.get_depth()):
+		room.modulate.a = 0.0
+		arrive.tween_property(room, "modulate:a", 1.0, GATE_STEP_TIME)
+	await arrive.finished
+	if behind_step.is_valid() and behind_step.is_running():
+		await behind_step.finished
+	back_room_view.release_view()
+	await camera.slide_to_room(twin_room.get_bounds(), GATE_SETTLE_TIME)
+
+
+## The step's swap (see go_through_gate).
+func _swap_to(gate: DepthGate, twin: DepthGate, twin_room: Room) -> void:
+	player.global_position += twin.global_position - gate.global_position
+	_set_room_awake(twin_room, true)
+	twin_room.reset_enemies()
+	current_room = twin_room
+	GameState.current_room = twin_room
+	_update_awake_rooms()
+
+
+## Every room at `depth`.
+func _rooms_at_depth(depth: int) -> Array[Room]:
+	var found: Array[Room] = []
+	for room: Room in rooms:
+		if room.get_depth() == depth:
+			found.append(room)
+	return found
 
 
 ## Teleports the player to `target_room`'s spawn and snaps the camera there, with no

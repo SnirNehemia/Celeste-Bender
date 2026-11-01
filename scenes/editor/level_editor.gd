@@ -58,6 +58,14 @@ extends Node2D
 ##   - Map view (M, Stage L7): MapView takes the mouse over: make, move, resize,
 ##     delete and import rooms, pick the start room, double-click to edit a room.
 ##     In the room view, rooms other than the current one are drawn dimmed.
+##   - Depths (Level_editor.md §5a, Stages D1-D2): rooms behind rooms live in bands
+##     far below (Room.DEPTH_SPACING); the camera looks at one band at a time
+##     (get_shown_depth, show_depth: Page Down / Page Up, in the map and the room
+##     view, or the depth slider in the status line). The depth behind it is drawn
+##     hazed underneath, the one in front very faintly on top, both 1:1
+##     (EditorDepthView). A depth gate placed where a
+##     room is behind gets its twin there in the same undo step; moving or deleting
+##     a gate does the same to its twins (_gate_twins).
 ## Every change is one UndoRedo action, so Ctrl+Z undoes it.
 ##
 ## Earth rooms (Stage L8): a room with an "Earth" layer is drawn by its
@@ -121,7 +129,11 @@ const STRIP_PREVIEW_COLOR: Color = Color(0.9, 0.2, 0.2, 0.4)
 ## (Level_editor.md §5). The room's size is changed on the map (Stage L7).
 const ROOM_SETTINGS: Array[StringName] = [&"display_title", &"air_allowed", &"earth_allowed",
 	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake", &"painted_ground", &"backdrop_theme",
-	&"backdrop_altitude", &"back_room"]
+	&"backdrop_altitude"]
+## The depth in front (EditorDepthView) draws over the level's objects (they reach
+## z_index 10 or so; a hidden chamber's lid is 100 and stays on top), and the
+## overlay just over it.
+const FRONT_VIEW_Z_INDEX: int = 50
 ## How close to a zone's edge a click must be to pick the zone, screen pixels.
 const EDGE_PICK_SCREEN_PIXELS: float = 3.0
 ## Seconds the play-test keeps running after the goal, so you see you made it.
@@ -170,6 +182,10 @@ var camera: EditorCamera
 var overlay: EditorOverlay
 var ui: EditorUI
 var backdrop: Node2D
+## The depth behind the one being edited, hazed, and the one in front, faint
+## (Level_editor.md §5a).
+var back_view: EditorDepthView
+var front_view: EditorDepthView
 var grid_visible: bool = true
 ## The map of rooms (M). While it's open, it gets the mouse and the map keys.
 var map_view: MapView = null
@@ -286,10 +302,35 @@ func _ready() -> void:
 	# The `draw` signal lets another script draw on a node: the callback's
 	# draw_* calls must go through that node (backdrop.draw_rect...).
 	backdrop.draw.connect(_draw_backdrop)
+	# The editor's own drawings stay out of the depth views (EditorDepthView).
+	backdrop.visibility_layer = EditorDepthView.EDITOR_ONLY_LAYER
 	add_child(backdrop)
+	# Even deeper depths, fainter (a test, BackRoomView.DEEPER_LAYERS): the deepest
+	# first, so the nearer ones draw over them.
+	for steps_back: int in range(BackRoomView.DEEPER_LAYERS + 1, 1, -1):
+		var deeper_view: EditorDepthView = EditorDepthView.new()
+		deeper_view.name = "DeeperView%d" % steps_back
+		deeper_view.editor = self
+		deeper_view.direction = steps_back
+		backdrop.add_child(deeper_view)
+	# The depth behind, hazed: over the backdrop (its child), under the level.
+	back_view = EditorDepthView.new()
+	back_view.name = "BackView"
+	back_view.editor = self
+	back_view.direction = 1
+	backdrop.add_child(back_view)
+	# The depth in front, faint: over the level (z_index), under the overlay's lines.
+	front_view = EditorDepthView.new()
+	front_view.name = "FrontView"
+	front_view.editor = self
+	front_view.direction = -1
+	front_view.z_index = FRONT_VIEW_Z_INDEX
+	add_child(front_view)
 	overlay = EditorOverlay.new()
 	overlay.name = "EditorOverlay"
 	overlay.editor = self
+	overlay.visibility_layer = EditorDepthView.EDITOR_ONLY_LAYER
+	overlay.z_index = FRONT_VIEW_Z_INDEX + 1
 	add_child(overlay)
 	camera = EditorCamera.new()
 	camera.name = "EditorCamera"
@@ -305,6 +346,8 @@ func _ready() -> void:
 	# panel shows may have changed, so it re-reads them.
 	undo_redo.version_changed.connect(ui.property_panel.refresh)
 	undo_redo.version_changed.connect(_update_link_footer)
+	undo_redo.version_changed.connect(_refresh_depth_looks)
+	ui.depth_chosen.connect(show_depth)
 	ui.set_zoom(camera.get_zoom_factor())
 	choose_entry(PaletteCatalog.get_entry(&"ground"))
 
@@ -337,6 +380,8 @@ func _process(_delta: float) -> void:
 	_update_preview()
 	backdrop.queue_redraw()
 	ui.set_dirty(is_dirty())
+	if level_root != null:
+		ui.set_depth(get_shown_depth(), map_view.get_deepest_depth() + 1)
 
 
 # --- Opening and saving ---
@@ -464,6 +509,51 @@ func get_rooms() -> Array[Room]:
 		if child is Room:
 			rooms.append(child)
 	return rooms
+
+
+## The depth being edited (Level_editor.md §5a): the map's shown depth, or in the
+## room view the band the camera looks at. The depth behind it shows hazed.
+func get_shown_depth() -> int:
+	if map_view != null and map_view.is_open:
+		return map_view.shown_depth
+	return Room.depth_at(camera.position.y)
+
+
+## Shows `depth` for editing (Page Down / Page Up, the depth slider): in the map
+## through MapView.set_shown_depth; in the room view the camera hops to that
+## depth's band at the same map spot, and the room there (if any) becomes the
+## current room. 0 to one past the deepest. False if out of range or already shown.
+func show_depth(depth: int) -> bool:
+	if level_root == null:
+		return false
+	if map_view.is_open:
+		return map_view.set_shown_depth(depth)
+	var shown: int = get_shown_depth()
+	if depth < 0 or depth > map_view.get_deepest_depth() + 1 or depth == shown:
+		return false
+	end_stroke()
+	end_link_mode()
+	select(null)
+	camera.position += Room.depth_offset(depth) - Room.depth_offset(shown)
+	var room: Room = room_at(camera.position)
+	if room != null:
+		current_room = room
+	ui.show_message("Editing depth %d%s." % [depth, " (the front)" if depth == 0
+		else (": no rooms here yet, make one in the map (M)" if map_view.get_rooms_at_depth(depth).is_empty() else "")])
+	return true
+
+
+## After every edit, undo or redo: rooms may have moved or changed their edge
+## tiles (their RoomEdgeRims redraw), and depth gates may have gained or lost
+## twins (their arrows; the gates don't run while editing).
+func _refresh_depth_looks() -> void:
+	for room: Room in get_rooms():
+		var rim: Node2D = room.get_node_or_null(NodePath(Room.RIM_NAME)) as Node2D
+		if rim != null:
+			rim.queue_redraw()
+		for child: Node in room.get_children():
+			if child is DepthGate:
+				(child as DepthGate).refresh_twin()
 
 
 ## The room whose bounds contain `world_point`, or null.
@@ -1620,15 +1710,93 @@ func is_solid_cell(room: Room, cell: Vector2i) -> bool:
 	return false
 
 
-## Moves an object to `new_position` (room-local). Undoable.
+## Moves an object to `new_position` (room-local). Undoable. A depth gate's twins
+## move by as much in the same step; if one would leave its room, the move is
+## refused and the gate goes back.
 func move_object(node: Node2D, new_position: Vector2, old_position: Variant = null) -> void:
 	var from: Vector2 = node.position if old_position == null else old_position
 	if from == new_position:
 		return
+	var twins: Array[DepthGate] = []
+	if node is DepthGate:
+		twins = _gate_twins(node.get_parent() as Room, from)
+		for twin: DepthGate in twins:
+			if not _is_gate_inside(Room.find_room_of(twin), twin.position + new_position - from):
+				_set_object_position(node, from)
+				ui.show_message("The gate's twin would leave %s: the gate went back." % room_title(Room.find_room_of(twin)), true)
+				return
 	undo_redo.create_action("Move %s" % node.name)
 	undo_redo.add_do_method(_set_object_position.bind(node, new_position))
 	undo_redo.add_undo_method(_set_object_position.bind(node, from))
+	for twin: DepthGate in twins:
+		undo_redo.add_do_method(_set_object_position.bind(twin, twin.position + new_position - from))
+		undo_redo.add_undo_method(_set_object_position.bind(twin, twin.position))
 	undo_redo.commit_action()
+
+
+# --- Depth gates and their twins (Level_editor.md §5a) ---
+
+## The twins (behind and in front) of a gate whose top-left is `local_position`
+## in `room`: the gates at the same map spot one depth either way.
+func _gate_twins(room: Room, local_position: Vector2) -> Array[DepthGate]:
+	var twins: Array[DepthGate] = []
+	if room == null:
+		return twins
+	for direction: int in [1, -1]:
+		var spot: Vector2 = room.global_position + local_position + Room.depth_offset(direction)
+		var twin: DepthGate = DepthGate.find_gate_at(get_tree(), room, spot)
+		if twin != null:
+			twins.append(twin)
+	return twins
+
+
+## True if a gate at `local_position` fits wholly inside `room`.
+func _is_gate_inside(room: Room, local_position: Vector2) -> bool:
+	return Rect2(Vector2.ZERO, room.room_size).encloses(Rect2(local_position, DepthGate.GATE_SIZE))
+
+
+## The room a twin of a gate at `local_position` in `room` would go in, `direction`
+## depths away (it must fit wholly inside), or null. Null too if a gate is
+## already there.
+func get_twin_room(room: Room, local_position: Vector2, direction: int) -> Room:
+	var spot: Vector2 = room.global_position + local_position + Room.depth_offset(direction)
+	# The room under the twin's middle (its top-left could sit on a room's edge).
+	var twin_room: Room = room_at(spot + DepthGate.GATE_SIZE / 2.0)
+	if twin_room == null or not _is_gate_inside(twin_room, spot - twin_room.global_position):
+		return null
+	if DepthGate.find_gate_at(get_tree(), room, spot) != null:
+		return null
+	return twin_room
+
+
+## Inside the undo action being made: a twin for a gate at `local_position` in
+## `room`, `direction` depths away, if a room is there for it. Returns the twin
+## (not in the tree yet) or null.
+func _add_twin_steps(room: Room, local_position: Vector2, direction: int) -> DepthGate:
+	var twin_room: Room = get_twin_room(room, local_position, direction)
+	if twin_room == null:
+		return null
+	var twin: DepthGate = PaletteCatalog.instantiate(PaletteCatalog.get_entry(&"depth_gate")) as DepthGate
+	twin.position = room.global_position + local_position + Room.depth_offset(direction) - twin_room.global_position
+	_add_object_steps(twin_room, twin)
+	return twin
+
+
+## The map's "Add missing gate twins": every gate in `rooms` with no twin gets one
+## behind (or, with no room there, in front), where a room is there for it. One
+## undo step. Returns how many were made.
+func add_missing_gate_twins(rooms: Array[Room]) -> int:
+	undo_redo.create_action("Add gate twins")
+	var made: int = 0
+	for room: Room in rooms:
+		for child: Node in room.get_children():
+			var gate: DepthGate = child as DepthGate
+			if gate == null or gate.find_twin() != null:
+				continue
+			if _add_twin_steps(room, gate.position, 1) != null or _add_twin_steps(room, gate.position, -1) != null:
+				made += 1
+	undo_redo.commit_action()
+	return made
 
 
 ## Moves an object and keeps its drawn path / rail with it. A holder's vines stay
@@ -1727,6 +1895,10 @@ func delete_object(node: Node2D) -> bool:
 		return false
 	undo_redo.create_action("Delete %s" % node.name)
 	_add_delete_steps(node)
+	# A depth gate's twins go with it (they'd lead nowhere).
+	if node is DepthGate:
+		for twin: DepthGate in _gate_twins(node.get_parent() as Room, node.position):
+			_add_delete_steps(twin)
 	undo_redo.commit_action()
 	return true
 
@@ -1809,8 +1981,15 @@ func toggle_grid() -> void:
 func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void:
 	undo_redo.create_action(action_name)
 	_add_object_steps(room, node)
+	# A depth gate placed where a room is behind gets its twin there, same step.
+	var twin: DepthGate = _add_twin_steps(room, node.position, 1) if node is DepthGate else null
 	undo_redo.commit_action()
 	selected_object = node
+	if node is DepthGate:
+		if twin != null:
+			ui.show_message("Gate placed, with its twin in %s behind." % room_title(Room.find_room_of(twin)))
+		else:
+			ui.show_message("No room behind this gate yet: it has no twin (red) until one is there.", true)
 
 
 ## Inside the undo action being made: adds `node` (not in the tree yet) to `room`,
@@ -2115,6 +2294,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# The map takes its own clicks and keys (its handle_input says if it used this one).
 	elif map_view.is_open and map_view.handle_input(event, mouse_world):
 		pass
+	# Page Down / Page Up in the room view: another depth (the map handles its own).
+	elif event.is_action_pressed("editor_depth_deeper") or event.is_action_pressed("editor_depth_shallower"):
+		var step: int = 1 if event.is_action_pressed("editor_depth_deeper") else -1
+		if not show_depth(get_shown_depth() + step) and step > 0:
+			ui.show_message("Depth %d is empty: make a room there (M) before going deeper." % get_shown_depth(), true)
 	elif event.is_action_pressed("editor_paint"):
 		_on_left_pressed(mouse_world)
 	elif event.is_action_pressed("editor_erase"):

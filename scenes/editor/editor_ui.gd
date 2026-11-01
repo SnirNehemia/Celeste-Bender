@@ -20,7 +20,10 @@ extends CanvasLayer
 ##                  "which one?" and the map's right-click room menu
 ##   - property panel: right column, the selected object's (or room's) settings
 ##                  (PropertyPanel, Stage L5)
-##   - status line: room + tile under the mouse, the last message, key hints
+##   - status line: room + tile under the mouse, the last message, key hints, and
+##     the DEPTH SLIDER (Level_editor.md §5a): drag it to edit another depth
+##     (depth_chosen; LevelEditor.show_depth). It reaches one past the deepest
+##     depth, to start a new one.
 ## It also holds the PromptPanel the editor asks questions with, and the import
 ## list (RoomImportPicker, Stage L7).
 ##
@@ -32,6 +35,8 @@ extends CanvasLayer
 
 ## A palette button was clicked: LevelEditor switches to that brush or object.
 signal entry_chosen(entry: PaletteCatalog.Entry)
+## The depth slider was moved to `depth` (LevelEditor.show_depth).
+signal depth_chosen(depth: int)
 
 const FONT_SIZE: int = 8
 const PANEL_COLOR: Color = Color(0.12, 0.12, 0.15, 0.92)
@@ -55,12 +60,14 @@ const STRIP_HINTS: String = "Drag along a row or column: spikes  R: turn selecte
 const ERASER_HINTS: String = "Click or drag: remove objects (zones too), else tiles  Shift+drag: a block  E: eraser off"
 const SELECT_HINTS: String = "Left: select, drag to move  Shift+drag: region  Ctrl+C/X/V: copy, cut, paste  Ctrl+Shift+V: mirrored"
 const FILL_HINTS: String = "Left: fill the connected area  Shift: all over the room  Right: clear it  B: back to the brush"
-const MAP_HINTS: String = "Drag empty: select rooms  Ctrl+click: add  Drag room / edge: move / resize  Double-click: edit  Right: new room, backdrop, copy  K: backdrops  S: start  Del  M: back"
+const MAP_HINTS: String = "Drag empty: select rooms  Ctrl+click: add  Drag room / edge: move / resize  Double-click: edit  Right: new room, backdrop, copy, depth  K: backdrops  S: start  Del  PgDn/PgUp: depth  M: back"
 ## How strongly a palette button is tinted in its element's color: resting,
 ## under the mouse, chosen.
 const ELEMENT_TINT: Array[float] = [0.22, 0.34, 0.6]
 ## The element stripe on a button's left edge, px.
 const ELEMENT_STRIPE_WIDTH: int = 2
+## The depth slider's width, px.
+const DEPTH_SLIDER_WIDTH: float = 60.0
 const COMMON_HINTS: String = "H: all keys  M: map  Tab: play  J: jump reach  P: pick  Ctrl+F: find  1-9: recent  E: eraser  Ctrl+Z/Y  Ctrl+S"
 
 var title_label: Label
@@ -69,6 +76,9 @@ var tool_label: Label
 var zoom_label: Label
 var cursor_label: Label
 var message_label: Label
+## The depth slider and its "Depth N" label (see the header).
+var depth_label: Label
+var depth_slider: HSlider
 var top_bar: PanelContainer
 var palette: PanelContainer
 var property_panel: PropertyPanel
@@ -172,6 +182,20 @@ func _ready() -> void:
 	message_label.clip_text = true
 	message_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_row.add_child(message_label)
+	depth_label = Label.new()
+	status_row.add_child(depth_label)
+	depth_slider = HSlider.new()
+	depth_slider.custom_minimum_size = Vector2(DEPTH_SLIDER_WIDTH, 0)
+	depth_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	depth_slider.step = 1.0
+	depth_slider.tick_count = 2
+	depth_slider.ticks_on_borders = true
+	# Never keyboard focus: the arrows must keep moving the camera, Page Down / Up
+	# step depths themselves.
+	depth_slider.focus_mode = Control.FOCUS_NONE
+	# value_changed: a Range's signal when the value moves (dragged or clicked).
+	depth_slider.value_changed.connect(func(value: float) -> void: depth_chosen.emit(roundi(value)))
+	status_row.add_child(depth_slider)
 
 	prompt = PromptPanel.new()
 	root.add_child(prompt)
@@ -286,6 +310,15 @@ func set_key_hints(tool_hints: String) -> void:
 	key_hints = tool_hints + "    " + COMMON_HINTS
 	if message_time_left <= 0.0:
 		show_message("")
+
+
+## Shows `shown` on the depth slider, which reaches `depth_count` (one past the
+## deepest: a new depth). Doesn't emit depth_chosen.
+func set_depth(shown: int, depth_count: int) -> void:
+	depth_slider.max_value = depth_count
+	depth_slider.tick_count = depth_count + 1
+	depth_slider.set_value_no_signal(shown)
+	depth_label.text = "Depth %d" % shown
 
 
 func set_zoom(zoom_factor: float) -> void:

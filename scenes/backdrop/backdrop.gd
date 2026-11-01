@@ -126,6 +126,18 @@ const WIPE_SHADER: Shader = preload("res://scenes/backdrop/backdrop_wipe.gdshade
 const AT_REST_EDGE: float = 100000.0
 ## Draw order: below the rooms (layer 0) and every UI CanvasLayer.
 const CANVAS_LAYER_INDEX: int = -10
+## get_main_color: every this many px of a layer's picture is read, and the color
+## when there's no picture (the game's background color).
+const MAIN_COLOR_SAMPLE_STEP: int = 4
+const MAIN_COLOR_FALLBACK_SETTING: String = "rendering/environment/defaults/default_clear_color"
+## get_main_color's results, per Vector2i(look, altitude), for the whole run.
+static var _main_colors: Dictionary = {}
+## DEPTH ZOOM (Level_editor.md §5a, after the D play-test): the deeper the room
+## you're in, the closer the backdrop: it's drawn this much bigger per depth (from
+## the screen's middle), up to MAX_DEPTH_ZOOM. A depth gate's step zooms it along
+## (zoom_to), so stepping in pushes into the scene and stepping out eases back.
+const ZOOM_PER_DEPTH: float = 0.08
+const MAX_DEPTH_ZOOM: float = 1.24
 
 ## The camera whose movement drives the parallax. Set by RoomManager.
 var camera: Camera2D = null
@@ -157,6 +169,11 @@ var _camera_start: Vector2 = Vector2.INF
 ## The middle of the room entered last: which way the player went decides which
 ## way a new look at the same altitude scrolls in.
 var _last_room_center: Vector2 = Vector2.INF
+## Its depth (Room.get_depth): a change of depth (a depth gate) shows at once.
+var _last_room_depth: int = 0
+## The depth zoom now (1 at depth 0), and the gate step's zoom tween (null: none).
+var _zoom: float = 1.0
+var _zoom_tween: Tween = null
 
 
 func _ready() -> void:
@@ -168,7 +185,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if camera == null or not is_instance_valid(camera):
 		return
-	var camera_center: Vector2 = camera.get_screen_center_position()
+	# On the map: rooms behind rooms sit in bands far below (Room.DEPTH_SPACING),
+	# and stepping through a depth gate must not scroll the backdrop by a band.
+	var camera_center: Vector2 = Room.to_map_point(camera.get_screen_center_position())
 	if _camera_start == Vector2.INF:
 		_camera_start = camera_center
 	for frame: Node in get_children():
@@ -353,6 +372,59 @@ func is_sliding() -> bool:
 	return _slide_tween != null and _slide_tween.is_valid() and _slide_tween.is_running()
 
 
+## The MAIN COLOR of `look` at `altitude`: what its whole picture averages to on
+## screen, its painted layers laid over each other far to near (each layer's
+## average color, weighted by how much of the screen it covers). Dark in caves,
+## light in skylines. Rooms seen from another depth fade toward it
+## (BackRoomView, EditorDepthView: Level_editor.md §5a). Worked out once per look
+## and altitude (building the theme uses the painted pictures' caches), then kept.
+## Without pictures to read (a headless run) or for NONE: the plain background color.
+static func get_main_color(look: Look, altitude: Altitude) -> Color:
+	if altitude == Altitude.AUTO:
+		altitude = Altitude.SURFACE
+	var key: Vector2i = Vector2i(look, altitude)
+	if _main_colors.has(key):
+		return _main_colors[key]
+	var color: Color = ProjectSettings.get_setting(MAIN_COLOR_FALLBACK_SETTING, Color(0.3, 0.3, 0.3))
+	if THEME_SCRIPTS.has(look):
+		var theme: BackdropTheme = (THEME_SCRIPTS[look][altitude] as GDScript).new() as BackdropTheme
+		theme.build()
+		for child: Node in theme.get_children():
+			var painted_layer: BackdropLayer = child as BackdropLayer
+			if painted_layer == null or painted_layer.texture == null:
+				continue
+			color = _lay_over(color, painted_layer.texture.get_image())
+		theme.free()
+	_main_colors[key] = color
+	return color
+
+
+## `below` with the on-screen rows of a layer's `picture` laid over it: the
+## picture's average color, mixed in as much as the picture covers (alpha).
+## Every MAIN_COLOR_SAMPLE_STEP-th pixel is enough for an average.
+static func _lay_over(below: Color, picture: Image) -> Color:
+	if picture == null:
+		return below
+	var sum: Color = Color(0.0, 0.0, 0.0, 0.0)
+	var samples: int = 0
+	var bottom: int = mini(picture.get_height(), BackdropPaint.SCREEN_TOP_ROW + BackdropPaint.SCREEN_HEIGHT)
+	for y: int in range(BackdropPaint.SCREEN_TOP_ROW, bottom, MAIN_COLOR_SAMPLE_STEP):
+		for x: int in range(0, picture.get_width(), MAIN_COLOR_SAMPLE_STEP):
+			var pixel: Color = picture.get_pixel(x, y)
+			# Weighted by alpha: see-through pixels count for less.
+			sum += Color(pixel.r * pixel.a, pixel.g * pixel.a, pixel.b * pixel.a, pixel.a)
+			samples += 1
+	if samples == 0 or sum.a <= 0.0:
+		return below
+	var average: Color = Color(sum.r / sum.a, sum.g / sum.a, sum.b / sum.a)
+	return below.lerp(average, sum.a / samples)
+
+
+## The main color of the look on show now (get_main_color).
+func get_current_main_color() -> Color:
+	return get_main_color(current_look, current_altitude)
+
+
 ## A short name for a look and altitude, e.g. "Forest, skyline" (the editor's map).
 static func describe(look: Look, altitude: Altitude) -> String:
 	if look == Look.NONE:
@@ -381,7 +453,7 @@ func _make_frame(look: Look, altitude: Altitude) -> Control:
 		theme.build()
 		group.add_child(theme)
 		if camera != null and _camera_start != Vector2.INF:
-			theme.follow_camera(camera.get_screen_center_position() - _camera_start, 0.0)
+			theme.follow_camera(Room.to_map_point(camera.get_screen_center_position()) - _camera_start, 0.0)
 	return frame
 
 
@@ -394,18 +466,51 @@ static func _group_in(frame: Node) -> CanvasGroup:
 	return frame.get_node_or_null(^"Group") as CanvasGroup
 
 
+## How much bigger the backdrop is drawn behind a room of `depth` (see ZOOM_PER_DEPTH).
+static func zoom_for_depth(depth: int) -> float:
+	return minf(1.0 + ZOOM_PER_DEPTH * maxi(depth, 0), MAX_DEPTH_ZOOM)
+
+
+## Zooms to `zoom` over `duration` seconds (a depth gate's step). Returns the tween.
+func zoom_to(zoom: float, duration: float) -> Tween:
+	if _zoom_tween != null and _zoom_tween.is_valid():
+		_zoom_tween.kill()
+	_zoom_tween = create_tween()
+	_zoom_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_zoom_tween.tween_method(set_zoom, _zoom, zoom, duration)
+	return _zoom_tween
+
+
+## Draws the whole backdrop `zoom` times bigger around the screen's middle: a
+## CanvasLayer's own scale and offset move everything on it at once.
+func set_zoom(zoom: float) -> void:
+	_zoom = zoom
+	scale = Vector2.ONE * zoom
+	offset = get_viewport().get_visible_rect().size / 2.0 * (1.0 - zoom)
+
+
+## The depth zoom now. For tests.
+func get_zoom() -> float:
+	return _zoom
+
+
 func _on_room_entered(room: Room) -> void:
 	# Only rooms of our own world: in Story Mode the next level's world is made
 	# while this one is on its way out.
 	if not is_instance_valid(room) or not get_parent().is_ancestor_of(room):
 		return
-	var center: Vector2 = room.get_bounds().get_center()
+	# The depth zoom: at once, unless a gate's step is zooming it there already.
+	if _zoom_tween == null or not _zoom_tween.is_running():
+		set_zoom(zoom_for_depth(room.get_depth()))
+	var center: Vector2 = room.get_map_bounds().get_center()
 	var altitude: Altitude = room.get_backdrop_altitude(start_room)
 	if altitude == Altitude.AUTO:
 		altitude = Altitude.SURFACE
 	var direction: Vector2 = Vector2.ZERO
-	# The first room of a level shows at once.
-	if _current_frame != null and _last_room_center != Vector2.INF:
+	# The first room of a level shows at once, and so does the look behind a depth
+	# gate (Level_editor.md §5a): the gate's step already hides the change.
+	if _current_frame != null and _last_room_center != Vector2.INF and room.get_depth() == _last_room_depth:
 		direction = get_slide_direction(current_altitude, altitude, center - _last_room_center)
 	_last_room_center = center
+	_last_room_depth = room.get_depth()
 	show_look(room.get_backdrop_theme(), altitude, direction)

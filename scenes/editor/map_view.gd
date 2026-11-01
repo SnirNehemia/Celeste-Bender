@@ -41,6 +41,18 @@ extends RefCounted
 ##     on cells. Tiles left outside a smaller room are cut off (undo brings them back).
 ## Overlaps are refused: the preview turns red and letting go puts the room back.
 ##
+## DEPTHS (Level_editor.md §5a, Stage D1): rooms can sit behind rooms. The map
+## shows ONE depth (`shown_depth`; Page Down / Page Up step deeper / shallower,
+## up to one past the deepest, to start a new depth), and the next deeper one
+## under it, hazed (EditorDepthView), with thin outlines in the depth color. Each
+## depth lives in its own band of the world (Room.DEPTH_SPACING), and the camera
+## looks at the shown depth's band, so everything here (snapping, overlaps,
+## openings, new rooms, imports) works in world coordinates and only ever meets
+## rooms of the shown depth: the other bands are far away. Overlaps across depths
+## are allowed (that's what "behind" means). The right-click menu moves the
+## selected rooms one depth back or forward (refused if they'd overlap there), and
+## gives gates without a twin one where a room is behind or in front.
+##
 ## Every change is one UndoRedo step on the editor's undo_redo.
 
 enum Drag { NONE, CREATE, MOVE, RESIZE, SELECT }
@@ -93,6 +105,8 @@ var clipboard_title: String = ""
 ## The room view's camera, to come back to when the map closes.
 var room_view_zoom_index: int = 0
 var room_view_position: Vector2 = Vector2.ZERO
+## The depth the map shows (see the header): 0 = the front.
+var shown_depth: int = 0
 
 
 func _init(owner_editor: LevelEditor) -> void:
@@ -108,6 +122,7 @@ func open() -> void:
 	is_open = true
 	room_view_zoom_index = editor.camera.zoom_index
 	room_view_position = editor.camera.position
+	shown_depth = editor.current_room.get_depth() if editor.current_room != null else 0
 	select_room(editor.current_room)
 	editor.fit_view(get_level_bounds())
 
@@ -133,15 +148,60 @@ func close(focus_room: Room = null) -> void:
 	editor.ui.set_zoom(editor.camera.get_zoom_factor())
 
 
-## Every room's rectangle together (the first room's if there's only one).
+## The shown depth's rooms' rectangles together (world, in its band). A depth
+## with no rooms yet: every room's map rectangle, moved into its band.
 func get_level_bounds() -> Rect2:
-	var rooms: Array[Room] = editor.get_rooms()
+	var rooms: Array[Room] = get_rooms_at_depth(shown_depth)
+	var in_band: bool = not rooms.is_empty()
+	if not in_band:
+		rooms = editor.get_rooms()
 	if rooms.is_empty():
-		return Rect2(Vector2.ZERO, MIN_ROOM_SIZE)
-	var bounds: Rect2 = room_rect(rooms[0])
+		return Rect2(Room.depth_offset(shown_depth), MIN_ROOM_SIZE)
+	var bounds: Rect2 = room_rect(rooms[0]) if in_band else rooms[0].get_map_bounds()
 	for room: Room in rooms:
-		bounds = bounds.merge(room_rect(room))
+		bounds = bounds.merge(room_rect(room) if in_band else room.get_map_bounds())
+	if not in_band:
+		bounds.position += Room.depth_offset(shown_depth)
 	return bounds
+
+
+## The rooms at `depth` (Room.get_depth).
+func get_rooms_at_depth(depth: int) -> Array[Room]:
+	var found: Array[Room] = []
+	for room: Room in editor.get_rooms():
+		if room.get_depth() == depth:
+			found.append(room)
+	return found
+
+
+## The deepest depth any room is at (0 with only front rooms).
+func get_deepest_depth() -> int:
+	var deepest: int = 0
+	for room: Room in editor.get_rooms():
+		deepest = maxi(deepest, room.get_depth())
+	return deepest
+
+
+## Page Down / Page Up: shows `depth` (0 to one past the deepest; false if that's
+## out of range). The camera hops to that depth's band at the same map spot, so
+## what's under the mouse stays put; the selection is cleared.
+func set_shown_depth(depth: int) -> bool:
+	if depth < 0 or depth > get_deepest_depth() + 1 or depth == shown_depth:
+		return false
+	cancel_import()
+	drag = Drag.NONE
+	editor.camera.position += Room.depth_offset(depth) - Room.depth_offset(shown_depth)
+	shown_depth = depth
+	select_room(null)
+	hovered_room = null
+	var count: int = get_rooms_at_depth(depth).size()
+	if depth == 0:
+		editor.ui.show_message("Depth 0: the front.")
+	elif count == 0:
+		editor.ui.show_message("Depth %d: no rooms yet. Make one here to start this depth (the depth in front shows nowhere: only the one behind)." % depth)
+	else:
+		editor.ui.show_message("Depth %d: %d room%s behind the depth in front." % [depth, count, "" if count == 1 else "s"])
+	return true
 
 
 ## A room's rectangle in level coordinates.
@@ -176,6 +236,11 @@ func handle_input(event: InputEvent, mouse_world: Vector2) -> bool:
 			editor.ui.show_message("Click a room first, then S makes it the start room.", true)
 	elif event.is_action_pressed("editor_import"):
 		editor.ui.import_picker.open(editor.level_path)
+	elif event.is_action_pressed("editor_depth_deeper"):
+		if not set_shown_depth(shown_depth + 1):
+			editor.ui.show_message("Depth %d is empty: make a room there before going deeper." % shown_depth, true)
+	elif event.is_action_pressed("editor_depth_shallower"):
+		set_shown_depth(shown_depth - 1)
 	elif event.is_action_pressed("editor_back"):
 		if importing_room != null:
 			cancel_import()
@@ -677,6 +742,34 @@ func _detach_room(room: Room) -> void:
 	editor.detach_node(room)
 
 
+## Moves `rooms` (all of the shown depth) `direction` depths back (+1) or toward
+## the front (-1), at the same map spots. One undo step. Refused (false, with a
+## message) if one would overlap a room there, or go in front of depth 0.
+func move_rooms_to_depth(rooms: Array[Room], direction: int) -> bool:
+	if rooms.is_empty():
+		return false
+	var target_depth: int = rooms[0].get_depth() + direction
+	if target_depth < 0:
+		editor.ui.show_message("Depth 0 is the front: nothing goes in front of it.", true)
+		return false
+	var shift: Vector2 = Room.depth_offset(direction)
+	for room: Room in rooms:
+		for other: Room in get_rooms_at_depth(target_depth):
+			# `other` moved back into our band (minus the shift): both on one map, compared.
+			if room_rect(room).intersects(Rect2(room_rect(other).position - shift, other.room_size)):
+				editor.ui.show_message("%s would overlap %s at depth %d." % [editor.room_title(room), editor.room_title(other), target_depth], true)
+				return false
+	editor.undo_redo.create_action("Move to depth %d" % target_depth)
+	for room: Room in rooms:
+		editor.undo_redo.add_do_property(room, &"position", room.position + shift)
+		editor.undo_redo.add_undo_property(room, &"position", room.position)
+	editor.undo_redo.commit_action()
+	select_room(null)
+	editor.ui.show_message("Moved %d room%s to depth %d (Page %s shows them)." % [rooms.size(), "" if rooms.size() == 1 else "s",
+		target_depth, "Down" if direction > 0 else "Up"])
+	return true
+
+
 ## Makes `room` the start room: the Player starts at its spawn point. Undoable.
 func set_start_room(room: Room) -> void:
 	if editor.level_info == null:
@@ -725,6 +818,16 @@ func _open_room_menu(mouse_world: Vector2) -> void:
 		actions.append(set_start_room.bind(room))
 	if not selected_rooms.is_empty():
 		var target: String = _selection_text()
+		rows.append("Move %s behind (to depth %d)" % [target, shown_depth + 1])
+		actions.append(func() -> void: move_rooms_to_depth(selected_rooms.duplicate(), 1))
+		if shown_depth > 0:
+			rows.append("Move %s to the front (to depth %d)" % [target, shown_depth - 1])
+			actions.append(func() -> void: move_rooms_to_depth(selected_rooms.duplicate(), -1))
+		rows.append("Add missing gate twins in %s" % target)
+		actions.append(func() -> void:
+			var made: int = editor.add_missing_gate_twins(selected_rooms)
+			editor.ui.show_message("%d gate twin%s made." % [made, "" if made == 1 else "s"] if made > 0
+				else "No gate there is missing a twin that has a room for it.", made == 0))
 		rows.append("Backdrop look of %s..." % target)
 		actions.append(_open_look_menu)
 		rows.append("Backdrop altitude of %s..." % target)

@@ -162,6 +162,7 @@ Celeste-style painted ground. Lumpy cracked rocks that tumble in flight. Banded 
 - **Element flags per room.**
 - **FX autoload:** slow motion, screen shake, freeze frames, gravel bursts, an SFX hook (no audio yet).
 - **Debug and testing tools:** headless smoke tests per chapter, room generators, a room screenshot tool, F2 room picker.
+- **Depths (rooms behind rooms):** any room can sit behind another (Stages D1-D4, `Level_editor.md` §5a). The rooms one depth behind show through the open air of the room you're in, hazed, sliding a little slower but lined up exactly at the nearest depth gate; a gate pair (same map spot, one depth apart) takes you through with Up. Each depth lives in its own far-away band of the world, so physics and room code are untouched; the editor's map shows one depth at a time (Page Down / Page Up) with the next one hazed underneath.
 
 ## 11. Parked ideas (written down, not built)
 

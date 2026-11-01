@@ -1,5 +1,7 @@
 # Depth layers and depth gates: implementation plan (Stages D1–D4)
 
+**Status: built (1 Nov 2026).** What changed while building is in `Level_editor.md` §5a, "Decided while building"; this plan is kept as the record of the design.
+
 A self-contained plan for building rooms behind rooms with gates between them, all four stages in one go. The short spec is in `Level_editor.md` §5a, the stage prompts are in `PROMPTS.md` ("Depth layers — Stages D1-D4"), and there is a one-line summary in `GAME_DESIGN.md` §2. This file is the full working plan. If they disagree, this file wins; update the others to match when done.
 
 ## 1. Goal

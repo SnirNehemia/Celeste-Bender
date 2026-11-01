@@ -70,6 +70,9 @@ const LEFT_SECTIONS: Array = [
 		["editor_start_room", "make the selected room the start"],
 		["editor_delete", "delete the selected room"],
 		["editor_import", "import a room as a copy"],
+		["editor_depth_deeper", "show the depth behind (rooms behind rooms)"],
+		["editor_depth_shallower", "back toward the front depth"],
+		["Right-click", "move rooms behind / to the front; add gate twins"],
 	]],
 ]
 const RIGHT_SECTIONS: Array = [

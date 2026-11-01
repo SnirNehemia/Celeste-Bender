@@ -41,6 +41,14 @@ func snap_to_room(bounds: Rect2) -> void:
 	reset_smoothing()
 
 
+## Holds the camera still at `center` (world) instead of following, until the
+## next slide_to_room (a depth gate's step out, RoomManager._step_out).
+func hold_at(center: Vector2) -> void:
+	is_sliding = true
+	global_position = center
+	reset_smoothing()
+
+
 ## Slides the camera to `bounds` over `duration` seconds. Use with `await` to wait
 ## for the slide to finish:  await camera.slide_to_room(bounds, 0.3)
 func slide_to_room(bounds: Rect2, duration: float) -> void:
@@ -59,8 +67,16 @@ func slide_to_room(bounds: Rect2, duration: float) -> void:
 ## Where the camera center should be: on the target, but clamped so the screen
 ## stays inside `bounds`. Rounded to whole pixels so pixel art doesn't shimmer.
 func _get_clamped_center(bounds: Rect2) -> Vector2:
-	var half_screen: Vector2 = get_viewport_rect().size / 2.0
 	var desired_center: Vector2 = follow_target.global_position if follow_target != null else bounds.get_center()
+	return get_center_for(desired_center, bounds)
+
+
+## Where the camera would settle if what it follows stood at `target_point`
+## (world) in a room of `bounds`. BackRoomView uses it to line the layer behind up
+## with the front at a depth gate (Level_editor.md §5a).
+func get_center_for(target_point: Vector2, bounds: Rect2) -> Vector2:
+	var half_screen: Vector2 = get_viewport_rect().size / 2.0
+	var desired_center: Vector2 = target_point
 	# The center can range from (left edge + half a screen) to (right edge - half a screen).
 	# If the room is exactly one screen wide, min == max, so the camera can't move.
 	var min_center: Vector2 = bounds.position + half_screen

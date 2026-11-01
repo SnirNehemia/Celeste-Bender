@@ -357,7 +357,7 @@ Written into `Level_editor.md` (spec v1) and the stages below.
 
 *Decided while building (L11):* files in `scenes/ui/`: `story_entry.gd` + `story_list.gd` (the resources), `story_progress.gd` (the ConfigFile), `story_player.gd` (runs the levels), `story_screen.gd/.tscn`. `LevelStorage.story_path()` is the only place that knows where story.tres lives. StoryPlayer is one node under the tree root, so it survives each level's scene change; it shows the level-complete card and, after the last level, an end card with the totals of that sitting, then goes back to the Story screen. The hook: `GameState.is_story_run`; the EndScreen then only freezes the player. The main menu and the Story screen end a story run. A finished entry stays open even if moved after an unfinished one. Shift+Up/Down are the InputMap actions `story_move_up` / `story_move_down`. The shipped story.tres is Air, the "Test" level, Earth.
 
-## Depth layers — Stages D1-D4 (rooms behind rooms, depth gates)
+## Depth layers — Stages D1-D4 (rooms behind rooms, depth gates) — built
 
 Part of the level editor track, but D2-D3 touch gameplay (RoomManager, the player's Up, BackRoomView). Spec: `Level_editor.md` §5a. Builds on back rooms step 1 (BackRoomView, `back_room_haze.gdshader`).
 
@@ -378,6 +378,8 @@ Part of the level editor track, but D2-D3 touch gameplay (RoomManager, the playe
 
 ## Stage D4 — Readability polish
 > The gate glows softly when its twin is reachable and shows a small Up arrow while the player stands in it; a gate whose twin is missing is dimmed in play. Play-test from the editor starts at the depth of the room it starts in. Check Story Mode and the backdrops across depths. Update the docs.
+
+*Built (D1-D4 in one go, 1 Nov 2026).* Decided while building (full list in `Level_editor.md` §5a): a room's depth is the band it's in, not a stored number; the editor works in world space and shows one band at a time, so the map's snapping, overlaps and openings needed no changes; the depth in front shows as faint outlines on the map; "Move behind / to the front" and "Add missing gate twins" are map right-click rows; the step is 0.3 s of fade plus a 0.2 s camera glide; PARALLAX is 0.75 (was 0.6). After the first play-test: stepping out is the step in reversed, an up/down arrow inside each gate, the layer behind drawn a little smaller (0.92), Page Down / Page Up in the room view and a depth slider, the depth in front shown very faintly while editing, and room edge rims; then the painted backdrop zooming in with each depth and both gate arrows as one crisp pixel arrow (`Level_editor.md` §5a, "After the first D play-test"). Smoke-test sections D1, D2 and D3 in `tests/editor_smoke_test.gd`; `tools/screenshot_back_room` now moves a room behind another in memory, puts a gate pair at the spawn and shoots: in the gate, without the layer behind, moved, three moments of the step in, through, three of the step out, and back.
 
 ---
 

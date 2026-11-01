@@ -56,12 +56,14 @@ func _ready() -> void:
 	await _check_l15_cross_room_strokes()
 	await _check_l16_designer_tools()
 	await _check_l17_backdrops()
+	await _check_d1_depths()
+	await _check_d2_d3_depth_gates()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECORD_PATH))
 	PlaytestRecord.record_path = PlaytestRecord.DEFAULT_RECORD_PATH
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "D1 depths", "D2 depth gates", "D3 pinned parallax"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -2672,26 +2674,203 @@ func _check_l17_backdrops() -> void:
 	ahead_backdrop.free()
 	ahead_room.free()
 
-	# Back rooms (Room.back_room, BackRoomView): found by title or node name, never itself.
-	var front_room: Room = Room.new()
-	front_room.name = "FrontRoom"
-	var deep_room: Room = Room.new()
-	deep_room.name = "DeepRoom"
-	deep_room.display_title = "The Deep"
-	var view: BackRoomView = BackRoomView.new()
-	view.rooms = [front_room, deep_room] as Array[Room]
-	front_room.back_room = "The Deep"
-	var by_title: bool = view.find_back_room(front_room) == deep_room
-	front_room.back_room = "DeepRoom"
-	var by_name: bool = view.find_back_room(front_room) == deep_room
-	deep_room.back_room = "The Deep"
-	_check(by_title and by_name and view.find_back_room(deep_room) == null,
-		"a back room is found by its title or node name, and a room is never its own back room")
-	view.free()
-	front_room.free()
-	deep_room.free()
 	await get_tree().process_frame
 	finished_sections.append("L17 backdrops")
+
+
+## Stage D1 (Level_editor.md §5a): depths in the world and on the map. Leaves the
+## level "Depth Level" saved with a room behind the start room, for D2.
+func _check_d1_depths() -> void:
+	var path: String = LevelStorage.create_level("Depth Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var start: Room = editor.get_rooms()[0]
+	var map: MapView = editor.map_view
+	_check(InputMap.has_action("editor_depth_deeper") and InputMap.has_action("editor_depth_shallower"), "the depth keys are InputMap actions")
+	_check(start.get_depth() == 0 and start.get_map_position() == start.position, "a level's rooms start at depth 0, map = world")
+	editor.toggle_map()
+	_check(map.shown_depth == 0 and not map.set_shown_depth(2), "the map opens on depth 0; two past the deepest is refused")
+	var camera_before: Vector2 = editor.camera.position
+	_check(map.set_shown_depth(1) and editor.camera.position == camera_before + Room.depth_offset(1) and editor.get_shown_depth() == 1,
+		"Page Down shows depth 1: the camera hops one band down, same map spot")
+	var behind: Room = map.create_room(Rect2(start.position + Room.depth_offset(1), start.room_size))
+	_check(behind != null and behind.get_depth() == 1 and behind.get_map_position() == start.position,
+		"a room right behind the start room is allowed (overlap across depths), at depth 1, same map spot")
+	_check(map.create_room(Rect2(behind.position + Vector2(40, 0), MapView.MIN_ROOM_SIZE)) == null, "overlap within one depth is still refused")
+	_check(behind.get_backdrop_altitude(start) == Backdrop.Altitude.SURFACE, "AUTO altitude compares map heights: behind the start is on the surface")
+	editor.fill_room_edges(behind, PaletteCatalog.get_entry(&"ground"))
+	_check(map.set_shown_depth(2) and not map.set_shown_depth(3), "one past the deepest is allowed (a new depth), no further")
+	map.set_shown_depth(0)
+	_check(editor.camera.position == camera_before, "Page Up back to the front: the camera is where it was")
+	await get_tree().process_frame
+	_check(editor.back_view.is_rendering() and editor.back_view.visible, "the map at depth 0 draws depth 1 hazed under it")
+
+	# Moving rooms between depths (one undo step each).
+	var beside: Room = map.create_room_at(start.position + Vector2(start.room_size.x + 160, start.room_size.y / 2.0))
+	var beside_map: Vector2 = beside.get_map_position()
+	_check(map.move_rooms_to_depth([beside] as Array[Room], 1) and beside.get_depth() == 1 and beside.get_map_position() == beside_map,
+		"Move behind: depth 1, same map spot")
+	editor.undo()
+	_check(beside.get_depth() == 0 and beside.get_map_position() == beside_map, "undo brings it back to the front")
+	_check(not map.move_rooms_to_depth([start] as Array[Room], 1) and start.get_depth() == 0, "moving behind onto a room there is refused")
+	_check(not map.move_rooms_to_depth([start] as Array[Room], -1), "nothing goes in front of depth 0")
+	map.delete_room(beside)
+	editor.toggle_map()
+	# The room view: Page Down / Page Up and the slider, the faint depth in front.
+	editor.fit_view(start.get_bounds())
+	await get_tree().process_frame
+	_check(editor.ui.depth_slider.max_value == 2.0 and editor.ui.depth_slider.value == 0.0,
+		"the depth slider shows depth 0 and reaches one past the deepest")
+	_check(editor.show_depth(1) and editor.get_shown_depth() == 1 and editor.current_room == behind,
+		"Page Down in the room view: depth 1, the room there is the current room")
+	await get_tree().process_frame
+	_check(editor.front_view.is_rendering() and not editor.back_view.is_rendering(),
+		"at depth 1 the depth in front shows faintly, nothing behind")
+	editor.ui.depth_slider.value = 0.0  # as if dragged
+	_check(editor.get_shown_depth() == 0 and editor.current_room == start, "the slider takes you back to depth 0")
+	_check(start.get_node_or_null(NodePath(Room.RIM_NAME)) is RoomEdgeRim, "every room has its edge rim")
+	_check(editor.save() == OK, "the level with a depth saves")
+	editor.queue_free()
+	await get_tree().process_frame
+
+	# In play: the layer behind shows depth 1 behind the start room.
+	var level: RoomManager = (LevelStorage.load_level(path)).instantiate() as RoomManager
+	add_child(level)
+	await get_tree().create_timer(0.5).timeout
+	var view: BackRoomView = level.back_room_view
+	_check(view.get_shown_depth() == 1 and view.is_rendering(), "in play, the view behind renders depth 1")
+	_check(view.get_view_center().y > Room.DEPTH_SPACING * 0.5, "it looks into depth 1's band")
+	level.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("D1 depths")
+
+
+## Stages D2 + D3: depth gates in the editor and in play, and the layer behind
+## pinned at the gate. Uses D1's "Depth Level".
+func _check_d2_d3_depth_gates() -> void:
+	var path: String = LevelStorage.list_levels().filter(func(level_path: String) -> bool: return level_path.ends_with("depth_level.tscn"))[0]
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var start: Room = editor.get_start_room()
+	var behind: Room = null
+	for room: Room in editor.get_rooms():
+		if room.get_depth() == 1:
+			behind = room
+	var gate_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"depth_gate")
+	_check(gate_entry != null and gate_entry.family == "Objects", "the depth gate is in the palette's Objects tab")
+	var spawn_cell: Vector2i = Vector2i((start.get_node("SpawnPoint") as Node2D).position / LevelEditor.TILE) - Vector2i(0, 1)
+	var version_before: int = editor.undo_redo.get_version()
+	var gate: DepthGate = editor.place_object(gate_entry, start, spawn_cell) as DepthGate
+	var twin: DepthGate = gate.find_twin_in(1)
+	_check(twin != null and Room.find_room_of(twin) == behind and twin.global_position == gate.global_position + Room.depth_offset(1),
+		"a gate placed with a room behind gets its twin there, at the same map spot")
+	_check(twin.find_twin() == gate and gate.find_twin() == twin, "each finds the other")
+	await get_tree().process_frame  # the gates refresh their arrows after each edit
+	_check(gate.get_twin_direction() == 1 and twin.get_twin_direction() == -1,
+		"the arrow inside points up (deeper) in the gate, down (out) in its twin")
+	_check(editor.undo_redo.get_version() == version_before + 1, "gate and twin are one undo step")
+	editor.undo()
+	_check(not is_instance_valid(twin) or not twin.is_inside_tree(), "one undo removes both")
+	editor.redo()
+	twin = gate.find_twin_in(1)
+	_check(twin != null, "redo brings both back")
+	var twin_before: Vector2 = twin.position
+	editor.move_object(gate, gate.position + Vector2(8, 0))
+	_check(twin.position == twin_before + Vector2(8, 0), "moving a gate moves its twin")
+	editor.undo()
+	_check(twin.position == twin_before, "and undo moves both back")
+	# A gate with nothing behind it: no twin.
+	editor.toggle_map()
+	var lonely_room: Room = editor.map_view.create_room_at(start.position + Vector2(start.room_size.x + 160, start.room_size.y / 2.0))
+	editor.toggle_map()
+	editor.fill_room_edges(lonely_room, PaletteCatalog.get_entry(&"ground"))
+	var lonely: DepthGate = editor.place_object(gate_entry, lonely_room, Vector2i(10, 19)) as DepthGate
+	_check(lonely.find_twin() == null, "a gate with no room behind has no twin")
+	editor.delete_object(lonely)
+	# Deleting a gate deletes its twin (one step), undo brings both.
+	editor.delete_object(gate)
+	_check(not twin.is_inside_tree(), "deleting a gate deletes its twin")
+	editor.undo()
+	_check(twin.is_inside_tree() and gate.find_twin() == twin, "one undo brings both back")
+
+	# In play.
+	_check(editor.start_playtest(), "play-test the level with a gate pair")
+	var play_root: RoomManager = editor.play_root
+	await get_tree().create_timer(0.6).timeout
+	var player: Player = play_root.player
+	var play_gate: DepthGate = play_root.get_node(NodePath("%s/%s" % [start.name, gate.name])) as DepthGate
+	var play_twin: DepthGate = play_root.get_node(NodePath("%s/%s" % [behind.name, twin.name])) as DepthGate
+	var view: BackRoomView = play_root.back_room_view
+	_check(play_gate.is_player_inside(), "the player starts standing in the gate")
+	_check(view.get_pin_gate() == play_gate, "D3: the layer behind is pinned at that gate")
+	_check(is_equal_approx(view.get_picture_scale(), BackRoomView.BACK_SCALE), "the layer behind is drawn a little smaller at rest")
+	var look_check: ShaderMaterial = ShaderMaterial.new()
+	look_check.shader = BackRoomView.HAZE_SHADER
+	BackRoomView.apply_look(look_check, 0.0)
+	var front_contrast: float = look_check.get_shader_parameter(&"contrast")
+	BackRoomView.apply_look(look_check, 1.0)
+	_check(is_equal_approx(front_contrast, 1.0) and look_check.get_shader_parameter(&"contrast") < 1.0
+		and look_check.get_shader_parameter(&"blur_radius") > 0.0,
+		"a layer behind is flatter and blurred, the front isn't")
+	var gate_on_screen: Vector2 = play_gate.global_position - play_root.camera.get_screen_center_position()
+	var twin_on_screen: Vector2 = play_twin.global_position - view.get_view_center()
+	_check(gate_on_screen.distance_to(twin_on_screen) <= 1.0, "D3: standing in the gate, its twin is drawn at the same screen spot (off by %s)" % (twin_on_screen - gate_on_screen))
+	var away_anchor: Vector2 = play_root.camera.get_center_for(play_gate.get_gate_rect().get_center() + Vector2(100, 0), play_root.camera.room_bounds)
+	_check(away_anchor == play_root.camera.get_screen_center_position()
+		and view.get_view_center().distance_to(play_root.camera.get_screen_center_position() + Room.depth_offset(1)) <= 1.0,
+		"D3: in a one-screen room the camera can't move, so the layer behind stays lined up everywhere")
+
+	await _press_action(&"move_up")
+	await get_tree().create_timer(RoomManager.GATE_STEP_TIME + RoomManager.GATE_SETTLE_TIME + 0.3).timeout
+	_check(play_root.current_room.name == behind.name and play_root.current_room.get_depth() == 1, "Up in the gate: into the room behind, depth 1")
+	_check(play_twin.is_player_inside() and not play_root.is_transitioning, "standing in the twin, free to move")
+	_check(view.get_shown_depth() == -1 and not view.is_rendering(), "nothing is behind depth 1: the view behind is off")
+	_check(view.get_visible_picture_count() == 0, "and no picture of it is left on screen (a stopped view keeps its last frame)")
+	_check(play_root.camera.get_screen_center_position().y > Room.DEPTH_SPACING * 0.5, "the camera is in depth 1's band")
+	_check(GameState.current_room == play_root.current_room, "GameState knows the new room (the backdrop follows)")
+	_check(is_equal_approx(play_root.backdrop.get_zoom(), Backdrop.zoom_for_depth(1)) and Backdrop.zoom_for_depth(1) > 1.0,
+		"the backdrop zoomed in for depth 1")
+
+	player.die(true)
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.3).timeout
+	_check(play_root.current_room.name == behind.name and player.global_position.y > Room.DEPTH_SPACING * 0.5,
+		"dying after the gate respawns in the room behind")
+	var behind_room: Room = play_root.current_room
+	player.respawn_at(play_twin.get_gate_rect().get_center() + Vector2(0, DepthGate.GATE_SIZE.y / 2.0))
+	await get_tree().create_timer(0.3).timeout
+	await _press_action(&"move_up")
+	await get_tree().create_timer(RoomManager.GATE_STEP_TIME * 2.0 + RoomManager.GATE_SETTLE_TIME + 0.3).timeout
+	_check(play_root.current_room.name == start.name and play_root.current_room.get_depth() == 0, "Up in the twin: back out to depth 0")
+	_check(view.get_shown_depth() == 1 and view.is_rendering() and behind_room.modulate.a == 1.0, "depth 1 shows behind again")
+	_check(is_equal_approx(play_root.backdrop.get_zoom(), 1.0), "and the backdrop is back to its own size")
+	editor.stop_playtest()
+	await get_tree().process_frame
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("D2 depth gates")
+	finished_sections.append("D3 pinned parallax")
+
+
+## Presses an action the way a real key does (see earth_smoke_test.gd's
+## _press_action): an input EVENT, held for two physics ticks.
+func _press_action(action: StringName) -> void:
+	var press: InputEventAction = InputEventAction.new()
+	press.action = action
+	press.pressed = true
+	Input.parse_input_event(press)
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var release: InputEventAction = InputEventAction.new()
+	release.action = action
+	release.pressed = false
+	Input.parse_input_event(release)
+	await get_tree().process_frame
+	await get_tree().physics_frame
 
 
 func _button_texts(page: Node) -> Array[String]:

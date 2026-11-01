@@ -42,6 +42,18 @@ extends Node2D
 const SOLID_COLOR: Color = Color(0.25, 0.25, 0.28)
 ## Group for objects that go back to their starting state on reset_objects().
 const RESETTABLE_GROUP: StringName = &"room_resettable"
+## DEPTHS (Level_editor.md §5a): rooms can sit BEHIND other rooms. Depth 0 is the
+## front, 1 is behind it, 2 behind that... On the map a room has a MAP position;
+## in the world each depth lives in its own BAND, this far further down
+## (world = map + depth * DEPTH_SPACING), so rooms of different depths never touch:
+## no physics between them, and everything that works room to room (RoomManager,
+## the camera, room sleeping) works inside a band unchanged. A room's depth is
+## simply which band it's in (get_depth), so it can never disagree with its place.
+## 20 000 px is over 100 screens: no level comes near it, and positions this big
+## are still exact to a hundredth of a pixel.
+const DEPTH_SPACING: float = 20000.0
+## The RoomEdgeRim every room makes in _ready.
+const RIM_NAME: StringName = &"EdgeRim"
 
 ## Human-readable name, e.g. "First Breath". Shown in the debug room picker (F2).
 @export var display_title: String = ""
@@ -94,12 +106,6 @@ const RESETTABLE_GROUP: StringName = &"room_resettable"
 ## level's start room (get_backdrop_altitude), so a level that climbs or digs
 ## moves through the three by itself; set it by hand where that guess is wrong.
 @export var backdrop_altitude: Backdrop.Altitude = Backdrop.Altitude.AUTO
-## Another room of the level to show BEHIND this one, one layer deeper (its title
-## or its node name): the real room, drawn hazed and moving more
-## slowly, between this room and the backdrop (BackRoomView). Only this room's own
-## back room shows. Empty: none. Put the back room somewhere in the level the
-## player can't walk to (it's a room like any other).
-@export var back_room: String = ""
 
 @onready var spawn_point: Marker2D = $SpawnPoint
 
@@ -117,6 +123,10 @@ func _ready() -> void:
 		_add_ground_painter()
 	if get_node_or_null("Water") is WaterLayer or _has_water_source(self):
 		_add_water_world()
+	# A crust outside the edge tiles, for when the room is seen from another depth.
+	var rim: RoomEdgeRim = RoomEdgeRim.new()
+	rim.name = RIM_NAME
+	add_child(rim)
 
 
 ## Adds the GroundPainter right after the tile layers, so it draws where the tiles
@@ -189,6 +199,40 @@ func get_bounds() -> Rect2:
 	return Rect2(global_position, room_size)
 
 
+## How far down (world px) depth `depth`'s band is from the map (depth 0).
+static func depth_offset(depth: int) -> Vector2:
+	return Vector2(0.0, depth * DEPTH_SPACING)
+
+
+## The depth whose band holds the world height `world_y` (each band reaches half a
+## DEPTH_SPACING above and below its map's 0).
+static func depth_at(world_y: float) -> int:
+	return roundi(world_y / DEPTH_SPACING)
+
+
+## A world point moved onto the map (its band's offset taken off).
+static func to_map_point(world_point: Vector2) -> Vector2:
+	return world_point - depth_offset(depth_at(world_point.y))
+
+
+## This room's depth: 0 = the front, 1 = behind it... (see DEPTH_SPACING). From
+## its middle, so a room reaching a little above its band's 0 still counts.
+func get_depth() -> int:
+	return depth_at(global_position.y + room_size.y / 2.0)
+
+
+## The room's top-left corner on the map: where it is, minus its band's offset.
+## Rooms of different depths may share map positions (one is behind the other).
+func get_map_position() -> Vector2:
+	return global_position - depth_offset(get_depth())
+
+
+## The room's rectangle on the map (get_map_position). Everything that compares
+## rooms of different depths by place or height uses this, not get_bounds().
+func get_map_bounds() -> Rect2:
+	return Rect2(get_map_position(), room_size)
+
+
 ## The backdrop look this room shows (Backdrop asks on every room change).
 ## backdrop_theme, or for AUTO a guess from what the room holds, one look per
 ## element's chapter: water -> the deep sea, fire or thicket -> forest, an Earth
@@ -209,14 +253,15 @@ func get_backdrop_theme() -> Backdrop.Look:
 ## where the room's middle is compared with the level's start room `start_room`
 ## (the "ground floor"): below its bottom edge -> UNDERGROUND, above its top edge
 ## -> SKYLINE, otherwise SURFACE. A room level with the start, or overlapping its
-## height, is on the surface. Without a start room: SURFACE.
+## height, is on the surface. Without a start room: SURFACE. Heights are compared
+## on the map, so a room behind another reads at the same altitude as it.
 func get_backdrop_altitude(start_room: Room) -> Backdrop.Altitude:
 	if backdrop_altitude != Backdrop.Altitude.AUTO:
 		return backdrop_altitude
 	if start_room == null or not is_instance_valid(start_room):
 		return Backdrop.Altitude.SURFACE
-	var start_bounds: Rect2 = start_room.get_bounds()
-	var middle_y: float = get_bounds().get_center().y
+	var start_bounds: Rect2 = start_room.get_map_bounds()
+	var middle_y: float = get_map_bounds().get_center().y
 	if middle_y > start_bounds.end.y:
 		return Backdrop.Altitude.UNDERGROUND
 	if middle_y < start_bounds.position.y:

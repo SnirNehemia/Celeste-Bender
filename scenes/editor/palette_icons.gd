@@ -214,6 +214,13 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 1, 2, 2, 8, PURPLE)
 			_rect(image, 7, 2, 2, 8, PURPLE)
 			_rect(image, 1, 1, 8, 2, PURPLE)
+		&"depth_gate":
+			# A stone arch with the hazed blue of the layer behind inside.
+			_rect(image, 2, 3, 6, 7, Color(0.3, 0.4, 0.7))
+			_rect(image, 1, 3, 1, 7, BLUE_GRAY)
+			_rect(image, 8, 3, 1, 7, BLUE_GRAY)
+			_rect(image, 2, 1, 6, 2, BLUE_GRAY)
+			_rect(image, 4, 5, 2, 2, CYAN)
 		&"door":
 			_rect(image, 3, 0, 4, 10, BLUE_GRAY)
 			_rect(image, 3, 0, 1, 10, BLUE_GRAY.darkened(0.3))

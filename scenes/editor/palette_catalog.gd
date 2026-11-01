@@ -581,6 +581,12 @@ static func _build() -> void:
 	current_zone.editable_properties = [&"zone_size", &"current_direction", &"strength", &"mode"]
 	current_zone.room_settings_on_create = {&"water_allowed": true}
 
+	# --- Depth gate (Stage D2, Level_editor.md §5a) ---
+	var depth_gate: Entry = _add_object(&"depth_gate", "Depth gate", "Objects", preload("res://scenes/objects/depth_gate.tscn"))
+	depth_gate.hint = "Up while standing in it steps into the room BEHIND (or back out). Placed where a room is behind, its twin appears there; without one it's red, with no twin. Moving or deleting it does the same to its twin."
+	depth_gate.local_rect = Rect2(Vector2.ZERO, DepthGate.GATE_SIZE)
+	depth_gate.placement = Placement.ON_FLOOR
+
 	# Fire objects turn Fire on in their room. The player still needs pips: the
 	# room's Fire Start Pips, or a fire diamond (a play-test warning says so).
 	var fire_room: Dictionary = {&"fire_allowed": true}
