@@ -55,31 +55,42 @@ func enter() -> void:
 	if direction == Vector2.ZERO:
 		phase = Phase.BRAKE
 		phase_time_remaining = tuning.gust_neutral_brake_time
+		# The next landing on ice grips (Player.has_ice_landing_grip); already on ice,
+		# you stop dead right away instead of sliding through the brake.
+		if player.is_on_floor() and player.is_ice(player.get_floor_body()):
+			player.velocity.x = 0.0
+		else:
+			player.has_ice_landing_grip = true
 		return
 
+	player.has_ice_landing_grip = false  # an aimed gust: you meant to move
 	phase = Phase.RECOIL
 	phase_time_remaining = tuning.gust_recoil_input_lock_time
 	# Horizontal recoil SETS the speed (not adds): the gust always throws you at the
 	# same speed, whatever you were doing. Purely vertical gusts leave x alone.
-	if direction.x != 0.0:
-		var wind_catcher: Object = player.get_wind_catching_floor()
-		if wind_catcher != null:
-			# Standing on something that catches the shove (a sail): your feet stay
-			# planted and IT takes the push, so you can blow your own boat along.
-			# The input lock below still runs, so you don't walk off mid-gust.
-			player.velocity.x = 0.0
-			wind_catcher.call(Player.WIND_CATCHER_METHOD, direction, tuning.gust_push_strength)
+	var wind_catcher: Object = player.get_wind_catching_floor()
+	if wind_catcher != null:
+		# Standing on something that catches the shove (a sail): your feet stay
+		# planted and IT takes the push, so you can blow your own boat along. Every
+		# aim goes to it, straight up and down too (an ice raft dives or hops on them;
+		# a crate takes only the sideways part). The input lock below still runs, so
+		# you don't walk off mid-gust.
+		player.velocity.x = 0.0
+		# The arrow you aimed with stays held: it mustn't walk you off the deck (or
+		# steer you away from a hopping raft) until you let go of it.
+		player.sail_aim_arrow = signf(direction.x)
+		wind_catcher.call(Player.WIND_CATCHER_METHOD, direction, tuning.gust_push_strength)
+	elif direction.x != 0.0:
+		var recoil_speed: float = tuning.gust_recoil_speed
+		if player.is_on_floor():
+			recoil_speed *= tuning.gust_ground_recoil_multiplier
 		else:
-			var recoil_speed: float = tuning.gust_recoil_speed
-			if player.is_on_floor():
-				recoil_speed *= tuning.gust_ground_recoil_multiplier
-			else:
-				# In the air the shove may outrun run speed for a moment (Player.apply_horizontal_movement).
-				player.gust_overspeed_remaining = tuning.gust_overspeed_time
-			# A diagonal's sideways share is its own tuning value, not the unit vector's
-			# 0.71: the harder-to-aim diagonal gets more reach.
-			var sideways_share: float = tuning.gust_diagonal_recoil_share if direction.y != 0.0 else 1.0
-			player.velocity.x = -signf(direction.x) * recoil_speed * sideways_share
+			# In the air the shove may outrun run speed for a moment (Player.apply_horizontal_movement).
+			player.gust_overspeed_remaining = tuning.gust_overspeed_time
+		# A diagonal's sideways share is its own tuning value, not the unit vector's
+		# 0.71: the harder-to-aim diagonal gets more reach.
+		var sideways_share: float = tuning.gust_diagonal_recoil_share if direction.y != 0.0 else 1.0
+		player.velocity.x = -signf(direction.x) * recoil_speed * sideways_share
 
 	if direction.y > 0.0:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward

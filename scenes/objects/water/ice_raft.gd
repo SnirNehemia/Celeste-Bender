@@ -16,12 +16,13 @@ extends Crate
 ## ice (IceLayer.ICE_GROUP: slow to start and stop on it). Whoever stands on it
 ## presses it down (raft_rider_weight), and jumping off pushes it back the other way
 ## (raft_jump_push). Gusting sideways while standing on it pushes it the other way,
-## like a boat pushed off with a paddle (the wind-catcher contract). Gusting on a
-## DIAGONAL (after the grid-ice play-test) sails it over things: down and back (↙
-## sailing right) HOPS you and the raft up and forward together (in the air the raft
-## chases your feet sideways, Sail.FLYING, so you land on it), and up and back (↖)
-## DIVES: the raft goes under, carrying you, forward under whatever hangs into the
-## water, then back up (Sail.DIVING; on black water that still kills you). A floating
+## like a boat pushed off with a paddle (the wind-catcher contract), and it KEEPS that
+## speed: each gust adds to it (raft_max_sail_speed), a neutral gust brakes it.
+## Gusting DOWN (straight or diagonal, after the sailing play-tests) HOPS you and the
+## raft up together, keeping its speed (in the air the raft chases your feet sideways,
+## Sail.FLYING, so you land on it); gusting UP DIVES: the raft goes under, carrying
+## you, under whatever hangs into the water, then back up (Sail.DIVING; on black
+## water that still kills you). A diagonal adds its sideways recoil too. A floating
 ## crate takes a sideways gust's recoil too (Crate.absorb_gust_recoil); only a raft
 ## sails.
 ##
@@ -54,6 +55,9 @@ const FOLLOW_GAP: float = 2.5
 ## you're lost when something holds you more than DIVE_LOST_DISTANCE px from there.
 const DIVE_FEET_GAP: float = 0.05
 const DIVE_LOST_DISTANCE: float = 3.0
+## A gust from above counts as "over the deck" this many px past either end (the
+## player is 8 px wide: half over its end still lands on it).
+const DECK_GUST_MARGIN: float = 4.0
 
 ## The water frozen in it, px² (read by WaterWorld.melt_raft).
 var water_area: float = 0.0
@@ -73,6 +77,8 @@ var hop_speed: float = 0.0
 var hop_rider: Player = null
 ## LAUNCHING done, the rider's launch waits for the raft's own move (_launch_rider).
 var is_launching_rider: bool = false
+## The rider's own platform_on_leave, put back when the hop ends (_end_rider_launch).
+var rider_platform_on_leave: CharacterBody2D.PlatformOnLeave = CharacterBody2D.PLATFORM_ON_LEAVE_ADD_VELOCITY
 ## DIVING: whom it carries (null once they're lost: a rock stopped them), and where
 ## on the deck they stand (px from its middle).
 var dive_rider: Player = null
@@ -140,6 +146,12 @@ func _physics_process(delta: float) -> void:
 			dive_rider = null
 	elif is_launching_rider:
 		_launch_rider()
+
+
+## Melted or freed mid-hop (any way out of the tree): the rider gets their
+## platform_on_leave back.
+func _exit_tree() -> void:
+	_end_rider_launch()
 
 
 ## The player if they're standing on it, else null.
@@ -211,14 +223,29 @@ func _hop(speed: float) -> void:
 
 ## Right after the raft's launching move: the rider gets the same launch. The same
 ## velocity for both, and the same gravity (900 each): you rise and fall together;
-## Launched keeps your speed above run speed (it fades slowly). Leaving a moving floor,
-## Godot adds that floor's speed (its move this frame) to yours (CharacterBody2D's
-## platform_on_leave), so you get only the rest: given all of it, you flew twice as
-## fast and four times as high.
+## Launched keeps your speed above run speed (it fades slowly). The WHOLE launch, and
+## leaving the deck adds nothing (platform_on_leave off until the hop ends,
+## _end_rider_launch). Before, you got the launch minus the raft's own speed and
+## counted on Godot adding that speed back as you left its deck (CharacterBody2D's
+## platform_on_leave), but the raft had already risen into your feet: what was left
+## was ~0, you never left the deck, and the raft flew off without you (flaky).
 func _launch_rider() -> void:
 	is_launching_rider = false
+	if not is_instance_valid(hop_rider):
+		return
+	rider_platform_on_leave = hop_rider.platform_on_leave
+	hop_rider.platform_on_leave = CharacterBody2D.PLATFORM_ON_LEAVE_DO_NOTHING
+	# Feet on its deck where it went (it rose into them), not inside it.
+	hop_rider.global_position.y = minf(hop_rider.global_position.y, global_position.y - crate_size.y - DIVE_FEET_GAP)
+	hop_rider.launch_by(Vector2(sail_speed_x, -hop_speed))
+
+
+## The hop is over (landed, lost or timed out): the rider leaves moving floors as
+## usual again.
+func _end_rider_launch() -> void:
 	if is_instance_valid(hop_rider):
-		hop_rider.launch_by(Vector2(sail_speed_x, -hop_speed) - get_real_velocity())
+		hop_rider.platform_on_leave = rider_platform_on_leave
+	hop_rider = null
 
 
 ## In the air after a hop: it moves sideways to stay under the rider's feet, until they
@@ -236,8 +263,13 @@ func _follow_rider(delta: float) -> void:
 			# whole, the two added up and you ran off its front.
 			hop_rider.velocity.x -= velocity.x
 		sail = Sail.LANDING
-		hop_rider = null
+		_end_rider_launch()
 		return
+	# Steering nothing, you keep the hop's sideways speed (the raft's momentum, after the
+	# second sailing play-test): air control alone braked a slow hop to a stop in the
+	# air, and the raft, chasing you, lost its speed with you.
+	if hop_rider.get_move_input() == 0.0:
+		hop_rider.velocity.x = sail_speed_x
 	var follow_speed: float = world.water_tuning.raft_follow_speed
 	# gap / delta: the speed that closes the whole gap this frame (clamped, so a raft
 	# stuck behind a wall doesn't jump when it comes free).
@@ -266,35 +298,64 @@ func _carry_diver() -> void:
 	dive_rider.velocity = velocity  # its own move next frame goes the same way
 
 
-## Player.WIND_CATCHER_METHOD (Stage W7a): standing on a raft and gusting sideways,
-## your feet stay planted and the RAFT takes the gust's recoil: it moves the other
-## way. Gust back toward where you came from to go on. On a diagonal it sails (see
-## Sail): down and back hops, up and back dives. Any push the gust's cone gave the
-## raft itself this frame (it runs first) is replaced here.
+## Player.WIND_CATCHER_METHOD (Stage W7a): standing on a raft and gusting, your feet
+## stay planted and the RAFT takes the gust's recoil: it moves the other way. The
+## recoil ADDS to the speed it already has (after the second sailing play-test), up to
+## raft_max_sail_speed: gust right again and again to gain speed. Aimed down (straight
+## or on a diagonal) it HOPS, aimed up it DIVES (see Sail), keeping that speed, so you
+## sail over or under things without losing it. A neutral gust brakes it
+## (receive_gust_from). The gust's own cone doesn't push the raft you stand on
+## (receive_gust_from ignores an aimed gust from over the deck): this is its whole push.
 func absorb_gust_recoil(direction: Vector2, strength: float) -> void:
 	if not is_instance_valid(world):
 		return
 	var tuning: WaterTuning = world.water_tuning
-	var forward: float = -signf(direction.x) * strength * tuning.raft_gust_recoil_share
+	var recoil: float = -signf(direction.x) * strength * tuning.raft_gust_recoil_share
+	var new_speed_x: float = clampf(velocity.x + recoil, -tuning.raft_max_sail_speed, tuning.raft_max_sail_speed)
 	if direction.y > 0.0:
 		sail = Sail.LAUNCHING
-		sail_speed_x = forward
+		sail_speed_x = new_speed_x
 		hop_speed = tuning.raft_hop_speed
 	elif direction.y < 0.0:
 		dive_rider = _get_rider()
 		if dive_rider == null:
 			return
 		sail = Sail.DIVING
-		sail_speed_x = forward
+		sail_speed_x = new_speed_x
 		sail_time_remaining = tuning.raft_dive_time
 		dive_offset_x = dive_rider.global_position.x - global_position.x
 	else:
-		super(direction, strength)  # sideways: the Crate's recoil push
+		velocity.x = new_speed_x
 
 
-## Does standing on this take the gust's recoil (Player.get_wind_catching_floor)? Yes.
+## The Pushable contract, with the gust's origin (Pushable.METHOD_WITH_SOURCE). A gust
+## blown from ABOVE its deck (after the sailing play-test) doesn't blow it away:
+## falling toward it with a neutral gust, the all-around blast shoved the raft out
+## from under you. From over the deck, the NEUTRAL gust brakes it (raft_neutral_brake
+## px/s toward the water's speed; with the landing grip, Player.has_ice_landing_grip,
+## you land and stop on it) and an aimed one does nothing here (standing on it, that
+## gust's push is absorb_gust_recoil). From anywhere else it's the Crate's push.
+func receive_gust_from(direction: Vector2, strength: float, source_position: Vector2) -> void:
+	var deck_top: float = global_position.y - crate_size.y
+	var is_over_deck: bool = source_position.is_finite() and source_position.y < deck_top \
+		and absf(source_position.x - global_position.x) <= crate_size.x * 0.5 + DECK_GUST_MARGIN
+	if not is_over_deck:
+		receive_gust(direction, strength)
+		return
+	# The neutral gust pushes everything straight away from its center
+	# (AirBlast.push_around); an aimed one, along its aim.
+	var is_neutral: bool = direction.is_equal_approx((global_position - source_position).normalized())
+	if is_neutral and is_instance_valid(world):
+		velocity.x = move_toward(velocity.x, water_speed_x, world.water_tuning.raft_neutral_brake)
+
+
+## Does standing on this take the gust's recoil (Player.get_wind_catching_floor)? Only
+## while it floats (like the Crate): a raft left on dry ground is just ground, so your
+## gust shoves YOU as usual and nothing hops or dives (after the third sailing
+## play-test: on land an up-gust "dived" the raft into the ground and it sprang back
+## out a moment later, a recoil from water that wasn't there).
 func is_catching_wind() -> bool:
-	return true
+	return submerged_share > 0.0
 
 
 ## Crate's hook: a raft floats high (raft_buoyancy: after the W7a play-test, your
@@ -313,6 +374,14 @@ func _get_water_drag() -> float:
 	if is_instance_valid(world):
 		return world.water_tuning.raft_water_drag
 	return super()
+
+
+## Crate's hook: a raft afloat settles fast instead of bouncing (raft_bob_damping),
+## except while it sails: a hop or a dive sets its own up-and-down speed.
+func _get_bob_damping() -> float:
+	if is_instance_valid(world) and sail == Sail.NONE:
+		return world.water_tuning.raft_bob_damping
+	return 0.0
 
 
 ## Crate's hook: a raft on an ice slope slides down it like a crate.

@@ -362,6 +362,8 @@ func _float_in_water(delta: float) -> float:
 	var drag_keep: float = maxf(0.0, 1.0 - _get_water_drag() * share * delta)
 	velocity.x = water_speed_x + (velocity.x - water_speed_x) * drag_keep
 	velocity.y *= drag_keep
+	# Its own extra calming of the bob (an ice raft's: 0 for a crate).
+	velocity.y *= maxf(0.0, 1.0 - _get_bob_damping() * delta)
 	if is_metal:
 		return 0.0  # steel sinks: the water only slows it
 	if not is_on_floor():
@@ -380,6 +382,12 @@ func _get_buoyancy() -> float:
 ## overrides it: it drifts far, Stage W7a).
 func _get_water_drag() -> float:
 	return water_world.water_tuning.water_drag
+
+
+## Afloat, the share of its UP-AND-DOWN speed it loses per second on top of the drag
+## (an ice raft overrides it: it floats high and bounced, after the sailing play-test).
+func _get_bob_damping() -> float:
+	return 0.0
 
 
 ## Starts swinging on `vine` (or stops, null). Starting: the angle comes from where
@@ -445,7 +453,8 @@ func _swing(delta: float) -> void:
 ## (before, the gust's cone hit the crate under you and carried you both into it).
 ## The same share as a raft (raft_gust_recoil_share); IceRaft adds its sail moves.
 func absorb_gust_recoil(direction: Vector2, strength: float) -> void:
-	if water_world != null:
+	# Straight up or down: nothing sideways to take (only an ice raft dives or hops).
+	if water_world != null and direction.x != 0.0:
 		receive_gust(Vector2(-signf(direction.x), 0.0), strength * water_world.water_tuning.raft_gust_recoil_share)
 
 

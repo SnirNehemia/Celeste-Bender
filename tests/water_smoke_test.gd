@@ -1661,9 +1661,131 @@ func _check_snake_lines(world: RoomManager, player: Player) -> void:
 		_check(hop.lowest_feet - origin.y < 136.0 + tuning.black_kill_depth,
 			"landing from the hop, your feet don't sink deeper than black water allows (lowest %.1f, surface 136)"
 				% (hop.lowest_feet - origin.y))
+		# The raft keeps its speed now (after the second sailing play-test): stopped first,
+		# or the hop's speed to the right would cancel the dive's push left.
+		raft.velocity.x = 0.0
 		var dive: Dictionary = await _sail(player, raft, [&"move_right", &"move_up"])
 		_check(dive.lowest_head - origin.y > 136.0 and dive.forward < -16.0 and dive.landed,
 			"gusting up-right dives: the raft takes you wholly under and left, then back up on it (%s)" % dive)
+		# A neutral gust in the air GRIPS the landing (after the sailing play-test): falling
+		# onto the raft at run speed you stop dead on its deck instead of sliding off.
+		# The raft held still under you (the dive left it drifting: it slid out from under
+		# the air cushion's slow fall).
+		raft.global_position.x = origin.x + 216.0
+		raft.velocity = Vector2.ZERO
+		for frame: int in 30:
+			await get_tree().physics_frame
+		player.state_machine.transition_to(&"Fall")
+		player.global_position = Vector2(raft.global_position.x - 12.0, raft.global_position.y - raft.crate_size.y - 20.0)
+		player.velocity = Vector2(player.tuning.max_run_speed, 0.0)
+		player.gust.cooldown_remaining = 0.0
+		player.gust.refill_charges()
+		await _press(&"gust")
+		for frame: int in 90:
+			await get_tree().physics_frame
+		var deck_x: float = player.global_position.x - raft.global_position.x
+		for frame: int in 30:
+			await get_tree().physics_frame
+		_check(player.get_floor_body() == raft and absf(player.global_position.x - raft.global_position.x - deck_x) < 1.0,
+			"a neutral gust in the air grips the landing: you stand still on the raft (moved %.1f px on it)"
+				% (player.global_position.x - raft.global_position.x - deck_x))
+		# STRAIGHT down hops, straight up dives (after the second sailing play-test), and
+		# both keep the raft's speed.
+		raft.velocity.x = 0.0
+		var straight_hop: Dictionary = await _sail(player, raft, [&"move_down"])
+		_check(straight_hop.rise > 12.0 and straight_hop.landed and absf(straight_hop.forward) < 8.0,
+			"gusting straight down on it hops you and the raft straight up together (%s)" % straight_hop)
+		_shift_raft_with_rider(raft, player, origin.x + 216.0)
+		raft.velocity.x = 0.0
+		for frame: int in 20:
+			await get_tree().physics_frame
+		var straight_dive: Dictionary = await _sail(player, raft, [&"move_up"])
+		_check(straight_dive.lowest_head - origin.y > 136.0 and straight_dive.landed,
+			"gusting straight up on it dives you and the raft under and back up (%s)" % straight_dive)
+		_shift_raft_with_rider(raft, player, origin.x + 216.0)
+		raft.velocity.x = 60.0
+		await _wait_on_raft(player, raft)
+		var moving_hop: Dictionary = await _sail(player, raft, [&"move_down"])
+		_check(moving_hop.forward > 20.0 and moving_hop.landed,
+			"hopping off a raft moving right, you two go on right and land on it (%s)" % moving_hop)
+		# The diagonal's arrows HELD all along (after the third sailing play-test: the
+		# held arrow steered you off the hopping raft, and walked you off its ice deck).
+		# (The hop goes right ~80 px, the dive left ~100: each starts where it has room.)
+		for aim: Array[StringName] in [[&"move_left", &"move_down"], [&"move_right", &"move_up"]] as Array[Array]:
+			_shift_raft_with_rider(raft, player, origin.x + (216.0 if aim[1] == &"move_down" else 300.0))
+			raft.velocity.x = 0.0
+			await _wait_on_raft(player, raft)
+			var aim_arrows: Array[StringName] = []
+			aim_arrows.assign(aim)  # a typed array, as _sail wants
+			var held: Dictionary = await _sail(player, raft, aim_arrows, true)
+			for frame: int in 30:
+				await get_tree().physics_frame  # still holding them, standing on it
+			var still_on: bool = player.get_floor_body() == raft
+			var deck_offset: float = absf(player.global_position.x - raft.global_position.x)
+			for action: StringName in aim:
+				Input.action_release(action)
+			_check(held.landed and held.max_gap < 6.0 and still_on and deck_offset < raft.crate_size.x * 0.5,
+				"sailing %s with the arrows held, you stay on the raft (on it %s, %.1f px from its middle, %s)"
+					% [aim, still_on, deck_offset, held])
+		# MOMENTUM: each sideways gust adds to the raft's speed; a neutral gust brakes it.
+		_shift_raft_with_rider(raft, player, origin.x + 216.0)
+		raft.velocity.x = 0.0
+		for frame: int in 20:
+			await get_tree().physics_frame
+		var speeds: Array[float] = []
+		for arrows: Array[StringName] in [[&"move_left"], [&"move_left"], []] as Array[Array]:
+			for frame: int in 20:
+				await get_tree().physics_frame  # out of the last gust's recoil
+			# Back to the pool's left part, speed kept (at 245 px/s it reaches the wall).
+			_shift_raft_with_rider(raft, player, origin.x + 200.0)
+			await _wait_on_raft(player, raft)
+			player.gust.cooldown_remaining = 0.0
+			player.gust.refill_charges()
+			for action: StringName in arrows:
+				Input.action_press(action)
+			await _press(&"gust")
+			for action: StringName in arrows:
+				Input.action_release(action)
+			for frame: int in 2:
+				await get_tree().physics_frame
+			speeds.append(raft.velocity.x)
+		_check(speeds[0] > 60.0 and speeds[1] > speeds[0] + 60.0 and speeds[2] < speeds[1] - 60.0 and speeds[2] > 40.0,
+			"two gusts left speed the raft up right, a neutral gust slows it (%s px/s)" % [speeds])
+		# Alone on the water, kicked down, it settles in a bob or two (raft_bob_damping:
+		# it bounced for seconds).
+		player.set_physics_process(false)
+		var player_spot: Vector2 = player.global_position
+		player.global_position = origin + Vector2(-400.0, -400.0)
+		for frame: int in 60:
+			await get_tree().physics_frame
+		raft.velocity.y = 60.0
+		for frame: int in 40:
+			await get_tree().physics_frame
+		var bob_top: float = INF
+		var bob_bottom: float = -INF
+		for frame: int in 30:
+			await get_tree().physics_frame
+			bob_top = minf(bob_top, raft.global_position.y)
+			bob_bottom = maxf(bob_bottom, raft.global_position.y)
+		_check(bob_bottom - bob_top < 0.5, "kicked, a lone raft settles fast (still bobbing %.2f px after 0.7 s)" % (bob_bottom - bob_top))
+		player.global_position = player_spot
+		player.set_physics_process(true)
+		# ON DRY GROUND it's just ground (after the third sailing play-test): gusting up or
+		# down on it neither dives nor hops it.
+		raft.global_position = origin + Vector2(40.0, 120.0)
+		raft.velocity = Vector2.ZERO
+		for frame: int in 40:
+			await get_tree().physics_frame
+		_check(raft.is_on_floor() and raft.submerged_share == 0.0, "a raft moved onto the dry floor rests there")
+		player.state_machine.transition_to(&"Fall")
+		player.global_position = Vector2(raft.global_position.x, raft.global_position.y - raft.crate_size.y - 0.5)
+		player.velocity = Vector2.ZERO
+		await _wait_on_raft(player, raft)
+		var land_up: Dictionary = await _sail(player, raft, [&"move_up"])
+		var land_down: Dictionary = await _sail(player, raft, [&"move_down"])
+		_check(land_up.stood_on_it and land_up.raft_rise < 1.0 and not land_up.dipped
+			and land_down.raft_rise < 1.0 and land_down.rise < 4.0 and raft.sail == IceRaft.Sail.NONE,
+			"on dry ground, gusting up or down on a raft neither dives nor hops it (up %s, down %s)" % [land_up, land_down])
 	room.reset_objects()
 	finished_sections.append("Lines")
 
@@ -1672,19 +1794,22 @@ func _check_snake_lines(world: RoomManager, player: Player) -> void:
 ## you rose (px, from your feet before), how high the raft rose, how far right you
 ## went, the widest sideways gap between you and the raft while you were in the air,
 ## whether the raft first dipped, whether you ended up standing on it, and the
-## lowest your feet and the top of your head went (global y).
-func _sail(player: Player, raft: IceRaft, arrows: Array[StringName]) -> Dictionary:
+## lowest your feet and the top of your head went (global y). `keep_held`: the arrows
+## stay pressed afterwards (the caller lets go of them).
+func _sail(player: Player, raft: IceRaft, arrows: Array[StringName], keep_held: bool = false) -> Dictionary:
 	player.gust.cooldown_remaining = 0.0
 	var feet_y: float = player.global_position.y
 	var feet_x: float = player.global_position.x
 	var raft_y: float = raft.global_position.y
 	var result: Dictionary = {"rise": 0.0, "raft_rise": 0.0, "forward": 0.0, "max_gap": 0.0, "dipped": false, "landed": false,
 		"lowest_feet": -INF, "lowest_head": -INF}
+	result.stood_on_it = player.get_floor_body() == raft
 	for action: StringName in arrows:
 		Input.action_press(action)
 	await _press(&"gust")
-	for action: StringName in arrows:
-		Input.action_release(action)
+	if not keep_held:
+		for action: StringName in arrows:
+			Input.action_release(action)
 	for frame: int in 90:
 		await get_tree().physics_frame
 		if not is_instance_valid(raft):
@@ -1699,6 +1824,23 @@ func _sail(player: Player, raft: IceRaft, arrows: Array[StringName]) -> Dictiona
 	result.forward = player.global_position.x - feet_x
 	result.landed = is_instance_valid(raft) and player.get_floor_body() == raft
 	return result
+
+
+## Waits (up to 30 frames) until `player` stands on `raft`: right after a teleport
+## you may not be on its deck yet, and a gust then isn't a sail.
+func _wait_on_raft(player: Player, raft: IceRaft) -> void:
+	for frame: int in 30:
+		await get_tree().physics_frame
+		if player.get_floor_body() == raft:
+			return
+
+
+## Moves `raft` to x `raft_x` (global) and `player` standing on it along with it,
+## keeping both speeds (moving only the raft could pull it out from under you).
+func _shift_raft_with_rider(raft: IceRaft, player: Player, raft_x: float) -> void:
+	var shift: float = raft_x - raft.global_position.x
+	raft.global_position.x += shift
+	player.global_position.x += shift
 
 
 ## The loose drops that aren't black (a slick, room-local) and their water, px².
@@ -1899,7 +2041,10 @@ func _check_w7a_black_water(world: RoomManager, player: Player) -> void:
 	var channel_surface: float = channel_body.get_surface_y(channel_body.get_column_at(hand_raft.global_position.x - origin.x))
 	_check(player.global_position.y - origin.y < channel_surface - 2.0,
 		"your feet stay clear above the black water (feet y %.1f, surface %.1f)" % [player.global_position.y - origin.y, channel_surface])
-	_check(raft_y_ridden > raft_y_alone + 0.4,
+	# Settled (raft_bob_damping, after the sailing play-test) it rests ~0.4 px lower: the
+	# water it pushes aside lifts the channel a little. Undamped it bobbed +-1 px, and
+	# the old 0.4 threshold only passed on the average of a bob.
+	_check(raft_y_ridden > raft_y_alone + 0.25,
 		"your weight presses it down (%.2f px)" % (raft_y_ridden - raft_y_alone))
 	# A gust to the LEFT while standing on it: the raft takes the recoil, to the right.
 	var raft_x_before: float = hand_raft.global_position.x

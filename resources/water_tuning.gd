@@ -439,6 +439,12 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## A raft's own water drag, per second (crates use water_drag): low, so a gusted
 ## raft drifts a long way across a channel.
 @export var raft_water_drag: float = 0.6
+## Up and down, a raft afloat loses this share of its speed per second, on top of the
+## water drag (after the sailing play-test: it bounced). Floating high, its lift is
+## stiff (it bobs ~4 times a second) and the low drag above hardly slowed that, so
+## every wave or landing set it bouncing for seconds. 30 settles it in 1-2 bobs.
+## Not while it sails (a hop or a dive sets its own speed).
+@export var raft_bob_damping: float = 30.0
 ## Someone standing on a raft presses it down: extra pull of this share of gravity.
 ## It then floats about (1 + this) / raft_buoyancy under (0.5 with 4: 2.25 of its
 ## 6 px, a 0.75 px dip; your feet stay ~3.5 px above the water).
@@ -452,6 +458,12 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## takes the recoil (it moves away from the gust), at this share of a gust's push.
 ## A floating crate uses it too (Crate.absorb_gust_recoil, after the grid-ice play-test).
 @export_range(0.0, 2.0) var raft_gust_recoil_share: float = 0.8
+## A raft KEEPS its speed (after the second sailing play-test): each sideways gust's
+## recoil adds to it, up to raft_max_sail_speed px/s; a hop or a dive keeps it. A
+## neutral gust from over its deck takes raft_neutral_brake px/s off it (about one
+## gust's worth: 160 x 0.8 = 128).
+@export var raft_max_sail_speed: float = 260.0
+@export var raft_neutral_brake: float = 130.0
 ## SAILING (after the grid-ice play-test): gusting down and back on a raft (↙ sailing
 ## right) HOPS you and the raft together, up at raft_hop_speed px/s and forward at
 ## the sideways push above. Gusting up and back (↖) DIVES: for raft_dive_time game

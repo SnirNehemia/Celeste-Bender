@@ -159,6 +159,16 @@ var carries_ice_speed: bool = false
 ## Seconds left in which a mid-air gust's sideways shove above run speed fades gently
 ## (tuning.gust_overspeed_time, set by GustRecoil). 0 on the ground.
 var gust_overspeed_remaining: float = 0.0
+## A neutral gust GRIPS the next landing on ice (after the sailing play-test): set by
+## GustRecoil's brake, used and cleared on the next landing (see _physics_process), or
+## cleared by an aimed gust. Landing on ice (a raft most of all) you'd keep your speed
+## and slide off; with the grip you stop dead on it (on a raft: still on its deck).
+var has_ice_landing_grip: bool = false
+## The sideways arrow (-1 / +1, 0 = none) a gust into a floor that catches wind was
+## aimed with (GustRecoil). Until you let go of it, it doesn't walk: get_move_input()
+## reads 0 (after the third sailing play-test: holding the diagonal's arrow on, you
+## steered away from the hopping raft and slipped off its ice deck).
+var sail_aim_arrow: float = 0.0
 ## Belly-sliding (Stage W6): the hitbox is the low TUCK one (see set_tucked).
 var is_tucked: bool = false
 ## The standing hitbox's shape and its tucked twin (half as tall), and where each sits.
@@ -207,6 +217,12 @@ func _physics_process(delta: float) -> void:
 	#    place, instead of in every state that can land (Fall, Glide, Jetting...).
 	if not was_on_floor and is_on_floor() and not is_dead():
 		movement_effects.on_landed(fall_speed_before_move)
+		if has_ice_landing_grip:
+			# A neutral gust's grip: on ice you stop dead (velocity is your own speed, on
+			# top of a moving floor's: 0 on a raft = standing still on its deck).
+			has_ice_landing_grip = false
+			if is_ice(get_floor_body()):
+				velocity.x = 0.0
 
 
 func _update_timers(delta: float) -> void:
@@ -308,8 +324,14 @@ func set_frozen(frozen: bool) -> void:
 # --- Input -------------------------------------------------------------------
 
 ## Horizontal input as -1 (left), 0 (none) or +1 (right) from the InputMap actions.
+## The arrow a sail was aimed with reads 0 until it's let go (sail_aim_arrow).
 func get_move_input() -> float:
-	return Input.get_axis("move_left", "move_right")
+	var input: float = Input.get_axis("move_left", "move_right")
+	if sail_aim_arrow != 0.0:
+		if input == sail_aim_arrow:
+			return 0.0
+		sail_aim_arrow = 0.0  # let go (or turned the other way): it walks again
+	return input
 
 
 ## The 8-way aim from the held arrows, as a unit vector, or ZERO when no arrow is
