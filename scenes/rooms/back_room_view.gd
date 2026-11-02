@@ -490,7 +490,7 @@ func _switch_to(depth: int) -> void:
 	_process(0.0)
 
 
-# --- Gate steps (RoomManager.go_through_gate) ---
+# --- Gate steps (GateStep, from RoomManager.go_through_gate) ---
 
 ## Going in: over `duration` seconds the layer behind clears (its look goes to
 ## the front's: apply_look with _step_progress) and grows to full size, while

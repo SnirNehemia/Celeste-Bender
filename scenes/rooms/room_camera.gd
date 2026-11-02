@@ -42,7 +42,7 @@ func snap_to_room(bounds: Rect2) -> void:
 
 
 ## Holds the camera still at `center` (world) instead of following, until the
-## next slide_to_room (a depth gate's step out, RoomManager._step_out).
+## next slide_to_room (a depth gate's step out, GateStep._step_out).
 func hold_at(center: Vector2) -> void:
 	is_sliding = true
 	global_position = center

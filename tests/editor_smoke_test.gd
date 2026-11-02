@@ -2825,7 +2825,7 @@ func _check_d2_d3_depth_gates() -> void:
 		"D3: in a one-screen room the camera can't move, so the layer behind stays lined up everywhere")
 
 	await _press_action(&"move_up")
-	await get_tree().create_timer(RoomManager.GATE_STEP_TIME + RoomManager.GATE_SETTLE_TIME + 0.3).timeout
+	await get_tree().create_timer(GateStep.STEP_TIME + GateStep.SETTLE_TIME + 0.3).timeout
 	_check(play_root.current_room.name == behind.name and play_root.current_room.get_depth() == 1, "Up in the gate: into the room behind, depth 1")
 	_check(play_twin.is_player_inside() and not play_root.is_transitioning, "standing in the twin, free to move")
 	_check(view.get_shown_depth() == -1 and not view.is_rendering(), "nothing is behind depth 1: the view behind is off")
@@ -2843,7 +2843,7 @@ func _check_d2_d3_depth_gates() -> void:
 	player.respawn_at(play_twin.get_gate_rect().get_center() + Vector2(0, DepthGate.GATE_SIZE.y / 2.0))
 	await get_tree().create_timer(0.3).timeout
 	await _press_action(&"move_up")
-	await get_tree().create_timer(RoomManager.GATE_STEP_TIME * 2.0 + RoomManager.GATE_SETTLE_TIME + 0.3).timeout
+	await get_tree().create_timer(GateStep.STEP_TIME * 2.0 + GateStep.SETTLE_TIME + 0.3).timeout
 	_check(play_root.current_room.name == start.name and play_root.current_room.get_depth() == 0, "Up in the twin: back out to depth 0")
 	_check(view.get_shown_depth() == 1 and view.is_rendering() and behind_room.modulate.a == 1.0, "depth 1 shows behind again")
 	_check(is_equal_approx(play_root.backdrop.get_zoom(), 1.0), "and the backdrop is back to its own size")

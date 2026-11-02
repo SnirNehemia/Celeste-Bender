@@ -825,7 +825,7 @@ func _open_room_menu(mouse_world: Vector2) -> void:
 			actions.append(func() -> void: move_rooms_to_depth(selected_rooms.duplicate(), -1))
 		rows.append("Add missing gate twins in %s" % target)
 		actions.append(func() -> void:
-			var made: int = editor.add_missing_gate_twins(selected_rooms)
+			var made: int = GateTwins.add_missing(editor, selected_rooms)
 			editor.ui.show_message("%d gate twin%s made." % [made, "" if made == 1 else "s"] if made > 0
 				else "No gate there is missing a twin that has a room for it.", made == 0))
 		rows.append("Backdrop look of %s..." % target)

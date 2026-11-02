@@ -65,7 +65,7 @@ extends Node2D
 ##     hazed underneath, the one in front very faintly on top, both 1:1
 ##     (EditorDepthView). A depth gate placed where a
 ##     room is behind gets its twin there in the same undo step; moving or deleting
-##     a gate does the same to its twins (_gate_twins).
+##     a gate does the same to its twins (GateTwins).
 ## Every change is one UndoRedo action, so Ctrl+Z undoes it.
 ##
 ## Earth rooms (Stage L8): a room with an "Earth" layer is drawn by its
@@ -1029,7 +1029,7 @@ func finish_paste(new_objects: Array[Array]) -> bool:
 	undo_redo.create_action("Paste")
 	_add_stroke_steps(changes)
 	for room_and_node: Array in new_objects:
-		_add_object_steps(room_and_node[0], room_and_node[1])
+		add_object_steps(room_and_node[0], room_and_node[1])
 	undo_redo.commit_action(true)
 	_warn_if_chamber_exposed()
 	return true
@@ -1719,12 +1719,12 @@ func move_object(node: Node2D, new_position: Vector2, old_position: Variant = nu
 		return
 	var twins: Array[DepthGate] = []
 	if node is DepthGate:
-		twins = _gate_twins(node.get_parent() as Room, from)
-		for twin: DepthGate in twins:
-			if not _is_gate_inside(Room.find_room_of(twin), twin.position + new_position - from):
-				_set_object_position(node, from)
-				ui.show_message("The gate's twin would leave %s: the gate went back." % room_title(Room.find_room_of(twin)), true)
-				return
+		twins = GateTwins.find_twins(node.get_parent() as Room, from)
+		var room_left: Room = GateTwins.find_room_left(twins, new_position - from)
+		if room_left != null:
+			_set_object_position(node, from)
+			ui.show_message("The gate's twin would leave %s: the gate went back." % room_title(room_left), true)
+			return
 	undo_redo.create_action("Move %s" % node.name)
 	undo_redo.add_do_method(_set_object_position.bind(node, new_position))
 	undo_redo.add_undo_method(_set_object_position.bind(node, from))
@@ -1732,71 +1732,6 @@ func move_object(node: Node2D, new_position: Vector2, old_position: Variant = nu
 		undo_redo.add_do_method(_set_object_position.bind(twin, twin.position + new_position - from))
 		undo_redo.add_undo_method(_set_object_position.bind(twin, twin.position))
 	undo_redo.commit_action()
-
-
-# --- Depth gates and their twins (Level_editor.md §5a) ---
-
-## The twins (behind and in front) of a gate whose top-left is `local_position`
-## in `room`: the gates at the same map spot one depth either way.
-func _gate_twins(room: Room, local_position: Vector2) -> Array[DepthGate]:
-	var twins: Array[DepthGate] = []
-	if room == null:
-		return twins
-	for direction: int in [1, -1]:
-		var spot: Vector2 = room.global_position + local_position + Room.depth_offset(direction)
-		var twin: DepthGate = DepthGate.find_gate_at(get_tree(), room, spot)
-		if twin != null:
-			twins.append(twin)
-	return twins
-
-
-## True if a gate at `local_position` fits wholly inside `room`.
-func _is_gate_inside(room: Room, local_position: Vector2) -> bool:
-	return Rect2(Vector2.ZERO, room.room_size).encloses(Rect2(local_position, DepthGate.GATE_SIZE))
-
-
-## The room a twin of a gate at `local_position` in `room` would go in, `direction`
-## depths away (it must fit wholly inside), or null. Null too if a gate is
-## already there.
-func get_twin_room(room: Room, local_position: Vector2, direction: int) -> Room:
-	var spot: Vector2 = room.global_position + local_position + Room.depth_offset(direction)
-	# The room under the twin's middle (its top-left could sit on a room's edge).
-	var twin_room: Room = room_at(spot + DepthGate.GATE_SIZE / 2.0)
-	if twin_room == null or not _is_gate_inside(twin_room, spot - twin_room.global_position):
-		return null
-	if DepthGate.find_gate_at(get_tree(), room, spot) != null:
-		return null
-	return twin_room
-
-
-## Inside the undo action being made: a twin for a gate at `local_position` in
-## `room`, `direction` depths away, if a room is there for it. Returns the twin
-## (not in the tree yet) or null.
-func _add_twin_steps(room: Room, local_position: Vector2, direction: int) -> DepthGate:
-	var twin_room: Room = get_twin_room(room, local_position, direction)
-	if twin_room == null:
-		return null
-	var twin: DepthGate = PaletteCatalog.instantiate(PaletteCatalog.get_entry(&"depth_gate")) as DepthGate
-	twin.position = room.global_position + local_position + Room.depth_offset(direction) - twin_room.global_position
-	_add_object_steps(twin_room, twin)
-	return twin
-
-
-## The map's "Add missing gate twins": every gate in `rooms` with no twin gets one
-## behind (or, with no room there, in front), where a room is there for it. One
-## undo step. Returns how many were made.
-func add_missing_gate_twins(rooms: Array[Room]) -> int:
-	undo_redo.create_action("Add gate twins")
-	var made: int = 0
-	for room: Room in rooms:
-		for child: Node in room.get_children():
-			var gate: DepthGate = child as DepthGate
-			if gate == null or gate.find_twin() != null:
-				continue
-			if _add_twin_steps(room, gate.position, 1) != null or _add_twin_steps(room, gate.position, -1) != null:
-				made += 1
-	undo_redo.commit_action()
-	return made
 
 
 ## Moves an object and keeps its drawn path / rail with it. A holder's vines stay
@@ -1897,7 +1832,7 @@ func delete_object(node: Node2D) -> bool:
 	_add_delete_steps(node)
 	# A depth gate's twins go with it (they'd lead nowhere).
 	if node is DepthGate:
-		for twin: DepthGate in _gate_twins(node.get_parent() as Room, node.position):
+		for twin: DepthGate in GateTwins.find_twins(node.get_parent() as Room, node.position):
 			_add_delete_steps(twin)
 	undo_redo.commit_action()
 	return true
@@ -1980,9 +1915,9 @@ func toggle_grid() -> void:
 
 func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void:
 	undo_redo.create_action(action_name)
-	_add_object_steps(room, node)
+	add_object_steps(room, node)
 	# A depth gate placed where a room is behind gets its twin there, same step.
-	var twin: DepthGate = _add_twin_steps(room, node.position, 1) if node is DepthGate else null
+	var twin: DepthGate = GateTwins.add_twin_steps(self, room, node.position, 1) if node is DepthGate else null
 	undo_redo.commit_action()
 	selected_object = node
 	if node is DepthGate:
@@ -1994,7 +1929,7 @@ func _add_object_undoable(room: Room, node: Node2D, action_name: String) -> void
 
 ## Inside the undo action being made: adds `node` (not in the tree yet) to `room`,
 ## with the room settings it comes with; undo takes it out again.
-func _add_object_steps(room: Room, node: Node2D) -> void:
+func add_object_steps(room: Room, node: Node2D) -> void:
 	undo_redo.add_do_method(attach_node.bind(room, node, -1))
 	undo_redo.add_undo_method(detach_node.bind(node))
 	# Room settings the object comes with (a brazier turns Fire on), in the same step.

@@ -90,7 +90,7 @@ func _ready() -> void:
 ## Three shots during a gate's step: a third, two thirds and the end of its fade.
 func _save_step(shot_prefix: String, output_folder: String) -> void:
 	for shot_index: int in range(1, 4):
-		await get_tree().create_timer(RoomManager.GATE_STEP_TIME / 3.0).timeout
+		await get_tree().create_timer(GateStep.STEP_TIME / 3.0).timeout
 		_save("%s_%d" % [shot_prefix, shot_index], output_folder)
 
 
