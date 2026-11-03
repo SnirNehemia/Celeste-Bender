@@ -293,6 +293,13 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## At most this many FREEZES of player-made ice per room (a raft and a wall count
 ## one each): a new one melts the oldest. Ice placed in the level doesn't count.
 @export_range(1, 20) var max_player_ice: int = 6
+## THE ICY COAT (Stage W8b): holding 1 with nothing to gather, the empty ball is a
+## FROST CURSOR; the connected wet patch it touches is ghosted and 2 coats it in ice
+## (no water used, not counted in max_player_ice). One coat covers at most this many
+## tiles: of a bigger patch, the tiles nearest the cursor.
+@export_range(1, 512) var wet_freeze_max_tiles: int = 64
+## How far past the cursor's spark it touches a wet tile, px (it can't go into rock).
+@export_range(0.5, 8.0) var frost_cursor_reach: float = 3.0
 ## Ice HANGING in mid-air (touching no terrain, not resting on a pool) CRUMBLES: the
 ## first time you or a crate touch it, it shakes for this many game seconds while a
 ## contour runs round it, then shatters into loose water (Stage I4).
@@ -521,6 +528,18 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 @export var streak_speed_start: float = 8.0
 @export var streak_speed_full: float = 60.0
 @export_range(0.0, 1.0) var streak_alpha: float = 0.35
+
+@export_group("Mud")
+## MUD (Stage W8a, Water_bending.md §9.1): wet earth and wet ash. On it you run at
+## mud_run_multiplier of your speed and jump mud_jump_multiplier as high.
+@export_range(0.1, 1.0) var mud_run_multiplier: float = 0.5
+@export_range(0.1, 1.0) var mud_jump_multiplier: float = 0.65
+## Landing on mud keeps this share of your sideways speed (0: you stop dead, the
+## brake at the end of an ice runway).
+@export_range(0.0, 1.0) var mud_landing_speed_keep: float = 0.0
+## Holding toward a mud wall you CLING: your fall is braked to a stop at this many
+## px/s² (fast: a grab, not a slide). Rising, gravity works as usual.
+@export var mud_cling_brake: float = 2400.0
 
 @export_group("Debug keys")
 ## Units dropped by 9 (debug_water_dump) and taken by 0 (debug_water_drain).

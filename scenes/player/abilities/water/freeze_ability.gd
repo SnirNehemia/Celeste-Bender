@@ -6,7 +6,9 @@ extends Node
 ## Grid ice freezes ONLY what you hold: while you hold water (the WaterHolding state),
 ## 2 makes the ICE PLAN real, the ghost the water hands draw (WaterHandsAbility
 ## .freeze_held: a block of tiles, a snake's tiles, a waterfall's wall or a raft), and
-## the hold ends. With nothing held, 2 only FIZZLES: a few frost specks at your hands.
+## the hold ends. Holding an EMPTY ball over a wet patch (the frost cursor, Stage
+## W8b), 2 coats that patch in ice instead (WaterHandsAbility.coat_held). With
+## nothing held, 2 only FIZZLES: a few frost specks at your hands.
 ## (Gone with the grid ice: freezing your last throw, the snow puff, the ice crystal
 ## and the ice ball.)
 ## A cooldown (freeze_cooldown, game time) follows every freeze.
@@ -16,12 +18,16 @@ extends Node
 
 ## Emitted when water froze: the WaterWorld's id of the new freeze.
 signal froze(freeze_id: int)
+## Emitted when the frost cursor coated a wet patch in ice (Stage W8b): how many tiles.
+signal coated(tile_count: int)
 
 var player: Player
 var cooldown_remaining: float = 0.0
 ## For tests and the overlay: the last freeze's id (-1 = none yet), fizzles so far.
 var last_freeze_id: int = -1
 var fizzle_count: int = 0
+## For tests: icy coats made so far.
+var coat_count: int = 0
 
 
 func _ready() -> void:
@@ -44,6 +50,14 @@ func _physics_process(delta: float) -> void:
 func try_freeze_held() -> bool:
 	if not Input.is_action_just_pressed("water_freeze") or cooldown_remaining > 0.0:
 		return false
+	# The frost cursor on a wet patch (Stage W8b): an icy coat, no water used.
+	var coated_tiles: int = player.water_hands.coat_held()
+	if coated_tiles > 0:
+		cooldown_remaining = player.water_tuning.freeze_cooldown
+		coat_count += 1
+		FX.play_sfx(&"freeze")
+		coated.emit(coated_tiles)
+		return true
 	var freeze_id: int = player.water_hands.freeze_held()
 	if freeze_id < 0:
 		return false  # nothing to freeze (an empty ball, all blocked): the hold goes on

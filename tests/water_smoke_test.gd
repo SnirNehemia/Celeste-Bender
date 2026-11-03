@@ -37,9 +37,9 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	# `-- W3` (any of W1 Swim W2 W3 W4 Ice Lines W7a W7b) runs only those sections: quicker while working on one.
+	# `-- W3` (any of W1 Swim W2 W3 W4 Ice Lines W7a W7b W8a W8b) runs only those sections: quicker while working on one.
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
-	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "Ice", "Lines", "W7a", "W7b"]
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "Ice", "Lines", "W7a", "W7b", "W8a", "W8b"]
 	if not wanted.is_empty():
 		sections.assign(Array(wanted))
 	if sections.has("W1"):
@@ -62,6 +62,10 @@ func _ready() -> void:
 		await _check_w7a_black_water(world, world.player)
 	if sections.has("W7b"):
 		await _check_w7b_currents(world, world.player)
+	if sections.has("W8a"):
+		await _check_w8a_wet_tiles(world, world.player)
+	if sections.has("W8b"):
+		await _check_w8b_icy_coat(world, world.player)
 
 	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
@@ -645,6 +649,316 @@ func _check_w7b_currents(world: RoomManager, player: Player) -> void:
 	_print_budget("W7b budget (currents, waterfall)", result, water)
 	_check_budget(result["median_usec"], "Water I with currents stays under the 2 ms budget (median %.0f us)" % result["median_usec"])
 	finished_sections.append("W7b")
+
+
+## Stage W8a: wet tiles and mud (Water_bending.md §16 "Planned in Stage W8"), in
+## room Water J.
+func _check_w8a_wet_tiles(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterJ") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	_check(GameState.current_room == room, "room Water J is the current room")
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	var fire_grid: FireGrid = room.get_node_or_null("FireGrid") as FireGrid
+	_check(water != null and fire_grid != null, "Water J has a WaterWorld and a FireGrid")
+	if water == null or fire_grid == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var surface: SurfaceGrid = water.surface_grid
+	var origin: Vector2 = room.global_position
+	_check(surface != null and SurfaceGrid.find_at(get_tree(), origin + Vector2(40.0, 40.0)) == surface,
+		"the WaterWorld made the room's SurfaceGrid")
+	await _stand_at(player, origin + Vector2(20.0, 128.0))
+
+	# What each tile is made of.
+	_check(surface.get_ground(Vector2i(12, 16)) == SurfaceGrid.Ground.ROCK, "the grey floor is ROCK")
+	_check(surface.get_ground(Vector2i(23, 8)) == SurfaceGrid.Ground.EARTH, "the shaft wall is EARTH")
+	_check(surface.get_ground(Vector2i(30, 16)) == SurfaceGrid.Ground.GRASS, "the strip is GRASS")
+	_check(surface.get_ground(Vector2i(45, 16)) == SurfaceGrid.Ground.NONE, "painted ice never gets wet")
+
+	# Grey rock: wet where water lands, and it soaks nothing (the water puddles).
+	_check(surface.is_wet(Vector2i(5, 19)), "the rock under the start pool is wet")
+	var soaked_before: float = water.get_soaked_units()
+	water.throw_ball(Vector2(100.0, 110.0), Vector2(0.0, 40.0), 1.0)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(surface.is_wet(Vector2i(12, 16)), "a ball thrown on grey floor wets it")
+	_check(absf(water.get_soaked_units() - soaked_before) < 0.001,
+		"grey rock soaks nothing (%.3f units)" % (water.get_soaked_units() - soaked_before))
+	_check(not surface.is_mud(Vector2i(12, 16)), "wet rock isn't mud")
+
+	# Earth: soaked full, it's MUD. A ball thrown at the shaft's right wall.
+	water.throw_ball(Vector2(168.0, 60.0), Vector2(160.0, -20.0), 2.0)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	var mud_rows: int = 0
+	for row: int in range(3, 13):
+		if surface.is_mud(Vector2i(23, row)):
+			mud_rows += 1
+	_check(mud_rows > 0, "a ball thrown at an earth wall turns the tiles it hits to mud (%d rows)" % mud_rows)
+
+	# Cling: a mud wall stops your fall while you hold toward it; a dry one doesn't.
+	for row: int in range(3, 16):
+		surface.wet(Vector2i(23, row))
+	var wall_feet: Vector2 = origin + Vector2(23.0 * 8.0 - 4.0, 90.0)
+	player.global_position = wall_feet
+	player.velocity = Vector2.ZERO
+	Input.action_press(&"move_right")
+	for frame: int in 40:
+		await get_tree().physics_frame
+	var cling_y: float = player.global_position.y
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var cling_drop: float = player.global_position.y - cling_y
+	print("[WaterSmokeTest] W8a: on the mud wall: state %s, fell %.2f px in 0.5 s" % [player.state_machine.current_state.name, cling_drop])
+	_check(player.state_machine.current_state.name == &"WallSlide" and cling_drop < 0.5,
+		"holding toward a mud wall you cling: no sliding (%.2f px)" % cling_drop)
+	_check(surface.hand_prints.size() > 0, "clinging leaves a hand print")
+	Input.action_press(&"jump")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	Input.action_release(&"jump")
+	_check(player.velocity.x < 0.0 and player.velocity.y < 0.0, "you can wall-jump off mud")
+	Input.action_release(&"move_right")
+	# The same wall dry: you slide down it.
+	surface.reset()
+	player.global_position = wall_feet
+	player.velocity = Vector2.ZERO
+	Input.action_press(&"move_right")
+	for frame: int in 40:
+		await get_tree().physics_frame
+	var dry_y: float = player.global_position.y
+	for frame: int in 15:
+		await get_tree().physics_frame
+	Input.action_release(&"move_right")
+	_check(player.global_position.y - dry_y > 3.0, "a dry earth wall still slides (%.1f px)" % (player.global_position.y - dry_y))
+
+	# Mud floor: slower runs, lower jumps.
+	for column: int in range(54, 62):
+		surface.wet(Vector2i(column, 17))
+	await _stand_at(player, origin + Vector2(55.0 * 8.0, 136.0))
+	_check(player.mud.is_on_mud, "standing on the wet earth floor is standing on mud")
+	Input.action_press(&"move_right")
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var mud_speed: float = player.velocity.x
+	Input.action_release(&"move_right")
+	var mud_top: float = player.tuning.max_run_speed * tuning.mud_run_multiplier
+	_check(mud_speed > mud_top * 0.8 and mud_speed <= mud_top + 0.5,
+		"mud slows your run to %.0f px/s (%.1f)" % [mud_top, mud_speed])
+	var mud_jump: float = await _measure_held_jump(player, origin + Vector2(55.0 * 8.0, 136.0))
+	var dry_jump: float = await _measure_held_jump(player, origin + Vector2(12.0 * 8.0, 128.0))
+	print("[WaterSmokeTest] W8a: jump on mud %.1f px, on rock %.1f px" % [mud_jump, dry_jump])
+	_check(mud_jump < dry_jump * 0.8, "jumps off mud are lower (%.1f vs %.1f px)" % [mud_jump, dry_jump])
+
+	# Landing on mud kills your sideways speed (the brake after an ice runway).
+	player.global_position = origin + Vector2(54.0 * 8.0 + 4.0, 112.0)
+	player.velocity = Vector2(220.0, 0.0)
+	player.carries_ice_speed = true
+	for frame: int in 30:
+		await get_tree().physics_frame
+		if player.is_on_floor():
+			break
+	await get_tree().physics_frame
+	_check(player.is_on_floor() and absf(player.velocity.x) < 1.0 and not player.is_dead(),
+		"landing on mud at 220 px/s stops you dead (%.1f px/s)" % player.velocity.x)
+
+	# Heat dries mud (a steam puff) and lets it soak again.
+	Flammable.ignite_near(get_tree(), origin + Vector2(56.0 * 8.0 + 4.0, 136.0), 2.0, null)
+	_check(not surface.is_wet(Vector2i(56, 17)), "a direct flame dries mud back to earth")
+	_check(surface.is_wet(Vector2i(60, 17)), "only the tile the flame touched dries")
+
+	# Wet grass won't burn: the first flame dries it, the second lights it. Fire
+	# spreading never crosses a wet tile.
+	# A ball at the strip's right end soaks in there (wicking 2 tiles each way: the
+	# grass tiles 34-36), which is the firebreak; tile 30 is wetted by hand.
+	await _stand_at(player, origin + Vector2(20.0, 128.0))
+	water.throw_ball(Vector2(292.0, 100.0), Vector2(0.0, 40.0), 1.0)
+	for frame: int in 60:
+		await get_tree().physics_frame
+	_check(surface.is_wet(Vector2i(36, 16)) and surface.is_wet(Vector2i(34, 16)) and not surface.is_mud(Vector2i(36, 16)),
+		"water soaks into grass and wets it")
+	surface.wet(Vector2i(30, 16))
+	var grass_top: Vector2 = origin + Vector2(30.0 * 8.0 + 4.0, 128.0)
+	Flammable.ignite_near(get_tree(), grass_top, 2.0, null)
+	_check(fire_grid.get_state(Vector2i(30, 16)) == FireGrid.State.GRASS and not surface.is_wet(Vector2i(30, 16)),
+		"the first flame on wet grass dries it (no fire)")
+	Flammable.ignite_near(get_tree(), grass_top, 2.0, null)
+	_check(fire_grid.get_state(Vector2i(30, 16)) == FireGrid.State.BURNING, "the second flame lights it")
+	var fire_tuning: FireTuning = player.fire_tuning
+	var wait_frames: int = int((fire_tuning.spread_delay * 8.0 + fire_tuning.burn_time + fire_tuning.smolder_time) * 60.0)
+	for frame: int in wait_frames:
+		await get_tree().physics_frame
+	_check(fire_grid.get_state(Vector2i(33, 16)) != FireGrid.State.GRASS, "the fire spread along the dry grass")
+	_check(fire_grid.get_state(Vector2i(34, 16)) == FireGrid.State.GRASS and fire_grid.get_state(Vector2i(36, 16)) == FireGrid.State.GRASS,
+		"a wet tile is a firebreak: the fire stopped there")
+
+	# Ash wets into mud too.
+	_check(fire_grid.get_state(Vector2i(31, 16)) == FireGrid.State.ASH, "burnt grass is ash")
+	surface.wet(Vector2i(31, 16))
+	_check(surface.get_ground(Vector2i(31, 16)) == SurfaceGrid.Ground.ASH and surface.is_mud(Vector2i(31, 16)), "wet ash is mud")
+
+	# Reset: everything is dry.
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(not surface.is_wet(Vector2i(12, 16)) and not surface.is_wet(Vector2i(31, 16)), "R dries every wet tile")
+	_check(surface.hand_prints.is_empty(), "R wipes the hand prints")
+	finished_sections.append("W8a")
+
+
+## Stage W8b: freezing wet ground, the frost cursor and the icy coat
+## (Water_bending.md §16 "Planned in Stage W8"), in room Water J.
+func _check_w8b_icy_coat(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterJ") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	var fire_grid: FireGrid = room.get_node_or_null("FireGrid") as FireGrid
+	_check(water != null and fire_grid != null, "W8b: Water J has a WaterWorld and a FireGrid")
+	if water == null or fire_grid == null:
+		return
+	var tuning: WaterTuning = player.water_tuning
+	var hands: WaterHandsAbility = player.water_hands
+	var surface: SurfaceGrid = water.surface_grid
+	var origin: Vector2 = room.global_position
+	room.reset_objects()
+	await _stand_at(player, origin + Vector2(76.0 * 8.0, 128.0))
+	await _wait_until_calm(water)
+	surface.reset()
+
+	# The wet runway (cols 73-83), and one wet tile past the gap that isn't joined to it.
+	var runway: Array[Vector2i] = []
+	for column: int in range(73, 84):
+		runway.append(Vector2i(column, 16))
+		surface.wet(Vector2i(column, 16))
+	surface.wet(Vector2i(95, 16))
+	var books: float = water.get_books_units()
+	var ice_cells_before: int = water.ice_layer.cell_freeze.size()
+	var freezes_before: int = water.freeze_order.size()
+
+	# Hold 1 with no water near: the empty ball is a frost cursor.
+	await _start_hold(player)
+	_check(hands.is_holding() and hands.is_frost_cursor(), "holding 1 with no water near shows the frost cursor")
+	# Steer it onto the wet floor (put there: steering is the W3 test's).
+	hands.ball_position = origin + Vector2(78.0 * 8.0 + 4.0, 126.0)
+	hands.ball_velocity = Vector2.ZERO
+	for frame: int in 3:
+		await get_tree().physics_frame
+	var ghost: Dictionary = {}
+	for cell: Vector2i in hands.coat_patch:
+		ghost[cell] = true
+	var matches: bool = ghost.size() == runway.size()
+	for cell: Vector2i in runway:
+		matches = matches and ghost.has(cell)
+	_check(matches, "the ghost covers exactly the connected wet patch (%d tiles, want %d)" % [ghost.size(), runway.size()])
+
+	# The cap: of a bigger patch, the tiles nearest the cursor.
+	var cap_before: int = tuning.wet_freeze_max_tiles
+	tuning.wet_freeze_max_tiles = 4
+	for frame: int in 3:
+		await get_tree().physics_frame
+	var near_cursor: bool = hands.coat_patch.size() == 4
+	for cell: Vector2i in hands.coat_patch:
+		near_cursor = near_cursor and absi(cell.x - 78) <= 2
+	_check(near_cursor, "wet_freeze_max_tiles caps a patch to the tiles nearest the cursor (%s)" % [hands.coat_patch])
+	tuning.wet_freeze_max_tiles = cap_before
+	for frame: int in 3:
+		await get_tree().physics_frame
+
+	# 2: the patch is coated, the hold ends, no water is used, no ice cap is spent.
+	var coats_before: int = player.freeze.coat_count
+	player.freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	var all_coated: bool = true
+	for cell: Vector2i in runway:
+		all_coated = all_coated and surface.is_coated(cell)
+	_check(all_coated and surface.get_coated_count() == runway.size() and player.freeze.coat_count == coats_before + 1,
+		"2 coats the whole patch (%d coated)" % surface.get_coated_count())
+	_check(not surface.is_coated(Vector2i(95, 16)), "a wet tile not joined to the patch isn't coated")
+	_check(not hands.is_holding() and player.state_machine.current_state.name != &"WaterHolding", "coating ends the hold")
+	_check(water.ice_layer.cell_freeze.size() == ice_cells_before and water.freeze_order.size() == freezes_before,
+		"a coat isn't player ice: no ice cap used")
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "a coat uses no water: the books are unchanged")
+
+	# Coated ground is ice: slippery, and it keeps speed above run speed (I5).
+	await _stand_at(player, origin + Vector2(74.0 * 8.0, 128.0))
+	_check(player.is_on_ice and player.mud.is_on_coat, "standing on the coat is standing on ice")
+	player.velocity = Vector2(200.0, 0.0)
+	Input.action_press(&"move_right")
+	for frame: int in 15:
+		await get_tree().physics_frame
+	var coat_speed: float = player.velocity.x
+	Input.action_release(&"move_right")
+	await _stand_at(player, origin + Vector2(12.0 * 8.0, 128.0))
+	player.velocity = Vector2(200.0, 0.0)
+	Input.action_press(&"move_right")
+	for frame: int in 15:
+		await get_tree().physics_frame
+	var rock_speed: float = player.velocity.x
+	Input.action_release(&"move_right")
+	print("[WaterSmokeTest] W8b: 0.25 s after 200 px/s: on the coat %.1f px/s, on rock %.1f px/s" % [coat_speed, rock_speed])
+	_check(coat_speed > player.tuning.max_run_speed + 20.0 and coat_speed > rock_speed + 20.0,
+		"the coat keeps speed above run speed (%.1f vs %.1f px/s on rock)" % [coat_speed, rock_speed])
+
+	# Coated mud: no cling. The shaft's right wall wet, then coated.
+	for row: int in range(3, 16):
+		surface.wet(Vector2i(23, row))
+	surface.coat(surface.find_wet_patch(origin + Vector2(23.0 * 8.0 - 1.0, 60.0), 2.0, 64))
+	_check(surface.is_coated(Vector2i(23, 8)) and not surface.is_mud(Vector2i(23, 8)), "coated mud isn't mud")
+	var wall_feet: Vector2 = origin + Vector2(23.0 * 8.0 - 4.0, 90.0)
+	player.global_position = wall_feet
+	player.velocity = Vector2.ZERO
+	Input.action_press(&"move_right")
+	for frame: int in 40:
+		await get_tree().physics_frame
+	var wall_y: float = player.global_position.y
+	for frame: int in 15:
+		await get_tree().physics_frame
+	Input.action_release(&"move_right")
+	_check(player.global_position.y - wall_y > 3.0, "no cling on coated mud: you slide (%.1f px)" % (player.global_position.y - wall_y))
+
+	# Fire melts the coat back to WET (the whole patch), and the next flame dries it.
+	await _stand_at(player, origin + Vector2(20.0, 128.0))
+	var flame_at: Vector2 = origin + Vector2(76.0 * 8.0 + 4.0, 128.0)
+	Flammable.ignite_near(get_tree(), flame_at, 2.0, null)
+	var all_melted: bool = true
+	for cell: Vector2i in runway:
+		all_melted = all_melted and surface.is_wet(cell) and not surface.is_coated(cell)
+	_check(all_melted, "a flame melts the whole coated patch back to wet, not dry")
+	await get_tree().physics_frame
+	Flammable.ignite_near(get_tree(), flame_at, 2.0, null)
+	_check(not surface.is_wet(Vector2i(76, 16)) and surface.is_wet(Vector2i(80, 16)), "the next flame dries the tile it touches")
+
+	# Coated grass won't burn: the flame melts the coat, the grass stays.
+	surface.wet(Vector2i(28, 16))
+	surface.coat(surface.find_wet_patch(origin + Vector2(28.0 * 8.0 + 4.0, 127.0), 2.0, 64))
+	_check(surface.is_coated(Vector2i(28, 16)), "wet grass can be coated")
+	Flammable.ignite_near(get_tree(), origin + Vector2(28.0 * 8.0 + 4.0, 128.0), 2.0, null)
+	_check(fire_grid.get_state(Vector2i(28, 16)) == FireGrid.State.GRASS and surface.is_wet(Vector2i(28, 16)),
+		"coated grass doesn't burn: the flame only melts the coat")
+
+	# Near water, 1 gathers as before: a ball, not a cursor.
+	await _stand_at(player, origin + Vector2(73.0 * 8.0, 128.0))
+	await _start_hold(player)
+	hands.ball_position = origin + Vector2(69.0 * 8.0, 140.0)
+	for frame: int in 6:
+		await get_tree().physics_frame
+	_check(hands.ball_units > 0.0 and not hands.is_frost_cursor() and hands.coat_patch.is_empty(),
+		"in reach of water the hands gather: no frost cursor (%.2f units)" % hands.ball_units)
+	Input.action_release(&"water_hands")
+	for frame: int in 30:
+		await get_tree().physics_frame
+
+	# Reset: coats gone with the wet.
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(surface.get_coated_count() == 0 and not surface.is_wet(Vector2i(78, 16)), "R clears every coat")
+	finished_sections.append("W8b")
 
 
 ## Puts the player at `feet` (standing), still, and lets a few frames pass.

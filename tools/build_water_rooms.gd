@@ -50,6 +50,14 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     pool with a waterfall, floating leaves and a
 ##                                     leaf platform on a rail through the water
 ##                                     (_build_room_water_i)
+##   - tests/rooms/room_water_j.tscn   Stage W8a wet tiles and mud: a pool, grey
+##                                     floor to wet, a tall earth shaft with a pool at
+##                                     its foot (mud walls to cling to), a grass strip
+##                                     (fire allowed: burn it, wet it), an ice slope off
+##                                     a plateau onto an earth floor before spikes (mud
+##                                     brakes the runway); Stage W8b: a grey runway
+##                                     with its pool, over a spike gap, to wet and
+##                                     coat in ice (_build_room_water_j)
 ##   - resources/tiles/ice_tileset.tres  (Stage W5) the painted ice tiles: pale cyan,
 ##                                     solid; the full tile and (Stage W7a) six slope
 ##                                     tiles (IceLayer.TILE_SHAPES). Written when
@@ -65,13 +73,14 @@ extends "res://tools/build_earth_rooms.gd"
 ## unit of water; in play the room's WaterWorld lets it settle onto the floor.
 ##
 ## Ground: gray rock, drawn as stone (`painted_ground`). Water won't soak into rock
-## (Water_bending.md §8.2, from W8 on), so these rooms keep their water.
+## (Water_bending.md §8.2), so these rooms keep their water; since Stage W8a the rock
+## it touches turns WET (a look, and what W8b freezes).
 ##
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_water_rooms.tscn
 ## Running it again OVERWRITES the test rooms. Pass room names after `--` to build
 ## only those, e.g. `-- water_a` (names: water_a, water_b, water_c, water_d, water_e,
-## water_f, water_g, water_h, water_i).
+## water_f, water_g, water_h, water_i, water_j).
 
 const WATER_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/water_layer.gd")
 const WATER_SOURCE_SCENE: PackedScene = preload("res://scenes/objects/water/water_source.tscn")
@@ -125,6 +134,8 @@ func _ready() -> void:
 		_build_room_water_h()
 	if wanted.is_empty() or wanted.has("water_i"):
 		_build_room_water_i()
+	if wanted.is_empty() or wanted.has("water_j"):
+		_build_room_water_j()
 	print("[BuildWaterRooms] Done.")
 	get_tree().quit()
 
@@ -700,3 +711,68 @@ func _build_room_water_i() -> void:
 	_add(LEAF_PLATFORM_SCENE, "FloatingLeaf", Vector2(55 * TILE, 19 * TILE), {"leaf_width": 24.0, "travel": Vector2(0, -64)})
 
 	_finish_room(Vector2(1 * TILE + 4, 16 * TILE), "res://tests/rooms/room_water_i.tscn")
+
+
+## Water test room J (Stage W8a): wet tiles and mud. 72 x 23 tiles (576 px wide: it
+## scrolls), ground top at row 16 (y 128). Fire is allowed (3 pips). Left to right:
+##   1. A clean POOL (cols 4-7) to gather from, then plain grey floor (cols 8-15):
+##      throw water on it and it turns dark and wet (and the water puddles).
+##   2. A tall EARTH SHAFT (cols 19-22, walls cols 17-18 and 23-24, rows 3-15) with a
+##      pool at its foot (cols 19-22) and a way in under its left wall (rows 13-15).
+##      Throw balls at the walls: the tiles they hit turn to mud. Hold toward a mud
+##      patch and you cling; wall-jump up a ladder of patches.
+##   3. A GRASS strip (cols 27-36). Wet part of it, then throw a fireball (Q): steam,
+##      no fire; a second fireball lights it. Burn the rest to ash and wet the ash:
+##      ash mud (sticky like earth mud).
+##   4. A PLATEAU (cols 40-43, top y 80) with a small pool, a 45° ICE slope down to
+##      flat ice (cols 44-53), a one-tile drop onto an EARTH floor (cols 54-61) and a
+##      spike pit (cols 62-66). Gather on the plateau, wet the earth floor, slide down
+##      at full speed: landing on the mud stops you dead before the spikes.
+func _build_room_water_j() -> void:
+	_begin_room("RoomWaterJ", "Water J: wet tiles, mud and icy coats (W8a, W8b)",
+		"Stage W8a. Water WETS what it touches: grey rock turns dark, earth and ash turn to MUD, grass gets wet and won't burn. Throw water at the earth shaft's walls and cling to the mud (hold toward it), then wall-jump up. Wet the grass and fireball it (Q): steam, no fire; the second fireball lights it. On the plateau, gather, wet the earth floor past the ice slope, then slide down: the mud stops you dead before the spikes. Stage W8b, at the far end: wet the grey runway with a ball from its pool, hold 1 away from any water (a frost cursor), steer it onto the wet floor and press 2: an icy coat. Gust onto it and keep your speed over the spike gap.",
+		Vector2(800, 180))
+	room.painted_ground = true
+	room.water_allowed = true
+	room.earth_allowed = false
+	room.fire_allowed = true
+	room.fire_start_pips = 3
+	_gray(0, 0, 100, 1)   # ceiling
+	_gray(0, 0, 1, 23)    # left wall
+	_gray(99, 0, 1, 23)   # right wall
+	_gray(0, 16, 100, 7)  # the ground, top at y 128
+
+	# 1. The pool by the start; grey floor past it.
+	_open(4, 16, 4, 3)    # rows 16-18: floor at y 152
+	_water(4, 16, 4, 3)
+
+	# 2. The earth shaft and the pool at its foot.
+	_earth(17, 3, 2, 10)  # left wall, rows 3-12: walk in under it (rows 13-15)
+	_earth(23, 3, 2, 13)  # right wall, rows 3-15
+	_open(19, 16, 4, 2)   # the pool, rows 16-17: floor at y 144
+	_water(19, 16, 4, 2)
+
+	# 3. The grass strip.
+	_grass(27, 16, 10, 1)
+
+	# 4. The plateau with its pool, the ice slope, the earth floor and the spikes.
+	_gray(40, 10, 4, 6)   # rows 10-15: top at y 80
+	_open(41, 10, 2, 2)   # its pool, rows 10-11: floor at y 96
+	_water(41, 10, 2, 2)
+	for step: int in 6:
+		_ice_tile(44 + step, 10 + step, IceLayer.SLOPE_UP_LEFT)
+		_ice(44 + step, 11 + step, 1, 5 - step)
+	_ice(44, 16, 10, 1)   # flat ice under it all, cols 44-53
+	_open(54, 16, 8, 1)   # the drop onto the earth floor (top y 136)
+	_earth(54, 17, 8, 1)
+	_open(62, 16, 5, 2)   # the spike pit, cols 62-66
+	_spikes("RunwaySpikes", 62, 17, 5)
+
+	# 5. Stage W8b: a grey runway to wet and coat, over a spike gap. Its pool first.
+	_open(68, 16, 2, 2)   # the pool, cols 68-69, rows 16-17
+	_water(68, 16, 2, 2)
+	# The runway is the ground itself, cols 70-83 (top y 128).
+	_open(84, 16, 8, 2)   # the gap, cols 84-91: 64 px, too far for a plain run
+	_spikes("GapSpikes", 84, 17, 8)
+
+	_finish_room(Vector2(2 * TILE + 4, 16 * TILE), "res://tests/rooms/room_water_j.tscn")

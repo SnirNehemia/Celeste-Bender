@@ -20,8 +20,8 @@ extends Node2D
 ##     with moving solids (crates, the player: the "water_solid" group, boxes from
 ##     get_water_box()). One that falls into a body's water merges into it and kicks
 ##     a wave (or, fast, bounces back up as part of a splash CROWN); one that lands on
-##     bare ground soaks into it if it's absorbent (earth, grass: up to
-##     `soak_per_tile` a tile, the "wet" stub of W8), else starts a puddle there (or
+##     bare ground soaks into it if it's absorbent (earth, ash, grass, thicket: up
+##     to `soak_per_tile` a tile, then it's WET: see WET TILES), else starts a puddle there (or
 ##     grows the puddle next to it). They're drawn by the WaterRenderer child as
 ##     metaballs (soft dots merged by a threshold shader).
 ##   - SOURCES and SINKS (WaterSource, WaterSink; §6.2): endless water poured in at
@@ -69,6 +69,13 @@ extends Node2D
 ## makes TILES in the room's PlayerIceLayer (`ice_layer`, made in _ready as the room's
 ## "PlayerIce" layer), from an IcePlan the hands show as a ghost; apply_ice_plan()
 ## makes it real. Read the "Grid ice" section's notes.
+##
+## WET TILES (Stage W8a, Water_bending.md §16 "Planned in Stage W8"): the room's
+## SurfaceGrid (`surface_grid`, made in _ready) keeps which tiles are wet. An
+## absorbent tile soaked full is wet (_soak_into tells it); grey rock is wet the
+## moment water touches it (drops landing or hitting a wall, water standing on it:
+## _touch_rock_under) and soaks nothing. Wet earth and ash are MUD. A tile that dries
+## (heat) can soak again (_on_tile_dried). Read surface_grid.gd's header.
 ##
 ## CURRENTS (Stage W7b, Water_bending.md §16 "Planned in Stage W7b"): CurrentZone
 ## nodes in the room. A FLOW zone drives the pipes of the water inside it toward its
@@ -132,6 +139,8 @@ const DROP_JITTER_SPEED: float = 20.0
 const LEVEL_TOLERANCE: float = 0.1
 ## Particle cohesion runs once every this many physics frames (see _physics_process).
 const COHESION_EVERY: int = 2
+## Water standing on rock wets it (_touch_rock_under) once every this many frames.
+const ROCK_TOUCH_EVERY: int = 4
 ## Soaking wicks into absorbent tiles up to this many tiles beside a full one.
 const SOAK_REACH: int = 2
 ## A tile with less room left than this, px², counts as full: float crumbs left by
@@ -178,7 +187,7 @@ var solid_layers: Array[TileMapLayer] = []
 ## nothing in a water room changes its tiles yet; bending will call refresh_solid_cells).
 var grid_size: Vector2i = Vector2i.ZERO
 var solid_cells: PackedByteArray = PackedByteArray()
-## One byte per tile too: 1 = absorbent (earth, grass), it soaks water up (W2 stub).
+## One byte per tile too: 1 = absorbent (earth, ash, grass, thicket), it soaks water up.
 var absorbent_cells: PackedByteArray = PackedByteArray()
 ## The shape of every PARTLY_SOLID cell: cell -> its polygon, px from the tile's
 ## top-left corner (IceLayer.TILE_SHAPES). Built with solid_cells.
@@ -214,7 +223,7 @@ var soaked_area: float = 0.0
 var sourced_area: float = 0.0
 var drained_area: float = 0.0
 ## Soaking: water soaked into each absorbent tile so far, px² (cell -> area). A
-## tile holding soak_per_tile is WET (is_wet); the stub of W8's wet layer.
+## tile holding soak_per_tile is WET (the SurfaceGrid keeps that, is_wet).
 var soaked_cells: Dictionary = {}
 ## The same amounts, one float per tile (y * grid_size.x + x): what the soak loop
 ## reads every frame, since a packed array read is much cheaper than a Dictionary
@@ -269,6 +278,8 @@ var player_was_in_water: bool = false
 ## the water frozen in both, px² (THE BOOKS), and the freezes still standing, oldest
 ## first (the ice cap melts the oldest).
 var ice_layer: PlayerIceLayer
+## THE WET LAYER (Stage W8a): which tiles are wet, mud and so on (made in _ready).
+var surface_grid: SurfaceGrid
 var rafts: Array[IceRaft] = []
 var ice_area: float = 0.0
 var freeze_order: Array[int] = []
@@ -299,6 +310,10 @@ func _ready() -> void:
 	ice_layer = PlayerIceLayer.create(self)
 	room.add_child(ice_layer)
 	solid_layers.append(ice_layer)
+	# The wet layer (Stage W8a): before refresh_solid_cells, which sizes it.
+	surface_grid = SurfaceGrid.create(self)
+	add_child(surface_grid)
+	surface_grid.dried.connect(_on_tile_dried)
 	add_to_group(GROUP)
 	add_to_group(Room.RESETTABLE_GROUP)
 	z_index = 1  # in front of the player and crates: what's under water looks under water
@@ -358,6 +373,7 @@ func refresh_solid_cells() -> void:
 		soaked_per_cell.resize(grid_size.x * grid_size.y)
 		soaked_per_cell.fill(0.0)
 	_rebuild_soak_open()
+	surface_grid.rebuild(grid_size)
 
 
 ## Painted ice SLOPE tiles (Stage W7a, IceLayer.TILE_SHAPES) are only partly solid:
@@ -500,6 +516,7 @@ func _build_bodies_from_layer() -> void:
 		var body: WaterBody = _make_body_from_patch(patch)
 		body.is_black = is_black
 		bodies.append(body)
+		_touch_rock_under(body, true)  # painted pools start asleep: wet their rock now
 	initial_area = get_total_area()
 
 
@@ -564,16 +581,14 @@ func get_soaked_units() -> float:
 	return soaked_area / UNIT_AREA
 
 
-## Is the tile `cell` soaked full (WET)? The stub of W8's wet layer.
+## Is the tile `cell` WET (soaked full, or rock water touched)? The SurfaceGrid knows.
 func is_wet(cell: Vector2i) -> bool:
-	return float(soaked_cells.get(cell, 0.0)) >= water_tuning.soak_per_tile * UNIT_AREA - 0.001
+	return surface_grid.is_wet(cell)
 
 
-## Can tile `cell` soak water up (earth or grass)?
+## Can tile `cell` soak water up (earth, ash, grass, thicket)?
 func is_absorbent(cell: Vector2i) -> bool:
-	if earth_layer != null and earth_layer.get_cell_source_id(cell) != -1:
-		return true
-	return grass_layer != null and grass_layer.get_cell_source_id(cell) != -1
+	return surface_grid.is_absorbent(cell)
 
 
 func get_awake_count() -> int:
@@ -1048,6 +1063,7 @@ func wake_all() -> void:
 func reset() -> void:
 	# Ice goes first (its water isn't given back: the painted water comes back).
 	_clear_player_ice()
+	surface_grid.reset()  # (before the bodies: they wet the rock they rest on)
 	refresh_solid_cells()
 	ice_layer.commit()
 	_build_bodies_from_layer()
@@ -1876,6 +1892,8 @@ func _step_drops(delta: float) -> void:
 	var crown_chance: float = water_tuning.crown_chance
 	var crown_bounce: float = water_tuning.crown_bounce
 	var boxes: Array[Rect2] = solid_boxes
+	# Wettable objects (Stage W8a): none yet, so this is one check per frame.
+	var has_wettables: bool = get_tree().has_group(Wettable.GROUP)
 	crown_count = 0
 	# Each body's x range, read once.
 	var body_count: int = bodies.size()
@@ -1904,6 +1922,8 @@ func _step_drops(delta: float) -> void:
 			if not box.has_point(new_position):
 				continue
 			foam = 1.0  # it hit something: white water
+			if has_wettables:
+				Wettable.wet_objects_near(get_tree(), to_global(new_position), DROP_TOUCH_RADIUS)
 			var out_left: float = new_position.x - box.position.x
 			var out_right: float = box.end.x - new_position.x
 			var out_up: float = new_position.y - box.position.y
@@ -1984,6 +2004,15 @@ func _step_drops(delta: float) -> void:
 		if not is_gone and is_solid_px(new_position.x, new_position.y):
 			# Sideways into a wall: bounce back a little.
 			if is_solid_px(new_position.x, old_position.y):
+				# Stage W8a: the wall soaks some up if it's absorbent (an earth wall turns
+				# to mud where a ball hits it), and wet rock where it's rock.
+				var wall_cell: Vector2i = Vector2i(floori(new_position.x / TILE), floori(old_position.y / TILE))
+				surface_grid.touch(wall_cell)
+				if groups[index] != BLACK_GROUP:
+					area -= _soak_into(wall_cell, area)
+					areas[index] = area
+					if area <= SOAK_FULL_SLACK:
+						is_gone = true  # all of it soaked in (the books count it)
 				# A hard hit foams; one just running down the wall doesn't.
 				if absf(velocity.x) > water_tuning.particle_foam_speed_start * 0.5:
 					foam = 1.0
@@ -1992,13 +2021,14 @@ func _step_drops(delta: float) -> void:
 				# Water clings a little: it runs down a wall slower than it falls.
 				if velocity.y > 0.0:
 					velocity.y *= wall_keep
-			if is_solid_px(new_position.x, new_position.y):
+			if not is_gone and is_solid_px(new_position.x, new_position.y):
 				if velocity.y > 0.0:
 					# Landed on the ground: a puddle starts (or grows) here.
 					_land_on_ground(new_position.x, floor_below(new_position.x, old_position.y), area, velocity,
 						groups[index] == BLACK_GROUP)
 					is_gone = true
 				else:
+					surface_grid.touch(Vector2i(floori(new_position.x / TILE), floori(new_position.y / TILE)))
 					velocity.y = 0.0  # hit a ceiling going up
 					velocity.x *= wall_keep
 					new_position.y = old_position.y
@@ -2045,9 +2075,12 @@ func _land_in_body(body: WaterBody, column: int, area: float, velocity: Vector2)
 ## `is_black`: a black drop (Stage W7a) doesn't soak in, and the water it joins or
 ## starts is black.
 func _land_on_ground(x: float, floor_y: float, area: float, velocity: Vector2, is_black: bool = false) -> void:
-	# Absorbent ground (earth, grass) soaks it up first, up to soak_per_tile a tile.
+	# Absorbent ground (earth, ash, grass, thicket) soaks it up first, up to
+	# soak_per_tile a tile; rock is wet where it lands (Stage W8a).
 	if not is_black:
-		area -= _soak_into(Vector2i(floori(x / TILE), floori((floor_y + 0.5) / TILE)), area)
+		var floor_cell: Vector2i = Vector2i(floori(x / TILE), floori((floor_y + 0.5) / TILE))
+		area -= _soak_into(floor_cell, area)
+		surface_grid.touch(floor_cell)
 	if area <= 0.0:
 		return
 	var column_left: float = floorf(x / column_width) * column_width
@@ -2208,6 +2241,7 @@ func _tidy_bodies() -> void:
 		if body.is_asleep:
 			continue
 		_soak_from_body(body)
+		_touch_rock_under(body)
 		lost_area += body.trim_dry_ends()
 		if body.get_area() < WaterBody.DRY_DEPTH * column_width:
 			lost_area += body.get_area()
@@ -2283,10 +2317,55 @@ func _soak_into(cell: Vector2i, area: float) -> float:
 		soaked += taken
 		if room_in_tile - taken <= SOAK_FULL_SLACK:
 			_update_soak_open_around(target)  # it just filled up
+			surface_grid.wet(target)  # full: it's WET now (mud, wet grass...)
 	if soaked > 0.0:
 		soaked_area += soaked
 		queue_redraw()
 	return soaked
+
+
+## Clean water standing on grey ROCK wets it (Stage W8a): the floor under each wet
+## column and the walls at the body's two ends, from its floor up to its surface.
+## Only awake bodies (a sleeping one already wet what it touches), and only every
+## ROCK_TOUCH_EVERY frames: one byte read per column (SurfaceGrid.touch_index).
+## `every_frame`: skip the every-few-frames wait (a body just built).
+func _touch_rock_under(body: WaterBody, every_frame: bool = false) -> void:
+	if body.is_black or (not every_frame and Engine.get_physics_frames() % ROCK_TOUCH_EVERY != 0):
+		return
+	var depths: PackedFloat32Array = body.depth
+	var floors: PackedFloat32Array = body.floor_y
+	var grid_width: int = grid_size.x
+	var count: int = depths.size()
+	for column: int in count:
+		if depths[column] <= WaterBody.DRY_DEPTH:
+			continue
+		var cell_x: int = floori((body.left_x + (column + 0.5) * column_width) / TILE)
+		var cell_y: int = floori((floors[column] + 0.5) / TILE)
+		if cell_x >= 0 and cell_x < grid_width:
+			surface_grid.touch_index(cell_y * grid_width + cell_x)
+	if count == 0:
+		return
+	# The walls beside the two end columns.
+	for end: int in [0, count - 1]:
+		if depths[end] <= WaterBody.DRY_DEPTH:
+			continue
+		# Half a px outside the body's end: inside the wall tile, never on its edge.
+		var wall_x: float = body.left_x - 0.5 if end == 0 else body.get_right_x() + 0.5
+		var top_row: int = floori(body.get_surface_y(end) / TILE)
+		var bottom_row: int = floori((floors[end] - 0.5) / TILE)
+		for row: int in range(top_row, bottom_row + 1):
+			surface_grid.touch(Vector2i(floori(wall_x / TILE), row))
+
+
+## A wet tile dried (heat, SurfaceGrid.dried): it soaks water up again from empty.
+## Its water stays counted as soaked (it went off as steam).
+func _on_tile_dried(cell: Vector2i) -> void:
+	if cell.x < 0 or cell.y < 0 or cell.x >= grid_size.x or cell.y >= grid_size.y:
+		return
+	soaked_per_cell[cell.y * grid_size.x + cell.x] = 0.0
+	soaked_cells.erase(cell)
+	_update_soak_open_around(cell)
+	queue_redraw()
 
 
 ## Rebuilds soak_open for every tile (load, reset, a new soak_per_tile).
@@ -2442,10 +2521,12 @@ func _draw() -> void:
 	draw_uvs.clear()
 	for body: WaterBody in bodies:
 		_add_body_triangles(body, points, colors, indices)
-	# Soaked tiles: a damp darkening along their top, deeper as they fill (the stub
-	# of W8's wet look).
+	# Tiles still soaking: a damp darkening along their top, deeper as they fill.
+	# Once full, the SurfaceGrid draws them (mud, wet grass...).
 	var full_soak: float = maxf(water_tuning.soak_per_tile * UNIT_AREA, 0.001)
 	for cell: Vector2i in soaked_cells:
+		if surface_grid.is_wet(cell):
+			continue
 		var wet_color: Color = Color(0.0, clampf(float(soaked_cells[cell]) / full_soak, 0.0, 1.0), KIND_WET)
 		var top_left: Vector2 = Vector2(cell * TILE)
 		_add_quad(points, colors, indices, top_left, top_left + Vector2(TILE, 0.0),

@@ -33,6 +33,8 @@ extends CharacterBody2D
 ##   │                     (abilities/fire/fireball_ability.gd); aims in GustAim
 ##   ├─ SwimAbility        how much of us is under water: slower runs, lower jumps,
 ##   │                     strokes (abilities/water/swim_ability.gd, Water §5.4)
+##   ├─ MudContact         standing on or clinging to mud: slower runs, lower jumps,
+##   │                     the landing brake, wall cling (abilities/water/mud_contact.gd)
 ##   ├─ WaterHandsAbility  Water move 1: the waterball, steered in slow motion,
 ##   │                     gathering and throwing (abilities/water/water_hands_ability.gd);
 ##   │                     held in WaterHolding
@@ -50,6 +52,11 @@ extends CharacterBody2D
 ## (ice_overspeed_friction, Stage I5). A jump off ice keeps your speed (it fades
 ## gently in the air): long jumps. Ice walls give no grip (you slide down them
 ## faster). See apply_horizontal_movement and get_wall_slide_max_speed.
+##
+## Mud (Stage W8a, Water_bending.md §9.1): wet earth and wet ash (the room's
+## SurfaceGrid). MudContact says when you touch it: runs are slower, jumps lower,
+## landing on it kills your sideways speed (the brake after an ice runway), and
+## holding toward a mud wall you cling to it (WallSlide) and can wall-jump off.
 ##
 ## Ice slides (Stage W6, Water_bending.md §7.2): on ice steeper than slide_min_angle
 ## you can't walk: the Sliding state pulls you down the slope (states/sliding.gd).
@@ -127,6 +134,7 @@ var is_invincible: bool = false
 @onready var flame_jet: FlameJetAbility = $FlameJetAbility
 @onready var fireball: FireballAbility = $FireballAbility
 @onready var swim: SwimAbility = $SwimAbility
+@onready var mud: MudContact = $MudContact
 @onready var water_hands: WaterHandsAbility = $WaterHandsAbility
 @onready var freeze: FreezeAbility = $FreezeAbility
 
@@ -217,24 +225,29 @@ func _physics_process(delta: float) -> void:
 	#    place, instead of in every state that can land (Fall, Glide, Jetting...).
 	if not was_on_floor and is_on_floor() and not is_dead():
 		movement_effects.on_landed(fall_speed_before_move)
+		# Mud stops you dead (Stage W8a): the brake at the end of an ice runway.
+		mud.on_landed()
 		if has_ice_landing_grip:
 			# A neutral gust's grip: on ice you stop dead (velocity is your own speed, on
 			# top of a moving floor's: 0 on a raft = standing still on its deck).
 			has_ice_landing_grip = false
-			if is_ice(get_floor_body()):
+			if is_floor_ice():
 				velocity.x = 0.0
 
 
 func _update_timers(delta: float) -> void:
 	# How deep in water we are, for this frame's gravity, run speed and jumps.
 	swim.update_submersion()
+	# Mud under the feet (Stage W8a): this frame's run speed and jump.
+	mud.update_contact()
 	# is_on_floor() reports the result of LAST frame's move_and_slide().
 	if is_on_floor():
 		coyote_time_remaining = tuning.coyote_time
 	else:
 		coyote_time_remaining = maxf(coyote_time_remaining - delta, 0.0)
 	# Ice: what we stand on, and whether a long jump off it is still carrying us.
-	is_on_ice = is_on_floor() and is_ice(get_floor_body())
+	# An icy coat on wet ground (Stage W8b) is ice too.
+	is_on_ice = is_on_floor() and is_floor_ice()
 	# Out of the Sliding state, a belly slide stands back up (once there's room).
 	if is_tucked and state_machine.current_state.name != &"Sliding":
 		set_tucked(false)
@@ -392,8 +405,9 @@ func can_wall_jump() -> bool:
 ## Launches a normal jump. The Jump state then holds this upward speed while jump is held.
 func start_ground_jump() -> void:
 	consume_jump_press()
-	# Standing in water, the jump is weaker the deeper we are (1 on dry land).
-	velocity.y = tuning.jump_velocity * swim.get_jump_multiplier()
+	# Standing in water, the jump is weaker the deeper we are (1 on dry land); on mud
+	# it's weaker too.
+	velocity.y = tuning.jump_velocity * swim.get_jump_multiplier() * mud.get_jump_multiplier()
 	movement_effects.on_jumped()
 
 
@@ -525,6 +539,12 @@ func get_gust_start_state() -> StringName:
 func is_ice(thing: Object) -> bool:
 	var node: Node = thing as Node
 	return node != null and node.is_in_group(IceLayer.ICE_GROUP)
+
+
+## Is the floor under the feet ice right now: an ice body (is_ice) or an icy coat on
+## wet ground (Stage W8b, MudContact)? Read live, not the frame's is_on_ice.
+func is_floor_ice() -> bool:
+	return is_ice(get_floor_body()) or mud.is_coat_under_feet()
 
 
 ## Standing on ice steep enough to slide on (Stage W6)? Idle and Run then switch to
@@ -770,7 +790,7 @@ func get_wall_direction() -> float:
 func get_wall_slide_max_speed() -> float:
 	var collision: KinematicCollision2D = KinematicCollision2D.new()
 	var side: float = get_wall_direction()
-	if side != 0.0 and test_move(global_transform, Vector2(side * tuning.wall_jump_check_distance, 0.0), collision) 			and is_ice(collision.get_collider()):
+	if side != 0.0 and test_move(global_transform, Vector2(side * tuning.wall_jump_check_distance, 0.0), collision) 			and (is_ice(collision.get_collider()) or mud.is_coat_wall(side)):
 		return tuning.wall_slide_max_speed * water_tuning.ice_wall_slide_scale
 	return tuning.wall_slide_max_speed
 
@@ -896,8 +916,8 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 	if input_direction != 0.0:
 		# Speed up toward full speed in the held direction. Reversing direction passes
 		# through zero, so turning around happens at the same acceleration rate.
-		# Water holds us back by how much of us is in it (1 on dry land).
-		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() * top_speed_scale 			+ wind_speed_x
+		# Water holds us back by how much of us is in it (1 on dry land), and mud too.
+		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() 			* mud.get_speed_multiplier() * top_speed_scale 			+ wind_speed_x
 		var is_beyond_target: bool = signf(velocity.x - wind_speed_x) == input_direction 			and absf(velocity.x - wind_speed_x) > absf(target_speed - wind_speed_x)
 		if is_on_ice and is_on_floor() and is_beyond_target:
 			# On ice, running the way you slide doesn't slow you to run speed: only

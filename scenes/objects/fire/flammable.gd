@@ -158,7 +158,9 @@ static func snuff_in_area(tree: SceneTree, world_polygon: PackedVector2Array, di
 ## puts out what burns there. Things that burn in parts (the FireGrid) put out the
 ## parts inside that circle (snuff_in, the gust's hook); others with douse() go out
 ## if their fire rect, grown by the radius, holds the point. Returns how many went out.
-## Cheap when nothing burns: the FireGrid's snuff_in returns at once.
+## Cheap when nothing burns: the FireGrid's snuff_in returns at once. What it puts
+## out is wet afterwards (Stage W8a: Wettable.wet_near), so burnt-out grass turns
+## to ash mud and won't catch again at once.
 static func douse_near(tree: SceneTree, world_point: Vector2, radius: float) -> int:
 	var circle: PackedVector2Array = PackedVector2Array()
 	for corner: int in 8:
@@ -170,6 +172,8 @@ static func douse_near(tree: SceneTree, world_point: Vector2, radius: float) -> 
 		elif target.has_method(METHOD_DOUSE) and is_burning(target) 				and get_fire_rect(target).grow(radius).has_point(world_point):
 			target.call(METHOD_DOUSE)
 			doused_count += 1
+	if doused_count > 0:
+		Wettable.wet_near(tree, world_point, radius)
 	return doused_count
 
 

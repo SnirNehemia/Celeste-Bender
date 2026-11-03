@@ -75,6 +75,14 @@ extends Node2D
 ##     tile angles; its leash is its length along that path (snake_max_length): at
 ##     full length the ball stops unless it comes back. Frozen (2), it becomes the
 ##     tiles under its trail (the ghost shows them)
+## The FROST CURSOR (Stage W8b, Water_bending.md §16 "Planned in Stage W8"): while the
+## ball is EMPTY (nothing gathered yet, no snake) it's drawn as a frost cursor
+## instead of the spark, and steers the same way. Where it touches a wet tile
+## (frost_cursor_reach), the room's SurfaceGrid finds the CONNECTED WET PATCH
+## (find_wet_patch, at most wet_freeze_max_tiles) and the ghost shows the coat on its
+## open faces. 2 then coats it in ice (coat_held, asked by FreezeAbility before
+## freeze_held) and the hold ends. As soon as the ball gathers water it's a ball again.
+##
 ## Water DOUSES (Stage W4): the ball (with water in it) and every point of a snake
 ## put out what burns where they are (Flammable.douse_near).
 ##
@@ -104,6 +112,13 @@ const GHOST_PULSE_SPEED: float = 5.0
 ## How many px the drawn ball wobbles, and how fast (per real second).
 const WOBBLE_PX: float = 0.6
 const WOBBLE_SPEED: float = 7.0
+## The frost cursor: a small snowflake this many px from its middle to each tip.
+const FROST_CURSOR_SIZE: float = 2.5
+## How fast it turns, radians per real second (slow: it reads as a snowflake, not a
+## spinner).
+const FROST_CURSOR_SPIN: float = 1.5
+## The coat's ghost: this deep on each open face of the patch, px.
+const COAT_GHOST_DEPTH: float = 2.0
 ## At most this many dots draw the ball (4 units would be 64 at drop size).
 const MAX_BALL_DOTS: int = 64
 ## The ball starts warning (the ring brightens) past this share of the radius.
@@ -166,6 +181,11 @@ var is_rest_armed: bool = false
 ## What 2 would freeze right now (grid ice, Stage I1), refreshed every frame while
 ## holding; null when not holding.
 var plan: IcePlan = null
+## The wet patch the frost cursor touches (Stage W8b): what 2 would coat in ice now,
+## SurfaceGrid cells; empty when the ball isn't empty or touches nothing wet.
+var coat_patch: Array[Vector2i] = []
+## For tests and the overlay: tiles the last coat froze.
+var last_coat_tiles: int = 0
 
 
 func _ready() -> void:
@@ -235,6 +255,7 @@ func release(throw: bool) -> void:
 	last_release_units = ball_units
 	last_release_velocity = velocity
 	plan = null
+	coat_patch.clear()
 	if snake != null:
 		# A ribbon: it flows out after the ball along the same path (or just falls).
 		if snake.release(velocity):
@@ -279,6 +300,31 @@ func freeze_held() -> int:
 		else flying_snake.get_dots(0.0, hold_real_time))
 	queue_redraw()
 	return freeze_id
+
+
+## The EMPTY ball is a frost cursor (Stage W8b): no water in it and no snake.
+func is_frost_cursor() -> bool:
+	return holding and ball_units <= 0.0 and snake == null
+
+
+## 2 while the frost cursor touches a wet patch (Stage W8b): the patch gets its icy
+## coat (SurfaceGrid.coat) and the hold ends. Returns how many tiles were coated: 0 =
+## no patch, the hold goes on (FreezeAbility then tries freeze_held).
+func coat_held() -> int:
+	if not is_frost_cursor() or coat_patch.is_empty() or world == null or world.surface_grid == null:
+		return 0
+	var count: int = world.surface_grid.coat(coat_patch)
+	if count == 0:
+		return 0
+	last_coat_tiles = count
+	coat_patch.clear()
+	plan = null
+	holding = false
+	world.sparkle(world.to_local(ball_position), 4)
+	world.set_held_dots(PackedVector2Array() if flying_snake == null
+		else flying_snake.get_dots(0.0, hold_real_time))
+	queue_redraw()
+	return count
 
 
 ## Under water, the ball moving into you or a floating crate shoves it once (see the
@@ -576,9 +622,15 @@ func _update_ball(real_delta: float) -> void:
 ## What 2 would freeze now (grid ice): the snake's tiles, a waterfall's wall, or the
 ## ball as a block or a raft (IcePlan). The ghost draws it.
 func _update_plan() -> void:
+	coat_patch.clear()
 	if world == null:
 		plan = null
 		return
+	# The empty ball, a frost cursor: the wet patch it touches (Stage W8b).
+	if is_frost_cursor() and world.surface_grid != null:
+		var tuning: WaterTuning = player.water_tuning
+		coat_patch = world.surface_grid.find_wet_patch(ball_position,
+			get_ball_radius() + tuning.frost_cursor_reach, tuning.wet_freeze_max_tiles)
 	var center: Vector2 = world.to_local(ball_position)
 	if snake != null:
 		var path: PackedVector2Array = PackedVector2Array()
@@ -642,13 +694,51 @@ func _draw() -> void:
 		var warn: Color = RING_WARN_COLOR
 		warn.a *= (reach_share - RING_WARN_SHARE) / (1.0 - RING_WARN_SHARE)
 		draw_arc(center, tuning.control_radius, toward - 0.4, toward + 0.4, 12, warn, 1.0)
-	if ball_units <= 0.0:
-		# The empty ball: a small spark, twinkling.
+	if ball_units <= 0.0 and snake == null:
+		_draw_frost_cursor()
+	elif ball_units <= 0.0:
+		# The empty ball with a snake hanging from it: a small spark, twinkling.
 		var twinkle: float = 1.0 + 0.5 * sin(hold_real_time * 20.0)
 		draw_circle(ball_position, 1.5 * twinkle, SPARK_COLOR)
 	if world == null and ball_units > 0.0:
 		draw_circle(ball_position, get_ball_radius(), SPARK_COLOR)  # never: no world, no water
 	_draw_ghost()
+	_draw_coat_ghost()
+
+
+## The frost cursor (Stage W8b): a small six-armed snowflake, turning slowly, brighter
+## when it touches a wet patch.
+func _draw_frost_cursor() -> void:
+	var color: Color = GHOST_COLOR if coat_patch.is_empty() else SPARK_COLOR
+	var turn: float = hold_real_time * FROST_CURSOR_SPIN
+	for arm: int in 3:
+		var direction: Vector2 = Vector2.from_angle(turn + arm * PI / 3.0) * FROST_CURSOR_SIZE
+		draw_line(ball_position - direction, ball_position + direction, color, 1.0)
+
+
+## The ghost of the icy coat (Stage W8b): the coat on the patch's open faces, a faint
+## band with a line along its edge, pulsing gently like the ice ghost.
+func _draw_coat_ghost() -> void:
+	if coat_patch.is_empty() or world == null or world.surface_grid == null:
+		return
+	var grid: SurfaceGrid = world.surface_grid
+	var line_color: Color = GHOST_COLOR
+	line_color.a *= lerpf(GHOST_PULSE_LOW, 1.0, 0.5 + 0.5 * sin(hold_real_time * GHOST_PULSE_SPEED))
+	var tile: float = float(SurfaceGrid.TILE)
+	for cell: Vector2i in coat_patch:
+		var origin: Vector2 = grid.to_global(Vector2(cell * SurfaceGrid.TILE))
+		if not world.is_cell_solid(cell + Vector2i.UP):
+			draw_rect(Rect2(origin, Vector2(tile, COAT_GHOST_DEPTH)), GHOST_FILL_COLOR)
+			draw_line(origin, origin + Vector2(tile, 0.0), line_color, 1.0)
+		if not world.is_cell_solid(cell + Vector2i.DOWN):
+			draw_rect(Rect2(origin + Vector2(0.0, tile - COAT_GHOST_DEPTH), Vector2(tile, COAT_GHOST_DEPTH)), GHOST_FILL_COLOR)
+			draw_line(origin + Vector2(0.0, tile), origin + Vector2(tile, tile), line_color, 1.0)
+		if not world.is_cell_solid(cell + Vector2i.LEFT):
+			draw_rect(Rect2(origin, Vector2(COAT_GHOST_DEPTH, tile)), GHOST_FILL_COLOR)
+			draw_line(origin, origin + Vector2(0.0, tile), line_color, 1.0)
+		if not world.is_cell_solid(cell + Vector2i.RIGHT):
+			draw_rect(Rect2(origin + Vector2(tile - COAT_GHOST_DEPTH, 0.0), Vector2(COAT_GHOST_DEPTH, tile)), GHOST_FILL_COLOR)
+			draw_line(origin + Vector2(tile, 0.0), origin + Vector2(tile, tile), line_color, 1.0)
 
 
 ## The GHOST of the ice plan (grid ice): a faint fill per tile, one faint outline

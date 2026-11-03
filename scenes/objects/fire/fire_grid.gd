@@ -91,6 +91,12 @@ extends Node2D
 ## cells only a snuffed cell was about to light don't either. Smoldering cells and a
 ## flashing cover are left alone. So a gust across a fire front stops it there.
 ##
+## WET CELLS (Stage W8a, Water_bending.md §8.2): in a room with water, the
+## SurfaceGrid knows which cells are wet. A wet cell can't catch (can_catch), so fire
+## spreading from a neighbour stops there: a wet line is a firebreak. A DIRECT flame
+## on one (ignite_at: a fireball, the jet, a bonfire) dries it in a puff of steam
+## instead of lighting it (SurfaceGrid.dry_if_wet); the next flame lights it.
+##
 ## Time: game time (physics delta), so slow motion slows the fire too. Only the room
 ## on screen burns (like the grass blades); a fire left behind waits.
 
@@ -217,6 +223,10 @@ var glow_layer: Node2D
 ## Draws every burning cell's tongues as one fire, so a burning run is one sheet of
 ## flame with many tips, not a row of little fires (F7 play-test, FlameMerge).
 var flame_merge: FlameMerge
+## The room's wet layer (Stage W8a), found the first time it's needed: the
+## WaterWorld makes it after us. Null in a room with no water.
+var surface_grid: SurfaceGrid
+var has_looked_for_surface_grid: bool = false
 
 
 func _ready() -> void:
@@ -341,7 +351,7 @@ func get_open_sides(cell: Vector2i) -> Array[Vector2i]:
 ## True if fire could take hold of `cell`: unburnt grass with at least one open side,
 ## or unburnt thicket or cover (they burn through their volume: buried ones too).
 func can_catch(cell: Vector2i) -> bool:
-	if get_state(cell) != State.GRASS:
+	if get_state(cell) != State.GRASS or _is_wet(cell):
 		return false
 	match get_fuel(cell):
 		Fuel.GRASS:
@@ -431,7 +441,13 @@ func ignite_at(world_point: Vector2, radius: float, source: Node) -> bool:
 		for y: int in range(first.y, last.y + 1):
 			var cell: Vector2i = Vector2i(x, y)
 			var rect: Rect2 = get_cell_rect(cell)
-			if not can_catch(cell) or not rect.grow(radius).has_point(point):
+			if not rect.grow(radius).has_point(point):
+				continue
+			# Heat on a wet cell (Stage W8a) dries it instead of lighting it.
+			var grid: SurfaceGrid = _get_surface_grid()
+			if grid != null and get_fuel(cell) != Fuel.NONE and grid.dry_if_wet(cell):
+				continue
+			if not can_catch(cell):
 				continue
 			any_caught = true
 			# The fire comes in at the spot nearest the flame.
@@ -440,6 +456,20 @@ func ignite_at(world_point: Vector2, radius: float, source: Node) -> bool:
 	if any_caught and not delayed:
 		_process_pending()  # a fireball's hit catches this very frame
 	return any_caught
+
+
+## The room's SurfaceGrid (wet tiles), or null (no water in the room).
+func _get_surface_grid() -> SurfaceGrid:
+	if not has_looked_for_surface_grid:
+		has_looked_for_surface_grid = true
+		surface_grid = SurfaceGrid.find_for_room(get_tree(), room)
+	return surface_grid
+
+
+## Is `cell` wet (Stage W8a)? Wet cells don't catch.
+func _is_wet(cell: Vector2i) -> bool:
+	var grid: SurfaceGrid = _get_surface_grid()
+	return grid != null and grid.is_wet(cell)
 
 
 ## The grid as a whole has no single spot to light: fire gets in through ignite_at.

@@ -57,7 +57,7 @@ func enter() -> void:
 		phase_time_remaining = tuning.gust_neutral_brake_time
 		# The next landing on ice grips (Player.has_ice_landing_grip); already on ice,
 		# you stop dead right away instead of sliding through the brake.
-		if player.is_on_floor() and player.is_ice(player.get_floor_body()):
+		if player.is_on_floor() and player.is_floor_ice():
 			player.velocity.x = 0.0
 		else:
 			player.has_ice_landing_grip = true
