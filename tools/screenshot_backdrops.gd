@@ -11,7 +11,8 @@ extends Node
 ##                                      one tall picture: does it read as one scene?
 ##   <look>_soft.png / <look>_break.png halfway through surface -> skyline and
 ##                                      underground -> surface (Backdrop.Transition;
-##                                      <look>_ground_soft.png where that one is soft)
+##                                      <look>_ground_soft.png where that one is soft,
+##                                      <look>_sky_break.png where the first is a break)
 ## Scaled up 3x (the column 2x), crisp pixels. A look's name after the folder does
 ## only that one (`-- C:/temp/shots desert`); `quick` after it (or `all quick`)
 ## skips the _a/_b pictures.
@@ -47,8 +48,11 @@ func _ready() -> void:
 		if not is_quick:
 			await _save_altitudes(look, look_name, output_folder)
 		await _save_column(look, "%s/%s_column.png" % [output_folder, look_name])
-		await _save_mid_change(look, Backdrop.Altitude.SURFACE, Backdrop.Altitude.SKYLINE, Backdrop.SOFT_TIME,
-			"%s/%s_soft.png" % [output_folder, look_name])
+		# Up to the skyline: soft, except where the surface is still in the ground (cavern).
+		var is_sky_soft: bool = Backdrop.get_transition(look, Backdrop.Altitude.SURFACE, look, Backdrop.Altitude.SKYLINE) == Backdrop.Transition.SOFT
+		await _save_mid_change(look, Backdrop.Altitude.SURFACE, Backdrop.Altitude.SKYLINE,
+			Backdrop.SOFT_TIME if is_sky_soft else Backdrop.BREAK_TIME,
+			"%s/%s_%s.png" % [output_folder, look_name, "soft" if is_sky_soft else "sky_break"])
 		# Out of the ground: a break, except where the look changes softly (underwater).
 		var is_soft: bool = Backdrop.get_transition(look, Backdrop.Altitude.UNDERGROUND, look, Backdrop.Altitude.SURFACE) == Backdrop.Transition.SOFT
 		var change_time: float = Backdrop.SOFT_TIME if is_soft else Backdrop.BREAK_TIME

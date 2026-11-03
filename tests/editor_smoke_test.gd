@@ -2635,7 +2635,15 @@ func _check_l17_backdrops() -> void:
 		and Backdrop.get_transition(Backdrop.Look.SHORE, Backdrop.Altitude.SURFACE, Backdrop.Look.SHORE, Backdrop.Altitude.SKYLINE) == Backdrop.Transition.SOFT
 		and Backdrop.get_transition(Backdrop.Look.UNDERWATER, Backdrop.Altitude.UNDERGROUND, Backdrop.Look.UNDERWATER, Backdrop.Altitude.SURFACE) == Backdrop.Transition.SOFT,
 		"out of the ground is a break (not under water); surface to skyline is soft")
+	_check(Backdrop.get_transition(Backdrop.Look.CAVERN, Backdrop.Altitude.UNDERGROUND, Backdrop.Look.CAVERN, Backdrop.Altitude.SURFACE) == Backdrop.Transition.SOFT
+		and Backdrop.get_transition(Backdrop.Look.CAVERN, Backdrop.Altitude.SURFACE, Backdrop.Look.CAVERN, Backdrop.Altitude.SKYLINE) == Backdrop.Transition.BREAK,
+		"the cavern's surface is still in the ground: soft from the deep, a break out to the skyline")
+	backdrop.show_look(Backdrop.Look.CAVERN, Backdrop.Altitude.SURFACE)
+	backdrop.show_look(Backdrop.Look.CAVERN, Backdrop.Altitude.SKYLINE, Vector2.UP)
+	_check(backdrop.get_node_or_null(^"Crust") != null and backdrop._crust_colors[1] == CavernStyle.ROCK[BackdropTerrain.CRUST],
+		"breaking out of the cavern to its skyline draws the cave's own brown rock")
 	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.UNDERGROUND)
+	await get_tree().process_frame  # the cavern's frames and band are freed at the frame's end
 	backdrop.show_look(Backdrop.Look.SHORE, Backdrop.Altitude.SURFACE, Vector2.UP)
 	_check(backdrop.is_sliding() and backdrop.get_child_count() == 3 and backdrop.get_node_or_null(^"Crust") != null,
 		"breaking out of the ground pushes the looks apart with a band of rock between")

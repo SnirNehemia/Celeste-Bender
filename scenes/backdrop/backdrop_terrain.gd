@@ -4,7 +4,7 @@ extends RefCounted
 ## (GroundPainter): a bright CRUST along every edge whose inner side wobbles, a
 ## lighter RIM on top surfaces, a 1 px darker EDGE LINE where the crust ends, and
 ## a dark INSIDE with diagonal HATCH stripes that sinks into a DEEP color the
-## further in it goes. Used by the looks built in that style (Sanctum, Deepwood)
+## further in it goes. Used by the looks built in that style (Sanctum, Deepwood, Cavern)
 ## for their faint background platforms, ledges, hills, roots and even tree crowns
 ## (a crown is a "ground" of leaves). Static helpers, like BackdropPaint.
 ##
@@ -102,6 +102,30 @@ class Mask:
 			var bottom: int = floori(bottoms[posmod(origin.x + local_x, BackdropPaint.STRIP_WIDTH)]) - origin.y
 			for local_y: int in range(0, mini(bottom + 1, size.y)):
 				cells[local_y * size.x + local_x] = 1
+
+	## Makes an ellipse around `center` with half sizes `radii` open air again (a
+	## cave's opening carved out of a wall of rock). Doesn't wrap: carve the copies
+	## a strip away yourself for shapes near the strip's ends.
+	func cut_ellipse(center: Vector2, radii: Vector2) -> void:
+		var reach: int = ceili(radii.y)
+		for dy: int in range(-reach, reach + 1):
+			var local_y: int = roundi(center.y) + dy - origin.y
+			if local_y < 0 or local_y >= size.y:
+				continue
+			var half_width: float = radii.x * sqrt(maxf(0.0, 1.0 - float(dy * dy) / (radii.y * radii.y)))
+			var from_x: int = maxi(0, roundi(center.x - half_width) - origin.x)
+			var to_x: int = mini(size.x - 1, roundi(center.x + half_width) - origin.x)
+			for local_x: int in range(from_x, to_x + 1):
+				cells[local_y * size.x + local_x] = 0
+
+	## Makes `rect` open air again (the mirror of add_rect). Doesn't wrap, like
+	## cut_ellipse.
+	func cut_rect(rect: Rect2i) -> void:
+		var clipped: Rect2i = Rect2i(rect.position - origin, rect.size).intersection(Rect2i(Vector2i.ZERO, size))
+		for local_y: int in range(clipped.position.y, clipped.end.y):
+			var row_start: int = local_y * size.x
+			for local_x: int in range(clipped.position.x, clipped.end.x):
+				cells[row_start + local_x] = 0
 
 	## A thick line (roots, branches, trunks that lean), `width` px across.
 	func add_line(from: Vector2, to: Vector2, width: float) -> void:

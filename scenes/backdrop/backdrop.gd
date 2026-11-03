@@ -4,7 +4,7 @@ extends CanvasLayer
 ## A room's backdrop has two parts, both Room settings:
 ##   LOOK      where the level is set: mountains, a temple, a forest, a desert, the
 ##             sea, a jungle, a shore, a volcano, a light temple (sanctum), a
-##             very dense forest (deepwood)
+##             very dense forest (deepwood), a cavern inside a mountain range (cavern)
 ##             (Room.backdrop_theme; AUTO picks from what's in the room)
 ##   ALTITUDE  where in that setting the room is: UNDERGROUND (caves, crypts, roots),
 ##             SURFACE, or SKYLINE (high up: above the clouds, the treetops, the roofs)
@@ -21,10 +21,13 @@ extends CanvasLayer
 ##          A look's shared tall layers (sky, far range...) simply continue from
 ##          one altitude into the next, and the surface and the skyline share
 ##          ALL their layers (style.gd add_shared_layers), so between those two
-##          the picture just scrolls on. Surface <-> skyline, any change of look,
-##          and every change underwater.
+##          the picture just scrolls on. Surface <-> skyline (not the cavern's),
+##          any change of look, every change underwater, and the cavern's
+##          underground <-> surface (both still in the cave).
 ##   BREAK  the same scroll, but with a jagged band of the look's rock between the
 ##          two: breaking out of the ground (or into it), underground <-> above.
+##          (A cavern's "surface" is still inside the ground: its break is out to
+##          the skyline instead, BREAK_SKYLINE_LOOKS / is_in_ground.)
 ##
 ## Made by RoomManager._ready() in every world, Story level and editor play-test
 ## (nothing to place by hand). It listens to GameState.room_entered (a signal the
@@ -38,13 +41,13 @@ extends CanvasLayer
 ## Files: backdrop_theme.gd (one look = a stack of layers), backdrop_layer.gd (one
 ## scrolling strip), backdrop_paint.gd (paints the strips), backdrop_motes.gd (snow,
 ## dust, bubbles...), backdrop_terrain.gd (paints shapes the way the ground is
-## painted), themes/<look>/{underground,surface,skyline}.gd (the 30 looks).
+## painted), themes/<look>/{underground,surface,skyline}.gd (the 33 looks).
 ## BackdropPreview (backdrop_preview.gd) shows them all without making rooms.
 
 ## Where a level is set. AUTO: picked from the room's contents. NONE: just the
 ## plain background color (project setting default_clear_color).
 ## New looks go at the END: rooms save the number, not the name.
-enum Look { AUTO, NONE, MOUNTAIN, TEMPLE, FOREST, DESERT, UNDERWATER, JUNGLE, SHORE, VOLCANO, SANCTUM, DEEPWOOD }
+enum Look { AUTO, NONE, MOUNTAIN, TEMPLE, FOREST, DESERT, UNDERWATER, JUNGLE, SHORE, VOLCANO, SANCTUM, DEEPWOOD, CAVERN }
 ## Where in that setting a room is. AUTO: from the room's height (Room).
 enum Altitude { AUTO, UNDERGROUND, SURFACE, SKYLINE }
 
@@ -100,13 +103,23 @@ const THEME_SCRIPTS: Dictionary = {
 		Altitude.SURFACE: preload("res://scenes/backdrop/themes/deepwood/surface.gd"),
 		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/deepwood/skyline.gd"),
 	},
+	Look.CAVERN: {
+		Altitude.UNDERGROUND: preload("res://scenes/backdrop/themes/cavern/underground.gd"),
+		Altitude.SURFACE: preload("res://scenes/backdrop/themes/cavern/surface.gd"),
+		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/cavern/skyline.gd"),
+	},
 }
 ## How a change from one look to another is shown (see the header).
 enum Transition { SOFT, BREAK }
 
 ## Looks whose underground changes SOFTLY too: under water there's no ground to
-## break through, only darker water.
+## break through, only darker water. (The cavern's does too, for another reason:
+## its surface is still in the ground, BREAK_SKYLINE_LOOKS.)
 const SOFT_UNDERGROUND_LOOKS: Array[Look] = [Look.UNDERWATER]
+## Looks whose SURFACE is still inside the ground: their underground <-> surface
+## change is SOFT (one cave), and the BREAK is out to the skyline (the cavern's
+## upper cave opens onto the mountain ridge).
+const BREAK_SKYLINE_LOOKS: Array[Look] = [Look.CAVERN]
 ## Seconds each kind of change takes (a room slide is ~0.3 s: the backdrop keeps
 ## going a little after the room has arrived).
 const SOFT_TIME: float = 0.9
@@ -229,11 +242,19 @@ func show_look(look: Look, altitude: Altitude, slide_direction: Vector2 = Vector
 ## How a change from (`old_look`, `old_altitude`) to (`new_look`, `new_altitude`)
 ## is shown: a BREAK in and out of the ground, otherwise SOFT (see the header).
 static func get_transition(old_look: Look, old_altitude: Altitude, new_look: Look, new_altitude: Altitude) -> Transition:
-	var crosses_ground: bool = (old_altitude == Altitude.UNDERGROUND) != (new_altitude == Altitude.UNDERGROUND)
+	var crosses_ground: bool = is_in_ground(old_look, old_altitude) != is_in_ground(new_look, new_altitude)
 	var is_soft_look: bool = SOFT_UNDERGROUND_LOOKS.has(old_look) and SOFT_UNDERGROUND_LOOKS.has(new_look)
 	if crosses_ground and not is_soft_look:
 		return Transition.BREAK
 	return Transition.SOFT
+
+
+## True if `look` at `altitude` is inside the ground: the underground, and for
+## BREAK_SKYLINE_LOOKS the surface too.
+static func is_in_ground(look: Look, altitude: Altitude) -> bool:
+	if BREAK_SKYLINE_LOOKS.has(look):
+		return altitude != Altitude.SKYLINE
+	return altitude == Altitude.UNDERGROUND
 
 
 ## SOFT: both frames scroll by one screen like a BREAK, but unclipped (each
@@ -274,14 +295,16 @@ func _start_break(old_frame: Control, slide_direction: Vector2) -> void:
 	var screen_size: Vector2 = get_viewport().get_visible_rect().size
 	var travel: Vector2 = slide_direction * screen_size
 	_current_frame.position = travel
-	# The rock is the underground look's own (whichever side it's on).
-	var underground_theme: BackdropTheme = _theme_in(old_frame if current_altitude != Altitude.UNDERGROUND else _current_frame)
+	# The rock is the in-ground side's own (whichever side it's on, is_in_ground).
+	var underground_theme: BackdropTheme = _theme_in(_current_frame if is_in_ground(current_look, current_altitude) else old_frame)
 	_crust_colors = underground_theme.crust_colors if underground_theme != null else BackdropTheme.DEFAULT_CRUST_COLORS
 	_crust = Node2D.new()
 	_crust.name = "Crust"
 	# draw: the signal a CanvasItem sends when it's time to draw it, so a plain
 	# Node2D can be drawn by a method here (draw calls go through the node).
-	_crust.draw.connect(_draw_crust)
+	# Bound to this band: an old band freed at the end of the frame still draws
+	# itself, never the new one (Godot only allows drawing on the node being drawn).
+	_crust.draw.connect(_draw_crust.bind(_crust))
 	add_child(_crust)
 	_slide_tween = create_tween().set_parallel()
 	_slide_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -296,7 +319,7 @@ func _start_break(old_frame: Control, slide_direction: Vector2) -> void:
 
 ## The jagged band of rock along the seam of a BREAK: a body, a lit rim on top,
 ## a darker line under it, edges wandering by CRUST_ROUGHNESS.
-func _draw_crust() -> void:
+func _draw_crust(band: Node2D) -> void:
 	var width: float = get_viewport().get_visible_rect().size.x
 	var body: Color = _crust_colors[0]
 	var rim: Color = _crust_colors[1]
@@ -304,9 +327,9 @@ func _draw_crust() -> void:
 		# Two sines of unrelated lengths per edge: irregular rock, but not noisy.
 		var top: float = roundf(_crust_row - CRUST_HALF_HEIGHT - absf(sin(x * 0.11) + sin(x * 0.037 + 1.3)) * CRUST_ROUGHNESS * 0.5)
 		var bottom: float = roundf(_crust_row + CRUST_HALF_HEIGHT + absf(sin(x * 0.09 + 2.0) + sin(x * 0.029)) * CRUST_ROUGHNESS * 0.5)
-		_crust.draw_rect(Rect2(x, top, 2.0, bottom - top), body)
-		_crust.draw_rect(Rect2(x, top, 2.0, 1.0), rim)
-		_crust.draw_rect(Rect2(x, bottom - 1.0, 2.0, 1.0), body.darkened(0.4))
+		band.draw_rect(Rect2(x, top, 2.0, bottom - top), body)
+		band.draw_rect(Rect2(x, top, 2.0, 1.0), rim)
+		band.draw_rect(Rect2(x, bottom - 1.0, 2.0, 1.0), body.darkened(0.4))
 
 
 ## Ends a change at once: every frame but the current one goes, the current one

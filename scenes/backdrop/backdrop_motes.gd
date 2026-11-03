@@ -16,7 +16,22 @@ enum Shape {
 	LEAF,     ## a 2x1 speck that flips while it tumbles down
 	FIREFLY,  ## a dot with a soft glow that blinks on and off
 	BIRD,     ## a tiny far bird: a "v" whose wings flap up and down
+	BAT,      ## a little bat (BAT_FRAMES), wings beating (give it sway: bats flutter); size is ignored
 }
+
+## The BAT's pictures, 11 x 5 px, its body in the middle: ears and a head on
+## top, wings with a scalloped trailing edge. 0 wings raised, 1 level, 2 swept down.
+const BAT_FRAMES: Array[Array] = [
+	["x...x.x...x", "xx..xxx..xx", ".xxxxxxxxx.", "..x.xxx.x..", ".....x....."],
+	["....x.x....", "....xxx....", "xxxxxxxxxxx", ".x.x.x.x.x.", ".....x....."],
+	["....x.x....", "....xxx....", "..xxxxxxx..", ".xx.xxx.xx.", "x....x....x"],
+]
+## One beat: raised, level, down, level.
+const BAT_FLAP_ORDER: Array[int] = [0, 1, 2, 1]
+const BAT_HALF_WIDTH: int = 5
+## How fast the frames turn over, per radian of a mote's sway phase (the phase
+## turns TAU * sway_speed radians a second).
+const BAT_FRAMES_PER_RADIAN: float = 1.2
 
 ## Margin around the screen, px, where motes may wander before wrapping.
 const SCREEN_MARGIN: float = 12.0
@@ -108,6 +123,16 @@ func _draw() -> void:
 				var tip_lift: float = -float(size) if sin(phase * 4.0) > 0.0 else 1.0
 				draw_line(spot + Vector2(-size - 1, tip_lift), spot, color)
 				draw_line(spot, spot + Vector2(size + 1, tip_lift), color)
+			Shape.BAT:
+				# A little pixel bat (BAT_FRAMES): wings raised, level, swept down,
+				# level again (BAT_FLAP_ORDER); a faster sway_speed beats faster.
+				var frame_index: int = posmod(floori(phase * BAT_FRAMES_PER_RADIAN), BAT_FLAP_ORDER.size())
+				var frame: Array = BAT_FRAMES[BAT_FLAP_ORDER[frame_index]]
+				for row: int in frame.size():
+					var line: String = frame[row]
+					for column: int in line.length():
+						if line[column] == "x":
+							draw_rect(Rect2(spot + Vector2(column - BAT_HALF_WIDTH, row - 2), Vector2.ONE), color)
 
 
 ## The screen (from the viewport, so it's right in any window size) plus the margin,
