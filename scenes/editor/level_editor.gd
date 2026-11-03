@@ -175,6 +175,9 @@ var saved_version: int = 0
 var current_entry: PaletteCatalog.Entry = null
 ## The terrain brush chosen last: the room panel's "Fill edges" button uses it.
 var last_terrain_entry: PaletteCatalog.Entry = null
+## The backdrop altitude set last on any room (map menu, property panel or the K
+## preview); a new room in the map starts with it. AUTO until one is set.
+var last_backdrop_altitude: Backdrop.Altitude = Backdrop.Altitude.AUTO
 ## One TileBrush per terrain entry id, made on first use.
 var brushes: Dictionary = {}
 
@@ -412,6 +415,7 @@ func open_level(path: String) -> Error:
 		RoomLook.prepare_for_editing(room)  # no FireGrid while editing (Stage L9)
 
 	undo_redo.clear_history()
+	last_backdrop_altitude = Backdrop.Altitude.AUTO
 	saved_version = undo_redo.get_version()
 	selected_object = null
 	play_record.load_level(path)  # this level's death markers from earlier play-tests
@@ -1382,6 +1386,9 @@ func _apply_property(target: Object, property: StringName, value: Variant) -> vo
 		ties = _capture_ties(target as Node)
 	set_on_node(target, property, value)
 	_apply_ties(ties)
+	# Remembered for the next room made in the map (MapView.create_room).
+	if target is Room and property == &"backdrop_altitude":
+		last_backdrop_altitude = value
 	# A sentry flipped to the ceiling (or back) moves up to the ceiling above it (or
 	# down to the ground below). Undo flips it back and it snaps back down the same way.
 	if entry != null and entry.snaps_to_ground and property == entry.hang_property:

@@ -56,6 +56,7 @@ func _ready() -> void:
 	await _check_l15_cross_room_strokes()
 	await _check_l16_designer_tools()
 	await _check_l17_backdrops()
+	await _check_metal_platform()
 	await _check_d1_depths()
 	await _check_d2_d3_depth_gates()
 
@@ -950,6 +951,12 @@ func _check_l7_map() -> void:
 	_check(map.set_room_rect(room3, Rect2(320, 400, 320, 188), false) and room3.position == Vector2(320, 400), "a move to free space works")
 	editor.undo()
 	_check(room3.position == Vector2(320, 180), "undo moves it back")
+	# Several selected rooms move together (one undo step); onto another room, none moves.
+	_check(map.move_rooms([room2, room3], Vector2(0, 400)) and room2.position == Vector2(320, 400) and room3.position == Vector2(320, 580),
+		"two selected rooms move together")
+	editor.undo()
+	_check(room2.position == Vector2(320, 0) and room3.position == Vector2(320, 180), "one undo moves both back")
+	_check(not map.move_rooms([room2, room3], Vector2(-100, 0)) and room2.position == Vector2(320, 0), "a group move onto another room is refused")
 
 	# Resizing from the left keeps the contents where they are in the level.
 	var goal: Goal = editor.place_object(PaletteCatalog.get_entry(&"goal"), room3, Vector2i(20, 20)) as Goal
@@ -2576,6 +2583,43 @@ func _check_l16_designer_tools() -> void:
 ## on the map (box, Ctrl+click), setting their backdrop at once (one undo step),
 ## "New room here", the backdrop preview, the scroll between looks, and every look
 ## x altitude builds.
+## The metal platform (Basics): placed from the palette, hanging from the tile's
+## top; solid from above, and a body moving up passes through it.
+func _check_metal_platform() -> void:
+	var path: String = LevelStorage.create_level("Metal Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var platform: MetalPlatform = editor.place_object(PaletteCatalog.get_entry(&"metal_platform"), room, Vector2i(15, 12)) as MetalPlatform
+	_check(platform != null and platform.position.y == 96.0, "a metal platform hangs from the tile's top, got %s" % [platform.position if platform != null else null])
+	_check(platform.surface.one_way_collision, "the metal platform is one-way")
+	editor.queue_free()
+	await get_tree().process_frame
+	# The physics, outside the editor (its level isn't in a physics space): a small
+	# box under a platform moving up, then above it moving down.
+	var solid: MetalPlatform = (load("res://scenes/objects/metal_platform.tscn") as PackedScene).instantiate() as MetalPlatform
+	add_child(solid)
+	var tester: CharacterBody2D = CharacterBody2D.new()
+	var box: CollisionShape2D = CollisionShape2D.new()
+	box.shape = RectangleShape2D.new()
+	(box.shape as RectangleShape2D).size = Vector2(8, 8)
+	tester.add_child(box)
+	add_child(tester)
+	tester.position = Vector2(0, 12)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(not tester.test_move(tester.global_transform, Vector2(0, -24)), "jumping up through the metal platform from below isn't blocked")
+	tester.position = Vector2(0, -8)
+	await get_tree().physics_frame
+	_check(tester.test_move(tester.global_transform, Vector2(0, 8)), "falling onto the metal platform from above lands on it")
+	tester.queue_free()
+	solid.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Metal platform")
+
+
 func _check_l17_backdrops() -> void:
 	var path: String = LevelStorage.create_level("Backdrop Level")
 	LevelEditor.path_to_open = path
@@ -2617,6 +2661,15 @@ func _check_l17_backdrops() -> void:
 	preview.close()
 	_check(not preview.visible and above.backdrop_theme == Backdrop.Look.VOLCANO and above.backdrop_altitude == Backdrop.Altitude.UNDERGROUND,
 		"Enter in the preview sets the look and altitude of the selected room")
+	# A new room takes the look most rooms show and the altitude set last.
+	var while_mostly_auto: Room = map.create_room(Rect2(start.position + Vector2(-320, 0), Vector2(320, 180)))
+	_check(while_mostly_auto != null and while_mostly_auto.backdrop_theme == Backdrop.Look.AUTO
+		and while_mostly_auto.backdrop_altitude == Backdrop.Altitude.UNDERGROUND,
+		"a new room keeps AUTO when most rooms show its own guess, and takes the altitude set last")
+	editor.set_rooms_property([beside, while_mostly_auto] as Array[Room], &"backdrop_theme", Backdrop.Look.VOLCANO)
+	var after_volcano: Room = map.create_room(Rect2(start.position + Vector2(-640, 0), Vector2(320, 180)))
+	_check(after_volcano != null and after_volcano.backdrop_theme == Backdrop.Look.VOLCANO,
+		"a new room takes the look most of the level's rooms show")
 	editor.toggle_map()
 	editor.queue_free()
 	await get_tree().process_frame

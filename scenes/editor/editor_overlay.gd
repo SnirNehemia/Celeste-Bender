@@ -397,6 +397,10 @@ func _draw_map(map: MapView) -> void:
 		var preview_color: Color = PREVIEW_COLOR if map.preview_valid else REFUSED_COLOR
 		draw_rect(map.preview_rect, Color(preview_color, 0.15))
 		draw_rect(map.preview_rect, preview_color, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
+		# The other selected rooms moving along with it.
+		for group_rect: Rect2 in map.get_group_preview_rects():
+			draw_rect(group_rect, Color(preview_color, 0.15))
+			draw_rect(group_rect, preview_color, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)
 		if map.importing_room != null:
 			_draw_room_name(map.importing_room, map.preview_rect, true)
 

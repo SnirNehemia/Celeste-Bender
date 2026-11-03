@@ -280,6 +280,15 @@ static func _build() -> void:
 	spikes.bounds = Bounds.SPIKE_STRIP
 	spikes.editable_properties = [&"facing", &"tile_count"]
 
+	# The origin is the middle of the girder's top, like the leaf platform's.
+	var metal_platform: Entry = _add_object(&"metal_platform", "Metal platform", "Basics", preload("res://scenes/objects/metal_platform.tscn"))
+	metal_platform.hint = "One-way steel girder: jump up through it from below and land on top. It never moves, and you can't drop back down through it."
+	metal_platform.bounds = Bounds.WIDTH_CENTERED
+	metal_platform.width_property = &"platform_width"
+	metal_platform.local_rect = Rect2(0, 0, 0, 9)
+	metal_platform.placement = Placement.HANGING
+	metal_platform.editable_properties = [&"platform_width"]
+
 	# --- Air (Stage L4; GAME_DESIGN.md §6) ---
 	var wind_zone: Entry = _add_object(&"wind_zone", "Wind zone", "Air", preload("res://scenes/objects/wind_zone.tscn"))
 	wind_zone.hint = "Pushes the player while inside, in its direction (currents and updrafts). With Heat on it's a hot updraft (fire)."

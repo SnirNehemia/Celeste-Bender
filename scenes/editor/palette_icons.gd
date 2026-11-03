@@ -249,6 +249,13 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"boulder":
 			_rect(image, 2, 2, 6, 7, GRAY)
 			_rect(image, 1, 4, 8, 4, GRAY)
+		&"metal_platform":
+			_rect(image, 0, 4, 10, 3, BLUE_GRAY.darkened(0.2))
+			_rect(image, 0, 4, 10, 1, WHITE.darkened(0.2))
+			_rect(image, 2, 5, 1, 1, DARK_GRAY)
+			_rect(image, 7, 5, 1, 1, DARK_GRAY)
+			_rect(image, 1, 7, 2, 2, DARK_GRAY)
+			_rect(image, 7, 7, 2, 2, DARK_GRAY)
 			_rect(image, 3, 3, 2, 1, WHITE.darkened(0.2))
 		&"loose_rock":
 			_rect(image, 3, 5, 4, 4, GRAY)

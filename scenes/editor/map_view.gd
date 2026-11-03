@@ -91,6 +91,9 @@ var drag_room: Room = null
 var drag_edges: int = 0
 var drag_start_mouse: Vector2 = Vector2.ZERO
 var drag_start_rect: Rect2 = Rect2()
+## Moving several selected rooms: the OTHER selected rooms, which follow drag_room
+## by the same shift. Snapping and the overlap check skip them while they move.
+var drag_group: Array[Room] = []
 ## Where the dragged (or new, or imported) room would go, and whether it can.
 var preview_rect: Rect2 = Rect2()
 var preview_valid: bool = true
@@ -270,6 +273,8 @@ func mouse_moved(mouse_world: Vector2) -> void:
 					null, snap_distance)
 	if (drag != Drag.NONE and drag != Drag.SELECT) or importing_room != null:
 		preview_valid = is_free(preview_rect, drag_room)
+		for group_rect: Rect2 in get_group_preview_rects():
+			preview_valid = preview_valid and is_free(group_rect, drag_room)
 	_update_hover(mouse_world)
 
 
@@ -294,6 +299,14 @@ func _on_press(mouse_world: Vector2, is_double_click: bool, is_adding: bool = fa
 	elif room != null:
 		drag = Drag.MOVE
 		drag_room = room
+		# Grabbing one of several selected rooms moves them all; keep the selection.
+		if selected_rooms.size() > 1 and selected_rooms.has(room):
+			drag_group = selected_rooms.duplicate()
+			drag_group.erase(room)
+			drag_start_rect = room_rect(room)
+			preview_rect = drag_start_rect
+			preview_valid = true
+			return
 	else:
 		# Empty space: a selection box (Ctrl: added to the selection), or after
 		# "Draw a new room", the new room's outline.
@@ -321,9 +334,12 @@ func _on_release() -> void:
 		Drag.SELECT:
 			# A click (not a drag) on empty space only cleared the selection.
 			select_rooms_in(preview_rect, true)
+		Drag.MOVE when not drag_group.is_empty():
+			move_rooms([drag_room] + drag_group, preview_rect.position - drag_start_rect.position)
 		Drag.MOVE, Drag.RESIZE:
 			set_room_rect(drag_room, preview_rect, finished == Drag.RESIZE)
 	drag_room = null
+	drag_group.clear()
 
 
 ## Selects only `room` (null: nothing).
@@ -439,7 +455,7 @@ func snap_moved(rect: Rect2, ignore: Room, snap_distance: float) -> Rect2:
 	var best_x: float = snap_distance
 	var best_y: float = snap_distance
 	for room: Room in editor.get_rooms():
-		if room == ignore:
+		if room == ignore or drag_group.has(room):
 			continue
 		var other: Rect2 = room_rect(room)
 		# Side by side (my left on its right...) and lined up (left on left...).
@@ -464,7 +480,7 @@ func snap_moved(rect: Rect2, ignore: Room, snap_distance: float) -> Rect2:
 func _align_to_side_neighbours(rect: Rect2, ignore: Room) -> Vector2:
 	var aligned: Vector2 = rect.position
 	for room: Room in editor.get_rooms():
-		if room == ignore:
+		if room == ignore or drag_group.has(room):
 			continue
 		var other: Rect2 = room_rect(room)
 		var beside: bool = (is_equal_approx(rect.position.x, other.end.x) or is_equal_approx(rect.end.x, other.position.x)) \
@@ -545,7 +561,7 @@ func is_free(rect: Rect2, ignore: Room = null) -> bool:
 		return false
 	for room: Room in editor.get_rooms():
 		# intersects() without borders: rooms sharing an edge don't count.
-		if room != ignore and rect.intersects(room_rect(room)):
+		if room != ignore and not drag_group.has(room) and rect.intersects(room_rect(room)):
 			return false
 	return true
 
@@ -630,8 +646,30 @@ func create_room(rect: Rect2) -> Room:
 	var number: int = editor.get_rooms().size() + 1
 	var room: Room = LevelTemplate.build_empty_room("Room%d" % number, "Room %d" % number, rect.size)
 	room.position = rect.position
+	# It joins the level's scene: the look most rooms show, and the altitude set last.
+	# (AUTO kept when its own guess already is that look, so it still follows its contents.)
+	var common_look: Backdrop.Look = _most_common_look()
+	if room.get_backdrop_theme() != common_look:
+		room.backdrop_theme = common_look
+	room.backdrop_altitude = editor.last_backdrop_altitude
 	_add_room_undoable(room, "Make room")
 	return room
+
+
+## The backdrop look most of the level's rooms show (as shown, so AUTO rooms count
+## by their guess); AUTO for a level with no rooms yet.
+func _most_common_look() -> Backdrop.Look:
+	var counts: Dictionary = {}
+	for room: Room in editor.get_rooms():
+		var look: Backdrop.Look = room.get_backdrop_theme()
+		counts[look] = int(counts.get(look, 0)) + 1
+	var best_look: Backdrop.Look = Backdrop.Look.AUTO
+	var best_count: int = 0
+	for look: Backdrop.Look in counts:
+		if counts[look] > best_count:
+			best_look = look
+			best_count = counts[look]
+	return best_look
 
 
 ## Moves `room` to `rect`, or (`is_resize`) changes its size too, keeping its
@@ -667,6 +705,37 @@ func set_room_rect(room: Room, rect: Rect2, is_resize: bool = true) -> bool:
 			editor._add_delete_steps(stray)
 	editor.undo_redo.add_do_method(_apply_room_rect.bind(room, rect, shift, cells_after))
 	editor.undo_redo.add_undo_method(_apply_room_rect.bind(room, old_rect, -shift, cells_before))
+	editor.undo_redo.commit_action()
+	return true
+
+
+## While several rooms are dragged: where each of the others would land (drag_group,
+## shifted like the grabbed room's preview). Empty otherwise.
+func get_group_preview_rects() -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	if drag != Drag.MOVE:
+		return rects
+	var shift: Vector2 = preview_rect.position - drag_start_rect.position
+	for room: Room in drag_group:
+		rects.append(Rect2(room.position + shift, room.room_size))
+	return rects
+
+
+## Moves every room of `rooms` by `shift`, contents and all, as ONE undo step.
+## Refused (nothing moves) if any would overlap a room outside the group.
+func move_rooms(rooms: Array, shift: Vector2) -> bool:
+	if shift == Vector2.ZERO:
+		return true
+	for room: Room in rooms:
+		for other: Room in editor.get_rooms():
+			if not rooms.has(other) and Rect2(room.position + shift, room.room_size).intersects(room_rect(other)):
+				editor.ui.show_message("Rooms can't overlap: the %d rooms went back." % rooms.size(), true)
+				return false
+	editor.undo_redo.create_action("Move %d rooms" % rooms.size())
+	for room: Room in rooms:
+		var old_rect: Rect2 = room_rect(room)
+		editor.undo_redo.add_do_method(_apply_room_rect.bind(room, Rect2(old_rect.position + shift, old_rect.size), Vector2.ZERO, {}))
+		editor.undo_redo.add_undo_method(_apply_room_rect.bind(room, old_rect, Vector2.ZERO, {}))
 	editor.undo_redo.commit_action()
 	return true
 
