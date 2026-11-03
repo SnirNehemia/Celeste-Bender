@@ -1,6 +1,6 @@
 # Backdrop guide: how to build (or revise) a look
 
-The rules and lessons from the eleven looks built so far (mountain, temple, forest, desert, underwater, jungle, shore, volcano, sanctum, deepwood, cavern). `/backdrop` follows this guide step by step; any session touching `scenes/backdrop/` should read it first. The code's own headers (`backdrop.gd`, `backdrop_theme.gd`, `backdrop_paint.gd`, `backdrop_terrain.gd`) explain the mechanics; this file explains **what makes a look good** and **what a new look must touch**.
+The rules and lessons from the eleven looks built so far (mountain, temple, forest, desert, underwater, jungle, shore, volcano, sanctum, deepwood, cavern), and notes on the process itself (§9). `/backdrop` follows this guide step by step; any session touching `scenes/backdrop/` should read it first. The code's own headers (`backdrop.gd`, `backdrop_theme.gd`, `backdrop_paint.gd`, `backdrop_terrain.gd`) explain the mechanics; this file explains **what makes a look good** and **what a new look must touch**.
 
 Models to copy:
 - **Jungle**: the classic painted style (`BackdropPaint`), and the big front leaves the developer liked best.
@@ -108,3 +108,43 @@ Models to copy:
 - Change the painter, not the cache: textures are cached per run (`texture_cache`, `tall_cache`), so restart the game or preview after an edit.
 - When moving something between altitudes, keep the shared-layer order and scrolls identical in surface and skyline.
 - Re-shoot only that look (`-- <folder> <look>`) and compare the before and after shots side by side.
+
+## 9. Process notes: how the cavern went, and how to do the next look better
+
+The cavern (the first look built with `/backdrop`) took eight rounds with the developer. What happened, round by round:
+
+| Round | What I showed | What the developer said | What changed |
+|---|---|---|---|
+| Brief | 4 questions: colors, mystery elements, skyline time of day, style | Purple air + brown rock, carved ruins + eyes, daytime ridge, ground style | Plan, plus a new transition rule (soft deep ↔ upper cave, break to the ridge) |
+| 1 | Upper cave: rows of columns | "Several layers of depth... platforms stretching top to bottom... frames within frames" | Rebuilt as walls of openings (took 3 internal reshoots: walls too solid, then floors too high) |
+| 2 | Frames within frames | Go on | Deep and ridge built |
+| 3 | Whole look | Commit-ready | Deep too uniformly black → I added a far glow for depth |
+| 4 | — | "Much darker, farthest layer pitch black, face very faint and a little creepy" | Air to pure black, face sunk, grin, red pinpricks |
+| 5 | — | Bats slower and more bat-like, only two; deep and upper cave look alike; eyes behind everything | Pixel-sprite bats, cliff chasms in the deep, eyes in the far black |
+| 6 | Wiggly chasms | "Less wiggly, more dramatic: shelves, cliffs, stalactites, occasional stalagmites" | Straight faces with rare big steps, shelves with drips (2 internal reshoots: too boxy at first) |
+| 7 | — | Commit | Committed |
+
+**What worked**
+- **Brief first, one round of questions.** It settled colors, mood and style in one go, with no back-and-forth later about them.
+- **Surface first, then stop for approval.** The biggest change (rows of columns → frames within frames) came after round 1. Without the stop, it would have meant rebuilding all three altitudes, not one.
+- **Judging my own shots before sending.** About half the fixes (front shapes in the middle of the screen, walls too solid, boxy steps, bats like "T"s, wall floors filling the screen) were caught this way and never reached the developer.
+
+**What to do better next time**
+1. **Ask about COMPOSITION in the brief, not only content.** The developer's strongest requests were about structure: frames within frames, top-to-bottom platforms, different terrain per altitude, "less wiggly". Add a brief question with 2–3 composition options for each altitude. For example: rows of separate shapes / walls with openings framing each other / a few huge shapes / an open vista. Describe each option in one line, or sketch it with a quick, rough test shot.
+2. **Make the altitudes differ in SHAPE from the start.** Shared layers keep a look one scene, but two altitudes with the same kind of shapes read as the same place (§7). Plan each altitude's signature shape in the brief: here, round caves above and sheer chasms below.
+3. **Ask how dark and how hidden, in words.** The developer wants mysterious things genuinely hard to see ("the player should have a hard time noticing it") and the far layer pitch black. Default to darker and fainter for anything "mysterious", rather than making it readable.
+4. **Show animated things moving, not frozen.** Stills couldn't show the bats' wingbeat, the eyes blinking or the pinpricks swelling, and two of the developer's notes were about motion. Next time either:
+   - add a "few frames over time" mode to `tools/screenshot_backdrops.gd`, saving e.g. 4 shots 0.25 s apart for one altitude; or
+   - say plainly which moving things are unverified and ask the developer to watch them in the K preview.
+5. **Tune shapes with a variant sheet.** The cliffs took three tries (boxy → wiggly → straight with rare steps). For a shape parameter, render 2–3 variants side by side in one shot (a throwaway script) and let the developer pick, instead of one guess per round.
+6. **Pixel sprites for small creatures.** Line-drawn motes (bats as lines) read as birds or "T"s. Small creatures read best as hand-made pixel frames (`BackdropMotes.BAT_FRAMES`): use frames for any new creature.
+7. **Check the load time early.** Ground-style walls cost about 0.25 s each to paint. Count the full-height ground-style layers in the plan and say the cost up front (§6).
+
+**Technical gotchas met (for whoever writes the code)**
+- A typed constant can't hold built-in constructor calls: `const X: Array[PackedStringArray] = [PackedStringArray([...])]` is a parse error. Use plain nested arrays (`Array[Array]`).
+- Hazing toward an air that changes with height: use `CavernStyle.sink_into_air` (`Image.blend_rect_mask` with the picture as its own mask), not a GDScript pixel loop.
+- Carving shapes OUT of a mask: `Mask.cut_ellipse` / `Mask.cut_rect`. They don't wrap: carve each shape at x - 640, x and x + 640.
+- Random per-step edges read as bricks; a slow noise plus rare steps reads as cliffs.
+- Two BREAKs in one frame used to draw one rock band onto another; each band now draws itself (`_draw_crust.bind(band)`). Any `draw` signal handler should draw on the node that emitted the signal.
+- Editing from Bash: Python here-docs that contain `'''` break; use the scratchpad `ed.py` helper, or the Edit tool for lines with tabs. A `rm` on a path held in a shell variable is blocked by a safety check: just overwrite files instead.
+- Drive C: (temp, Godot's user data, screenshots) ran out of space mid-session. Check `Get-PSDrive` if writes start failing, and keep test logs out of files (pipe output through grep).
