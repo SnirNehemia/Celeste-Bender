@@ -562,6 +562,27 @@ static func _build() -> void:
 		slope_entry.tile_odd_column = slope[3]
 		slope_entry.menu_group = "Ice slope"
 
+	# Crumbling platforms (Stage W8c; Water_bending.md §16 "Decided in Stage W8c"):
+	# each connected patch crumbles like brittle player ice, 2 s after the first touch,
+	# and stays gone until the room resets. Both share CrumblePatches.
+	var crumble_rock: Entry = _add(&"crumble_rock", "Crumbling rock", "Terrain", Kind.TERRAIN)
+	crumble_rock.hint = "Grey rock that crumbles: 2 s after you or a crate first touch a patch, the whole connected patch shakes, a bright line runs round it, and it breaks into gravel. Gone until the room resets. Water runs over it like rock; it never gets wet."
+	crumble_rock.layer_name = &"CrumbleRock"
+	crumble_rock.tile_set = preload("res://resources/tiles/placeholder_tileset.tres")
+	crumble_rock.layer_script = preload("res://scenes/objects/crumble_rock_layer.gd")
+	crumble_rock.tile_plain = TileBrush.TILE_PLAIN
+	crumble_rock.tile_top_edge = TileBrush.TILE_PLAIN
+	crumble_rock.extra_tabs = ["Breakable"]
+
+	var crumble_ice: Entry = _add(&"crumble_ice", "Crumbling ice", "Terrain", Kind.TERRAIN)
+	crumble_ice.hint = "Ice that crumbles: slippery like ice (you keep your speed on it), and 2 s after you or a crate first touch a patch, the whole connected patch shatters. Gone until the room resets. It holds no water and never melts."
+	crumble_ice.layer_name = &"CrumbleIce"
+	crumble_ice.tile_set = ice.tile_set
+	crumble_ice.layer_script = preload("res://scenes/objects/water/crumble_ice_layer.gd")
+	crumble_ice.tile_plain = IceLayer.ICE_TILE
+	crumble_ice.tile_top_edge = IceLayer.ICE_TILE
+	crumble_ice.extra_tabs = ["Breakable"]
+
 	# Sources and drains (Stage W2; Water_bending.md §6.2, §8.1). A room with a source
 	# gets a WaterWorld even without painted water.
 	var water_source: Entry = _add_object(&"water_source", "Water source", "Water", preload("res://scenes/objects/water/water_source.tscn"))

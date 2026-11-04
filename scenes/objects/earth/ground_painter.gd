@@ -298,6 +298,17 @@ func get_pixel_distance(pixel: Vector2i) -> float:
 	return distances[pixel.y * width + pixel.x]
 
 
+## The color a room pixel would have if its ground were painted in `colors`, a
+## palette like PALETTE's ([crust, rim, edge line, inside, hatch stripe]): the same
+## crust width and wobble, rim, edge line and hatched inside. Transparent for air.
+## MudLook paints wet earth with it (mud is the earth in a mud palette).
+func get_pixel_color_in_palette(pixel: Vector2i, colors: Array) -> Color:
+	var index: int = pixel.y * width + pixel.x
+	if pixel_kinds[index] == Kind.AIR:
+		return Color(0.0, 0.0, 0.0, 0.0)
+	return _get_layered_color(pixel.x, pixel.y, index, Kind.EARTH, colors, false)
+
+
 # --- Rebuilding ----------------------------------------------------------------------
 
 ## Recomputes the picture. When some cells changed (a tear, an opened chamber, holes

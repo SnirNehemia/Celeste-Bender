@@ -500,6 +500,8 @@ Planned with the developer on 3 Nov 2026: read Water_bending.md §16 "Planned in
 
 ---
 
+*Decided while building (W8c):* see Water_bending.md §16 "Decided in Stage W8c".
+
 ## Tips for vibe coding with Claude Code
 - **Describe feel, not code:** "the jump feels floaty at the top" or "the dash stops too abruptly" works better than guessing which variable to change.
 - **Report what you see:** copy error text from Godot's Output/Debugger panel into Claude Code.

@@ -12,8 +12,10 @@ extends Node
 ##   - on_landed(): landing on mud kills the sideways speed at once: the brake at the
 ##     end of an ice runway. Player calls it on every landing.
 ##   - is_mud_wall(side): a mud wall beside you on `side`. WallSlide CLINGS there
-##     while you hold toward it: no sliding (mud_cling_brake stops you fast) and no
-##     climbing. Wall jumps still work. leave_hand_print() marks where you hold on.
+##     while you hold toward it (mud_cling_brake stops you fast), and CLIMBS it with
+##     Up / Down (after the W8c play-test); get_wall_above(side) says what's at your
+##     head: more mud to climb, dry wall (stop) or open air (a hop onto the ledge).
+##     Wall jumps still work. leave_hand_print() marks where you hold on.
 ##   - is_on_coat (Stage W8b): standing on a wet tile under an ICY COAT. Player
 ##     counts that as ice (is_on_ice): slippery, keeps speed. A coat isn't mud.
 ##
@@ -24,6 +26,8 @@ extends Node
 const FOOT_PROBE_DEPTH: float = 1.0
 ## How far past the hitbox's side a wall is probed, px.
 const WALL_PROBE_DISTANCE: float = 1.5
+## What get_wall_above finds beside your head.
+enum Above { MUD, DRY_WALL, OPEN }
 
 var player: Player
 ## Standing on mud this frame (set by update_contact).
@@ -96,6 +100,20 @@ func _is_wall_like(side: float, coated: bool) -> bool:
 		if grid.is_coated_at(probe) if coated else grid.is_mud_at(probe):
 			return true
 	return false
+
+
+## What the wall on `side` is at your head's height (1 px under the hitbox's top):
+## MUD to climb on, a DRY_WALL (stop: no more mud) or OPEN air (the wall's top: hop).
+func get_wall_above(side: float) -> Above:
+	var hitbox: Rect2 = player.get_hitbox_rect()
+	var grid: SurfaceGrid = SurfaceGrid.find_at(player.get_tree(), hitbox.get_center())
+	if grid == null:
+		return Above.DRY_WALL
+	var probe: Vector2 = Vector2((hitbox.end.x if side > 0.0 else hitbox.position.x) + side * WALL_PROBE_DISTANCE,
+		hitbox.position.y + 1.0)
+	if grid.is_mud_at(probe):
+		return Above.MUD
+	return Above.DRY_WALL if grid.water_world.is_cell_solid(grid.get_cell_at(probe)) else Above.OPEN
 
 
 ## A hand print on the mud wall on `side`, at the hands' height.

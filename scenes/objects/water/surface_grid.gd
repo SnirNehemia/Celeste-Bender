@@ -10,9 +10,10 @@ extends Node2D
 ##
 ## WHAT A TILE IS MADE OF (get_ground, read live, so a cell that burns to ash or an
 ## earth tile torn out changes with it):
-##   ROCK     the grey ground ("Tiles"): wet as soon as any water TOUCHES one of its
-##            faces (touch()); it soaks nothing, water runs and puddles on it. Wet
-##            rock plays like dry rock: it's there to be frozen (W8b).
+##   ROCK     the grey ground ("Tiles"): NEVER wet (after the second W8c play-test;
+##            it was wet on touch before, to be frozen). It soaks nothing, water runs
+##            and puddles on it, and it can't be coated. touch() is kept for the
+##            WaterWorld's callers but touch_open stays all 0.
 ##   EARTH    the Earth layer (fresh, used, hardened): absorbent, MUD once full.
 ##   ASH      a grass cell the FireGrid burnt to ASH: absorbent, MUD once full (a
 ##            darker mud; it never sets into ashstone).
@@ -42,8 +43,13 @@ extends Node2D
 ## sticky floor and walls. Where you cling, a hand print is left (add_hand_print).
 ##
 ## THE LOOK (_draw): a band along each open face of a wet tile, by material: wet rock
-## darker with a light sheen on top, mud glossy brown (ash mud grey-black) that drips
-## slowly from its undersides, wet grass a deeper green with a few drops.
+## darker with a light sheen on top, wet grass a deeper green with a few drops. MUD
+## (after the W8c play-tests) is the earth gone wet: MudLook (mud_look.gd) paints each
+## mud tile as the GroundPainter paints earth, in a mud palette (a wet brown crust),
+## with small smooth lumps bulging out of its open faces.
+## A tile's picture is kept (mud_textures) until the terrain changes. The slow drips
+## under mud are the one moving part: a child node (MudDrips) redraws only them every
+## frame. Ash mud the same in grey-black.
 
 ## A tile just dried (heat): the WaterWorld lets it soak again.
 signal dried(cell: Vector2i)
@@ -65,16 +71,9 @@ const BAND_DEPTH: float = 3.0
 ## The look (placeholder colors, Water_bending.md §12.1 water family + mud browns).
 const WET_ROCK_COLOR: Color = Color(0.05, 0.07, 0.12, 0.45)
 const WET_ROCK_SHEEN_COLOR: Color = Color(0.7, 0.85, 1.0, 0.35)
-const MUD_COLOR: Color = Color("#4A3220")
-const MUD_GLOSS_COLOR: Color = Color("#8C6A4A")
-const ASH_MUD_COLOR: Color = Color("#2A2628")
-const ASH_MUD_GLOSS_COLOR: Color = Color("#5E585A")
 const WET_GRASS_COLOR: Color = Color(0.05, 0.2, 0.12, 0.45)
 const WET_DROP_COLOR: Color = Color(0.65, 0.85, 1.0, 0.8)
 const HAND_PRINT_COLOR: Color = Color("#2A1A10")
-## A mud drip falls this far under the tile, px, once every DRIP_PERIOD seconds.
-const DRIP_LENGTH: float = 5.0
-const DRIP_PERIOD: float = 2.2
 ## Hand prints kept at once (the oldest goes).
 const MAX_HAND_PRINTS: int = 24
 ## Steam specks a dried tile puffs.
@@ -112,8 +111,14 @@ var melted_cells: Dictionary = {}
 var hand_prints: PackedVector2Array = PackedVector2Array()
 ## Seconds the look has run (drips), game time.
 var look_clock: float = 0.0
-## Did the last _draw draw a mud drip? Only then does the look redraw every frame.
-var has_drips: bool = false
+## The mud tiles with an open underside (drips), found by the last _draw: MudDrips
+## redraws only these every frame.
+var drip_cells: Array[Vector2i] = []
+## Draws the drips (see THE LOOK).
+var mud_drips: Node2D
+## Each mud tile's picture: cell -> {&"ground": Ground, &"texture": ImageTexture}
+## (MudLook.make_tile_texture), kept until the terrain changes (rebuild, reset).
+var mud_textures: Dictionary = {}
 
 
 ## Makes the grid for `world` (call before world.refresh_solid_cells).
@@ -137,6 +142,11 @@ func _ready() -> void:
 	# Drawn over the ground but behind the player: not the WaterWorld's z_index 1.
 	z_as_relative = false
 	z_index = 0
+	# The drips are the only part that moves: their own node, so only they redraw.
+	mud_drips = Node2D.new()
+	mud_drips.name = "MudDrips"
+	mud_drips.draw.connect(_draw_drips)
+	add_child(mud_drips)
 
 
 ## The grid of the room containing `world_position`, or null.
@@ -161,6 +171,7 @@ static func find_for_room(tree: SceneTree, target_room: Room) -> SurfaceGrid:
 ## from refresh_solid_cells (load, reset, tiles changed). A tile that stopped being
 ## solid (torn earth, crumbled thicket) is dry: there's nothing left to be wet.
 func rebuild(new_grid_size: Vector2i) -> void:
+	mud_textures.clear()  # the terrain may have changed: mud pictures are made again
 	if new_grid_size != grid_size:
 		grid_size = new_grid_size
 		wet_cells.resize(grid_size.x * grid_size.y)
@@ -179,13 +190,18 @@ func rebuild(new_grid_size: Vector2i) -> void:
 					coated_count -= 1
 				wet_cells[index] = DRY
 				wet_count -= 1
-			if ground == Ground.ROCK and wet_cells[index] == DRY:
-				touch_open[index] = 1
+			if ground == Ground.ROCK and wet_cells[index] != DRY:
+				# Grey rock is never wet (a level saved wet before the change).
+				if wet_cells[index] == COATED:
+					coated_count -= 1
+				wet_cells[index] = DRY
+				wet_count -= 1
 	queue_redraw()
 
 
 ## Death or R: everything is dry again.
 func reset() -> void:
+	mud_textures.clear()
 	wet_cells.fill(DRY)
 	wet_count = 0
 	coated_count = 0
@@ -263,8 +279,9 @@ func get_wet_count() -> int:
 ## Tile `cell` is wet now (an absorbent tile soaked full, or water touched rock).
 ## Returns true if it was dry. Tiles that can't be wet are left alone.
 func wet(cell: Vector2i) -> bool:
-	if not _is_inside(cell) or get_ground(cell) == Ground.NONE:
-		return false
+	var ground: Ground = get_ground(cell) if _is_inside(cell) else Ground.NONE
+	if ground == Ground.NONE or ground == Ground.ROCK:
+		return false  # grey rock never gets wet (see the header)
 	var index: int = cell.y * grid_size.x + cell.x
 	if wet_cells[index] != DRY:
 		return false
@@ -317,8 +334,6 @@ func dry_if_wet(cell: Vector2i) -> bool:
 	var index: int = cell.y * grid_size.x + cell.x
 	wet_cells[index] = DRY
 	wet_count -= 1
-	if get_ground(cell) == Ground.ROCK:
-		touch_open[index] = 1
 	_puff_steam(cell)
 	queue_redraw()
 	dried.emit(cell)
@@ -484,13 +499,13 @@ func _is_open(cell: Vector2i) -> bool:
 
 func _process(delta: float) -> void:
 	# Only mud drips move; everything else is drawn once when it changes.
-	if has_drips and GameState.current_room == room:
+	if not drip_cells.is_empty() and GameState.current_room == room:
 		look_clock += delta
-		queue_redraw()
+		mud_drips.queue_redraw()
 
 
 func _draw() -> void:
-	has_drips = false
+	drip_cells.clear()
 	if wet_count > 0:
 		for index: int in wet_cells.size():
 			if wet_cells[index] != DRY:
@@ -500,56 +515,57 @@ func _draw() -> void:
 		draw_rect(Rect2(print_point + Vector2(-1.0, 0.0), Vector2(2.0, 2.0)), HAND_PRINT_COLOR)
 		draw_rect(Rect2(print_point + Vector2(-1.0, -2.0), Vector2(1.0, 1.0)), HAND_PRINT_COLOR)
 		draw_rect(Rect2(print_point + Vector2(0.5, -2.0), Vector2(1.0, 1.0)), HAND_PRINT_COLOR)
+	mud_drips.queue_redraw()  # the drip list may have changed
 
 
-## One wet tile: a band along each open face, colored by material.
+## MudDrips' draw: a drip under each mud tile with an open underside.
+func _draw_drips() -> void:
+	for cell: Vector2i in drip_cells:
+		MudLook.draw_drip(mud_drips, cell, get_ground(cell) == Ground.ASH, look_clock)
+
+
+## One wet tile: a band along each open face, colored by material (mud: _draw_mud).
 func _draw_wet_cell(cell: Vector2i) -> void:
 	var ground: Ground = get_ground(cell)
 	var origin: Vector2 = Vector2(cell * TILE)
-	var band_color: Color = WET_ROCK_COLOR
-	var shine_color: Color = WET_ROCK_SHEEN_COLOR
-	match ground:
-		Ground.EARTH:
-			band_color = MUD_COLOR
-			shine_color = MUD_GLOSS_COLOR
-		Ground.ASH:
-			band_color = ASH_MUD_COLOR
-			shine_color = ASH_MUD_GLOSS_COLOR
-		Ground.GRASS, Ground.THICKET:
-			band_color = WET_GRASS_COLOR
-			shine_color = WET_DROP_COLOR
-	var is_mud_tile: bool = ground == Ground.EARTH or ground == Ground.ASH
-	# Mud is the whole tile's face; the others only a damp band.
-	var depth: float = float(TILE) if is_mud_tile else BAND_DEPTH
-	if _is_open(cell + Vector2i.UP):
-		draw_rect(Rect2(origin, Vector2(TILE, depth)), band_color)
-		# A sheen line on top (a glossy streak for mud, a light line for rock).
-		draw_rect(Rect2(origin + Vector2(1.0, 0.0), Vector2(TILE - 2.0 if is_mud_tile else TILE - 1.0, 1.0)), shine_color)
-	if _is_open(cell + Vector2i.LEFT):
-		draw_rect(Rect2(origin, Vector2(depth, TILE)), band_color)
-		if is_mud_tile:
-			draw_rect(Rect2(origin + Vector2(0.0, 2.0), Vector2(1.0, 3.0)), shine_color)
-	if _is_open(cell + Vector2i.RIGHT):
-		draw_rect(Rect2(origin + Vector2(TILE - depth, 0.0), Vector2(depth, TILE)), band_color)
-		if is_mud_tile:
-			draw_rect(Rect2(origin + Vector2(TILE - 1.0, 3.0), Vector2(1.0, 3.0)), shine_color)
-	if _is_open(cell + Vector2i.DOWN):
-		draw_rect(Rect2(origin + Vector2(0.0, TILE - depth), Vector2(TILE, depth)), band_color)
-		if is_mud_tile:
-			# A slow drip off the underside: a drop that stretches, falls and comes back.
-			has_drips = true
-			# The small primes mixed from the cell's x and y give each tile its own drip
-			# timing and spot, so neighbouring tiles never drip in step.
-			var phase: float = fposmod(look_clock / DRIP_PERIOD + float((cell.x * 7 + cell.y * 3) % 11) / 11.0, 1.0)
-			var drip_x: float = origin.x + 2.0 + float((cell.x * 5 + cell.y) % 4)
-			draw_rect(Rect2(Vector2(drip_x, origin.y + TILE), Vector2(1.0, 1.0 + phase * DRIP_LENGTH)), band_color)
-	if ground == Ground.GRASS or ground == Ground.THICKET:
-		# A few drops caught in the blades (spots mixed from the cell, like the drips).
-		for drop: int in 2:
-			var drop_x: float = origin.x + 1.0 + float((cell.x * 3 + drop * 5) % 6)
-			draw_rect(Rect2(Vector2(drop_x, origin.y - 1.0 - drop), Vector2(1.0, 1.0)), shine_color)
+	if ground == Ground.EARTH or ground == Ground.ASH:
+		_draw_mud(cell, origin, ground == Ground.ASH)
+	else:
+		var is_plant: bool = ground == Ground.GRASS or ground == Ground.THICKET
+		var band_color: Color = WET_GRASS_COLOR if is_plant else WET_ROCK_COLOR
+		var shine_color: Color = WET_DROP_COLOR if is_plant else WET_ROCK_SHEEN_COLOR
+		if _is_open(cell + Vector2i.UP):
+			draw_rect(Rect2(origin, Vector2(TILE, BAND_DEPTH)), band_color)
+			draw_rect(Rect2(origin + Vector2(1.0, 0.0), Vector2(TILE - 1.0, 1.0)), shine_color)  # a sheen on top
+		if _is_open(cell + Vector2i.LEFT):
+			draw_rect(Rect2(origin, Vector2(BAND_DEPTH, TILE)), band_color)
+		if _is_open(cell + Vector2i.RIGHT):
+			draw_rect(Rect2(origin + Vector2(TILE - BAND_DEPTH, 0.0), Vector2(BAND_DEPTH, TILE)), band_color)
+		if _is_open(cell + Vector2i.DOWN):
+			draw_rect(Rect2(origin + Vector2(0.0, TILE - BAND_DEPTH), Vector2(TILE, BAND_DEPTH)), band_color)
+		if is_plant:
+			# A few drops caught in the blades (spots mixed from the cell, like the drips).
+			for drop: int in 2:
+				var drop_x: float = origin.x + 1.0 + float((cell.x * 3 + drop * 5) % 6)
+				draw_rect(Rect2(Vector2(drop_x, origin.y - 1.0 - drop), Vector2(1.0, 1.0)), shine_color)
 	if wet_cells[cell.y * grid_size.x + cell.x] == COATED:
 		_draw_coat(cell, origin)
+
+
+## One mud tile (see THE LOOK): its picture (made once, MudLook), its lumps, and a
+## drip if its underside is open.
+func _draw_mud(cell: Vector2i, origin: Vector2, is_ash: bool) -> void:
+	var ground: Ground = Ground.ASH if is_ash else Ground.EARTH
+	var picture: Dictionary = mud_textures.get(cell, {})
+	if picture.is_empty() or picture[&"ground"] != ground:
+		# Made once: the painter's shape and distances don't change while the room runs.
+		var painter: GroundPainter = room.get_node_or_null("GroundPainter") as GroundPainter
+		picture = {&"ground": ground, &"texture": MudLook.make_tile_texture(cell, is_ash, painter, _is_open)}
+		mud_textures[cell] = picture
+	draw_texture(picture[&"texture"], origin)
+	MudLook.draw_lumps(self, cell, is_ash, _is_open)
+	if _is_open(cell + Vector2i.DOWN):
+		drip_cells.append(cell)
 
 
 ## The icy coat over a wet tile: a glassy band on each open face, a bright line on top.

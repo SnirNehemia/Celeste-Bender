@@ -31,6 +31,13 @@ var was_cancelled: bool = false
 
 
 func enter() -> void:
+	# Flying into water with your head under puts the flame out (after the W8c
+	# play-test): a cough, and you keep what's left of the speed.
+	if player.flame_jet.is_under_water():
+		player.flame_jet.start_sputter()
+		_finish()
+		return
+
 	thrust_direction = _read_steer_direction()
 	burst_elapsed = 0.0
 	was_cancelled = false

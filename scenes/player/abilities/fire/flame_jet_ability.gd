@@ -83,9 +83,13 @@ func _ready() -> void:
 # --- Called by the player and the Jetting state ---------------------------------
 
 ## On the frame W is pressed (where fire is allowed): spends a pip and returns true
-## so the caller switches to Jetting. With no pip it sputters and returns false.
+## so the caller switches to Jetting. With no pip, or with your head under water
+## (after the W8c play-test: a flame can't burn there), it sputters and returns false.
 func try_start() -> bool:
 	if not Input.is_action_just_pressed("flame_jet") or not player.is_element_allowed(Player.ELEMENT_FIRE):
+		return false
+	if is_under_water():
+		start_sputter()
 		return false
 	if fire_bar.spend():
 		return true
@@ -94,12 +98,21 @@ func try_start() -> bool:
 
 
 ## A burst ended with W still held: pay for the next one. False (and a sputter)
-## when the bar is empty, so the flight ends in a readable cough.
+## when the bar is empty or you're under water, so the flight ends in a readable cough.
 func try_chain() -> bool:
+	if is_under_water():
+		start_sputter()
+		return false
 	if fire_bar.spend():
 		return true
 	start_sputter()
 	return false
+
+
+## Head under water (SwimAbility.is_swimming): no jet starts, and a burst that dives
+## in goes out (Jetting).
+func is_under_water() -> bool:
+	return player.swim.is_swimming()
 
 
 ## The thrust multiplier at `progress` (0 = ignition, 1 = end of the burst).

@@ -181,8 +181,9 @@ var is_rest_armed: bool = false
 ## What 2 would freeze right now (grid ice, Stage I1), refreshed every frame while
 ## holding; null when not holding.
 var plan: IcePlan = null
-## The wet patch the frost cursor touches (Stage W8b): what 2 would coat in ice now,
-## SurfaceGrid cells; empty when the ball isn't empty or touches nothing wet.
+## The wet patch the ball touches (Stage W8b; a ball of water too since the W8c
+## play-test): what 2 would coat in ice now, SurfaceGrid cells; empty with a snake or
+## when it touches nothing wet.
 var coat_patch: Array[Vector2i] = []
 ## For tests and the overlay: tiles the last coat froze.
 var last_coat_tiles: int = 0
@@ -289,6 +290,11 @@ func freeze_held() -> int:
 		ball_units * WaterWorld.UNIT_AREA, snake_area, foot)
 	if freeze_id < 0:
 		return -1
+	# The wet ground the ball touches freezes with it (after the W8c play-test): its
+	# icy coat, the patch the ghost showed.
+	if not coat_patch.is_empty() and world.surface_grid != null:
+		last_coat_tiles = world.surface_grid.coat(coat_patch)
+		coat_patch.clear()
 	if snake != null:
 		snake.area = 0.0  # its water is ice now (or back in its pool)
 		snake = null
@@ -307,15 +313,24 @@ func is_frost_cursor() -> bool:
 	return holding and ball_units <= 0.0 and snake == null
 
 
-## 2 while the frost cursor touches a wet patch (Stage W8b): the patch gets its icy
-## coat (SurfaceGrid.coat) and the hold ends. Returns how many tiles were coated: 0 =
+## 2 while the frost cursor (or a ball too small for one ice tile) touches a wet patch
+## (Stage W8b): the patch gets its icy coat (SurfaceGrid.coat) and the hold ends. Returns how many tiles were coated: 0 =
 ## no patch, the hold goes on (FreezeAbility then tries freeze_held).
 func coat_held() -> int:
-	if not is_frost_cursor() or coat_patch.is_empty() or world == null or world.surface_grid == null:
+	if coat_patch.is_empty() or world == null or world.surface_grid == null:
+		return 0
+	# A ball of water that can freeze into ice freezes (freeze_held, which coats too);
+	# too little for one tile (after the W8c play-test) counts as empty: it coats.
+	if snake != null or (not is_frost_cursor() and plan != null and not plan.is_empty()):
 		return 0
 	var count: int = world.surface_grid.coat(coat_patch)
 	if count == 0:
 		return 0
+	if ball_units > 0.0:
+		# The few drops it held fall where it was (they may soak in).
+		world.release_held(world.to_local(ball_position), Vector2.ZERO, ball_units * WaterWorld.UNIT_AREA)
+		ball_units = 0.0
+		is_gathering = false
 	last_coat_tiles = count
 	coat_patch.clear()
 	plan = null
@@ -604,6 +619,14 @@ func _update_ball(real_delta: float) -> void:
 		if got_area > 0.0:
 			ball_units += got_area / WaterWorld.UNIT_AREA
 			is_gathering = true
+	# Soaking (after the W8c play-test): touching earth, ash or plants, the ball soaks
+	# into them while you hold it, so you can wet ground without letting go; rock it
+	# touches turns wet. 1 px past its edge: resting against a wall counts.
+	if world != null and ball_units > 0.0 and real_delta > 0.0:
+		var soaked_area: float = world.soak_from_hands(world.to_local(ball_position), get_ball_radius() + 1.0,
+			minf(tuning.hands_soak_rate * real_delta, ball_units) * WaterWorld.UNIT_AREA)
+		# The world counts px²; the ball counts units (UNIT_AREA px² each).
+		ball_units = maxf(ball_units - soaked_area / WaterWorld.UNIT_AREA, 0.0)
 	# Let go by itself: out of the ring (a throw: that's how you throw far), or time up.
 	if ball_position.distance_to(player.get_center()) > tuning.control_radius \
 			or hold_real_time >= tuning.max_hold_time:
@@ -626,8 +649,10 @@ func _update_plan() -> void:
 	if world == null:
 		plan = null
 		return
-	# The empty ball, a frost cursor: the wet patch it touches (Stage W8b).
-	if is_frost_cursor() and world.surface_grid != null:
+	# The wet patch the ball touches: what 2 coats (Stage W8b: the empty ball, a frost
+	# cursor; after the W8c play-test, a ball of water too, frozen with it). Not with a
+	# snake: its trail is what freezes.
+	if snake == null and world.surface_grid != null:
 		var tuning: WaterTuning = player.water_tuning
 		coat_patch = world.surface_grid.find_wet_patch(ball_position,
 			get_ball_radius() + tuning.frost_cursor_reach, tuning.wet_freeze_max_tiles)

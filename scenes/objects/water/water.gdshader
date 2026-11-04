@@ -5,8 +5,8 @@ shader_type canvas_item;
 //   COLOR.r  how far under the surface this corner is, px / 64 (0 at the surface).
 //            Corners in between are interpolated, so every pixel knows its depth.
 //   COLOR.g  foam, 0..1: how churned the water is here (fast flow, splashes).
-//   COLOR.b  what is drawn: 0 = the body, 0.25 = a soaked tile's damp top (its
-//            foam channel says how soaked), 0.5 = the 1 px surface line, 1 = a drop
+//   COLOR.b  what is drawn: 0 = the body, 0.25 = a soaked tile's damp top (not
+//            drawn since the W8c play-tests; its foam channel said how soaked), 0.5 = the 1 px surface line, 1 = a drop
 //            (a drop with foam 1 is a white spray speck).
 //   COLOR.a  1 = clean water, 0.5 = BLACK WATER (Stage W7a): inky, almost opaque,
 //            with an oily violet sheen on its surface line instead of the glints.

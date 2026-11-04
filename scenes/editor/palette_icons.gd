@@ -129,6 +129,20 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 				var height: int = from_low + 1 if steep else floori(from_low / 2.0) + 1
 				_rect(image, column, SIZE - height, 1, height, CYAN)
 				_rect(image, column, SIZE - height, 1, 1, WHITE)
+		&"crumble_rock":
+			# Rock broken into blocks by dark cracks.
+			_rect(image, 0, 2, 10, 8, Color(0.36, 0.34, 0.32))
+			_rect(image, 0, 2, 10, 1, Color(0.55, 0.52, 0.48))
+			_rect(image, 4, 3, 1, 4, DARK_GRAY)
+			_rect(image, 1, 6, 4, 1, DARK_GRAY)
+			_rect(image, 6, 5, 1, 5, DARK_GRAY)
+		&"crumble_ice":
+			# Ice with white cracks through it.
+			_rect(image, 0, 2, 10, 8, CYAN)
+			_rect(image, 0, 2, 10, 1, WHITE)
+			_rect(image, 3, 4, 1, 3, WHITE)
+			_rect(image, 4, 6, 3, 1, WHITE)
+			_rect(image, 7, 7, 1, 3, WHITE)
 		&"water_source":
 			# A spout pouring a stream of water.
 			_rect(image, 2, 1, 6, 2, DARK_GRAY)
@@ -235,6 +249,13 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 1, 7, 8, 1, GRAY)
 			_rect(image, 4, 0, 1, 3, GRAY)
 			_rect(image, 6, 4, 1, 3, GRAY)
+		&"metal_platform":
+			_rect(image, 0, 4, 10, 3, BLUE_GRAY.darkened(0.2))
+			_rect(image, 0, 4, 10, 1, WHITE.darkened(0.2))
+			_rect(image, 2, 5, 1, 1, DARK_GRAY)
+			_rect(image, 7, 5, 1, 1, DARK_GRAY)
+			_rect(image, 1, 7, 2, 2, DARK_GRAY)
+			_rect(image, 7, 7, 2, 2, DARK_GRAY)
 		# --- Objects ---
 		&"crate":
 			_rect(image, 1, 1, 8, 8, CRATE_BROWN.darkened(0.3))
@@ -249,13 +270,6 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"boulder":
 			_rect(image, 2, 2, 6, 7, GRAY)
 			_rect(image, 1, 4, 8, 4, GRAY)
-		&"metal_platform":
-			_rect(image, 0, 4, 10, 3, BLUE_GRAY.darkened(0.2))
-			_rect(image, 0, 4, 10, 1, WHITE.darkened(0.2))
-			_rect(image, 2, 5, 1, 1, DARK_GRAY)
-			_rect(image, 7, 5, 1, 1, DARK_GRAY)
-			_rect(image, 1, 7, 2, 2, DARK_GRAY)
-			_rect(image, 7, 7, 2, 2, DARK_GRAY)
 			_rect(image, 3, 3, 2, 1, WHITE.darkened(0.2))
 		&"loose_rock":
 			_rect(image, 3, 5, 4, 4, GRAY)

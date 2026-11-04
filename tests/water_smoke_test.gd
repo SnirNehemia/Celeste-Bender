@@ -37,9 +37,9 @@ func _ready() -> void:
 	add_child(world)
 	# Let the player drop onto the floor and the room manager pick the room.
 	await get_tree().create_timer(0.3).timeout
-	# `-- W3` (any of W1 Swim W2 W3 W4 Ice Lines W7a W7b W8a W8b) runs only those sections: quicker while working on one.
+	# `-- W3` (any of W1 Swim W2 W3 W4 Ice Lines W7a W7b W8a W8b W8c W8play) runs only those sections: quicker while working on one.
 	var wanted: PackedStringArray = OS.get_cmdline_user_args()
-	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "Ice", "Lines", "W7a", "W7b", "W8a", "W8b"]
+	var sections: Array[String] = ["W1", "Swim", "W2", "W3", "W4", "Ice", "Lines", "W7a", "W7b", "W8a", "W8b", "W8c", "W8play"]
 	if not wanted.is_empty():
 		sections.assign(Array(wanted))
 	if sections.has("W1"):
@@ -66,6 +66,10 @@ func _ready() -> void:
 		await _check_w8a_wet_tiles(world, world.player)
 	if sections.has("W8b"):
 		await _check_w8b_icy_coat(world, world.player)
+	if sections.has("W8c"):
+		await _check_w8c_crumbling(world, world.player)
+	if sections.has("W8play"):
+		await _check_w8_playtest_fixes(world, world.player)
 
 	for section_name: String in sections:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
@@ -677,16 +681,17 @@ func _check_w8a_wet_tiles(world: RoomManager, player: Player) -> void:
 	_check(surface.get_ground(Vector2i(30, 16)) == SurfaceGrid.Ground.GRASS, "the strip is GRASS")
 	_check(surface.get_ground(Vector2i(45, 16)) == SurfaceGrid.Ground.NONE, "painted ice never gets wet")
 
-	# Grey rock: wet where water lands, and it soaks nothing (the water puddles).
-	_check(surface.is_wet(Vector2i(5, 19)), "the rock under the start pool is wet")
+	# Grey rock (since the second W8c play-test): never wet, and it soaks nothing (the
+	# water puddles).
+	_check(not surface.is_wet(Vector2i(5, 19)), "the rock under the start pool isn't wet")
 	var soaked_before: float = water.get_soaked_units()
 	water.throw_ball(Vector2(100.0, 110.0), Vector2(0.0, 40.0), 1.0)
 	for frame: int in 60:
 		await get_tree().physics_frame
-	_check(surface.is_wet(Vector2i(12, 16)), "a ball thrown on grey floor wets it")
+	_check(not surface.is_wet(Vector2i(12, 16)) and not surface.wet(Vector2i(12, 16)),
+		"a ball thrown on grey floor doesn't wet it, and wet() refuses rock")
 	_check(absf(water.get_soaked_units() - soaked_before) < 0.001,
 		"grey rock soaks nothing (%.3f units)" % (water.get_soaked_units() - soaked_before))
-	_check(not surface.is_mud(Vector2i(12, 16)), "wet rock isn't mud")
 
 	# Earth: soaked full, it's MUD. A ball thrown at the shaft's right wall.
 	water.throw_ball(Vector2(168.0, 60.0), Vector2(160.0, -20.0), 2.0)
@@ -948,7 +953,7 @@ func _check_w8b_icy_coat(world: RoomManager, player: Player) -> void:
 	hands.ball_position = origin + Vector2(69.0 * 8.0, 140.0)
 	for frame: int in 6:
 		await get_tree().physics_frame
-	_check(hands.ball_units > 0.0 and not hands.is_frost_cursor() and hands.coat_patch.is_empty(),
+	_check(hands.ball_units > 0.0 and not hands.is_frost_cursor(),
 		"in reach of water the hands gather: no frost cursor (%.2f units)" % hands.ball_units)
 	Input.action_release(&"water_hands")
 	for frame: int in 30:
@@ -959,6 +964,232 @@ func _check_w8b_icy_coat(world: RoomManager, player: Player) -> void:
 	await get_tree().physics_frame
 	_check(surface.get_coated_count() == 0 and not surface.is_wet(Vector2i(78, 16)), "R clears every coat")
 	finished_sections.append("W8b")
+
+
+## Stage W8c: crumbling platforms (painted Crumbling rock and Crumbling ice), in room
+## Water J past the W8b gap: two rock patches (cols 101-103, 106-108) and an ice run
+## (cols 111-120) over a spike pit.
+func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterJ") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var rock: CrumbleRockLayer = room.get_node_or_null("CrumbleRock") as CrumbleRockLayer
+	var ice: CrumbleIceLayer = room.get_node_or_null("CrumbleIce") as CrumbleIceLayer
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(rock != null and ice != null and water != null, "W8c: Water J has a CrumbleRock and a CrumbleIce layer")
+	if rock == null or ice == null or water == null:
+		return
+	room.reset_objects()
+	var origin: Vector2 = room.global_position
+	var crumble_time: float = player.water_tuning.crumble_time
+	# Game seconds as physics frames (the countdown runs on game time).
+	var crumble_frames: int = ceili(crumble_time * Engine.physics_ticks_per_second)
+	var patch_a: Vector2i = Vector2i(102, 16)
+	var patch_b: Vector2i = Vector2i(107, 16)
+	var safe_feet: Vector2 = origin + Vector2(96.0 * 8.0, 128.0)
+	_check(rock.crumble.patches.size() == 2 and rock.crumble.get_patch_index(patch_a) != rock.crumble.get_patch_index(patch_b),
+		"the two rock rows are two patches (%d)" % rock.crumble.patches.size())
+	_check(ice.is_in_group(IceLayer.ICE_GROUP), "crumbling ice is ice (IceLayer.ICE_GROUP)")
+	_check(water.is_cell_solid(patch_a) and water.is_cell_solid(Vector2i(115, 16)) and not water.surface_grid.is_absorbent(patch_a),
+		"water treats crumbling tiles as solid ground that soaks nothing")
+
+	# Landing on patch A starts it; B waits. Step off before it goes (spikes below).
+	var shatters_before: int = rock.crumble.shatter_count
+	await _stand_at(player, origin + Vector2(102.0 * 8.0 + 4.0, 128.0))
+	_check(player.is_on_floor() and rock.crumble.is_crumbling(patch_a) and not rock.crumble.is_crumbling(patch_b),
+		"standing on rock patch A starts its crumble; patch B waits")
+	await _stand_at(player, safe_feet)
+	for frame: int in floori(crumble_frames / 2.0) - 40:
+		await get_tree().physics_frame
+	_check(rock.get_cell_source_id(patch_a) != -1, "halfway through crumble_time it still stands")
+	for frame: int in floori(crumble_frames / 2.0) + 20:
+		await get_tree().physics_frame
+	_check(rock.get_cell_source_id(patch_a) == -1 and rock.get_cell_source_id(Vector2i(101, 16)) == -1
+		and rock.get_cell_source_id(Vector2i(103, 16)) == -1 and rock.crumble.shatter_count == shatters_before + 1,
+		"crumble_time after the landing, all of patch A is gone")
+	_check(rock.get_cell_source_id(patch_b) != -1 and not rock.crumble.is_crumbling(patch_b), "patch B is untouched")
+	_check(not water.is_cell_solid(patch_a), "the water's solid grid knows patch A is gone")
+
+	# Patch B crumbles on its own.
+	await _stand_at(player, origin + Vector2(107.0 * 8.0 + 4.0, 128.0))
+	_check(rock.crumble.is_crumbling(patch_b), "landing on patch B starts it separately")
+	await _stand_at(player, origin + Vector2(124.0 * 8.0 + 4.0, 128.0))
+	for frame: int in crumble_frames:
+		await get_tree().physics_frame
+	_check(rock.get_cell_source_id(patch_b) == -1 and rock.crumble.shatter_count == shatters_before + 2, "patch B is gone too")
+
+	# Reset: both back, whole and still.
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(rock.get_cell_source_id(patch_a) != -1 and rock.get_cell_source_id(patch_b) != -1
+		and not rock.crumble.is_crumbling(patch_a) and rock.crumble.patches.size() == 2 and water.is_cell_solid(patch_a),
+		"R brings the crumbled rock back")
+
+	# Crumbling ice: slippery, keeps speed above run speed (I5), then shatters, and
+	# gives no water.
+	var books: float = water.get_books_units()
+	await _stand_at(player, origin + Vector2(112.0 * 8.0, 128.0))
+	_check(player.is_on_ice, "standing on crumbling ice is standing on ice")
+	player.velocity = Vector2(200.0, 0.0)
+	Input.action_press(&"move_right")
+	for frame: int in 15:
+		await get_tree().physics_frame
+	var ice_speed: float = player.velocity.x
+	Input.action_release(&"move_right")
+	_check(ice_speed > player.tuning.max_run_speed + 20.0,
+		"crumbling ice keeps speed above run speed (%.1f px/s)" % ice_speed)
+	_check(ice.crumble.is_crumbling(Vector2i(115, 16)), "the ice run is crumbling")
+	await _stand_at(player, safe_feet)
+	for frame: int in crumble_frames:
+		await get_tree().physics_frame
+	var ice_left: int = ice.get_used_cells().size()
+	_check(ice_left == 0 and ice.crumble.shatter_count == 1, "the whole ice run shattered (%d tiles left)" % ice_left)
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "shattered crumbling ice gives no water")
+
+	room.reset_objects()
+	await get_tree().physics_frame
+	_check(ice.get_used_cells().size() == 10 and not ice.crumble.has_crumbling(), "R brings the ice run back")
+	finished_sections.append("W8c")
+
+
+## After the W8c play-tests, in room Water J: the held ball soaks into the earth it
+## touches while 1 is still held, freezing a ball that touches wet ground coats that
+## ground too (a ball too small for one ice tile coats it like the frost cursor), the
+## mud climb, and the flame jet (W) doesn't light with your head under water.
+func _check_w8_playtest_fixes(world: RoomManager, player: Player) -> void:
+	var room: Room = world.get_node("RoomWaterJ") as Room
+	world.jump_to_room(room)
+	for frame: int in 30:
+		await get_tree().physics_frame
+	var water: WaterWorld = room.get_node_or_null(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	_check(water != null, "W8play: Water J has a WaterWorld")
+	if water == null:
+		return
+	var hands: WaterHandsAbility = player.water_hands
+	var surface: SurfaceGrid = water.surface_grid
+	var origin: Vector2 = room.global_position
+	room.reset_objects()
+	# On the earth floor past the ice slope (cols 54-61, top y 136).
+	await _stand_at(player, origin + Vector2(55.0 * 8.0, 136.0))
+	await _wait_until_calm(water)
+	await _start_hold(player)
+	_check(hands.is_holding(), "holding 1 on the earth floor")
+	# A ball of 2 units (put in the hands, books and all), resting on the earth.
+	var units: float = 2.0
+	hands.ball_units = units
+	water.held_area += units * WaterWorld.UNIT_AREA
+	var books: float = water.get_books_units()
+	var floor_cell: Vector2i = Vector2i(57, 17)
+	hands.ball_position = origin + Vector2(57.0 * 8.0 + 4.0, 136.0 - hands.get_ball_radius() - 0.5)
+	hands.ball_velocity = Vector2.ZERO
+	for frame: int in 20:
+		await get_tree().physics_frame
+	_check(hands.is_holding() and hands.ball_units < units - 0.1 and surface.is_mud(floor_cell),
+		"while 1 is held, the ball soaks into the earth it touches (%.2f units left, mud: %s)" % [hands.ball_units, surface.is_mud(floor_cell)])
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "soaking from the hands keeps the books")
+	_check(not hands.coat_patch.is_empty() and hands.coat_patch.has(floor_cell),
+		"the ball touching the wet floor ghosts its coat (%d tiles)" % hands.coat_patch.size())
+	# 2: the ball freezes and the wet floor it touches gets its coat.
+	player.freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	_check(surface.is_coated(floor_cell) and not hands.is_holding(),
+		"freezing a ball that touches wet ground coats the ground too")
+	room.reset_objects()
+	for frame: int in 10:
+		await get_tree().physics_frame
+
+	# A ball too small for one ice tile: 2 coats the wet ground like the frost cursor.
+	await _stand_at(player, origin + Vector2(55.0 * 8.0, 136.0))
+	surface.wet(floor_cell)
+	await _start_hold(player)
+	var tiny_units: float = 0.3
+	hands.ball_units = tiny_units
+	water.held_area += tiny_units * WaterWorld.UNIT_AREA
+	books = water.get_books_units()
+	hands.ball_position = origin + Vector2(57.0 * 8.0 + 4.0, 136.0 - hands.get_ball_radius() - 0.5)
+	hands.ball_velocity = Vector2.ZERO
+	for frame: int in 3:
+		await get_tree().physics_frame
+	player.freeze.cooldown_remaining = 0.0
+	await _press(&"water_freeze")
+	Input.action_release(&"water_hands")
+	for frame: int in 3:
+		await get_tree().physics_frame
+	_check(surface.is_coated(floor_cell) and not hands.is_holding() and hands.ball_units == 0.0,
+		"a ball too small for an ice tile coats the wet ground it touches")
+	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "its few drops fall: the books hold")
+	room.reset_objects()
+	for frame: int in 30:
+		await get_tree().physics_frame
+
+	# The mud climb, on the shaft's right wall (col 23, rows 3-15; open above row 3).
+	# Distances and waits follow the tuning (it's tuned in play: F5, F4 saves it).
+	var climb_speed: float = player.water_tuning.mud_climb_speed
+	var ticks: float = Engine.physics_ticks_per_second
+	for row: int in range(6, 16):
+		surface.wet(Vector2i(23, row))
+	var wall_feet: Vector2 = origin + Vector2(23.0 * 8.0 - 4.0, 100.0)
+	player.global_position = wall_feet
+	player.velocity = Vector2.ZERO
+	Input.action_press(&"move_right")
+	for frame: int in 20:
+		await get_tree().physics_frame
+	var cling_y: float = player.global_position.y
+	Input.action_press(&"move_up")
+	for frame: int in 20:
+		await get_tree().physics_frame
+	var climbed: float = cling_y - player.global_position.y
+	_check(player.state_machine.current_state.name == &"WallSlide" and climbed > climb_speed * 20.0 / ticks * 0.8,
+		"holding Up on a mud wall climbs it (%.1f px in 1/3 s at %.0f px/s)" % [climbed, climb_speed])
+	# On up to where the mud ends (the head at row 6's top, y 48): long enough at any speed.
+	for frame: int in ceili(maxf(cling_y - origin.y - 48.0, 0.0) / maxf(climb_speed, 1.0) * ticks) + 20:
+		await get_tree().physics_frame
+	var stop_y: float = player.global_position.y
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(absf(player.global_position.y - stop_y) < 0.5 and player.global_position.y > origin.y + 48.0
+		and not player.is_on_floor(), "where the mud ends under dry wall, the climb stops (feet at y %.1f)" % (player.global_position.y - origin.y))
+	Input.action_release(&"move_up")
+	Input.action_press(&"move_down")
+	var before_down: float = player.global_position.y
+	for frame: int in 15:
+		await get_tree().physics_frame
+	Input.action_release(&"move_down")
+	_check(player.global_position.y - before_down > climb_speed * 15.0 / ticks * 0.8,
+		"holding Down slides down the mud (%.1f px)" % (player.global_position.y - before_down))
+	# Mud to the top: the climb ends in a hop onto it.
+	for row: int in range(3, 6):
+		surface.wet(Vector2i(23, row))
+	Input.action_press(&"move_up")
+	for frame: int in ceili(80.0 / maxf(climb_speed, 1.0) * ticks) + 60:
+		await get_tree().physics_frame
+		if player.is_on_floor():
+			break
+	Input.action_release(&"move_up")
+	Input.action_release(&"move_right")
+	_check(player.is_on_floor() and absf(player.global_position.y - (origin.y + 24.0)) < 1.0,
+		"climbing past the top of the wall hops onto it (feet at y %.1f, want 24)" % (player.global_position.y - origin.y))
+	room.reset_objects()
+	for frame: int in 10:
+		await get_tree().physics_frame
+
+	# W with your head under water: a sputter, no jet, no pip spent.
+	await _stand_at(player, origin + Vector2(20.0 * 8.0 + 4.0, 144.0))
+	for frame: int in 20:
+		await get_tree().physics_frame
+	_check(player.swim.is_swimming(), "standing in the shaft's pool, your head is under")
+	var pips_before: int = player.fire_bar.pips
+	await _press(&"flame_jet")
+	for frame: int in 5:
+		await get_tree().physics_frame
+	_check(player.state_machine.current_state.name != &"Jetting" and player.fire_bar.pips == pips_before,
+		"W under water doesn't jet (state %s, pips %d -> %d)" % [player.state_machine.current_state.name, pips_before, player.fire_bar.pips])
+	room.reset_objects()
+	finished_sections.append("W8play")
 
 
 ## Puts the player at `feet` (standing), still, and lets a few frames pass.

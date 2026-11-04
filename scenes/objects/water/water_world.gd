@@ -118,7 +118,6 @@ const WATER_SHADER: Shader = preload("res://scenes/objects/water/water.gdshader"
 ## What _draw() puts in a corner's blue channel, for the shader: a body, its surface
 ## line, or a drop / spray speck.
 const KIND_BODY: float = 0.0
-const KIND_WET: float = 0.25
 const KIND_SURFACE: float = 0.5
 const KIND_DROP: float = 1.0
 ## The depth in a corner's red channel is px / this (the shader multiplies it back).
@@ -932,6 +931,36 @@ func release_held(center: Vector2, velocity: Vector2, area: float) -> void:
 		_spawn_ball(center, velocity, area)
 
 
+## The held ball touching ground (after W8c play-test): up to `area` px² of the held
+## water soaks into the absorbent tiles (earth, ash, grass, thicket) within `radius`
+## px of the room-local `center`, nearest first, as a drop landing there would
+## (_soak_into, which wicks sideways and turns full tiles wet); grey rock there just
+## turns wet, soaking nothing (Stage W8a). Returns the area soaked: it leaves the
+## hands (held_area) for the soaked books, so the total doesn't change.
+func soak_from_hands(center: Vector2, radius: float, area: float) -> float:
+	area = minf(area, held_area)
+	var first: Vector2i = Vector2i(((center - Vector2.ONE * radius) / TILE).floor())
+	var last: Vector2i = Vector2i(((center + Vector2.ONE * radius) / TILE).floor())
+	var touched: Array[Vector2i] = []
+	for y: int in range(first.y, last.y + 1):
+		for x: int in range(first.x, last.x + 1):
+			var cell: Vector2i = Vector2i(x, y)
+			if not is_cell_solid(cell) or cell.x < 0 or cell.y < 0 or cell.x >= grid_size.x or cell.y >= grid_size.y:
+				continue
+			# Touching = the tile's square within `radius` of the center.
+			var tile_rect: Rect2 = Rect2(Vector2(cell * TILE), Vector2.ONE * TILE)
+			var nearest: Vector2 = center.clamp(tile_rect.position, tile_rect.end)
+			if nearest.distance_to(center) <= radius:
+				touched.append(cell)
+	var soaked: float = 0.0
+	for cell: Vector2i in touched:
+		surface_grid.touch(cell)  # rock: wet on touch
+		if soaked < area:
+			soaked += _soak_into(cell, area - soaked)
+	held_area -= soaked
+	return soaked
+
+
 ## Water for a snake (Stage W4): takes up to `area` px² from the body under the
 ## room-local `point` (its column there, two tiles each side sharing, so the pool
 ## dips around the snake's foot) into the hands (held_area). Returns what it got:
@@ -1390,6 +1419,15 @@ func _give_back_cells(cells: Array[Vector2i], speed: float, specks: int) -> void
 			freeze_order.erase(freeze_id)
 	refresh_solid_cells()
 	ice_layer.commit()
+	_drop_unsupported_bodies()
+	wake_all()
+
+
+## Ground went away (a crumbling platform, CrumblePatches.take_away, Stage W8c): the
+## solid grid is read again, water standing on the lost ground falls, loose water
+## wakes up (asleep, it wouldn't notice its floor is gone).
+func terrain_changed() -> void:
+	refresh_solid_cells()
 	_drop_unsupported_bodies()
 	wake_all()
 
@@ -2521,16 +2559,9 @@ func _draw() -> void:
 	draw_uvs.clear()
 	for body: WaterBody in bodies:
 		_add_body_triangles(body, points, colors, indices)
-	# Tiles still soaking: a damp darkening along their top, deeper as they fill.
-	# Once full, the SurfaceGrid draws them (mud, wet grass...).
-	var full_soak: float = maxf(water_tuning.soak_per_tile * UNIT_AREA, 0.001)
-	for cell: Vector2i in soaked_cells:
-		if surface_grid.is_wet(cell):
-			continue
-		var wet_color: Color = Color(0.0, clampf(float(soaked_cells[cell]) / full_soak, 0.0, 1.0), KIND_WET)
-		var top_left: Vector2 = Vector2(cell * TILE)
-		_add_quad(points, colors, indices, top_left, top_left + Vector2(TILE, 0.0),
-			top_left + Vector2(TILE, 3.0), top_left + Vector2(0.0, 3.0), wet_color, wet_color)
+	# Tiles still soaking show nothing (after the W8c play-tests: a 3 px damp band
+	# across a tile's top read as water lying in the ground's dents); once full, the
+	# SurfaceGrid draws them (mud, wet grass...).
 	# Particles: drawn as metaballs by the WaterRenderer; squares only as the fallback.
 	var draw_particles: bool = not renderer.is_drawing_particles()
 	for index: int in (drop_positions.size() if draw_particles else 0):

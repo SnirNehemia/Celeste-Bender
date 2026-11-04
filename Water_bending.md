@@ -884,6 +884,28 @@ Overrides §8.2, §9.0 and §9.1 where they disagree. Split into W8a / W8b / W8c
 - **Room Water J** is now 800 px wide: past the W8a spikes, a 2×2 pool, then a 14-tile grey runway (cols 70–83) and a 64 px spike gap. Smoke test section **W8b**.
 - **Not built:** the gust onto the coat over the gap is not in the smoke test (the test checks the speed kept on the coat); whether 64 px is the right gap is a play-test question.
 
+### Decided in Stage W8c (crumbling platforms, built 3 Nov 2026)
+- **One helper, three users:** `CrumblePatches` (scenes/objects/crumble_patches.gd, a RefCounted, not a node) holds the patches (8 neighbours), the touch (anything in `WaterWorld.SOLID_GROUP`: you, crates), the `crumble_time` countdown (WaterTuning, 2 s, shared) and the look (1 px shake, the contour that closes). `PlayerIceLayer` now uses it for its brittle patches (behaviour unchanged); the two new layers use it for every patch.
+- **Two layers:** `CrumbleRockLayer` ("CrumbleRock", the grey rock tileset, drawn as darker blocks with cracks so it reads as different ground) and `CrumbleIceLayer` ("CrumbleIce", an `IceLayer`: in `ICE_GROUP`, glass look, hairline cracks on every tile). When a patch is done its tiles are erased (`CrumblePatches.take_away`) with gravel or ice shards, and painted back on reset (`put_back`, `Room.RESETTABLE_GROUP`). A reset also stops a patch mid-crumble.
+- **Water:** both are solid tile layers to the WaterWorld (water runs over them like rock); neither is ever wet (the wet layer only reads Tiles, Earth, Grass and Thicket). A patch breaking tells the room's WaterWorld (`terrain_changed`: the solid grid again, water on it falls, loose water wakes). Crumbling ice holds no water and never melts.
+- **Palette:** both in the Terrain tab (also listed under Breakable), with icons. Only the full ice tile crumbles (no crumbling slopes).
+- **Room Water J** is now 1040 px wide: past the W8b gap, a spike pit (cols 100-123) crossed on two rock patches and a 10-tile ice run. Smoke test section **W8c**.
+
+### Changed after the W8c play-test (4 Nov 2026)
+- **The held ball soaks in:** touching earth, ash, grass or thicket, the ball soaks into it while 1 is still held (`WaterWorld.soak_from_hands`, at up to `hands_soak_rate` 2 units per real second, WaterTuning "Water hands"; each tile takes `soak_per_tile` and wicks sideways as for a landing drop). Grey rock it touches turns wet and soaks nothing (as in W8a). Before, the ground only got wet once the ball was let go.
+- **Freezing a ball coats the ground it touches:** the wet patch within `frost_cursor_reach` of the ball is ghosted while you hold (not only for the empty frost cursor), and 2 freezes the ball and coats that patch in the same press. Not with a snake: its trail is what freezes.
+- **The mud look:** the earth's own texture stays, darker and browner (a multiply tint, `SurfaceGrid.mud_tint`), and each open face gets a 2 px wet skin that fills the dry crust's dents, with mud BUMPS sticking 1-2 px out into the air and glossy specks on them, instead of a flat brown band. Ash mud the same in grey-black.
+- **Crumbling rock in the ground's style:** each patch is painted as its own picture (`CrumbleRockPainter`): a 2 px crust with a lighter rim on top, an edge line, a dark hatched inside that darkens further in, in the grey rock's palette made a little warmer; cracks over it.
+- **No flame jet under water:** with your head under (`SwimAbility.is_swimming`), W sputters (no pip spent), a held W doesn't chain, and a burst flying into water goes out.
+- Smoke test section **W8play**.
+
+### Changed after the second W8c play-test (4 Nov 2026)
+- **Mud is the earth gone wet** (`MudLook`, scenes/objects/water/mud_look.gd): each mud tile keeps the GroundPainter's own shape (its dents stay dents; the 2 px skin and the multiply tint are gone). Third play-test round: it's painted exactly as the painter paints earth (`GroundPainter.get_pixel_color_in_palette`: crust and its wobble, rim, edge line, hatched inside) in a MUD PALETTE whose crust is the lumps' wet brown; the first try, dark brown only getting darker inward, read as a diagonal pattern. Small smooth half-ellipse LUMPS bulge 2-3 px out of its open faces, a sparse gloss speck on some 3 px ones.
+- **No damp band:** a tile still soaking (not yet full) used to get a 3 px water-shaded band across its top, which showed in the ground's dents as water lying in the cracks. It's gone: a tile shows nothing until it's full. A tile's picture is made once and kept until the terrain changes; the drips have their own node (MudDrips), so only they redraw every frame.
+- **Grey rock never gets wet** (overrides "Planned in Stage W8": grey ground too). It soaks nothing, shows nothing and can't be coated; only earth, ash, grass and thicket get wet. Water J's W8b runway is earth now.
+- **A ball too small for one ice tile coats like the frost cursor:** when the ice plan for the held ball is empty (under one unit) and it touches a wet patch, 2 coats the patch; the few drops it held fall where it was.
+- **The mud climb** (Celeste's wall climb with no stamina: the water you carry and your reach are the limit): clinging to a mud wall, Up climbs and Down slides down at `mud_climb_speed` (45 px/s, half the run speed; WaterTuning "Mud"). Up stops where the mud ends under dry wall; where the wall itself ends, a hop (`mud_climb_hop_speed` 150 px/s) lifts you over the top while you hold toward it. Wall jumps work as before. (`MudContact.get_wall_above`, `WallSlide`.)
+
 ### Open questions for play-test
 - **Reach:** is 1/2 comfortable with the index on C? If not, try jump on V, or rely on Space (§3.2).
 - **Moving while holding:** standing still on the ground, and keeping your arc in the air: right? Or should you walk slowly while holding?
@@ -895,7 +917,7 @@ Overrides §8.2, §9.0 and §9.1 where they disagree. Split into W8a / W8b / W8c
 - **Ice cap 6:** enough?
 - **Mud gum time:** 4 s, or until reset?
 - **Mud patch size:** is "only the tiles the water touches" big enough to paint a wall path with a 4-unit ball, or too fiddly?
-- **Slow climb on mud:** should up/down move you slowly after all (parked: see §17)?
+- **Mud climb (built after the W8c play-test):** is 45 px/s right? Should the hop at the top be higher, or should climbing also work while rising after a jump?
 - **Douse a brazier** closing its door: good puzzle, or confusing?
 - **Jet over water** boiling pools down: fun, or a way to wreck a room by accident?
 - **Tall grass everywhere:** if all watered grass growing tall clutters rooms, only "sprout grass" tiles grow tall.

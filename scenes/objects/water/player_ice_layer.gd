@@ -19,7 +19,9 @@ extends IceLayer
 ##   - CRUMBLING (Stage I4): the first time you or a crate (anything in
 ##     WaterWorld.SOLID_GROUP) touches a brittle patch, it shakes for crumble_time game
 ##     seconds while a bright contour runs around it and closes; then it SHATTERS: the
-##     WaterWorld gives its water back as loose water (shatter_cells).
+##     WaterWorld gives its water back as loose water (shatter_cells). The patches, the
+##     touch, the countdown and the contour are CrumblePatches (crumble_patches.gd,
+##     Stage W8c), shared with the painted crumbling platforms.
 ##   - FIRE (the Flammable contract, scenes/objects/fire/flammable.gd): a flame
 ##     touching player ice melts the whole freeze it belongs to (ignite_at).
 ##
@@ -28,9 +30,6 @@ extends IceLayer
 
 ## A brittle patch is drawn with hairline cracks in this color.
 const CRACK_COLOR: Color = Color(1.0, 1.0, 1.0, 0.55)
-## The contour that runs around a crumbling patch, and how far it shakes, px.
-const CONTOUR_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
-const SHAKE_PX: float = 1.0
 ## How many white shard specks each shattering tile throws (a look only).
 const SHARDS_PER_TILE: int = 3
 ## Half a tile, px (map_to_local gives a tile's center).
@@ -41,13 +40,13 @@ var world: WaterWorld
 var cell_freeze: Dictionary = {}
 ## cell -> the water frozen in it, px².
 var cell_area: Dictionary = {}
-## The connected patches (rebuilt by commit()). Each is a Dictionary:
-##   cells: Array[Vector2i]; brittle: bool; crack_left: float (game s of crumbling
-##   left, -1 = not crumbling); look: IceLook; loops: Array[PackedVector2Array]
-##   (its outline, for the contour); perimeter: float (px).
-var patches: Array[Dictionary] = []
+## The connected patches (rebuilt by commit()): CrumblePatches' Dictionaries, where
+## can_crumble = brittle, plus `look`: the patch's IceLook.
+var crumble: CrumblePatches = CrumblePatches.new()
 ## For tests: how many patches have shattered.
-var shatter_count: int = 0
+var shatter_count: int:
+	get:
+		return crumble.shatter_count
 
 
 ## A new layer for `owner_world`'s room (the caller adds it to the room).
@@ -127,52 +126,12 @@ func _rebuild() -> void:
 	is_rebuild_queued = false
 	if world == null:
 		return
-	# Crumbling carries over: a patch keeps the least time left of any of its cells
-	# (cells are 8-connected: a patch can only merge with another or lose cells).
-	var old_crack_left: Dictionary = {}
-	for patch: Dictionary in patches:
-		if float(patch[&"crack_left"]) >= 0.0:
-			for cell: Vector2i in patch[&"cells"]:
-				old_crack_left[cell] = patch[&"crack_left"]
-	patches.clear()
-	var unvisited: Dictionary = cell_freeze.duplicate()
-	while not unvisited.is_empty():
-		var start: Vector2i = unvisited.keys()[0]
-		var cells: Array[Vector2i] = _flood(start, unvisited)
-		var brittle: bool = not is_anchored(cells)
-		var crack_left: float = -1.0
-		if brittle:
-			for cell: Vector2i in cells:
-				if old_crack_left.has(cell):
-					crack_left = float(old_crack_left[cell]) if crack_left < 0.0 \
-						else minf(crack_left, float(old_crack_left[cell]))
-		var loops: Array[PackedVector2Array] = _trace_cells(cells)
-		var perimeter: float = 0.0
-		for loop: PackedVector2Array in loops:
-			for index: int in loop.size():
-				perimeter += loop[index].distance_to(loop[(index + 1) % loop.size()])
-		patches.append({
-			&"cells": cells, &"brittle": brittle, &"crack_left": crack_left,
-			&"look": IceLook.build(loops, true, _is_open_below), &"loops": loops, &"perimeter": perimeter,
-		})
-	look_node.queue_redraw()
-
-
-## The cells 8-connected to `start` among `unvisited` (taken out of it).
-func _flood(start: Vector2i, unvisited: Dictionary) -> Array[Vector2i]:
 	var cells: Array[Vector2i] = []
-	var queue: Array[Vector2i] = [start]
-	unvisited.erase(start)
-	while not queue.is_empty():
-		var cell: Vector2i = queue.pop_back()
-		cells.append(cell)
-		for dy: int in range(-1, 2):
-			for dx: int in range(-1, 2):
-				var next: Vector2i = cell + Vector2i(dx, dy)
-				if unvisited.has(next):
-					unvisited.erase(next)
-					queue.append(next)
-	return cells
+	cells.assign(cell_freeze.keys())
+	crumble.rebuild(cells, func(patch_cells: Array[Vector2i]) -> bool: return not is_anchored(patch_cells), _trace_cells)
+	for patch: Dictionary in crumble.patches:
+		patch[&"look"] = IceLook.build(patch[&"loops"], true, _is_open_below)
+	look_node.queue_redraw()
 
 
 ## Does any of `cells` touch terrain (a solid tile that isn't player ice, beside it:
@@ -214,74 +173,27 @@ func would_be_brittle(new_cells: Array[Vector2i]) -> bool:
 	return not is_anchored(all_cells)
 
 
-## The patch `cell` is in, as an index into `patches`, or -1.
-func get_patch_index(cell: Vector2i) -> int:
-	for index: int in patches.size():
-		if (patches[index][&"cells"] as Array).has(cell):
-			return index
-	return -1
-
-
 func is_brittle(cell: Vector2i) -> bool:
-	var index: int = get_patch_index(cell)
-	return index >= 0 and bool(patches[index][&"brittle"])
+	return crumble.can_crumble(cell)
 
 
 func is_crumbling(cell: Vector2i) -> bool:
-	var index: int = get_patch_index(cell)
-	return index >= 0 and float(patches[index][&"crack_left"]) >= 0.0
+	return crumble.is_crumbling(cell)
 
 
 # --- Crumbling (Stage I4) -----------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
-	if world == null or patches.is_empty() or GameState.current_room != world.room:
+	if world == null or crumble.patches.is_empty() or GameState.current_room != world.room:
 		return
-	var has_waiting: bool = false
-	var has_crumbling: bool = false
-	for patch: Dictionary in patches:
-		if bool(patch[&"brittle"]):
-			if float(patch[&"crack_left"]) < 0.0:
-				has_waiting = true
-			else:
-				has_crumbling = true
-	if has_waiting:
-		_start_crumbling_where_touched()
-	if not has_crumbling:
-		return
+	var done: Array[Array] = crumble.advance(self, delta, world.water_tuning.crumble_time, &"ice_crack")
+	if crumble.has_crumbling() or not done.is_empty():
+		look_node.queue_redraw()  # the shake and the contour move every frame
 	var to_shatter: Array[Vector2i] = []
-	for patch: Dictionary in patches:
-		var crack_left: float = patch[&"crack_left"]
-		if crack_left < 0.0:
-			continue
-		crack_left -= delta
-		patch[&"crack_left"] = crack_left
-		if crack_left <= 0.0:
-			to_shatter.append_array(patch[&"cells"])
-	look_node.queue_redraw()  # the shake and the contour move every frame
+	for cells: Array in done:
+		to_shatter.append_array(cells)
 	if not to_shatter.is_empty():
-		shatter_count += 1
 		world.shatter_cells(to_shatter)
-
-
-## Brittle patches that you or a crate touch (their box grown by 1 px: standing on
-## the ice, your feet are on its top edge) start crumbling.
-func _start_crumbling_where_touched() -> void:
-	for member: Node in get_tree().get_nodes_in_group(WaterWorld.SOLID_GROUP):
-		if not member.has_method(&"get_water_box"):
-			continue
-		var box: Rect2 = member.call(&"get_water_box")
-		if box.size.x <= 0.0:
-			continue
-		box = Rect2(to_local(box.position), box.size).grow(1.0)
-		var first: Vector2i = local_to_map(box.position)
-		var last: Vector2i = local_to_map(box.end - Vector2(0.01, 0.01))
-		for y: int in range(first.y, last.y + 1):
-			for x: int in range(first.x, last.x + 1):
-				var index: int = get_patch_index(Vector2i(x, y)) if cell_freeze.has(Vector2i(x, y)) else -1
-				if index >= 0 and bool(patches[index][&"brittle"]) and float(patches[index][&"crack_left"]) < 0.0:
-					patches[index][&"crack_left"] = world.water_tuning.crumble_time
-					FX.play_sfx(&"ice_crack")
 
 
 # --- Fire: the Flammable contract ------------------------------------------------------
@@ -324,46 +236,11 @@ func snuff() -> void:
 ## IceLayer's hook: each patch in the glass look; brittle ones cracked; a crumbling
 ## one shaking, with its contour running round.
 func _draw_look() -> void:
-	for patch: Dictionary in patches:
-		var crack_left: float = patch[&"crack_left"]
-		var offset: Vector2 = Vector2.ZERO
-		if crack_left >= 0.0:
-			offset = Vector2(randi_range(-1, 1), randi_range(-1, 1)) * SHAKE_PX
-		look_node.draw_set_transform(offset)
+	for patch: Dictionary in crumble.patches:
+		look_node.draw_set_transform(crumble.get_shake(patch))
 		(patch[&"look"] as IceLook).draw(look_node)
-		if bool(patch[&"brittle"]):
+		if bool(patch[&"can_crumble"]):
 			for cell: Vector2i in patch[&"cells"]:
-				_draw_cracks(cell)
-		if crack_left >= 0.0:
-			# How far round the contour has run: 0 at the touch, 1 when it shatters.
-			var share: float = 1.0 - crack_left / maxf(world.water_tuning.crumble_time, 0.01)
-			_draw_contour(patch[&"loops"], float(patch[&"perimeter"]) * clampf(share, 0.0, 1.0))
+				CrumblePatches.draw_cracks(look_node, Vector2(cell * tile_set.tile_size), cell, CRACK_COLOR)
+		crumble.draw_contour(look_node, patch, world.water_tuning.crumble_time)
 	look_node.draw_set_transform(Vector2.ZERO)
-
-
-## Hairline cracks across a brittle tile: a short zigzag, its shape picked by a hash
-## of the cell (the same tile always cracks the same way).
-func _draw_cracks(cell: Vector2i) -> void:
-	var origin: Vector2 = Vector2(cell * tile_set.tile_size)
-	var hash_value: int = absi(cell.x * 73856093 ^ cell.y * 19349663)
-	var start: Vector2 = origin + Vector2(1 + hash_value % 3, 2 + floori(hash_value / 3.0) % 3)
-	var middle: Vector2 = start + Vector2(3, 2 - floori(hash_value / 9.0) % 3)
-	var end: Vector2 = middle + Vector2(2, 2)
-	look_node.draw_line(start, middle, CRACK_COLOR, 1.0)
-	look_node.draw_line(middle, end, CRACK_COLOR, 1.0)
-
-
-## The crumbling contour: a bright line along the patch's outline, `length` px of it
-## from where it starts; when it has gone all the way round, the ice shatters.
-func _draw_contour(loops: Array[PackedVector2Array], length: float) -> void:
-	var left: float = length
-	for loop: PackedVector2Array in loops:
-		for index: int in loop.size():
-			if left <= 0.0:
-				return
-			var from: Vector2 = loop[index]
-			var to: Vector2 = loop[(index + 1) % loop.size()]
-			var edge_length: float = from.distance_to(to)
-			var drawn_to: Vector2 = to if edge_length <= left else from.lerp(to, left / edge_length)
-			look_node.draw_line(from, drawn_to, CONTOUR_COLOR, 1.0)
-			left -= edge_length

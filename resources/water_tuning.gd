@@ -218,6 +218,11 @@ extends Resource
 ## REAL second, up to ball_max_units.
 @export var gather_reach: float = 6.0
 @export var gather_rate: float = 6.0
+## The held ball touching earth, ash, grass or thicket soaks into it at up to this
+## many units per REAL second (a tile takes soak_per_tile, then it's wet), so you can
+## wet ground without letting go; grey rock it touches just turns wet (after the W8c
+## play-test).
+@export_range(0.0, 20.0) var hands_soak_rate: float = 2.0
 @export_range(0.5, 10.0) var ball_max_units: float = 4.0
 ## On release the water keeps its steering velocity times this (it moved in slow
 ## motion, so without a boost a throw would look feeble).
@@ -540,6 +545,14 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## Holding toward a mud wall you CLING: your fall is braked to a stop at this many
 ## px/s² (fast: a grab, not a slide). Rising, gravity works as usual.
 @export var mud_cling_brake: float = 2400.0
+## MUD CLIMB (after the W8c play-test, Celeste's wall climb without stamina: the water
+## you carry and how far you can throw it are the limit). Clinging, Up climbs and Down
+## slides down at this speed, px/s (half the run speed: slower than a wall jump).
+@export_range(0.0, 200.0) var mud_climb_speed: float = 45.0
+## Climbing past the top of the mud where the wall ends too (a ledge): a small hop up
+## at this speed, px/s, so you get onto the top instead of hanging at its edge. Where
+## dry wall goes on above the mud, you just stop.
+@export_range(0.0, 400.0) var mud_climb_hop_speed: float = 150.0
 
 @export_group("Debug keys")
 ## Units dropped by 9 (debug_water_dump) and taken by 0 (debug_water_drain).

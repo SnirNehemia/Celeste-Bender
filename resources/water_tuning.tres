@@ -28,3 +28,4 @@ snake_max_length = 120.0
 surface_leap_scale = 0.5
 black_kill_depth = 6.0
 black_slick_time = 5.0
+mud_climb_speed = 20.0

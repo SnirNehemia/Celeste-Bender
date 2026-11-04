@@ -55,9 +55,11 @@ extends "res://tools/build_earth_rooms.gd"
 ##                                     its foot (mud walls to cling to), a grass strip
 ##                                     (fire allowed: burn it, wet it), an ice slope off
 ##                                     a plateau onto an earth floor before spikes (mud
-##                                     brakes the runway); Stage W8b: a grey runway
+##                                     brakes the runway); Stage W8b: an earth runway
 ##                                     with its pool, over a spike gap, to wet and
-##                                     coat in ice (_build_room_water_j)
+##                                     coat in ice; Stage W8c: crumbling rock and
+##                                     crumbling ice over a spike pit
+##                                     (_build_room_water_j)
 ##   - resources/tiles/ice_tileset.tres  (Stage W5) the painted ice tiles: pale cyan,
 ##                                     solid; the full tile and (Stage W7a) six slope
 ##                                     tiles (IceLayer.TILE_SHAPES). Written when
@@ -99,6 +101,9 @@ const BLACK_WATER_TILE_LINE_COLOR: Color = Color(0.42, 0.35, 0.5, 0.9)
 const DOOR_SCENE: PackedScene = preload("res://scenes/objects/door.tscn")
 const PLATE_SCENE: PackedScene = preload("res://scenes/objects/pressure_plate.tscn")
 const ICE_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/ice_layer.gd")
+## Crumbling platforms (Stage W8c): grey rock and ice that crumble 2 s after a touch.
+const CRUMBLE_ROCK_LAYER_SCRIPT: Script = preload("res://scenes/objects/crumble_rock_layer.gd")
+const CRUMBLE_ICE_LAYER_SCRIPT: Script = preload("res://scenes/objects/water/crumble_ice_layer.gd")
 ## Painted ice: pale cyan, a white top line and a white streak (Water_bending.md §7.3).
 const ICE_TILE_COLOR: Color = Color("#BFEFFF")
 const ICE_TILE_EDGE_COLOR: Color = Color("#7FD0EC")
@@ -109,6 +114,9 @@ var water_cells: Dictionary = {}
 ## Painted ice cells of the room being built (Stage W5): Vector2i -> the tile
 ## (IceLayer.ICE_TILE or a slope, Stage W7a).
 var ice_cells: Dictionary = {}
+## Crumbling rock and crumbling ice cells of the room being built (Stage W8c): sets.
+var crumble_rock_cells: Dictionary = {}
+var crumble_ice_cells: Dictionary = {}
 
 
 func _ready() -> void:
@@ -254,6 +262,15 @@ func _ice_tile(column: int, row: int, atlas: Vector2i) -> void:
 	ice_cells[Vector2i(column, row)] = atlas
 
 
+## Paints crumbling rock (or, with `icy`, crumbling ice) into a rectangle of tiles
+## (Stage W8c; erases whatever ground was there).
+func _crumble(column: int, row: int, width: int, height: int, icy: bool = false) -> void:
+	_open(column, row, width, height)
+	for x: int in range(column, column + width):
+		for y: int in range(row, row + height):
+			(crumble_ice_cells if icy else crumble_rock_cells)[Vector2i(x, y)] = true
+
+
 ## Paints water into a rectangle of tiles (column, row, width, height); `black`
 ## paints black water (Stage W7a).
 func _water(column: int, row: int, width: int, height: int, black: bool = false) -> void:
@@ -267,6 +284,8 @@ func _begin_room(node_name: String, title: String, description: String,
 	super(node_name, title, description, size_px)
 	water_cells.clear()
 	ice_cells.clear()
+	crumble_rock_cells.clear()
+	crumble_ice_cells.clear()
 
 
 ## The Earth generator's hook: our extra layers are "Ice" (Stage W5) and "Water",
@@ -282,6 +301,23 @@ func _make_extra_layers() -> Array[TileMapLayer]:
 			if not cell_kinds.has(cell):  # _open() elsewhere may have reused the cell
 				ice.set_cell(cell, 0, ice_cells[cell])
 		layers.append(ice)
+	# Crumbling platforms (Stage W8c), only in rooms with some painted.
+	for crumble: Dictionary in [
+			{&"name": "CrumbleRock", &"script": CRUMBLE_ROCK_LAYER_SCRIPT, &"tileset": CrumbleRockLayer.TILESET_PATH,
+				&"cells": crumble_rock_cells, &"tile": TILE_PLAIN},
+			{&"name": "CrumbleIce", &"script": CRUMBLE_ICE_LAYER_SCRIPT, &"tileset": IceLayer.TILESET_PATH,
+				&"cells": crumble_ice_cells, &"tile": IceLayer.ICE_TILE}]:
+		var cells: Dictionary = crumble[&"cells"]
+		if cells.is_empty():
+			continue
+		var crumble_layer: TileMapLayer = TileMapLayer.new()
+		crumble_layer.name = crumble[&"name"]
+		crumble_layer.set_script(crumble[&"script"])
+		crumble_layer.tile_set = load(crumble[&"tileset"]) as TileSet
+		for cell: Vector2i in cells:
+			if not cell_kinds.has(cell):
+				crumble_layer.set_cell(cell, 0, crumble[&"tile"])
+		layers.append(crumble_layer)
 	if water_cells.is_empty():
 		return layers
 	var water: TileMapLayer = TileMapLayer.new()
@@ -713,9 +749,10 @@ func _build_room_water_i() -> void:
 	_finish_room(Vector2(1 * TILE + 4, 16 * TILE), "res://tests/rooms/room_water_i.tscn")
 
 
-## Water test room J (Stage W8a): wet tiles and mud. 72 x 23 tiles (576 px wide: it
+## Water test room J (Stage W8a): wet tiles and mud. 130 x 23 tiles (1040 px wide: it
 ## scrolls), ground top at row 16 (y 128). Fire is allowed (3 pips). Left to right:
 ##   1. A clean POOL (cols 4-7) to gather from, then plain grey floor (cols 8-15):
+##      (grey rock never gets wet since the second W8c play-test: water just puddles)
 ##      throw water on it and it turns dark and wet (and the water puddles).
 ##   2. A tall EARTH SHAFT (cols 19-22, walls cols 17-18 and 23-24, rows 3-15) with a
 ##      pool at its foot (cols 19-22) and a way in under its left wall (rows 13-15).
@@ -728,19 +765,25 @@ func _build_room_water_i() -> void:
 ##      flat ice (cols 44-53), a one-tile drop onto an EARTH floor (cols 54-61) and a
 ##      spike pit (cols 62-66). Gather on the plateau, wet the earth floor, slide down
 ##      at full speed: landing on the mud stops you dead before the spikes.
+##   5. Stage W8b: a small pool (cols 68-69), an EARTH RUNWAY (cols 70-83) to wet and
+##      coat in ice, and a 64 px spike gap (cols 84-91).
+##   6. Stage W8c: a spike PIT (cols 100-123) crossed on crumbling platforms: two
+##      separate patches of CRUMBLING ROCK (cols 101-103 and 106-108), then a run of
+##      CRUMBLING ICE (cols 111-120), then ground again. Each patch breaks 2 s after
+##      you land on it; R brings them back.
 func _build_room_water_j() -> void:
-	_begin_room("RoomWaterJ", "Water J: wet tiles, mud and icy coats (W8a, W8b)",
-		"Stage W8a. Water WETS what it touches: grey rock turns dark, earth and ash turn to MUD, grass gets wet and won't burn. Throw water at the earth shaft's walls and cling to the mud (hold toward it), then wall-jump up. Wet the grass and fireball it (Q): steam, no fire; the second fireball lights it. On the plateau, gather, wet the earth floor past the ice slope, then slide down: the mud stops you dead before the spikes. Stage W8b, at the far end: wet the grey runway with a ball from its pool, hold 1 away from any water (a frost cursor), steer it onto the wet floor and press 2: an icy coat. Gust onto it and keep your speed over the spike gap.",
-		Vector2(800, 180))
+	_begin_room("RoomWaterJ", "Water J: wet tiles, mud, icy coats, crumbling (W8a-W8c)",
+		"Stage W8a. Water WETS what it touches: earth and ash turn to MUD (grey rock never gets wet), grass gets wet and won't burn. Throw water at the earth shaft's walls and cling to the mud (hold toward it), then wall-jump up. Wet the grass and fireball it (Q): steam, no fire; the second fireball lights it. On the plateau, gather, wet the earth floor past the ice slope, then slide down: the mud stops you dead before the spikes. Stage W8b, at the far end: wet the earth runway with a ball from its pool, hold 1 away from any water (a frost cursor), steer it onto the wet floor and press 2: an icy coat. Gust onto it and keep your speed over the spike gap. Stage W8c, past that: cross the spike pit on crumbling rock and crumbling ice; each patch breaks 2 s after you land on it, and R brings them back.",
+		Vector2(1040, 180))
 	room.painted_ground = true
 	room.water_allowed = true
 	room.earth_allowed = false
 	room.fire_allowed = true
 	room.fire_start_pips = 3
-	_gray(0, 0, 100, 1)   # ceiling
+	_gray(0, 0, 130, 1)   # ceiling
 	_gray(0, 0, 1, 23)    # left wall
-	_gray(99, 0, 1, 23)   # right wall
-	_gray(0, 16, 100, 7)  # the ground, top at y 128
+	_gray(129, 0, 1, 23)  # right wall
+	_gray(0, 16, 130, 7)  # the ground, top at y 128
 
 	# 1. The pool by the start; grey floor past it.
 	_open(4, 16, 4, 3)    # rows 16-18: floor at y 152
@@ -768,11 +811,20 @@ func _build_room_water_j() -> void:
 	_open(62, 16, 5, 2)   # the spike pit, cols 62-66
 	_spikes("RunwaySpikes", 62, 17, 5)
 
-	# 5. Stage W8b: a grey runway to wet and coat, over a spike gap. Its pool first.
+	# 5. Stage W8b: an earth runway to wet and coat, over a spike gap. Its pool first.
 	_open(68, 16, 2, 2)   # the pool, cols 68-69, rows 16-17
 	_water(68, 16, 2, 2)
-	# The runway is the ground itself, cols 70-83 (top y 128).
+	# The runway: the ground's top row in earth, cols 70-83 (top y 128); grey rock
+	# never gets wet, so it can't be coated.
+	_earth(70, 16, 14, 1)
 	_open(84, 16, 8, 2)   # the gap, cols 84-91: 64 px, too far for a plain run
 	_spikes("GapSpikes", 84, 17, 8)
+
+	# 6. Stage W8c: crumbling platforms over a spike pit, cols 100-123.
+	_open(100, 16, 24, 2)
+	_spikes("CrumbleSpikes", 100, 17, 24)
+	_crumble(101, 16, 3, 1)               # rock patch A
+	_crumble(106, 16, 3, 1)               # rock patch B: 2 tiles away, a patch of its own
+	_crumble(111, 16, 10, 1, true)        # the ice run
 
 	_finish_room(Vector2(2 * TILE + 4, 16 * TILE), "res://tests/rooms/room_water_j.tscn")
