@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$godot = "D:\Godot_v4.4.1-stable_win64.exe\Godot_v4.4.1-stable_win64_console.exe"
+$godot = "D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe"
 $projectDir = Split-Path -Parent $PSScriptRoot
 $buildDir = Join-Path $projectDir "build\web"
 
@@ -36,7 +36,7 @@ New-Item -ItemType File -Force (Join-Path $projectDir "build\.gdignore") | Out-N
 Write-Host "[publish] Exporting web build..."
 & $godot --headless --path $projectDir --export-debug "Web" "$buildDir\index.html"
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$buildDir\index.wasm")) {
-    throw "[publish] Godot export failed (are the 4.4.1 export templates installed?)"
+    throw "[publish] Godot export failed (are the 4.7.2 export templates installed?)"
 }
 
 # .nojekyll tells GitHub Pages to serve files as-is instead of running Jekyll on them.

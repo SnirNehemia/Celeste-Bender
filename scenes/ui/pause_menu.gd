@@ -9,6 +9,8 @@ extends CanvasLayer
 ##   - Pausing goes through FX.set_menu_pause(), which also knows about freeze
 ##     frames, so a freeze ending can't unpause the menu (see autoload/fx.gd).
 ##   - "Restart room" calls RoomManager.restart_room(), the same path as R.
+##   - "Rooms" (only in worlds with an F2 room picker) closes this menu and opens
+##     the picker, found through RoomPicker.GROUP. Phones have no F2.
 ##   - It refuses to open while another menu has the game paused (the F2 room
 ##     picker) or after the Goal (the end screen is up).
 ##
@@ -33,6 +35,8 @@ const HINT_COLOR: Color = Color(0.7, 0.7, 0.75)
 var back_to_editor: Callable = Callable()
 
 var resume_button: Button
+## "Rooms": opens the world's F2 room picker. Shown only when the world has one.
+var rooms_button: Button
 ## The whole menu (dim + buttons), shown/hidden as one.
 var menu_root: Control
 
@@ -69,11 +73,25 @@ func _set_open(open: bool) -> void:
 	FX.set_menu_pause(open)
 	FX.play_sfx(&"pause" if open else &"unpause")
 	if open:
+		# Checked on every open, not in _ready: the picker may join the scene after us.
+		rooms_button.visible = _get_room_picker() != null
 		resume_button.grab_focus()
 
 
 func _on_resume_pressed() -> void:
 	_set_open(false)
+
+
+## Closes this menu, then opens the room picker (one menu at a time).
+func _on_rooms_pressed() -> void:
+	var picker: RoomPicker = _get_room_picker()
+	_set_open(false)
+	if picker != null:
+		picker.open()
+
+
+func _get_room_picker() -> RoomPicker:
+	return get_tree().get_first_node_in_group(RoomPicker.GROUP) as RoomPicker
 
 
 func _on_restart_pressed() -> void:
@@ -124,6 +142,8 @@ func _build_ui() -> void:
 	resume_button = _make_button("Resume", _on_resume_pressed)
 	column.add_child(resume_button)
 	column.add_child(_make_button("Restart room", _on_restart_pressed))
+	rooms_button = _make_button("Rooms", _on_rooms_pressed)
+	column.add_child(rooms_button)
 	if back_to_editor.is_valid():
 		column.add_child(_make_button("Back to editor", _on_back_to_editor_pressed))
 	else:

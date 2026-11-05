@@ -184,6 +184,8 @@ var brushes: Dictionary = {}
 var camera: EditorCamera
 var overlay: EditorOverlay
 var ui: EditorUI
+## Turns a finger on the canvas into taps, drags and long presses (right clicks).
+var touch: EditorTouch
 var backdrop: Node2D
 ## The depth behind the one being edited, hazed, and the one in front, faint
 ## (Level_editor.md §5a).
@@ -342,6 +344,20 @@ func _ready() -> void:
 	ui.name = "EditorUI"
 	add_child(ui)
 	ui.entry_chosen.connect(choose_entry)
+	# The top bar's buttons do what M, Tab and Ctrl+S do. `func` drops the return
+	# values (start_playtest's bool, save's Error) a signal has no use for.
+	ui.map_pressed.connect(toggle_map)
+	ui.playtest_pressed.connect(func() -> void:
+		end_link_mode()
+		start_playtest())
+	ui.save_pressed.connect(func() -> void: save())
+	touch = EditorTouch.new()
+	touch.name = "EditorTouch"
+	touch.replay_target = _unhandled_input
+	touch.camera = camera
+	touch.on_zoom_changed = func() -> void: ui.set_zoom(camera.get_zoom_factor())
+	touch.is_canvas_point = _is_touch_canvas_point
+	add_child(touch)
 	ui.property_panel.property_changed.connect(_on_panel_property_changed)
 	map_view = MapView.new(self)
 	ui.import_picker.room_chosen.connect(_on_import_room_chosen)
@@ -2033,6 +2049,7 @@ func _on_import_room_chosen(world_path: String, room_name: String) -> void:
 ## Plays the level from the start room, or, with `start_point` (a level point),
 ## from there. Returns false (with a message) if it can't start.
 func start_playtest(start_point: Variant = null) -> bool:
+	touch.cancel()
 	var blocker: String = get_play_blocker(start_point)
 	if blocker != "":
 		ui.show_message(blocker, true)
@@ -2179,6 +2196,12 @@ func _use_editor_window(use_editor: bool) -> void:
 
 # --- Input ---
 
+## EditorTouch asks this for each finger that lands: true if it's on the level
+## canvas while editing (not a panel, menu or dialog, not during a play-test).
+func _is_touch_canvas_point(screen_point: Vector2) -> bool:
+	return not is_playtesting and level_root != null and not ui.is_over_panels(screen_point)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	# Fetched first, while this node is surely in the tree: Esc can leave the editor
 	# (change_scene_to_file takes the editor out of the tree AT ONCE, and frees it
@@ -2193,6 +2216,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if level_root == null or ui.prompt.visible or ui.help.visible or ui.import_picker.visible \
 			or ui.backdrop_preview.visible:
 		return  # those handle their own keys (H and Esc close the help)
+	# A finger (phone): held back until it's a tap, a drag or a long press; the
+	# clicks it turns into come back through here as ordinary mouse clicks.
+	if touch.handle_input(event):
+		viewport.set_input_as_handled()
+		return
 	var mouse_world: Vector2 = get_global_mouse_position()
 
 	if event is InputEventMouseMotion:

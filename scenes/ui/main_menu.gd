@@ -13,9 +13,11 @@ extends Control
 ##       - Fire tests: tests/fire_test_world.tscn     one test room per Fire stage (F1+)
 ##       - Water tests: tests/water_test_world.tscn   one test room per Water stage (W1+)
 ## Story Mode opens the Story screen (scenes/ui/story_screen.tscn, Stage L11).
-## Level Editor opens the level library (scenes/ui/level_library.tscn). It's a dev
-## tool: levels are saved into the project (res://levels/), which only works when
-## the game runs from the Godot project, so the button is greyed out elsewhere.
+## Level Editor opens the level library (scenes/ui/level_library.tscn). Run from the
+## Godot project it saves into the project (res://levels/); in an exported or web
+## build res:// is read-only, so it saves into user://levels/ instead
+## (LevelStorage.get_editor_levels_dir), first copying in the project's levels it
+## doesn't have yet (LevelStorage.copy_shipped_levels).
 ##
 ## The whole menu is built in _ready() from code: a title Label, then one
 ## VBoxContainer (a container that stacks its children vertically) per page.
@@ -57,6 +59,12 @@ var opened_from: Button = null
 func _ready() -> void:
 	# Back from a world (pause menu -> Main menu): a story run, if any, is over.
 	StoryPlayer.stop()
+	# Back from the level editor in an exported build: Story Mode reads its order
+	# and levels from res://levels/ again, not the editor's user://levels/.
+	# Skipped in the Godot project, where both are res://levels/ (and the smoke
+	# test may have pointed levels_dir at its throwaway folder).
+	if not OS.has_feature("editor"):
+		LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var background: ColorRect = ColorRect.new()
 	background.color = BACKGROUND_COLOR
@@ -88,14 +96,7 @@ func _build_main_page() -> VBoxContainer:
 	var page: VBoxContainer = _make_page()
 	page.add_child(_make_button("Story Mode", func() -> void: get_tree().change_scene_to_file(STORY_SCREEN_SCENE)))
 
-	var editor_button: Button = _make_button("Level Editor", _open_level_library)
-	# OS.has_feature("editor"): true when the game runs from the Godot project
-	# (the editor's own executable), false in exported and web builds, where
-	# res://levels/ can't be written.
-	if not OS.has_feature("editor"):
-		editor_button.text += "  (dev build only)"
-		editor_button.disabled = true
-	page.add_child(editor_button)
+	page.add_child(_make_button("Level Editor", _open_level_library))
 
 	chapters_button = _make_button("Chapters & test rooms", func() -> void: _show_page(chapters_page, chapters_button))
 	page.add_child(chapters_button)
@@ -152,6 +153,9 @@ func _start_chapter(scene_path: String) -> void:
 
 
 func _open_level_library() -> void:
+	LevelStorage.levels_dir = LevelStorage.get_editor_levels_dir()
+	if not OS.has_feature("editor"):
+		LevelStorage.copy_shipped_levels()
 	get_tree().change_scene_to_file(LEVEL_LIBRARY_SCENE)
 
 

@@ -2,7 +2,8 @@ class_name EditorUI
 extends CanvasLayer
 ## EditorUI: the level editor's panels (Level_editor.md §4). Only shows things;
 ## LevelEditor tells it what to show and owns all the logic.
-##   - top bar:     level title, unsaved dot, current tool, zoom
+##   - top bar:     level title, unsaved dot, Map / Play / Save buttons (and full
+##                  screen in a browser), current tool, zoom
 ##   - help:        the quick reference (EditorHelp), from the top bar's "?" or H
 ##   - backdrop_preview: every backdrop look on its own (BackdropPreview), from K
 ##   - palette:     left column: the tools without a family (Select, Eraser,
@@ -37,6 +38,11 @@ extends CanvasLayer
 signal entry_chosen(entry: PaletteCatalog.Entry)
 ## The depth slider was moved to `depth` (LevelEditor.show_depth).
 signal depth_chosen(depth: int)
+## The top bar's Map / Play / Save buttons: the same as M, Tab and Ctrl+S, for
+## phones, where there are no keys (LevelEditor connects them).
+signal map_pressed
+signal playtest_pressed
+signal save_pressed
 
 const FONT_SIZE: int = 8
 const PANEL_COLOR: Color = Color(0.12, 0.12, 0.15, 0.92)
@@ -145,11 +151,13 @@ func _ready() -> void:
 	var spacer: Control = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top_row.add_child(spacer)
-	var help_button: Button = Button.new()
-	help_button.text = "? Help"
-	help_button.focus_mode = Control.FOCUS_NONE  # Space must pan, not press it
-	help_button.pressed.connect(func() -> void: help.open())
-	top_row.add_child(help_button)
+	top_row.add_child(_make_bar_button("Map", map_pressed.emit))
+	top_row.add_child(_make_bar_button("Play", playtest_pressed.emit))
+	top_row.add_child(_make_bar_button("Save", save_pressed.emit))
+	# Full screen only matters in a browser (TouchControls owns the switching).
+	if OS.has_feature("web"):
+		top_row.add_child(_make_bar_button("[ ]", TouchControls.toggle_fullscreen))
+	top_row.add_child(_make_bar_button("? Help", func() -> void: help.open()))
 	tool_label = Label.new()
 	top_row.add_child(tool_label)
 	zoom_label = Label.new()
@@ -348,6 +356,12 @@ func _process(delta: float) -> void:
 		message_time_left -= delta
 		if message_time_left <= 0.0:
 			show_message("")
+
+
+## A finger dragged over the palette, property panel or help scrolls it (phones).
+func _input(event: InputEvent) -> void:
+	if event is InputEventScreenDrag:
+		TouchScroll.scroll_under(self, event as InputEventScreenDrag)
 
 
 ## True if `screen_point` (viewport coordinates) is over a panel, where clicks
@@ -556,6 +570,16 @@ func _fit_palette() -> void:
 	palette.size = Vector2(PALETTE_WIDTH, column_height)
 	property_panel.position = Vector2(screen_size.x - PROPERTY_PANEL_WIDTH, BAR_HEIGHT)
 	property_panel.size = Vector2(PROPERTY_PANEL_WIDTH, column_height)
+
+
+## A top-bar button that calls `on_pressed`. FOCUS_NONE: it never takes keyboard
+## focus, so Space keeps panning instead of pressing the last button clicked.
+func _make_bar_button(text: String, on_pressed: Callable) -> Button:
+	var button: Button = Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.pressed.connect(on_pressed)
+	return button
 
 
 func _make_panel() -> PanelContainer:

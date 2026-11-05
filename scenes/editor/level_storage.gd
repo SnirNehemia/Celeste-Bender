@@ -33,9 +33,48 @@ const UNTITLED: String = "Untitled level"
 ## Story Mode's list of levels (StoryList, Level_editor.md §9) lives next to them.
 const STORY_FILE_NAME: String = "story.tres"
 
+## Where the level editor saves in an exported or web build, where res:// is
+## read-only. user:// is the game's own writable folder; in a browser it lives in
+## the browser's storage (IndexedDB), so levels survive closing the tab.
+const EXPORTED_LEVELS_DIR: String = "user://levels/"
+
 ## Folder the levels live in. A static var: one value shared by the whole game.
 ## The smoke test points it at a throwaway folder so it never touches real levels.
 static var levels_dir: String = DEFAULT_LEVELS_DIR
+
+
+## The folder the level editor should work in: res://levels/ when running from the
+## Godot project, EXPORTED_LEVELS_DIR in an exported/web build.
+## OS.has_feature("editor") is true only when running from the Godot project.
+static func get_editor_levels_dir() -> String:
+	return DEFAULT_LEVELS_DIR if OS.has_feature("editor") else EXPORTED_LEVELS_DIR
+
+
+## Exported/web builds: copies every level shipped in res://levels/ that
+## EXPORTED_LEVELS_DIR doesn't have yet, so the editor there starts with the
+## project's levels. A level already copied is never overwritten (edits made on the
+## phone win), so a level changed later on the PC only arrives under a new name,
+## or after deleting the phone's copy. Returns how many it copied.
+static func copy_shipped_levels() -> int:
+	DirAccess.make_dir_recursive_absolute(EXPORTED_LEVELS_DIR)
+	var copied: int = 0
+	var shipped: DirAccess = DirAccess.open(DEFAULT_LEVELS_DIR)
+	if shipped == null:
+		return 0
+	for file_name: String in shipped.get_files():
+		# Exported scenes are listed as "<name>.tscn.remap" (see REMAP_SUFFIX).
+		var scene_name: String = file_name.trim_suffix(REMAP_SUFFIX)
+		if not scene_name.ends_with(LEVEL_EXTENSION):
+			continue
+		var target_path: String = EXPORTED_LEVELS_DIR.path_join(scene_name)
+		if FileAccess.file_exists(target_path):
+			continue
+		# load() follows the remap to the exported (binary) scene; saving it under a
+		# .tscn path writes it back out as an ordinary text scene.
+		var level: PackedScene = load(DEFAULT_LEVELS_DIR.path_join(scene_name)) as PackedScene
+		if level != null and ResourceSaver.save(level, target_path) == OK:
+			copied += 1
+	return copied
 
 
 ## Where Story Mode's StoryList is saved: res://levels/story.tres.

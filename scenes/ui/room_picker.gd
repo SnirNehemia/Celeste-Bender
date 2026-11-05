@@ -18,6 +18,12 @@ extends CanvasLayer
 ##   - ScrollContainer: shows a fixed-size window onto a taller child. With
 ##     follow_focus on, it scrolls by itself to keep the focused button visible, so
 ##     the arrow keys "scroll" the list. Only VISIBLE_ROWS rooms show at once.
+## On a phone: the pause menu's "Rooms" button opens it (it finds the picker
+## through GROUP), a finger drag scrolls the list (TouchScroll), and "Close" at the
+## bottom closes it.
+
+## Group every picker joins, so the pause menu can find the world's one.
+const GROUP: StringName = &"room_picker"
 
 ## The world's RoomManager. Set in the Inspector.
 @export var room_manager: RoomManager
@@ -38,8 +44,19 @@ var more_below_label: Label
 func _ready() -> void:
 	layer = 20  # above the debug overlay
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group(GROUP)
 	_build_panel()
 	panel.visible = false
+
+
+## Opens the list (the pause menu's "Rooms" button). F2 does the same.
+func open() -> void:
+	_set_open(true)
+
+
+func _input(event: InputEvent) -> void:
+	if panel.visible and event is InputEventScreenDrag:
+		TouchScroll.scroll_under(self, event as InputEventScreenDrag)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -54,11 +71,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func _set_open(open: bool) -> void:
-	panel.visible = open
+func _set_open(is_open: bool) -> void:
+	panel.visible = is_open
 	# Through FX, not get_tree().paused, so a freeze frame ending can't unpause us.
-	FX.set_menu_pause(open)
-	if open:
+	FX.set_menu_pause(is_open)
+	if is_open:
 		_rebuild_buttons()
 
 
@@ -133,6 +150,13 @@ func _build_panel() -> void:
 
 	more_below_label = _make_small_label("  v more")
 	layout.add_child(more_below_label)
+	# Phones have no F2 or Esc. FOCUS_NONE: arrows keep moving through the rooms.
+	var close_button: Button = Button.new()
+	close_button.text = "Close"
+	close_button.focus_mode = Control.FOCUS_NONE
+	close_button.add_theme_font_size_override("font_size", 8)
+	close_button.pressed.connect(_set_open.bind(false))
+	layout.add_child(close_button)
 
 
 func _make_small_label(text: String) -> Label:

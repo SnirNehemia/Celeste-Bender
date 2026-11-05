@@ -2,7 +2,7 @@ class_name DebugOverlay
 extends CanvasLayer
 ## On-screen debug readout for tuning movement: current state, velocity, the
 ## forgiveness timers, glide/gust resources, and GameState (deaths, time, current
-## room). Toggle it with the `debug_toggle` action (F1).
+## room). Toggle it with the `debug_toggle` action (F1). Hidden when a world starts.
 ##
 ## A CanvasLayer draws its children on a separate layer that ignores the game camera,
 ## so the text stays fixed in the corner of the screen (useful once rooms scroll).
@@ -38,6 +38,8 @@ func _ready() -> void:
 	# ALWAYS: keep reading keys while the game is paused, so F4 also saves from
 	# inside the tuning panel (which pauses the game).
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Hidden until F1: the readout covers the room and most play-tests don't need it.
+	visible = false
 	tuning_panel = TuningPanel.new()
 	tuning_panel.name = "TuningPanel"
 	tuning_panel.player = player
