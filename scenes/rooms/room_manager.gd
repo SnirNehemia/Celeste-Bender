@@ -138,6 +138,13 @@ func _add_backdrop() -> void:
 	gate_step.setup(player, camera, backdrop, back_room_view, rooms)
 	gate_step.swapped.connect(_enter_through_gate)
 	add_child(gate_step)
+	# The darkness of dark rooms (Room.is_dark), over the rooms.
+	var dark_overlay: DarkRoomOverlay = DarkRoomOverlay.new()
+	dark_overlay.name = "DarkRoomOverlay"
+	dark_overlay.camera = camera
+	dark_overlay.player = player
+	dark_overlay.rooms = rooms
+	add_child(dark_overlay)
 
 
 ## _unhandled_input receives key presses not already used by UI.

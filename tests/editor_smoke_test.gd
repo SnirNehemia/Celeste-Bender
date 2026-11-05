@@ -1586,7 +1586,7 @@ func _check_l10_enemies() -> void:
 	await get_tree().process_frame
 	var room: Room = editor.get_rooms()[0]
 	_check(PaletteCatalog.get_families().has("Enemies"), "the palette has an Enemies tab")
-	for id: StringName in [&"wisp", &"sentry", &"vine_monkey", &"thicket_elephant", &"shell"]:
+	for id: StringName in [&"wisp", &"leaf_wisp", &"sentry", &"vine_monkey", &"thicket_elephant", &"shell"]:
 		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Enemies", "%s is in the Enemies tab" % id)
 	_check(PaletteCatalog.get_entry(&"enemy_gate").family == "Triggers", "the enemy gate is a switch: in the Triggers tab")
 

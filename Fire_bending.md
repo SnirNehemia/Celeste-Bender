@@ -610,6 +610,12 @@ These were agreed when planning the build. Where they differ from the sections a
 - **Already there before F13, kept:** brazier shrink and gutter (F4), diamond wipe (F7), bonfire spark bursts (F7), the elephant's burning spots and the monkey torch (F11/F11b); they now also glow. Not done: heat shimmer (off by default in §9.2; skipped) and real sounds (the `FX.play_sfx` hooks still only log).
 - **Tuning:** FireTuning group "Fire look".
 
+### Decided after Stage F13 (developer's requests)
+
+- **Leaf wisp** (scenes/enemies/leaf_wisp.gd, extends Wisp): a wisp made of leaves. Same patrol, size and touch kill, but ONLY FIRE beats it (fireball, flames, burning grass, a torch-monkey). A gust only ruffles its leaves (each leaf on a spring, a few loose leaves blown off): no push, no stun, so it never turns harmless. Rocks, columns, the snake, spikes, crushing, orbs and the whip do nothing, and reflected orbs never aim at it. Editor: Enemies → Leaf wisp. ENEMIES.html now covers every enemy, with a who-beats-whom table.
+- **Dark rooms** (`Room.is_dark`, the editor's room settings "Is Dark"): pitch black (`dark_room_darkness`) but for a faint small glow around the player and what fire lights. Every merged fire is a light (FlameMerge.get_dark_lights, `dark_fire_light_scale` times its heat glow): a fireball's light travels with it, a GLIMPSE of what lies ahead that fades over `dark_light_fade_time` after it bursts. Steady fires light a larger area (braziers ×`dark_brazier_light_scale`, bonfires ×`dark_bonfire_light_scale`). Burning grass and thicket light the room in 3×3-cell blocks; fire diamonds glow. Drawn by `DarkRoomOverlay` (scenes/rooms/dark_room_overlay.gd + dark_room.gdshader), made by the RoomManager: one rectangle over the view, above the rooms (z 35), under the pips and the aim preview (z 40), black only inside dark rooms' rectangles, so the dark slides in with its room. Pixel art: light in `dark_light_steps` steps, dithered with a 4×4 pattern fixed to the world. The editor shows dark rooms lit, so they can be edited. Tuning: FireTuning group "Dark rooms".
+- **Brazier `starts_lit`:** already burning (doors open) when the room starts and after every reset, quietly (no flare). The editor's brazier has a Starts Lit setting.
+
 ### Play-test log
 
 *Empty until play-tested. Record each decision as: what was tried / what felt wrong / what was kept.*

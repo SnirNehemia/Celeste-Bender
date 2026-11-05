@@ -177,3 +177,9 @@ L0 plan (this doc) · L1 menu + level storage · L2 editor canvas + ground paint
 - Decoration layers (background tiles, props), custom tile art.
 - A thumbnail per level in the library and Story screens.
 - A per-room "par" time, and golden collectibles.
+
+### Dark rooms and lit braziers (after Fire F13)
+
+- Room settings (nothing selected) have **Is Dark**: the room plays pitch black but for the player's faint glow and what fire lights (Fire_bending.md §13 "Decided after Stage F13"). The editor itself shows the room lit, so it can be edited; play-test it to see the dark.
+- A brazier has **Starts Lit**: burning from the start and after every reset, its linked doors open. The steady light for a dark room.
+- The Enemies tab has the **Leaf wisp**.

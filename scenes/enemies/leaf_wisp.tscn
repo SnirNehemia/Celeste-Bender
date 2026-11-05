@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/enemies/leaf_wisp.gd" id="1_script"]
+
+[node name="LeafWisp" type="CharacterBody2D"]
+script = ExtResource("1_script")

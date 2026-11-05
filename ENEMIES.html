@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Windbound Enemies</title>
 <!--
-  Enemy reference for Windbound (Milestone 1). Open in any browser.
-  The animations are drawn with the SAME placeholder shapes, sizes and colors as
-  the game code (scenes/enemies/*.gd), in game pixels scaled up 4x. When an enemy's
-  look or rules change in code, update its card here too.
+  Enemy reference for Windbound. Open in any browser.
+  The drawings use the SAME placeholder shapes, sizes and colors as the game code
+  (scenes/enemies/*.gd), in game pixels scaled up. When an enemy's look or rules
+  change in code, update its card and its column of the table here too. The table
+  mirrors each enemy's ElementImmunity row (_make_immunity in its script).
   No external files: plain HTML + inline SVG (SMIL/CSS animation).
 -->
 <style>
@@ -21,6 +22,8 @@
     --line: #2c2b38;
     --accent: #ff8c1a;
     --purple: #9e4dd9;
+    --kill: #ff9a5c;
+    --none: #6f6c80;
   }
   * { box-sizing: border-box; }
   body {
@@ -29,9 +32,11 @@
     color: var(--text);
     font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
   header h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: 0.5px; }
   header p { margin: 0; color: var(--muted); }
+  nav { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+  nav a { color: var(--muted); }
   h2 { font-size: 20px; margin: 0 0 2px; }
   .tag { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
   .card {
@@ -42,6 +47,7 @@
     margin-top: 24px;
   }
   .card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .chapter { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; }
   .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
   .stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 16px; }
   figure { margin: 0; }
@@ -56,15 +62,17 @@
   ul { margin: 8px 0 0; padding-left: 20px; }
   li { margin: 3px 0; }
   code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: #d9c8f0; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
-  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { color: var(--muted); font-weight: 600; }
+  td.kill { color: var(--kill); font-weight: 600; }
+  td.none { color: var(--none); }
   .scroll { overflow-x: auto; }
   .files { color: var(--muted); font-size: 13px; margin-top: 12px; }
 
-  /* Wisp patrol: walks right, turns, walks back. */
-  .wisp-walk { animation: wisp-walk 6s linear infinite; }
-  @keyframes wisp-walk {
+  /* Patrol: walks right, turns, walks back. */
+  .walk { animation: walk 6s linear infinite; }
+  @keyframes walk {
     0%   { transform: translateX(0px); }
     47%  { transform: translateX(80px); }
     50%  { transform: translateX(80px); }
@@ -80,9 +88,28 @@
   @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
   .wobble { animation: wobble 0.2s steps(2) infinite; }
   @keyframes wobble { 0% { transform: translateX(-1px); } 100% { transform: translateX(1px); } }
+  /* Leaf wisp: a gust every 3 s shoves the leaves right; they spring back. */
+  .ruffle { animation: ruffle 3s ease-out infinite; }
+  .ruffle.r2 { animation-delay: 0.04s; }
+  .ruffle.r3 { animation-delay: 0.08s; }
+  @keyframes ruffle {
+    0%, 30% { transform: translate(0, 0); }
+    33% { transform: translate(3px, -1px); }
+    40% { transform: translate(-1px, 0); }
+    46% { transform: translate(1px, 0); }
+    52%, 100% { transform: translate(0, 0); }
+  }
+  .gust { animation: gust 3s linear infinite; opacity: 0; }
+  @keyframes gust { 0%, 26% { opacity: 0; transform: translateX(0); } 28% { opacity: 1; } 36% { opacity: 0; transform: translateX(14px); } 100% { opacity: 0; } }
+  .loose { animation: loose 3s ease-out infinite; opacity: 0; }
+  @keyframes loose { 0%, 31% { opacity: 0; transform: translate(0, 0); } 33% { opacity: 1; } 60% { opacity: 0; transform: translate(26px, 10px); } 100% { opacity: 0; } }
+  /* Burning: flicker. */
+  .flicker { animation: flicker 0.3s steps(2) infinite; }
+  @keyframes flicker { 0% { opacity: 1; } 100% { opacity: 0.7; } }
 
   @media (prefers-reduced-motion: reduce) {
-    .wisp-walk, .eyes-right, .eyes-left, .bob, .wobble { animation: none; }
+    .walk, .eyes-right, .eyes-left, .bob, .wobble, .ruffle, .gust, .loose, .flicker { animation: none; }
+    .gust, .loose { opacity: 0; }
   }
 </style>
 </head>
@@ -90,30 +117,46 @@
 <main>
   <header>
     <h1>Windbound: enemies</h1>
-    <p>Reference for every enemy in Milestone 1: what it looks like, how it moves, and how the air verbs beat it. The drawings use the game's own placeholder shapes and colors, scaled up 4x.</p>
+    <p>Reference for every enemy in the game: what it looks like, how it moves, and which element beats it. The drawings use the game's own placeholder shapes and colors, scaled up.</p>
+    <nav>
+      <a href="#table">Who beats whom</a>
+      <a href="#wisp">Wisp</a>
+      <a href="#leaf-wisp">Leaf wisp</a>
+      <a href="#sentry">Sentry</a>
+      <a href="#orb">Sentry orb</a>
+      <a href="#monkey">Vine monkey</a>
+      <a href="#elephant">Thicket elephant</a>
+      <a href="#shell">Shell</a>
+      <a href="#new">Adding an enemy</a>
+    </nav>
   </header>
 
-  <section class="card">
-    <h2>The impact rule (all enemies)</h2>
-    <p>Enemies have no health. The gust and the dash wake never damage anything, they only push. What a pushed enemy <em>hits</em> decides the outcome, so every result is readable at a glance (GAME_DESIGN.md §7).</p>
+  <section class="card" id="table">
+    <h2>Who beats whom</h2>
+    <p>Enemies have no health. Every hit goes through one path (<code>EnemyHit</code>) and each enemy's table (<code>ElementImmunity</code>) says what that kind of hit does to it: kill, push, stagger, reflect or nothing. Each enemy is a wall for some elements and an opening for others (Fire_bending.md §7.2). Pushes follow the impact rule: what the enemy is pushed <em>into</em> decides the outcome (GAME_DESIGN.md §7).</p>
     <div class="scroll">
     <table>
-      <tr><th>What happens</th><th>Wisp</th><th>Sentry</th><th>Orb</th></tr>
-      <tr><td>Player touches it</td><td>Player dies (unless the wisp is stunned)</td><td>Solid, safe to stand on</td><td>Player dies (unless reflected)</td></tr>
-      <tr><td>Gust / dash wake</td><td>Knocked back with a hop, stunned 1.5 s</td><td>Nothing (not pushable)</td><td>Reflected: gold, 1.5x speed, aim assist</td></tr>
-      <tr><td>Slammed into a wall</td><td>Stunned 2 s</td><td>n/a</td><td>Pops</td></tr>
-      <tr><td>Knocked into spikes / a pit</td><td>Defeated</td><td>n/a</td><td>n/a</td></tr>
-      <tr><td>Dash while it's stunned</td><td>Defeated; dash and down-boosts refill (<code>dash_defeat_refills</code>)</td><td>n/a</td><td>n/a</td></tr>
-      <tr><td>Hit by a reflected orb</td><td>Defeated</td><td>Destroyed</td><td>n/a</td></tr>
-      <tr><td>Player dies or presses R</td><td colspan="3">Everything in the room comes back; orbs in flight vanish</td></tr>
+      <tr><th></th><th>Wisp</th><th>Leaf wisp</th><th>Sentry</th><th>Vine monkey</th><th>Thicket elephant</th><th>Shell</th></tr>
+      <tr><th>Touching it</th><td>You die (not while it's stunned)</td><td>You die, always</td><td>Solid, safe to stand on</td><td>You die (not while stunned)</td><td>Front kills; back is a ride</td><td>You die, always</td></tr>
+      <tr><th>Gust</th><td>Knocked back, stunned 1.5 s</td><td>Leaves ruffle, nothing else</td><td class="none">Nothing</td><td>Blown far, stunned</td><td>Barely nudged</td><td>Barely nudged</td></tr>
+      <tr><th>Fireball</th><td class="kill">Burns up</td><td class="kill">Burns up</td><td class="kill">Destroyed</td><td class="kill">Becomes a running torch, then ash</td><td class="kill">Burns a spot (all 3: crumbles)</td><td>Bounces off its plates</td></tr>
+      <tr><th>Flames (jet, grass, bonfire)</th><td class="kill">Burns up</td><td class="kill">Burns up</td><td class="none">Nothing (metal)</td><td class="kill">Torch, then ash</td><td class="kill">Burns a spot</td><td class="none">Nothing</td></tr>
+      <tr><th>Small rock</th><td>Shoved, stunned</td><td class="none">Nothing</td><td class="none">Clonks off</td><td>Pushed</td><td class="none">Bounces off</td><td>Staggered (a wall right behind: crushed)</td></tr>
+      <tr><th>Big or perfect rock</th><td class="kill">Defeated</td><td class="none">Nothing</td><td class="kill">Destroyed</td><td>Pushed</td><td>Pushed back, stops a charge</td><td class="kill">Big: cracked open (dropped 2+ tiles too). Perfect: staggered</td></tr>
+      <tr><th>Column / snake</th><td>Thrown, stunned</td><td class="none">Nothing</td><td class="none">Nothing</td><td>Thrown, stunned</td><td>The column or snake breaks on it</td><td>Lifted, carried a tile (into a wall: crushed)</td></tr>
+      <tr><th>Spikes</th><td class="kill">Defeated</td><td class="none">Walks over them</td><td>n/a</td><td class="none">Runs across</td><td class="none">Walks over them</td><td>Turns before them</td></tr>
+      <tr><th>Reflected orb</th><td class="kill">Defeated</td><td class="none">Not a target</td><td class="kill">Destroyed</td><td class="none">Flies by</td><td class="none">Nothing</td><td>Bounces off</td></tr>
+      <tr><th>Elephant's tail whip</th><td class="kill">Defeated</td><td class="none">Nothing</td><td>n/a</td><td class="kill">Defeated</td><td>n/a</td><td class="none">Nothing</td></tr>
+      <tr><th>You die or press R</th><td colspan="6">Everything in the room comes back where it started; projectiles in flight vanish.</td></tr>
     </table>
     </div>
   </section>
 
   <!-- ============================== WISP ============================== -->
-  <section class="card">
+  <section class="card" id="wisp">
     <div class="card-head">
       <h2>Wisp</h2>
+      <span class="chapter">Air</span>
       <span class="tag"><span class="swatch" style="background:#9e4dd9"></span> purple, 10 × 8 px, ground patroller</span>
     </div>
     <div class="stages">
@@ -123,7 +166,7 @@
             <rect x="0" y="32" width="120" height="8" fill="#404047"/>
             <rect x="0" y="24" width="8" height="8" fill="#404047"/>
             <rect x="112" y="24" width="8" height="8" fill="#404047"/>
-            <g class="wisp-walk">
+            <g class="walk">
               <g class="bob">
                 <rect x="15" y="24" width="10" height="8" fill="#9e4dd9"/>
                 <g class="eyes-right" fill="#1f0d2e">
@@ -155,30 +198,92 @@
             </g>
           </svg>
         </div>
-        <figcaption>Stunned: pale, "x x" eyes, stars circling, wobbling. Harmless to touch. Dash into it now.</figcaption>
+        <figcaption>Stunned: pale, "x x" eyes, stars circling, wobbling. Harmless to touch.</figcaption>
       </figure>
     </div>
-    <p>The basic ground enemy. It walks back and forth on its platform and never steps off a ledge by itself, so its route is easy to read. A gust knocks it back about 40 px with a small hop and leaves it dizzy for a second and a half. While it's dizzy it can't hurt you and it doesn't avoid ledges, which opens three ways to beat it: knock it into spikes or off into a pit, slam it into a wall for a longer 2.5 s stun and then dash through it, or hit it with a reflected sentry orb. Dashing into a <em>walking</em> wisp still kills you, so stun first.</p>
+    <p>The basic ground enemy. It walks back and forth on its platform and never steps off a ledge by itself, so its route is easy to read. A gust knocks it back about 40 px with a small hop and leaves it dizzy for a second and a half: harmless, and blind to ledges. Then knock it into spikes or a pit, or slam it into a wall for a longer 2.5 s stun. Every other element beats it directly: fire burns it up, a big or perfect rock and a reflected orb defeat it, a column or the snake throws it.</p>
     <ul>
-      <li><b>Movement use:</b> a dash kill refills the dash and down-boosts, so a wisp works as a mid-air recharge, like a wind crystal.</li>
-      <li><b>Puzzle use:</b> a moving hazard that guards a platform until you deal with it.</li>
+      <li><b>Puzzle use:</b> a moving hazard that guards a platform until you deal with it. It doesn't avoid fire, so a grass fuse can be timed to meet its patrol.</li>
       <li><b>Tunables</b> (Inspector, per wisp): <code>start_direction</code>, <code>patrol_speed</code>, <code>stun_time</code>, <code>wall_slam_stun_time</code>, <code>wall_slam_min_speed</code>, <code>knockback_hop_speed</code>, friction and gravity.</li>
     </ul>
-    <p class="files">Code: <code>scenes/enemies/wisp.gd</code> · Scene: <code>wisp.tscn</code> · Place it on the floor (origin = feet).</p>
+    <p class="files">Code: <code>scenes/enemies/wisp.gd</code> · Scene: <code>wisp.tscn</code> · Editor: Enemies → Wisp · Place it on the floor (origin = feet).</p>
+  </section>
+
+  <!-- ============================== LEAF WISP ============================== -->
+  <section class="card" id="leaf-wisp">
+    <div class="card-head">
+      <h2>Leaf wisp</h2>
+      <span class="chapter">Fire</span>
+      <span class="tag"><span class="swatch" style="background:#4d8c38"></span> leaf greens, purple eyes, 10 × 8 px, ground patroller</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Leaf wisp: a gust ruffles its leaves but doesn't move it">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <!-- the player gusting from the left -->
+            <rect x="20" y="21" width="8" height="11" fill="#ffffff"/>
+            <path class="gust" d="M32 20 Q36 26 32 32" fill="none" stroke="#d9f2ff" stroke-width="1" shape-rendering="geometricPrecision"/>
+            <!-- the clump of leaves (3 groups so they ruffle a little out of step) -->
+            <g transform="translate(60 0)">
+              <g class="ruffle">
+                <rect x="1" y="27" width="3" height="2" fill="#4d8c38"/><rect x="3" y="28" width="1" height="1" fill="#2f5a23"/>
+                <rect x="5" y="29" width="3" height="2" fill="#6bad47"/><rect x="7" y="30" width="1" height="1" fill="#456f2e"/>
+              </g>
+              <g class="ruffle r2">
+                <rect x="2" y="25" width="2" height="2" fill="#386b2b"/><rect x="3" y="26" width="1" height="1" fill="#24461c"/>
+                <rect x="6" y="25" width="3" height="2" fill="#4d8c38"/><rect x="8" y="26" width="1" height="1" fill="#2f5a23"/>
+                <rect x="0" y="29" width="2" height="2" fill="#6bad47"/>
+              </g>
+              <g class="ruffle r3">
+                <rect x="4" y="24" width="3" height="2" fill="#6bad47"/><rect x="6" y="25" width="1" height="1" fill="#456f2e"/>
+                <rect x="8" y="28" width="2" height="2" fill="#386b2b"/>
+                <rect x="3" y="30" width="2" height="2" fill="#4d8c38"/>
+                <rect x="2" y="27" width="1" height="1" fill="#c773ff"/><rect x="5" y="27" width="1" height="1" fill="#c773ff"/>
+              </g>
+            </g>
+            <!-- loose leaves blown off -->
+            <g class="loose"><rect x="68" y="26" width="2" height="1" fill="#6bad47"/><rect x="66" y="29" width="1" height="1" fill="#4d8c38"/></g>
+          </svg>
+        </div>
+        <figcaption>A gust only ruffles its leaves and blows a few loose ones off. It keeps walking, still deadly.</figcaption>
+      </figure>
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Leaf wisp burning up">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <g transform="translate(55 0)" class="flicker">
+              <rect x="1" y="27" width="3" height="2" fill="#ff8a1e"/><rect x="5" y="29" width="3" height="2" fill="#e8431a"/>
+              <rect x="2" y="25" width="2" height="2" fill="#ffd34d"/><rect x="6" y="25" width="3" height="2" fill="#ff8a1e"/>
+              <rect x="4" y="23" width="2" height="2" fill="#fff6cc"/><rect x="8" y="28" width="2" height="2" fill="#e8431a"/>
+              <rect x="3" y="20" width="1" height="1" fill="#ffd34d"/><rect x="7" y="19" width="1" height="1" fill="#ff8a1e"/>
+            </g>
+            <g fill="#7a7470"><rect x="50" y="31" width="1" height="1"/><rect x="66" y="31" width="1" height="1"/><rect x="58" y="31" width="2" height="1"/></g>
+          </svg>
+        </div>
+        <figcaption>Only fire beats it: the leaves flare up and fall as ash.</figcaption>
+      </figure>
+    </div>
+    <p>A wisp made of leaves. It patrols exactly like the wisp (walls and ledges turn it, touching it kills), but it can't be blown around or stunned, so it never becomes harmless. Rocks pass through the leaves, columns and the snake don't move it, it walks over spikes, and reflected orbs ignore it. The only answer is fire: a fireball, the jet, a grass fuse timed to its patrol, or a torch-monkey running into it. In a room with no pips to spare, it asks where the fire will come from.</p>
+    <ul>
+      <li><b>Puzzle use:</b> the fire-only gatekeeper. Pair it with a grass fuse or a monkey to make lighting the right thing at the right time the puzzle.</li>
+      <li><b>Tunables</b> (Inspector, per leaf wisp): <code>start_direction</code>, <code>patrol_speed</code>, gravity. The look's spring and gust ruffle are constants in the script.</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/leaf_wisp.gd</code> (extends <code>Wisp</code>) · Scene: <code>leaf_wisp.tscn</code> · Editor: Enemies → Leaf wisp · Place it on the floor (origin = feet).</p>
   </section>
 
   <!-- ============================== SENTRY ============================== -->
-  <section class="card">
+  <section class="card" id="sentry">
     <div class="card-head">
       <h2>Sentry</h2>
-      <span class="tag"><span class="swatch" style="background:#803db3"></span> purple, 12 × 12 px, stationary turret</span>
+      <span class="chapter">Air</span>
+      <span class="tag"><span class="swatch" style="background:#803db3"></span> purple (ember orange with fire orbs), 12 × 12 px, stationary turret</span>
     </div>
     <div class="stages">
       <figure>
         <div class="stage">
           <svg viewBox="0 0 120 40" aria-label="Sentry charging and firing an orb">
             <rect x="0" y="32" width="120" height="8" fill="#404047"/>
-            <!-- player, the sentry's target -->
             <rect x="10" y="21" width="8" height="11" fill="#ffffff"/>
             <rect x="94" y="20" width="12" height="12" fill="#803db3"/>
             <rect x="94" y="29" width="12" height="3" fill="#522473"/>
@@ -206,37 +311,38 @@
       </figure>
       <figure>
         <div class="stage">
-          <svg viewBox="0 0 120 40" aria-label="Ceiling sentry and practice target">
+          <svg viewBox="0 0 120 40" aria-label="Ceiling sentry, practice target and fire sentry">
             <rect x="0" y="0" width="120" height="6" fill="#404047"/>
             <rect x="0" y="34" width="120" height="6" fill="#404047"/>
-            <!-- ceiling mounted -->
-            <rect x="24" y="6" width="12" height="12" fill="#803db3"/>
-            <rect x="24" y="6" width="12" height="3" fill="#522473"/>
-            <circle cx="30" cy="12" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
-            <rect x="29" y="12" width="2" height="2" fill="#803db3"/>
-            <!-- practice target -->
-            <rect x="84" y="22" width="12" height="12" fill="#803db3"/>
-            <rect x="84" y="31" width="12" height="3" fill="#522473"/>
-            <circle cx="90" cy="28" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
-            <circle cx="90" cy="28" r="2" fill="none" stroke="#803db3" stroke-width="1" shape-rendering="geometricPrecision"/>
+            <rect x="14" y="6" width="12" height="12" fill="#803db3"/>
+            <rect x="14" y="6" width="12" height="3" fill="#522473"/>
+            <circle cx="20" cy="12" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
+            <rect x="19" y="12" width="2" height="2" fill="#803db3"/>
+            <rect x="54" y="22" width="12" height="12" fill="#803db3"/>
+            <rect x="54" y="31" width="12" height="3" fill="#522473"/>
+            <circle cx="60" cy="28" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
+            <circle cx="60" cy="28" r="2" fill="none" stroke="#803db3" stroke-width="1" shape-rendering="geometricPrecision"/>
+            <rect x="94" y="22" width="12" height="12" fill="#e8431a"/>
+            <rect x="94" y="31" width="12" height="3" fill="#8a2410"/>
+            <circle cx="100" cy="28" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
           </svg>
         </div>
-        <figcaption>Variants: <code>mounted_on_ceiling</code> (left) and <code>can_fire = false</code>, a practice target with a ring for an eye (right).</figcaption>
+        <figcaption>Variants: <code>mounted_on_ceiling</code>, <code>can_fire = false</code> (a practice target with a ring for an eye), and <code>fire_orbs</code> (ember orange: throws fireballs).</figcaption>
       </figure>
     </div>
-    <p>A turret that controls space. It only wakes up while you're in its room, within 220 px, and in clear line of sight. Walls, crates and doors all block its view, so cover is always a choice. The first shot comes a second after it spots you, and every shot is telegraphed, so its rhythm is learnable. It can't be pushed. The only way to destroy it is to send its own orb back with a gust. Ceiling-mounted sentries watch the floor below; a small platform overhead becomes a hiding spot.</p>
+    <p>A turret that controls space. It only counts down while you're in its room, within 220 px, and in clear line of sight: walls, crates and doors block its view, so cover is always a choice. The first shot comes a second after it spots you, and every shot is telegraphed, so its rhythm is learnable. It can't be pushed and you can stand on it. Send its own orb back with a gust, throw a big or perfect rock, or hit it with a fireball. It's metal, so flames and burning grass do nothing. With <code>fire_orbs</code> it throws your own fireball instead (same arc, bounces and lighting), made hostile; gusts don't reflect a fireball.</p>
     <ul>
-      <li><b>Combat use:</b> reflect its orb back at it, or at other enemies.</li>
-      <li><b>Puzzle use:</b> a timing gate. Cross its field of view between shots, or use cover.</li>
-      <li><b>Tunables:</b> <code>fire_interval</code>, <code>first_shot_delay</code>, <code>telegraph_time</code>, <code>sight_range</code>, <code>orb_speed</code>, <code>mounted_on_ceiling</code>, <code>can_fire</code>.</li>
+      <li><b>Puzzle use:</b> a timing gate. Cross its field of view between shots, or use cover. A fire sentry lights grass for you, when you want it to or not.</li>
+      <li><b>Tunables:</b> <code>fire_interval</code>, <code>first_shot_delay</code>, <code>telegraph_time</code>, <code>sight_range</code>, <code>orb_speed</code>, <code>mounted_on_ceiling</code>, <code>can_fire</code>, <code>fire_orbs</code>.</li>
     </ul>
-    <p class="files">Code: <code>scenes/enemies/sentry.gd</code> · Scene: <code>sentry.tscn</code> · Origin = the surface it's mounted on.</p>
+    <p class="files">Code: <code>scenes/enemies/sentry.gd</code> · Scene: <code>sentry.tscn</code> · Editor: Enemies → Sentry (snaps to the nearest surface).</p>
   </section>
 
   <!-- ============================== ORB ============================== -->
-  <section class="card">
+  <section class="card" id="orb">
     <div class="card-head">
       <h2>Sentry orb</h2>
+      <span class="chapter">Air</span>
       <span class="tag"><span class="swatch" style="background:#ff8c1a"></span> orange, radius 3 (hitbox 2), projectile</span>
     </div>
     <div class="stages">
@@ -245,25 +351,21 @@
           <svg viewBox="0 0 160 40" aria-label="Orb reflected by a gust back into the sentry">
             <rect x="0" y="32" width="160" height="8" fill="#404047"/>
             <rect x="14" y="21" width="8" height="11" fill="#ffffff"/>
-            <!-- gust wave appears at the moment of reflection -->
             <path d="M28 20 Q32 26 28 32" fill="none" stroke="#d9f2ff" stroke-width="1" shape-rendering="geometricPrecision" opacity="0">
               <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0;0;1;0;0" keyTimes="0;0.5;0.52;0.62;1"/>
             </path>
-            <!-- sentry -->
             <g>
               <animate attributeName="opacity" dur="3s" repeatCount="indefinite" calcMode="discrete" values="1;0;1" keyTimes="0;0.82;0.97"/>
               <rect x="134" y="20" width="12" height="12" fill="#803db3"/>
               <rect x="134" y="29" width="12" height="3" fill="#522473"/>
               <circle cx="140" cy="26" r="3.5" fill="#331447" shape-rendering="geometricPrecision"/>
             </g>
-            <!-- burst when it's destroyed -->
             <g fill="#ff9926" opacity="0">
               <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0;0;1;0;0" keyTimes="0;0.82;0.83;0.92;1"/>
               <rect x="132" y="18" width="2" height="2"/><rect x="146" y="19" width="2" height="2"/>
               <rect x="138" y="14" width="2" height="2"/><rect x="129" y="27" width="2" height="2"/>
               <rect x="149" y="26" width="2" height="2"/><rect x="141" y="21" width="1" height="1"/>
             </g>
-            <!-- the orb: out at 60 px/s, back at 90 px/s, gold once reflected -->
             <g shape-rendering="geometricPrecision">
               <circle cy="26" r="3">
                 <animate attributeName="cx" dur="3s" repeatCount="indefinite" values="140;30;30;140;140" keyTimes="0;0.5;0.5;0.82;1"/>
@@ -281,23 +383,160 @@
         <figcaption>Orange = deadly. A gust turns it gold and 1.5x faster; it flies back and destroys the sentry.</figcaption>
       </figure>
     </div>
-    <p>A slow shot (60 px/s), aimed where you were when it fired. It pops on anything solid and flies past wisps. Hit it with a gust or the dash wake and it's <em>reflected</em>: it turns pale gold, speeds up to 90 px/s, can no longer hurt you, and destroys any sentry or wisp it touches. <b>Aim assist:</b> 8-direction aiming is coarse, so among the enemies in the same room that are within 45° of your gust's direction and in clear view, the orb picks the one closest to that direction and flies straight at it. With nothing in that cone, it simply follows the gust. A target sitting on top of a platform is shielded from below, so get to its height first.</p>
+    <p>A slow shot (60 px/s), aimed where you were when it fired. Since Stage F12 it <b>bounces</b> off walls, floors, crates and doors (up to <code>max_bounces</code>, then it pops), and off the Shell's plates. Hit it with a gust and it's <em>reflected</em>: pale gold, 90 px/s, harmless to you, and it destroys any sentry or wisp it touches. <b>Aim assist:</b> among the enemies in the room within 45° of your gust and in clear view, it flies straight at the closest-angle one; otherwise it follows the gust. A fireball meeting it head-on cancels both. Any water soaks it: it slows, falls, and pops on the next solid.</p>
     <ul>
-      <li><b>Tunables</b> (on the orb scene): <code>reflected_speed_multiplier</code>, <code>reflect_assist_degrees</code>, <code>max_lifetime</code>.</li>
+      <li><b>Tunables</b> (on the orb scene): <code>reflected_speed_multiplier</code>, <code>reflect_assist_degrees</code>, <code>max_bounces</code>, <code>max_lifetime</code>. Water: WaterTuning, "Water and projectiles".</li>
     </ul>
     <p class="files">Code: <code>scenes/enemies/sentry_orb.gd</code> · Never placed by hand: sentries spawn it.</p>
   </section>
 
-  <section class="card">
+  <!-- ============================== VINE MONKEY ============================== -->
+  <section class="card" id="monkey">
+    <div class="card-head">
+      <h2>Vine monkey</h2>
+      <span class="chapter">Fire</span>
+      <span class="tag"><span class="swatch" style="background:#3f7a2e"></span> thicket greens, dark outline, purple eye; small and light</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Vine monkey hopping a gap">
+            <rect x="0" y="32" width="44" height="8" fill="#404047"/>
+            <rect x="76" y="32" width="44" height="8" fill="#404047"/>
+            <g>
+              <animateMotion dur="2.4s" repeatCount="indefinite" path="M14 0 L34 0 Q60 -14 86 0 L104 0 L86 0 Q60 -14 34 0 Z"/>
+              <rect x="0" y="23" width="9" height="8" fill="#3f7a2e"/>
+              <rect x="1" y="24" width="7" height="3" fill="#5f9c45"/>
+              <rect x="6" y="25" width="1" height="1" fill="#c773ff"/>
+              <rect x="1" y="31" width="2" height="1" fill="#2a4f1f"/><rect x="6" y="31" width="2" height="1" fill="#2a4f1f"/>
+              <path d="M0 27 q-4 -1 -3 -5 q1 -2 2 0" fill="none" stroke="#2a4f1f" stroke-width="1" shape-rendering="geometricPrecision"/>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Runs its loop and hops gaps it can make. Same route every time.</figcaption>
+      </figure>
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="Vine monkey burning as a torch">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <rect x="0" y="31" width="120" height="1" fill="#4d8c38"/>
+            <rect x="0" y="31" width="60" height="1" fill="#2a2420"/>
+            <g class="walk">
+              <rect x="10" y="23" width="9" height="8" fill="#8a2410"/>
+              <rect x="11" y="24" width="7" height="3" fill="#ff8a1e"/>
+              <g class="flicker">
+                <rect x="11" y="18" width="2" height="5" fill="#e8431a"/><rect x="14" y="16" width="2" height="7" fill="#ff8a1e"/>
+                <rect x="17" y="18" width="2" height="5" fill="#e8431a"/><rect x="14" y="19" width="1" height="3" fill="#ffd34d"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Lit, it panics and runs as a torch, lighting everything it touches.</figcaption>
+      </figure>
+    </div>
+    <p>The agile leafling: a ball of thicket with vine arms and a curled tail. It runs a readable loop, hopping gaps it can make and turning at walls. Only fire kills it, and it doesn't die at once: lit, it panics for a few seconds as a running torch that lights grass, thicket, leaf piles, vines, air diamonds and wisps, and kills on touch, before it crumbles to ash. That makes it a moving fuse you aim. A gust snuffs its fire (it smolders, stunned, and can be lit again). It's light: gusts blow it far, hot updrafts lift it, wind carries it. Rocks, columns and the snake only push it, and spikes don't hurt it.</p>
+    <ul>
+      <li><b>Puzzle use:</b> carry fire across a gap. Light it mid-hop and it lands on the far rim, still burning.</li>
+      <li><b>Tunables:</b> FireTuning, group "Vine monkey" (run and torch speed, hop reach, torch time, stun times). Per monkey: <code>start_direction</code>, <code>hops_gaps</code>.</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/vine_monkey.gd</code> · Scene: <code>vine_monkey.tscn</code> · Editor: Enemies → Vine monkey.</p>
+  </section>
+
+  <!-- ============================== THICKET ELEPHANT ============================== -->
+  <section class="card" id="elephant">
+    <div class="card-head">
+      <h2>Thicket elephant</h2>
+      <span class="chapter">Fire</span>
+      <span class="tag"><span class="swatch" style="background:#6b6560"></span> stone with moss, a thicket trunk and a vine tail, 96 × 60 px</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 160 70" aria-label="Thicket elephant with its three burnable spots">
+            <rect x="0" y="64" width="160" height="6" fill="#404047"/>
+            <g transform="translate(32 4)">
+              <rect x="24" y="2" width="48" height="10" fill="#6b6560"/>
+              <rect x="0" y="12" width="96" height="24" fill="#6b6560"/>
+              <rect x="8" y="36" width="80" height="8" fill="#5c5652"/>
+              <rect x="8" y="44" width="12" height="16" fill="#5c5652"/><rect x="24" y="44" width="12" height="16" fill="#5c5652"/>
+              <rect x="60" y="44" width="12" height="16" fill="#5c5652"/><rect x="76" y="44" width="12" height="16" fill="#5c5652"/>
+              <rect x="24" y="0" width="48" height="3" fill="#4d8c38"/>
+              <rect x="28" y="-2" width="3" height="2" fill="#6bad47"/><rect x="44" y="-2" width="3" height="2" fill="#6bad47"/><rect x="60" y="-2" width="3" height="2" fill="#6bad47"/>
+              <rect x="88" y="14" width="9" height="22" fill="#7a736d"/>
+              <rect x="90" y="19" width="2" height="2" fill="#ffffff"/><rect x="91" y="20" width="1" height="1" fill="#9e4dd9"/>
+              <rect x="94" y="34" width="10" height="26" fill="#3f7a2e"/>
+              <rect x="96" y="58" width="10" height="2" fill="#2a4f1f"/>
+              <rect x="96" y="32" width="8" height="4" fill="#e8e0cc"/>
+              <path d="M0 20 q-10 4 -8 18" fill="none" stroke="#3f7a2e" stroke-width="2" shape-rendering="geometricPrecision"/>
+            </g>
+            <g fill="#ff8c1a" font-size="6" font-family="system-ui, sans-serif">
+              <text x="62" y="-1" dy="6">back</text><text x="134" y="50">trunk</text><text x="4" y="40">tail</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Three spots burn, each from its own side: the trunk (front), the moss on its back, the vine tail.</figcaption>
+      </figure>
+    </div>
+    <p>The heavy leafling: a slow, blocky heap of boulders with three burnable spots. Burn all three and it crumbles into a big heap of ash. Its front (head, tusks, trunk) kills on touch, but the rest is safe: its back is a moving platform you can ride over spikes or up to high diamonds, and you can stand under its belly. When it can hit you (in front, on its level, in clear view) it rears up, the tell, then charges, smashing cracked walls, thicket and <b>stone walls</b>, which only it can break. Burns set it off too: a burnt trunk makes it charge forward, a burnt tail makes it bolt away from the fire. Every few seconds its tail wiggles, rises and whips down behind it, killing whatever it hits. A big rock pushes it back and stops a charge, a gust barely nudges it, small rocks bounce off, and columns and the snake break on it.</p>
+    <ul>
+      <li><b>Puzzle use:</b> a ram you aim at walls by standing where you want it to charge, and a ride you have to burn your way off.</li>
+      <li><b>Tunables:</b> FireTuning, group "Thicket elephant" (walk and charge speed, rear time, whip timing, spot burn time, pushes).</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/thicket_elephant.gd</code> · Scene: <code>thicket_elephant.tscn</code> · Editor: Enemies → Thicket elephant (12 × 7.5 tiles).</p>
+  </section>
+
+  <!-- ============================== SHELL ============================== -->
+  <section class="card" id="shell">
+    <div class="card-head">
+      <h2>Shell</h2>
+      <span class="chapter">Earth</span>
+      <span class="tag"><span class="swatch" style="background:#5f6670"></span> slate plates, ochre seams, 12 × 8 px, armored crawler</span>
+    </div>
+    <div class="stages">
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 120 40" aria-label="A fireball bouncing off the Shell">
+            <rect x="0" y="32" width="120" height="8" fill="#404047"/>
+            <g transform="translate(70 0)">
+              <rect x="0" y="27" width="12" height="4" fill="#5f6670"/>
+              <rect x="2" y="25" width="8" height="2" fill="#5f6670"/>
+              <rect x="4" y="24" width="4" height="1" fill="#727a85"/>
+              <rect x="0" y="28" width="12" height="1" fill="#c99a3a"/><rect x="5" y="25" width="1" height="3" fill="#c99a3a"/>
+              <rect x="12" y="28" width="2" height="2" fill="#5f6670"/><rect x="13" y="28" width="1" height="1" fill="#9e4dd9"/>
+              <rect x="1" y="31" width="2" height="1" fill="#3a3f45"/><rect x="9" y="31" width="2" height="1" fill="#3a3f45"/>
+            </g>
+            <g shape-rendering="geometricPrecision">
+              <circle r="3" fill="#ff8a1e">
+                <animateMotion dur="1.6s" repeatCount="indefinite" path="M10 26 L66 26 L20 14"/>
+              </circle>
+              <circle r="1.5" fill="#fff6cc">
+                <animateMotion dur="1.6s" repeatCount="indefinite" path="M10 26 L66 26 L20 14"/>
+              </circle>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Fireballs and orbs bounce off its plates. Fire can't touch it.</figcaption>
+      </figure>
+    </div>
+    <p>Earth's armored crawler, built in the Fire chapter as the obstacle fire can't touch. It patrols slowly, turning at walls, ledges and spikes, and it always kills on touch, even staggered. Only a <b>big rock</b> cracks it open: a thrown 16 × 16 rock, or a loose big rock dropped on it from two tiles up. Or <b>crush</b> it: ram it into a wall with the snake's head, hit it with a small rock when a wall is a tile behind it, or press it against a ceiling with a rising column. Everything else is shrugged off: fireballs and orbs bounce, flames and burning grass do nothing, a small rock only staggers it, a gust barely nudges it. When the floor under it goes (a thicket floor burns away) it falls, and walks on wherever it lands.</p>
+    <ul>
+      <li><b>Puzzle use:</b> the reason to carry Earth into a Fire room, and a fireball ricochet surface.</li>
+      <li><b>Tunables:</b> FireTuning, group "Shell" (walk speed, stagger time and knockback, crush reach, gust nudge).</li>
+    </ul>
+    <p class="files">Code: <code>scenes/enemies/shell.gd</code> · Scene: <code>shell.tscn</code> · Editor: Enemies → Shell.</p>
+  </section>
+
+  <section class="card" id="new">
     <h2>Adding a new enemy</h2>
     <ul>
-      <li>Body on layer 5 ("enemies"); add layer 4 ("pushable") and the <code>pushable</code> group plus <code>receive_gust()</code> if the gust should move it.</li>
-      <li>Join <code>Room.RESETTABLE_GROUP</code> and implement <code>reset()</code>, so dying or pressing R brings it back.</li>
+      <li>Body on layer 5 ("enemies"); add layer 4 ("pushable") and the <code>pushable</code> group plus <code>receive_gust()</code> if the gust should reach it.</li>
+      <li>Join <code>EnemyHit.GROUP</code> with <code>receive_hit()</code>, and give it an <code>ElementImmunity</code> table: every hit (fire, rocks, gusts, spikes, orbs, crushing, the whip) goes through it.</li>
+      <li>Join <code>Flammable.GROUP</code> (<code>ignite</code>, <code>is_burning</code>, <code>snuff</code>, <code>get_fire_rect</code>) if flames should reach it.</li>
+      <li>Join <code>Room.RESETTABLE_GROUP</code> and implement <code>reset()</code>, so dying or pressing R brings it back, and emit <code>defeated</code> so enemy gates can count it.</li>
       <li>Join <code>SentryOrb.TARGET_GROUP</code> with <code>get_orb_target_position()</code> and <code>is_valid_orb_target()</code> to make it a reflection target.</li>
-      <li>Follow the impact rule: no HP, outcomes come from what it's pushed into.</li>
-      <li>Add a card to this page: drawing, one paragraph, tunables.</li>
+      <li>Add its palette entry and icon (<code>palette_catalog.gd</code>, <code>palette_icons.gd</code>), its row in the table above, and a card on this page.</li>
     </ul>
-    <p class="files">Test rooms: <b>N – Enemies</b> (all three basics) and <b>O – Reflection Range</b> (ceiling sentry, hiding spot, targets at several heights). Pick them with F2.</p>
+    <p class="files">Test rooms: <b>N – Enemies</b> and <b>O – Reflection Range</b> (Air), <b>Fire M</b> (the §7.2 table, in the Fire test world). Pick them with F2.</p>
   </section>
 </main>
 </body>

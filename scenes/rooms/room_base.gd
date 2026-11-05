@@ -106,8 +106,28 @@ const RIM_NAME: StringName = &"EdgeRim"
 ## level's start room (get_backdrop_altitude), so a level that climbs or digs
 ## moves through the three by itself; set it by hand where that guess is wrong.
 @export var backdrop_altitude: Backdrop.Altitude = Backdrop.Altitude.AUTO
+## A DARK ROOM: pitch black but for a faint small glow around the player and what fire
+## lights (a fireball's passing glimpse, a brazier's or bonfire's steady light, burning
+## grass). Drawn by the RoomManager's DarkRoomOverlay; the editor shows it lit.
+@export var is_dark: bool = false
 
 @onready var spawn_point: Marker2D = $SpawnPoint
+
+
+## Godot calls this for every property when something lists them (the Inspector,
+## the level editor's panel through get_property_list()), and lets the script edit
+## the description before it's shown. Here: the altitude dropdown lists high to
+## low, Skyline on top and Underground at the bottom, like the world itself. Only
+## the ORDER of the hint changes; each choice keeps its enum value, so saved rooms
+## are untouched.
+func _validate_property(property: Dictionary) -> void:
+	if property["name"] != "backdrop_altitude":
+		return
+	var choices: PackedStringArray = PackedStringArray()
+	for altitude: Backdrop.Altitude in [Backdrop.Altitude.AUTO, Backdrop.Altitude.SKYLINE,
+			Backdrop.Altitude.SURFACE, Backdrop.Altitude.UNDERGROUND]:
+		choices.append("%s:%d" % [String(Backdrop.Altitude.find_key(altitude)).capitalize(), altitude])
+	property["hint_string"] = ",".join(choices)
 
 
 func _ready() -> void:

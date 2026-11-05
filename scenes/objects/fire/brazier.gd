@@ -21,7 +21,14 @@ extends Switch
 ## A gust doesn't put it out (the bowl protects the flame, §5.4): snuff() does nothing.
 ##
 ## Place the node where the post meets the floor; the bowl sits post_height above.
-## It joins the room's reset group: death or R puts it out.
+## It joins the room's reset group: death or R puts it out (or, with `starts_lit`,
+## lights it again).
+##
+## STARTS LIT (`starts_lit`): it's already burning when the room starts and after
+## every reset, quietly (no flare, no shake), so its door starts open. Made for DARK
+## ROOMS: a steady fire lights a larger area than a passing fireball (its flames'
+## light is dark_brazier_light_scale bigger, FlameMerge.light_scale). A timed brazier
+## that starts lit still runs out.
 
 const BOWL_COLOR: Color = Color(0.24, 0.24, 0.27)
 const RIM_COLOR: Color = Color(0.45, 0.45, 0.5)
@@ -50,6 +57,8 @@ const SMALLEST_FLAME_SCALE: float = 0.35
 	set(value):
 		burn_time = value
 		queue_redraw()
+## Already lit when the room starts and after every reset (see the header).
+@export var starts_lit: bool = false
 ## Height of the post (from the floor to the bottom of the bowl), px.
 @export var post_height: float = 8.0:
 	set(value):
@@ -100,6 +109,10 @@ func _ready() -> void:
 		add_child(flame)
 		flame_merge.add_tongue(flame)
 		flames.append(flame)
+	# Dark rooms: a steady fire lights a larger area (see the header).
+	flame_merge.light_scale = (preload("res://resources/fire_tuning.tres") as FireTuning).dark_brazier_light_scale
+	if starts_lit:
+		_light(false)
 
 
 # --- The Flammable contract ----------------------------------------------------------
@@ -107,12 +120,20 @@ func _ready() -> void:
 ## Lights it (called again and again while a flame keeps touching: only the first
 ## call plays the effects). A timed brazier that's already lit just restarts its time.
 func ignite(_source: Node) -> void:
+	_light(true)
+
+
+## Lights it: restarts a timed one's time; the first time, `with_effects` plays the
+## flare, sparks, freeze and shake (not when it starts lit).
+func _light(with_effects: bool) -> void:
 	time_remaining = burn_time
 	if is_on():
 		return
 	set_on(true)
 	for flame: FlameTongue in flames:
 		flame.visible = true
+	if not with_effects:
+		return
 	var bowl_center: Vector2 = global_position + Vector2(0.0, _get_bowl_top_y())
 	FireRing.spawn(get_parent(), bowl_center, 12.0, 0.2)
 	EmberEmitter.burst(get_parent(), bowl_center, LIGHT_SPARK_COUNT, Vector2.UP, 180.0, 70.0)
@@ -138,6 +159,8 @@ func get_fire_rect() -> Rect2:
 
 func reset() -> void:
 	_go_out(false)
+	if starts_lit:
+		_light(false)
 
 
 func _physics_process(delta: float) -> void:

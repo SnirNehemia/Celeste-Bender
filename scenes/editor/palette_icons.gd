@@ -290,6 +290,12 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 2, 3, 6, 6, PURPLE)
 			_rect(image, 3, 4, 1, 1, WHITE)
 			_rect(image, 6, 4, 1, 1, WHITE)
+		&"leaf_wisp":
+			_rect(image, 2, 3, 6, 6, GRASS_GREEN)
+			_rect(image, 1, 5, 2, 3, GRASS_GREEN.darkened(0.3))
+			_rect(image, 7, 4, 2, 3, GRASS_GREEN.lightened(0.2))
+			_rect(image, 3, 4, 1, 1, PURPLE)
+			_rect(image, 6, 4, 1, 1, PURPLE)
 		&"sentry":
 			_rect(image, 2, 5, 6, 4, PURPLE)
 			_rect(image, 4, 2, 2, 3, PURPLE.darkened(0.3))

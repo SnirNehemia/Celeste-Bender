@@ -210,7 +210,7 @@ const ELEMENT_OF: Dictionary = {
 	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"ice": "Water",
 	&"black_water": "Water", &"ice_slope_up_right": "Water", &"ice_slope_up_left": "Water",
 	&"gentle_ice_slope_up_right": "Water", &"gentle_ice_slope_up_left": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
-	&"wisp": "Air", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
+	&"wisp": "Air", &"leaf_wisp": "Fire", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
 }
 
 ## All entries, in palette order. Built once, on first use.
@@ -537,6 +537,9 @@ static func _build() -> void:
 	black_water.tile_plain = WaterLayer.BLACK_TILE
 	black_water.tile_top_edge = WaterLayer.BLACK_TILE
 	black_water.room_settings_on_create = {&"water_allowed": true}
+	# Clean and black water share one palette button with a dropdown.
+	water.menu_group = "Water"
+	black_water.menu_group = "Water"
 
 	# Painted ice slopes (Stage W7a, from the re-planned ice): the fixed slides a level
 	# is built around. 45° one tile each; 22.5° alternates its low and high tile by
@@ -582,6 +585,10 @@ static func _build() -> void:
 	crumble_ice.tile_plain = IceLayer.ICE_TILE
 	crumble_ice.tile_top_edge = IceLayer.ICE_TILE
 	crumble_ice.extra_tabs = ["Breakable"]
+	# The two crumbling terrains share one Terrain button with a dropdown (each
+	# keeps its own button in Breakable: EditorUI gives extra tabs plain buttons).
+	crumble_rock.menu_group = "Crumbling block"
+	crumble_ice.menu_group = "Crumbling block"
 
 	# Sources and drains (Stage W2; Water_bending.md §6.2, §8.1). A room with a source
 	# gets a WaterWorld even without painted water.
@@ -630,11 +637,11 @@ static func _build() -> void:
 
 	# The origin is where the post meets the floor; the bowl sits post_height above.
 	var brazier: Entry = _add_object(&"brazier", "Brazier", "Fire", preload("res://scenes/objects/fire/brazier.tscn"))
-	brazier.hint = "A switch: light it (fireball or flame jet) and the doors linked to it open. Burn Time 0: lit until death or R; else it goes out after that many seconds. Gusts can't put it out."
+	brazier.hint = "A switch: light it (fireball or flame jet) and the doors linked to it open. Burn Time 0: lit until death or R; else it goes out after that many seconds. Starts Lit: already burning (and its doors open) from the start and after every reset: a steady light for dark rooms. Gusts can't put it out."
 	brazier.local_rect = Rect2(-6, -12, 12, 12)
 	brazier.placement = Placement.ON_FLOOR
 	brazier.snaps_to_ground = true
-	brazier.editable_properties = [&"burn_time", &"post_height"]
+	brazier.editable_properties = [&"burn_time", &"post_height", &"starts_lit"]
 	brazier.room_settings_on_create = fire_room
 
 	# The origin is the anchor (click the tile under a ceiling); end_point the free end.
@@ -679,6 +686,13 @@ static func _build() -> void:
 	wisp.size_property = &"body_size"
 	wisp.placement = Placement.ON_FLOOR
 	wisp.editable_properties = [&"start_direction", &"patrol_speed"]
+
+	var leaf_wisp: Entry = _add_object(&"leaf_wisp", "Leaf wisp", "Enemies", preload("res://scenes/enemies/leaf_wisp.tscn"))
+	leaf_wisp.hint = "A wisp made of leaves: walks back and forth, turning at walls and ledges. Touch kills. Only fire beats it: gusts just ruffle its leaves, rocks and spikes do nothing."
+	leaf_wisp.bounds = Bounds.SIZE_BOTTOM_CENTER
+	leaf_wisp.size_property = &"body_size"
+	leaf_wisp.placement = Placement.ON_FLOOR
+	leaf_wisp.editable_properties = [&"start_direction", &"patrol_speed"]
 
 	var sentry: Entry = _add_object(&"sentry", "Sentry", "Enemies", preload("res://scenes/enemies/sentry.tscn"))
 	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It bolts itself to the nearest wall, ceiling or floor; select it to see its sight range. It can never fire (a target for an enemy gate), or throw fireballs like yours (Fire Orbs: painted orange)."

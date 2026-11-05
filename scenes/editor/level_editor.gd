@@ -127,9 +127,15 @@ const ERASE_PREVIEW_COLOR: Color = Color(1.0, 0.35, 0.3, 0.3)
 const STRIP_PREVIEW_COLOR: Color = Color(0.9, 0.2, 0.2, 0.4)
 ## The Room settings the property panel shows when nothing is selected
 ## (Level_editor.md §5). The room's size is changed on the map (Stage L7).
+## Not here: Room.one_key_column_snake (EarthTuning turns one key on everywhere, so
+## the room's switch changed nothing) and Room.painted_ground (always on in editor
+## levels: RoomLook.prepare_for_editing).
 const ROOM_SETTINGS: Array[StringName] = [&"display_title", &"air_allowed", &"earth_allowed",
-	&"fire_allowed", &"fire_start_pips", &"one_key_column_snake", &"painted_ground", &"backdrop_theme",
-	&"backdrop_altitude"]
+	&"fire_allowed", &"water_allowed", &"fire_start_pips", &"backdrop_theme",
+	&"backdrop_altitude", &"is_dark"]
+## The four element switches, shown as one small table (PropertyPanel toggle_grids).
+const ROOM_ELEMENT_GRID: Dictionary = {"Elements": {&"air_allowed": "Air", &"earth_allowed": "Earth",
+	&"fire_allowed": "Fire", &"water_allowed": "Water"}}
 ## The depth in front (EditorDepthView) draws over the level's objects (they reach
 ## z_index 10 or so; a hidden chamber's lid is 100 and stays on top), and the
 ## overlay just over it.
@@ -1441,15 +1447,27 @@ func _show_selection_in_panel() -> void:
 		var room_count: int = _get_panel_rooms().size()
 		if room_count > 1:
 			title = "%d rooms selected\n(changes go to all)" % room_count
-		ui.property_panel.show_target(current_room, title, ROOM_SETTINGS)
+		ui.property_panel.show_target(current_room, title, ROOM_SETTINGS, [], "", ROOM_ELEMENT_GRID)
 		ui.property_panel.add_button("Preview backdrops (%s)" % EditorHelp.key_text("editor_backdrop_preview"),
 			open_backdrop_preview)
 		# Walls in the room's edges with the terrain chosen last (Ground at first).
 		var terrain: PaletteCatalog.Entry = last_terrain_entry if last_terrain_entry != null else PaletteCatalog.get_entry(&"ground")
 		var room: Room = current_room
 		ui.property_panel.add_button("Fill edges: %s" % terrain.display_name, func() -> void: fill_room_edges(room, terrain))
+		# The red X marks pile up over every play-test: one click starts them afresh.
+		if not play_record.deaths.is_empty():
+			ui.property_panel.add_button("Clear %d X marks (%s)" % [play_record.deaths.size(),
+				EditorHelp.key_text("editor_clear_deaths")], clear_death_marks)
 	else:
 		ui.property_panel.show_target(null, "", [])
+
+
+## Forgets this level's death markers (the red X's of past play-tests): the button
+## in the room panel and Ctrl+T.
+func clear_death_marks() -> void:
+	ui.show_message("Cleared %d death markers." % play_record.clear_deaths())
+	overlay.queue_redraw()
+	_show_selection_in_panel()  # the button goes with them
 
 
 ## The panel's last line for a linkable object: how many links, and the key.
@@ -2142,6 +2160,7 @@ func stop_playtest() -> void:
 	visible = true
 	ui.visible = true
 	camera.make_current()
+	_show_selection_in_panel()  # the "Clear X marks" button counts this play-test's deaths
 	if not playtest_warnings.is_empty():
 		ui.show_message("Note: " + "  ".join(playtest_warnings), true)
 
@@ -2329,7 +2348,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("editor_cut"):
 		copy_region(true)
 	elif event.is_action_pressed("editor_clear_deaths"):
-		ui.show_message("Cleared %d death markers." % play_record.clear_deaths())
+		clear_death_marks()
 	elif event.is_action_pressed("editor_toggle_trail"):
 		play_record.is_shown = not play_record.is_shown
 		ui.show_message("Play-test trail and deaths %s." % ("shown" if play_record.is_shown else "hidden"))

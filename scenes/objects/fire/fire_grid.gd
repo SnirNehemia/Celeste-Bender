@@ -58,6 +58,9 @@ extends Node2D
 ##     open sides (the fire front, grass_front_flash_time), thicket about to break
 ##     into flame pulses faster and spits sparks (the warning), and a gust bends the
 ##     flames it snuffs downwind and blows them off with smoke and sparks.
+##   - In a DARK ROOM the burning cells are the room's light (get_dark_lights): cells
+##     are grouped into blocks of DARK_LIGHT_BLOCK x DARK_LIGHT_BLOCK, one light per
+##     block that burns, bigger the more of it burns.
 ##   - The ground colors are the GroundPainter's (it listens to `cells_changed`; it
 ##     makes the edges between burnt and unburnt ground ragged). The grass blades
 ##     curl and blacken as the creep reaches each one (get_burn_progress_at).
@@ -154,6 +157,9 @@ const THICKET_CLUMP_CHANCE: float = 2.5
 ## flames: a wall of brambles burns big.
 const THICKET_FLAME_SCALE: float = 1.4
 const OVERGROWN_FLAME_SCALE: float = 1.7
+## Dark rooms: burning cells light the room in blocks this many cells wide (one light
+## each: a burning field would otherwise need hundreds).
+const DARK_LIGHT_BLOCK: int = 3
 ## The flash-over front crosses the cover in this share of overgrown_flashover_time;
 ## the rest is the whole sheet burning before it collapses.
 const FLASHOVER_FRONT_SHARE: float = 0.5
@@ -261,6 +267,8 @@ func _ready() -> void:
 	glow_layer.draw.connect(_draw_glow)
 	flame_merge = FlameMerge.make(self)
 	flame_merge.has_heat_glow = false  # we draw a glow per cell ourselves (_draw_glow)
+	flame_merge.has_light = false  # and light dark rooms by blocks (get_dark_lights)
+	add_to_group(DarkRoomOverlay.LIGHT_GROUP)
 
 
 ## The grid of the room containing `world_position`, or null.
@@ -553,6 +561,31 @@ func snuff_in(world_polygon: PackedVector2Array, direction: Vector2) -> int:
 		_crumble_thicket(thicket_cells, false)
 	_requeue_from_burning_neighbours(cancelled)
 	return grass_cells.size() + thicket_cells.size()
+
+
+## The light of the burning cells in a dark room (DarkRoomOverlay): one per block of
+## DARK_LIGHT_BLOCK x DARK_LIGHT_BLOCK cells that has burning cells, at their middle,
+## dark_grass_light_radius plus a little per extra burning cell. Only for the room on
+## screen (a fire left behind waits, see the header).
+func get_dark_lights() -> Array[Vector4]:
+	var lights: Array[Vector4] = []
+	if flames.is_empty() or GameState.current_room != room or not room.is_dark:
+		return lights
+	var blocks: Dictionary = {}  # block -> [sum of top points (local), cell count]
+	for cell: Vector2i in flames:
+		if get_time_burning_signed(cell) < 0.0:
+			continue  # a flash-over front not here yet
+		var block: Vector2i = Vector2i(floori(cell.x / float(DARK_LIGHT_BLOCK)), floori(cell.y / float(DARK_LIGHT_BLOCK)))
+		var entry: Array = blocks.get(block, [Vector2.ZERO, 0])
+		entry[0] = (entry[0] as Vector2) + _get_top_point(cell)
+		entry[1] = int(entry[1]) + 1
+		blocks[block] = entry
+	for block: Vector2i in blocks:
+		var entry: Array = blocks[block]
+		var middle: Vector2 = to_global((entry[0] as Vector2) / float(entry[1]))
+		var radius: float = fire_tuning.dark_grass_light_radius + 4.0 * sqrt(float(entry[1]) - 1.0)
+		lights.append(Vector4(middle.x, middle.y, radius, 1.0))
+	return lights
 
 
 ## A gust puts `cell` out (Fire_bending.md §9.3 "Snuff"): its flames bend hard

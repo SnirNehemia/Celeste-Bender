@@ -467,3 +467,21 @@ extends Resource
 @export var fire_fx_soft_cap: int = 300
 @export var fire_fx_hard_cap: int = 600
 @export_range(0.0, 1.0) var fire_fx_min_share: float = 0.25
+
+@export_group("Dark rooms")
+## DARK ROOMS (Room.is_dark, DarkRoomOverlay): how black the dark is (1 = pitch black).
+@export_range(0.0, 1.0) var dark_room_darkness: float = 1.0
+## The faint, small glow the player always carries in the dark: radius px, strength.
+@export var dark_player_light_radius: float = 22.0
+@export_range(0.0, 1.0) var dark_player_light_strength: float = 0.5
+## A fire's light: this many times its heat glow's radius (a fireball's glimpse ahead).
+@export var dark_fire_light_scale: float = 3.0
+## Steady fires light a larger area: a brazier's and a bonfire's light, times this.
+@export var dark_brazier_light_scale: float = 1.8
+@export var dark_bonfire_light_scale: float = 1.6
+## Burning grass and thicket: the light of one burning block of cells, radius px.
+@export var dark_grass_light_radius: float = 30.0
+## A light that goes out (a fireball bursting) fades over this many seconds.
+@export var dark_light_fade_time: float = 0.5
+## How many steps the light falls off in (pixel-art banding, dithered between steps).
+@export_range(1, 16) var dark_light_steps: int = 5

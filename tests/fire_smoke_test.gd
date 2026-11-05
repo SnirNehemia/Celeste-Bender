@@ -32,8 +32,10 @@ func _ready() -> void:
 	await _check_f11b_elephant(world, world.player)
 	await _check_f12_shell(world, world.player)
 	await _check_f13_look(world, world.player)
+	await _check_leaf_wisp(world, world.player)
+	await _check_dark_rooms(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b", "F12", "F13"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b", "F12", "F13", "LeafWisp", "Dark"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -2173,6 +2175,160 @@ func _check_f13_look(world: RoomManager, player: Player) -> void:
 	player.respawn_at(room_m.get_spawn_position())
 	await _physics_frames(3)
 	finished_sections.append("F13")
+
+
+## The leaf wisp (in room Fire M, made here): a wisp of leaves that only fire beats.
+## Gusts ruffle its leaves but don't push or stun it; rocks, spikes, crushing and
+## orbs do nothing.
+func _check_leaf_wisp(world: RoomManager, player: Player) -> void:
+	var room_m: Room = world.get_node("RoomFireM") as Room
+	world.jump_to_room(room_m)
+	await _physics_frames(3)
+	var leaf_wisp: LeafWisp = (load("res://scenes/enemies/leaf_wisp.tscn") as PackedScene).instantiate() as LeafWisp
+	leaf_wisp.position = Vector2(40, 160)
+	room_m.add_child(leaf_wisp)
+	await _physics_frames(5)
+	var kill: ElementImmunity.Response = ElementImmunity.Response.KILL
+	var ignore: ElementImmunity.Response = ElementImmunity.Response.IGNORE
+	var wrong_rows: Array[String] = []
+	for hit_type: EnemyHit.Type in [EnemyHit.Type.FIREBALL, EnemyHit.Type.FLAME]:
+		if leaf_wisp.immunity.get_response(hit_type) != kill:
+			wrong_rows.append(EnemyHit.Type.keys()[hit_type])
+	for hit_type: EnemyHit.Type in [EnemyHit.Type.BIG_ROCK, EnemyHit.Type.PERFECT_ROCK, EnemyHit.Type.SMALL_ROCK,
+			EnemyHit.Type.GUST, EnemyHit.Type.EARTH_PUSH, EnemyHit.Type.CRUSH, EnemyHit.Type.SPIKES,
+			EnemyHit.Type.REFLECTED_ORB, EnemyHit.Type.WHIP]:
+		if leaf_wisp.immunity.get_response(hit_type) != ignore:
+			wrong_rows.append(EnemyHit.Type.keys()[hit_type])
+	_check(wrong_rows.is_empty(), "the leaf wisp's table: fire kills, everything else is ignored (wrong: %s)" % [wrong_rows])
+	_check(leaf_wisp.is_in_group(Pushable.GROUP) and not leaf_wisp.is_valid_orb_target(),
+		"gusts find it (for the ruffle), reflected orbs never aim at it")
+
+	# A gust ruffles the leaves but doesn't move or stun it.
+	var x_before: float = leaf_wisp.global_position.x
+	leaf_wisp.receive_gust(Vector2.RIGHT, 220.0)
+	await _physics_frames(3)
+	var biggest_swing: float = 0.0
+	for offset: Vector2 in leaf_wisp.leaf_offsets:
+		biggest_swing = maxf(biggest_swing, offset.length())
+	_check(leaf_wisp.state == Wisp.State.PATROL and absf(leaf_wisp.global_position.x - x_before) < 3.0,
+		"a gust doesn't push or stun it (moved %.1f px)" % (leaf_wisp.global_position.x - x_before))
+	_check(biggest_swing > 0.5, "a gust ruffles its leaves (%.1f px)" % biggest_swing)
+	await _wait_game(0.8)
+	biggest_swing = 0.0
+	for offset: Vector2 in leaf_wisp.leaf_offsets:
+		biggest_swing = maxf(biggest_swing, offset.length())
+	_check(biggest_swing < 1.0, "and they spring back (%.1f px)" % biggest_swing)
+
+	# Rocks, spikes and crushing do nothing; fire burns it up.
+	EnemyHit.send(leaf_wisp, EnemyHit.Type.BIG_ROCK, Vector2(200, 0), null, 0.0)
+	EnemyHit.send(leaf_wisp, EnemyHit.Type.SPIKES, Vector2.ZERO)
+	_check(not Pushable.try_crush(leaf_wisp), "crushing does nothing")
+	await _physics_frames(2)
+	_check(leaf_wisp.state != Wisp.State.DEFEATED and leaf_wisp.visible, "a big rock and spikes do nothing to it")
+	var defeated_count: Array[int] = [0]
+	leaf_wisp.defeated.connect(func() -> void: defeated_count[0] += 1)
+	EnemyHit.send(leaf_wisp, EnemyHit.Type.FIREBALL, Vector2(200, 0))
+	_check(leaf_wisp.state == Wisp.State.DEFEATED and not leaf_wisp.visible and defeated_count[0] == 1,
+		"a fireball burns it up (and it tells enemy gates)")
+	room_m.reset_objects()
+	await _physics_frames(3)
+	_check(leaf_wisp.state == Wisp.State.PATROL and leaf_wisp.visible, "R brings it back")
+	# Walking into burning grass burns it too (a FLAME hit, like the wisp).
+	var grid: FireGrid = room_m.get_node_or_null("FireGrid") as FireGrid
+	if grid != null:
+		grid.ignite_at(leaf_wisp.global_position + Vector2(0, -1), 6.0, null)
+		await _wait_until(func() -> bool: return leaf_wisp.state == Wisp.State.DEFEATED, 1.0)
+		_check(leaf_wisp.state == Wisp.State.DEFEATED, "burning grass under it burns it up")
+	leaf_wisp.queue_free()
+	room_m.reset_objects()
+	player.respawn_at(room_m.get_spawn_position())
+	await _physics_frames(3)
+	finished_sections.append("LeafWisp")
+
+
+## Dark rooms (in room Fire M, made dark here): pitch black but the player's faint
+## glow; a fireball carries a light (a glimpse) that fades after it bursts; a lit
+## brazier lights a larger area; burning grass lights the room in blocks. A brazier
+## can start lit, and comes back lit after a reset.
+func _check_dark_rooms(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_m: Room = world.get_node("RoomFireM") as Room
+	var origin: Vector2 = room_m.global_position
+	var overlay: DarkRoomOverlay = world.get_node_or_null("DarkRoomOverlay") as DarkRoomOverlay
+	world.jump_to_room(room_m)
+	await _process_frames(2)
+	_check(overlay != null and not overlay.visible, "every world has a dark-room overlay, hidden while no room is dark")
+	room_m.is_dark = true
+	await _process_frames(2)
+	_check(overlay.visible and overlay.shown_lights.size() >= 1, "a dark room turns the overlay on")
+	var player_light: Vector4 = overlay.shown_lights[0]
+	_check(is_equal_approx(player_light.z, tuning.dark_player_light_radius) and Vector2(player_light.x, player_light.y).distance_to(player.get_center()) < 1.0,
+		"the player carries a small glow (radius %.0f)" % player_light.z)
+
+	# A fireball: a moving light, fading out after it's gone.
+	var ball: Array[Fireball] = [Fireball.launch(world, origin + Vector2(200, 60), Vector2.RIGHT, tuning, null)]
+	await _process_frames(3)
+	var ball_light: Vector4 = _find_light_near(overlay, ball[0].global_position, 12.0)
+	_check(ball_light != Vector4.ZERO and ball_light.z > tuning.dark_player_light_radius,
+		"a fireball lights the dark around it (radius %.0f)" % ball_light.z)
+	ball[0].queue_free()
+	await _process_frames(2)
+	_check(not overlay.fading_lights.is_empty(), "its light fades out after it's gone (a glimpse, not a blink)")
+	await _wait_game(tuning.dark_light_fade_time + 0.2)
+	_check(overlay.fading_lights.is_empty(), "and is gone after dark_light_fade_time")
+
+	# A brazier that starts lit: on from the start, its light bigger than a fireball's,
+	# and lit again after a reset. A plain one goes out on reset.
+	var lit_brazier: Brazier = (load("res://scenes/objects/fire/brazier.tscn") as PackedScene).instantiate() as Brazier
+	lit_brazier.starts_lit = true
+	lit_brazier.position = Vector2(200, 160)
+	room_m.add_child(lit_brazier)
+	await _process_frames(3)
+	var brazier_light: Vector4 = _find_light_near(overlay, lit_brazier.global_position + Vector2(0, -16), 14.0)
+	_check(lit_brazier.is_on() and brazier_light != Vector4.ZERO and brazier_light.z > ball_light.z,
+		"a brazier set to start lit burns from the start and lights a larger area (radius %.0f vs a fireball's %.0f)" % [brazier_light.z, ball_light.z])
+	room_m.reset_objects()
+	await _process_frames(2)
+	_check(lit_brazier.is_on(), "after a reset it's lit again")
+	lit_brazier.starts_lit = false
+	room_m.reset_objects()
+	_check(not lit_brazier.is_on(), "a brazier not set to start lit goes out on reset")
+	lit_brazier.queue_free()
+
+	# Burning grass lights the room in blocks.
+	var grid: FireGrid = room_m.get_node_or_null("FireGrid") as FireGrid
+	if grid != null:
+		grid.ignite_at(origin + Vector2(60, 159), 1.0, null)
+		await _wait_game(0.3)
+		_check(not grid.get_dark_lights().is_empty(), "burning grass lights the dark room (%d lights)" % grid.get_dark_lights().size())
+		room_m.reset_objects()
+		await _physics_frames(3)
+
+	# Not dark any more: the overlay switches off.
+	room_m.is_dark = false
+	await _process_frames(2)
+	_check(not overlay.visible, "a room that isn't dark shows no darkness")
+	player.respawn_at(room_m.get_spawn_position())
+	await _physics_frames(3)
+	finished_sections.append("Dark")
+
+
+## The overlay's light nearest `world_point` within `reach` px, or ZERO.
+func _find_light_near(overlay: DarkRoomOverlay, world_point: Vector2, reach: float) -> Vector4:
+	var best: Vector4 = Vector4.ZERO
+	var best_distance: float = reach
+	for light: Vector4 in overlay.shown_lights:
+		var distance: float = Vector2(light.x, light.y).distance_to(world_point)
+		if distance <= best_distance:
+			best = light
+			best_distance = distance
+	return best
+
+
+## Waits this many drawn frames (the overlay works in _process).
+func _process_frames(count: int) -> void:
+	for frame_index: int in count:
+		await get_tree().process_frame
 
 
 ## The FlameTongues still in a FireGrid's burning cells.

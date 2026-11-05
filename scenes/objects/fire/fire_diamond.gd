@@ -14,6 +14,7 @@ extends WindCrystal
 ##   - what touching does (_give_to(): Player.gain_fire_pips())
 ##   - a used diamond disappears completely instead of showing a dim outline
 ##
+## In a dark room it's a small light too (get_dark_lights): you can find your pips.
 ## Stage F13: a small HeatGlow sits behind it (a child of the bobbing diamond), so a
 ## fire diamond lights its corner of the room and reads as fire from far away.
 ##
@@ -70,6 +71,17 @@ func _ready() -> void:
 	# super() runs WindCrystal._ready(): hitbox, layers, reset group, `diamond`.
 	super()
 	_build_look()
+	if not Engine.is_editor_hint():
+		add_to_group(DarkRoomOverlay.LIGHT_GROUP)
+
+
+## Its light in a dark room (DarkRoomOverlay), while it's there to pick up.
+func get_dark_lights() -> Array[Vector4]:
+	var lights: Array[Vector4] = []
+	if is_available and is_visible_in_tree():
+		var center: Vector2 = diamond.global_position
+		lights.append(Vector4(center.x, center.y, glow.radius * 2.0 if glow != null else 20.0, 0.7))
+	return lights
 
 
 func _physics_process(delta: float) -> void:

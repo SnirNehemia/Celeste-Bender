@@ -37,6 +37,11 @@ extends Node2D
 ## light up their surroundings with no code of their own. A fire that draws its own
 ## glows (the FireGrid: one per cell) turns it off with `has_heat_glow = false`.
 ##
+## DARK ROOMS: every merged fire is also a LIGHT (DarkRoomOverlay.LIGHT_GROUP,
+## get_dark_lights): centered where its glow is, dark_fire_light_scale times the
+## glow's radius, times `light_scale` (a brazier or bonfire sets a bigger one: steady
+## fires light a larger area). The FireGrid lights its cells itself (`has_light` off).
+##
 ## Cost: less than separate tongues. The tongues' polygons are built as before, but
 ## sent to the renderer as one triangle list per canvas item (two, with the additive
 ## one), not one draw command per tongue and layer (see _draw_layers).
@@ -51,6 +56,9 @@ const HOT_LAYERS: Array[int] = [FlameTongue.Layer.INNER, FlameTongue.Layer.CORE]
 @export var base_drop: float = 1.0
 ## Draw the heat glow under the fire (see the header).
 @export var has_heat_glow: bool = true
+## Light up dark rooms (see the header), and how much bigger than a plain fire's.
+@export var has_light: bool = true
+@export var light_scale: float = 1.0
 
 ## The warm light's color at a cool and at a white-hot fire (§9.1 body and inner).
 const GLOW_COOL_COLOR: Color = Color(1.0, 0.5, 0.16)
@@ -87,6 +95,7 @@ func _ready() -> void:
 	add_child(glow_layer)
 	glow_layer.draw.connect(_draw_heat_glow)
 	glow_time = randf() * 100.0
+	add_to_group(DarkRoomOverlay.LIGHT_GROUP)
 
 
 ## A FlameMerge added to `parent`: put tongues in it with add_tongue().
@@ -130,6 +139,30 @@ func _process(delta: float) -> void:
 func _draw_heat_glow() -> void:
 	if not has_heat_glow:
 		return
+	var glow: Array = _get_glow_shape()
+	if not glow.is_empty():
+		HeatGlow.draw_glow(glow_layer, glow[0], glow[1], glow[2])
+
+
+## The light of this fire in a dark room (DarkRoomOverlay): one light where the glow
+## is, scaled up. None while no tongue shows.
+func get_dark_lights() -> Array[Vector4]:
+	var lights: Array[Vector4] = []
+	if not has_light or not is_visible_in_tree():
+		return lights
+	var glow: Array = _get_glow_shape()
+	if glow.is_empty():
+		return lights
+	var world_center: Vector2 = to_global(glow[0])
+	var radius: float = float(glow[1]) * fire_tuning.dark_fire_light_scale * light_scale
+	var strength: float = clampf((glow[2] as Color).a / maxf(fire_tuning.heat_glow_alpha, 0.001), 0.0, 1.0)
+	lights.append(Vector4(world_center.x, world_center.y, radius, strength))
+	return lights
+
+
+## The glow under the visible tongues this frame: [center (our local px), radius,
+## color], or [] when no tongue shows.
+func _get_glow_shape() -> Array:
 	var to_local_space: Transform2D = get_global_transform().affine_inverse()
 	var middles: PackedVector2Array = PackedVector2Array()
 	var total_length: float = 0.0
@@ -145,7 +178,7 @@ func _draw_heat_glow() -> void:
 		total_heat += tongue.heat
 		total_opacity += tongue.opacity
 	if middles.is_empty():
-		return
+		return []
 	var count: float = float(middles.size())
 	var center: Vector2 = Vector2.ZERO
 	for middle: Vector2 in middles:
@@ -159,7 +192,7 @@ func _draw_heat_glow() -> void:
 	var radius: float = (spread + average_length * fire_tuning.heat_glow_reach + 3.0) * (1.0 + (flicker - 1.0) * 0.5)
 	var color: Color = GLOW_COOL_COLOR.lerp(GLOW_HOT_COLOR, total_heat / count)
 	color.a = fire_tuning.heat_glow_alpha * (total_opacity / count) * flicker
-	HeatGlow.draw_glow(glow_layer, center, radius, color)
+	return [center, radius, color]
 
 
 func _draw() -> void:

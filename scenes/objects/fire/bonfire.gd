@@ -107,6 +107,7 @@ func _ready() -> void:
 	# One fire: the tongues share an outline (FlameMerge).
 	var flame_merge: FlameMerge = FlameMerge.make(self)
 	flame_merge.has_heat_glow = false  # our own glow (_draw_glow) covers the coals too
+	flame_merge.light_scale = fire_tuning.dark_bonfire_light_scale  # dark rooms: a big light
 	for tongue_index: int in MAX_TONGUES:
 		var flame: FlameTongue = FlameTongue.new()
 		flame.base_width = 6.0
