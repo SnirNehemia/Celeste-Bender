@@ -14,6 +14,9 @@ extends WindCrystal
 ##   - what touching does (_give_to(): Player.gain_fire_pips())
 ##   - a used diamond disappears completely instead of showing a dim outline
 ##
+## Stage F13: a small HeatGlow sits behind it (a child of the bobbing diamond), so a
+## fire diamond lights its corner of the room and reads as fire from far away.
+##
 ## gain_fire_pips() returns false when the bar is already full (or fire isn't allowed
 ## in the room), so brushing past with a full bar doesn't waste the diamond.
 ## Since Stage F7, flames turn wind crystals and gust diamonds into these
@@ -35,6 +38,9 @@ const RIM_WIDTH: float = 1.0
 const FLAME_HALF_WIDTH: float = 1.5
 const FLAME_HEIGHT: float = 4.0
 const FLAME_LICK_FREQUENCY: float = 3.0
+## Its glow: radius px for the single (the double's is a third bigger), and color.
+const GLOW_RADIUS: float = 10.0
+const GLOW_COLOR: Color = Color(1.0, 0.55, 0.2, 0.2)
 
 ## How many pips this diamond gives: 1 = single, 2 = double.
 @export_range(1, 2) var pip_amount: int = 1:
@@ -48,6 +54,7 @@ const FLAME_LICK_FREQUENCY: float = 3.0
 ## children of the base class's `diamond` polygon, so they bob with it.
 var rim: Polygon2D
 var flames: Array[Polygon2D] = []
+var glow: HeatGlow
 
 
 func _init() -> void:
@@ -81,6 +88,14 @@ func _build_look() -> void:
 		rim.show_behind_parent = true
 		diamond.add_child(rim)
 	rim.polygon = _diamond_points(half_size + Vector2.ONE * RIM_WIDTH)
+	if glow == null and not Engine.is_editor_hint():
+		glow = HeatGlow.new()
+		glow.name = "Glow"
+		glow.color = GLOW_COLOR
+		glow.show_behind_parent = true
+		diamond.add_child(glow)
+	if glow != null:
+		glow.radius = GLOW_RADIUS * (1.33 if pip_amount >= 2 else 1.0)
 	for flame: Polygon2D in flames:
 		flame.queue_free()
 	flames.clear()
@@ -113,6 +128,8 @@ func _lick_flames() -> void:
 		flame_core.polygon = PackedVector2Array([
 			Vector2(-0.6, 0), tip * 0.55, Vector2(0.6, 0)])
 		flame.visible = is_available
+	if glow != null:
+		glow.visible = is_available
 
 
 func _diamond_points(half_size: Vector2) -> PackedVector2Array:

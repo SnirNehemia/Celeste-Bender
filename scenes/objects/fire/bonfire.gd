@@ -36,8 +36,11 @@ extends Node2D
 ## Without leaf positions the middle ones are tallest. Drawn through a FlameMerge so
 ## they share one outline: one fire with many
 ## tips, not a row of separate flames (F7 play-test). Plus coals, a soft additive
-## glow, smoke and sparks popping up in bursts. The full look pass (smoke column,
-## shimmer) is Stage F13.
+## glow, smoke and sparks popping up in bursts.
+## Stage F13: a tall SMOKE COLUMN (SmokeColumn) rises from the flame's top while it
+## burns and bends with wind zones and gusts, and the glow is a soft HeatGlow that
+## lights the ground and walls around the fire (the merged flames' own glow is off:
+## this one also covers the AMBER coals).
 
 ## Emitted when bonfire_duration runs out. The pile then burns its leaves away.
 signal burnt_out(bonfire: Bonfire)
@@ -69,6 +72,9 @@ const GLOW_COLOR: Color = Color(1.0, 0.45, 0.12)
 const FLASH_COLOR: Color = Color(1.0, 0.55, 0.15, 0.12)
 ## Coal specks per px of width.
 const COAL_SPECKS_PER_PX: float = 0.35
+## The glow's brightness (alpha) while only the coals glow, and once the flame is up.
+const GLOW_ALPHA_AMBER: float = 0.14
+const GLOW_ALPHA_FLAMING: float = 0.22
 
 var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
 var stage: Stage = Stage.OUT
@@ -92,12 +98,15 @@ var hazard: FireHazard
 var updraft: WindZone
 ## The additive child the glow is drawn into.
 var glow_layer: Node2D
+## The smoke column over the flame (Stage F13).
+var smoke_column: SmokeColumn
 
 
 func _ready() -> void:
 	z_index = 1  # flames in front of the leaves and the player's feet
 	# One fire: the tongues share an outline (FlameMerge).
 	var flame_merge: FlameMerge = FlameMerge.make(self)
+	flame_merge.has_heat_glow = false  # our own glow (_draw_glow) covers the coals too
 	for tongue_index: int in MAX_TONGUES:
 		var flame: FlameTongue = FlameTongue.new()
 		flame.base_width = 6.0
@@ -132,6 +141,8 @@ func _ready() -> void:
 	glow_layer.material = additive
 	add_child(glow_layer)
 	glow_layer.draw.connect(_draw_glow)
+	smoke_column = SmokeColumn.new()
+	add_child(smoke_column)
 
 
 # --- Driven by the pile ------------------------------------------------------------
@@ -185,6 +196,7 @@ func put_out(instant: bool) -> void:
 	updraft.wind_strength = 0.0
 	updraft.visible = false
 	visible = false
+	smoke_column.emitting = false
 	if not instant:
 		SmokePuff.spawn(_get_effects_parent(), global_position + Vector2(0.0, -4.0), 4)
 
@@ -295,6 +307,9 @@ func _update_flame() -> void:
 	if updraft.wind_strength != lift:
 		updraft.wind_strength = lift
 	updraft.visible = flaming
+	smoke_column.emitting = flaming
+	if flaming:
+		smoke_column.set_source(global_position + Vector2(0.0, -flame_height), width)
 
 
 ## Spreads the tongues over the width: one per PX_PER_TONGUE. Each one's height:
@@ -371,17 +386,16 @@ func _draw() -> void:
 		draw_rect(Rect2(x - 0.5, y - 0.5, 1.0, 1.0), EMBER_COLOR.lerp(EMBER_HOT_COLOR, pulse))
 
 
-## A soft warm glow round the fire's foot (additive, under the flames): small and
-## pulsing while AMBER, big and flickering once the flame is up.
+## A soft warm glow round the fire (additive, under the flames, HeatGlow): small and
+## pulsing while AMBER, big and flickering once the flame is up, reaching well past
+## the flames so the ground and walls around it are lit.
 func _draw_glow() -> void:
 	if stage == Stage.OUT:
 		return
-	var flicker: float = 0.85 + 0.15 * sin(lit_time * 11.0) * sin(lit_time * 4.3)
+	var flicker: float = HeatGlow.get_flicker(lit_time * 6.0, 0.15)
 	var flame_height: float = get_flame_height()
-	var radius: float = maxf(width * 0.6, (flame_height + width * 0.5) * 0.8) * flicker
-	var alpha: float = 0.05 if stage == Stage.AMBER else 0.07
+	var reach: float = (flame_height + width * 0.5) * fire_tuning.heat_glow_reach
+	var radius: float = maxf(width * 0.8, reach) * (1.0 + (flicker - 1.0) * 0.5)
+	var alpha: float = GLOW_ALPHA_AMBER if stage == Stage.AMBER else GLOW_ALPHA_FLAMING
 	var center: Vector2 = Vector2(0.0, -flame_height * 0.3 - 1.0)
-	# Three stacked circles = a soft edge (a few bonfires at most, so the cost is nothing).
-	for ring_index: int in 3:
-		var ring_scale: float = 1.0 - ring_index * 0.3
-		glow_layer.draw_circle(center, radius * ring_scale, Color(GLOW_COLOR, alpha))
+	HeatGlow.draw_glow(glow_layer, center, radius, Color(GLOW_COLOR, alpha * flicker))

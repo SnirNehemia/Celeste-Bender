@@ -29,6 +29,10 @@ extends Node2D
 ##     that floats UP (whichever way the flame points), grows and fades. Tips can also
 ##     give off a thin trail of smoke of their own (`smoke_rate`).
 ##
+## PARTICLE CAP (Stage F13, FireFxBudget): licks count as embers and wisps as smoke.
+## In a crowded room a tongue tears off fewer licks first, then gives off less smoke
+## (each new one is made only with the budget's share as its chance).
+##
 ## MERGED FIRES (F7 play-test): when `merge` is set (FlameMerge.add_tongue), this
 ## tongue doesn't draw its own edge, body, inner and core layers: the FlameMerge
 ## draws every tongue of its fire layer by layer (draw_layer), so overlapping tongues
@@ -139,6 +143,11 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if merge != null and is_instance_valid(merge):
 		merge.remove_tongue(self)
+	# What it still had in the air goes with it.
+	FireFxBudget.add_embers(-licks.size())
+	FireFxBudget.add_smoke(-smoke.size())
+	licks.clear()
+	smoke.clear()
 
 
 func _process(delta: float) -> void:
@@ -175,7 +184,9 @@ func _update_licks(delta: float) -> void:
 	for lick: Dictionary in licks:
 		if lick["age"] >= lick["lifetime"] * LICK_FLAME_SHARE:
 			_add_smoke(lick["position"], lick["velocity"])
+	var lick_count_before: int = licks.size()
 	licks = licks.filter(func(lick: Dictionary) -> bool: return lick["age"] < lick["lifetime"] * LICK_FLAME_SHARE)
+	FireFxBudget.add_embers(licks.size() - lick_count_before)
 
 
 ## Gives off tip smoke (smoke_rate) and floats every wisp up: whatever its first
@@ -195,12 +206,15 @@ func _update_smoke(delta: float) -> void:
 		velocity = velocity.move_toward(Vector2(sway, -smoke_rise_speed), 60.0 * delta)
 		wisp["velocity"] = velocity
 		wisp["position"] += velocity * delta
+	var wisp_count_before: int = smoke.size()
 	smoke = smoke.filter(func(wisp: Dictionary) -> bool: return wisp["age"] < wisp["lifetime"])
+	FireFxBudget.add_smoke(smoke.size() - wisp_count_before)
 
 
 func _add_smoke(world_position: Vector2, start_velocity: Vector2) -> void:
-	if smoke.size() >= MAX_SMOKE:
+	if smoke.size() >= MAX_SMOKE or randf() > FireFxBudget.get_smoke_share():
 		return
+	FireFxBudget.add_smoke(1)
 	smoke.append({
 		"position": world_position,
 		"velocity": start_velocity * 0.5,
@@ -226,8 +240,9 @@ func _draw_smoke() -> void:
 ## A lick starts at the flame's tip (where the noise has it this frame) and flies
 ## on along the flame's direction, up to 20° to one side.
 func _spawn_lick() -> void:
-	if licks.size() >= MAX_LICKS:
+	if licks.size() >= MAX_LICKS or randf() > FireFxBudget.get_ember_share():
 		return
+	FireFxBudget.add_embers(1)
 	var tip_local: Vector2 = Vector2(fan_width * wobble_amount * 1.4 * _wander(noise_time, 3.0), -length * 0.9)
 	# The flame's "up" (local -Y) as a world direction.
 	var flame_up: Vector2 = Vector2.UP.rotated(global_rotation)

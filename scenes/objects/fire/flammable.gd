@@ -83,6 +83,20 @@ static func ignite_near(tree: SceneTree, world_point: Vector2, radius: float, so
 	return lit_count
 
 
+## Would a flame at `world_point` reaching `radius` px light anything (without
+## lighting it)? The fireball's aim preview asks this to know whether a throw bursts
+## or bounces there (Stage F13). The FireGrid answers exactly (would_catch_at);
+## other things that burn in parts are judged by their fire rect, like everything else.
+static func would_catch_near(tree: SceneTree, world_point: Vector2, radius: float) -> bool:
+	for target: Node in tree.get_nodes_in_group(GROUP):
+		if target is FireGrid:
+			if (target as FireGrid).would_catch_at(world_point, radius):
+				return true
+		elif get_fire_rect(target).grow(radius).has_point(world_point):
+			return true
+	return false
+
+
 ## Lights `target` if a flame at `world_point` reaching `radius` px touches it: its
 ## ignite_at() if it has one (the FireGrid), else its fire rect grown by the radius.
 ## Returns true if anything caught.
@@ -147,6 +161,8 @@ static func get_fire_rect(target: Node) -> Rect2:
 ## A gust blew over `world_polygon` (direction ZERO = all around): every flammable
 ## with snuff_in() puts out what burns in it. Returns how many parts went out.
 static func snuff_in_area(tree: SceneTree, world_polygon: PackedVector2Array, direction: Vector2) -> int:
+	# Smoke columns aren't flammable, but a gust bends them (Stage F13, SmokeColumn).
+	tree.call_group(SmokeColumn.GUST_GROUP, &"on_gust", world_polygon, direction)
 	var snuffed_count: int = 0
 	for target: Node in tree.get_nodes_in_group(GROUP):
 		if target.has_method(METHOD_SNUFF_IN):

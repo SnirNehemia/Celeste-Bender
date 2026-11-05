@@ -1,18 +1,28 @@
 class_name FirePipsDisplay
 extends Node2D
-## Draws the fire bar (FireBar) as a row of tiny flames over the player's head
+## Draws the fire bar (FireBar) as a row of small round glowing dots over the player's head
 ## (Fire_bending.md §4.2, §13). A child of the player, next to FireBar; it only
 ## READS the bar and listens to its `pips_changed` signal, so it can be removed
 ## without breaking anything.
 ##
 ## The look, all in whole pixels so it stays crisp at 320x180:
-##   - one slot per possible pip (FireTuning.max_pips), 3x4 px, 1 px apart
-##   - a held pip is a little flame that flickers on its own rhythm (each slot has
-##     its own phase), so the row never pulses in step
-##   - an empty slot is a dim ember outline
+##   - one slot per pip held: a 4x4 px round dot (its corners cut: at this size that
+##     reads as a circle), 2 px apart. Simple and round like the white gust pips; a
+##     dancing flame per pip was too busy (play-test).
+##   - CENTERED on the player's body (play-test: it wasn't). The body is 8 px wide,
+##     so a centered row must be an EVEN number of px wide: even dots, even spacing,
+##     any count. (The old 3 px dots made every row odd: always half a pixel off.)
+##     And the row is anchored where the body really lands on the pixel grid
+##     (_get_body_middle_x), not floored on its own.
+##   - a held pip keeps its shape and only FLICKERS IN COLOR, like an ember: its
+##     middle drifts between yellow and white-hot, its rim between orange and red,
+##     each slot on its own rhythm, so the row never pulses in step
+##   - empty slots are not drawn: the row is only as long as the pips you hold
+##     (play-test), centered over the head, so it grows and shrinks like the gust pips
 ##   - a spent pip snuffs out AT ONCE: a 2-frame white flash, then a puff of smoke
 ##     (never a slow drain: the bar only ever shows whole pips)
-##   - a gained pip starts as a spark and flares up taller before it settles
+##   - a gained pip starts as a spark (just the middle 2x2) and flares white-hot before
+##     it settles
 ##
 ## Always shown where fire is allowed (pips are a budget you plan with, on the ground
 ## too), hidden while dead. In rooms that also allow Air it sits one row higher, above
@@ -31,16 +41,21 @@ const INNER_COLOR: Color = Color("#FFD34D")
 const BODY_COLOR: Color = Color("#FF8A1E")
 const EDGE_COLOR: Color = Color("#E8431A")
 const EMBER_COLOR: Color = Color("#8A2410")
-## The empty-slot outline: ember red, a little see-through so it reads as "off".
-const EMPTY_COLOR: Color = Color(EMBER_COLOR, 0.75)
 ## HUD smoke is a lighter gray than the world's smoke (§9.1), or it would vanish
 ## against the dark background at this tiny size.
 const PUFF_COLOR: Color = Color(0.6, 0.56, 0.56, 0.7)
 
-## One slot: 3 px wide, 4 px tall, and the next one starts 4 px further right.
-const SLOT_WIDTH: int = 3
-const SLOT_HEIGHT: int = 4
-const SLOT_SPACING: int = 4
+## One slot: a 4x4 dot, and the next one starts 6 px further right. Both EVEN, so
+## the row's width is even for any number of pips and centers exactly (header).
+const SLOT_SIZE: int = 4
+const SLOT_SPACING: int = 6
+## The dot's pixels: the 2x2 middle, and the rim around it without the 4 corners.
+const MIDDLE_PIXELS: Array[Vector2i] = [Vector2i(1, 1), Vector2i(2, 1), Vector2i(1, 2), Vector2i(2, 2)]
+const RIM_PIXELS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(2, 0), Vector2i(0, 1), Vector2i(3, 1),
+	Vector2i(0, 2), Vector2i(3, 2), Vector2i(1, 3), Vector2i(2, 3)]
+## The player's body is this wide, its left edge this far left of its origin (the
+## Visual ColorRect in player.tscn).
+const BODY_LEFT: float = -4.0
 ## Top of the row above the feet (the player is 11 px tall). Fire-only rooms: in the
 ## gust pips' slot, just above the head. Rooms with Air too: one row above the gust pips.
 const ROW_TOP_FIRE_ONLY: int = -19
@@ -57,9 +72,9 @@ const FLARE_SPARK_PART: float = 0.3
 const PUFF_PIXEL_COUNT: int = 2
 const PUFF_LIFETIME: float = 0.4
 const PUFF_RISE_SPEED: float = 12.0
-## Flicker speed: each slot's flame changes shape about this many times per second
-## (a little faster or slower per slot, see _get_flicker).
-const FLICKER_RATE: float = 9.0
+## Color flicker speed, radians per second (a little faster or slower per slot, see
+## _get_flicker). Slow enough to read as a glow, not a blink.
+const FLICKER_RATE: float = 6.0
 
 ## The bar we draw. Set in _ready() from the sibling node.
 var fire_bar: FireBar
@@ -124,7 +139,7 @@ func _on_pips_changed(pips: int, change: int) -> void:
 # --- Smoke puffs ---------------------------------------------------------------
 
 func _spawn_puff(slot: int) -> void:
-	var slot_top: Vector2 = Vector2(_get_slot_origin(slot)) + Vector2(1, 0)
+	var slot_top: Vector2 = Vector2(_get_slot_origin(slot)) + Vector2(1.5, 0)
 	for pixel_index: int in PUFF_PIXEL_COUNT:
 		# A small random sideways drift, so two puffs never look alike.
 		var drift: float = randf_range(-6.0, 6.0)
@@ -147,82 +162,82 @@ func _draw() -> void:
 	for slot: int in snuff_flash_remaining.size():
 		var origin: Vector2i = _get_slot_origin(slot)
 		if snuff_flash_remaining[slot] > 0.0:
-			draw_rect(Rect2(origin, Vector2(SLOT_WIDTH, SLOT_HEIGHT)), CORE_COLOR)
+			_draw_dot(origin, CORE_COLOR, CORE_COLOR)
 		elif slot < fire_bar.pips:
-			_draw_flame(origin, slot)
-		else:
-			_draw_empty_slot(origin)
+			_draw_held_pip(origin, slot)
 	for puff: Array in puffs:
 		var fade: float = 1.0 - float(puff[2]) / PUFF_LIFETIME
 		_pixel(Vector2(puff[0]).floor(), Color(PUFF_COLOR, PUFF_COLOR.a * fade))
 
 
-## The top-left pixel of slot `slot` this frame: the row is centered over the feet.
+## How many slots the row shows right now: the held pips, plus a pip that is still
+## flashing as it snuffs out (it keeps its place for those 2 frames).
+func _get_shown_slot_count() -> int:
+	var shown_count: int = fire_bar.pips
+	for slot: int in snuff_flash_remaining.size():
+		if snuff_flash_remaining[slot] > 0.0:
+			shown_count = maxi(shown_count, slot + 1)
+	return shown_count
+
+
+## The top-left pixel of slot `slot` this frame: the shown row is centered over the feet.
 func _get_slot_origin(slot: int) -> Vector2i:
-	var slot_count: int = fire_bar.get_max_pips()
-	var row_width: int = SLOT_SPACING * (slot_count - 1) + SLOT_WIDTH
+	var slot_count: int = maxi(_get_shown_slot_count(), 1)
+	var row_width: int = SLOT_SPACING * (slot_count - 1) + SLOT_SIZE
 	var row_top: int = ROW_TOP_WITH_AIR if player.is_element_allowed(Player.ELEMENT_AIR) \
 		else ROW_TOP_FIRE_ONLY
-	# floori: whole pixels, so the flames never blur between two pixels.
-	var row_left: int = floori(player.global_position.x - row_width / 2.0)
+	# Even width (see SLOT_SIZE), so half of it is a whole number of pixels.
+	var row_left: int = _get_body_middle_x() - (row_width >> 1)
 	return Vector2i(row_left + SLOT_SPACING * slot, floori(player.global_position.y) + row_top)
 
 
-## A held pip: a 3x4 flame, red-orange edges, orange body, yellow middle, with a tip
-## that sways and comes and goes. Pixel rows from the bottom (y = 3) to the top (y = 0):
-##   y=3  edge  body  edge
-##   y=2  body  inner body
-##   y=1        inner         (+ a body pixel on the side the flame sways to)
-##   y=0        tip           (on the sway side; only on the "tall" beats)
-func _draw_flame(origin: Vector2i, slot: int) -> void:
-	var flicker: Vector2 = _get_flicker(slot)
-	var sway: int = int(flicker.x)  # -1, 0 or +1 px
-	var is_tall: bool = flicker.y > 0.35
-	# Flaring up after a gain: first only a spark, then a flame with an extra-tall,
-	# white-hot tip that settles into the normal flame.
+## The pixel line down the middle of the player's body as drawn. The body's left
+## edge is at a fractional x; the renderer fills the pixels whose centers are inside
+## the rect, so its first pixel is the rounded edge, and its middle is 4 px on.
+func _get_body_middle_x() -> int:
+	return roundi(player.global_position.x + BODY_LEFT) + int(-BODY_LEFT)
+
+
+## A held pip: the round dot, its middle and rim each drifting in color. While it
+## flares up after a gain: first only a white spark in the middle, then the whole dot
+## white-hot in the middle and yellow on the rim, fading into the normal glow.
+func _draw_held_pip(origin: Vector2i, slot: int) -> void:
 	var flare_progress: float = 1.0 - flare_remaining[slot] / FLARE_TIME if flare_remaining[slot] > 0.0 else 1.0
 	if flare_progress < FLARE_SPARK_PART:
-		_pixel(Vector2(origin + Vector2i(1, 3)), CORE_COLOR)
-		_pixel(Vector2(origin + Vector2i(1, 2)), INNER_COLOR)
+		for pixel: Vector2i in MIDDLE_PIXELS:
+			_pixel(Vector2(origin + pixel), CORE_COLOR)
 		return
-	var is_flaring: bool = flare_progress < 1.0
-	var middle_color: Color = CORE_COLOR if is_flaring else INNER_COLOR
-	_pixel(Vector2(origin + Vector2i(0, 3)), EDGE_COLOR)
-	_pixel(Vector2(origin + Vector2i(1, 3)), BODY_COLOR)
-	_pixel(Vector2(origin + Vector2i(2, 3)), EDGE_COLOR)
-	_pixel(Vector2(origin + Vector2i(0, 2)), BODY_COLOR)
-	_pixel(Vector2(origin + Vector2i(1, 2)), middle_color)
-	_pixel(Vector2(origin + Vector2i(2, 2)), BODY_COLOR)
-	_pixel(Vector2(origin + Vector2i(1, 1)), middle_color)
-	if sway != 0:
-		_pixel(Vector2(origin + Vector2i(1 + sway, 1)), BODY_COLOR)
-	if is_tall or is_flaring:
-		_pixel(Vector2(origin + Vector2i(1 + sway, 0)), INNER_COLOR if is_flaring else EDGE_COLOR)
-	if is_flaring:
-		# The overshoot: one pixel above the slot while it flares.
-		_pixel(Vector2(origin + Vector2i(1, -1)), EDGE_COLOR)
+	var flicker: Vector2 = _get_flicker(slot)
+	var middle_color: Color = INNER_COLOR.lerp(CORE_COLOR, flicker.x)
+	var rim_color: Color = EDGE_COLOR.lerp(BODY_COLOR, flicker.y)
+	if flare_progress < 1.0:
+		# How far through the flare (after the spark) we are: 0 = white-hot, 1 = normal.
+		var settle: float = (flare_progress - FLARE_SPARK_PART) / (1.0 - FLARE_SPARK_PART)
+		middle_color = CORE_COLOR.lerp(middle_color, settle)
+		rim_color = INNER_COLOR.lerp(rim_color, settle)
+	_draw_dot(origin, middle_color, rim_color)
 
 
-## An empty slot: the flame's outline in dim ember red (bottom row, sides, a dot on top).
-func _draw_empty_slot(origin: Vector2i) -> void:
-	for pixel: Vector2i in [Vector2i(0, 3), Vector2i(1, 3), Vector2i(2, 3),
-			Vector2i(0, 2), Vector2i(2, 2), Vector2i(1, 1)]:
-		_pixel(Vector2(origin + pixel), EMPTY_COLOR)
+## The round 4x4 dot: a 2x2 middle, eight rim pixels.
+func _draw_dot(origin: Vector2i, middle_color: Color, rim_color: Color) -> void:
+	for pixel: Vector2i in MIDDLE_PIXELS:
+		_pixel(Vector2(origin + pixel), middle_color)
+	for pixel: Vector2i in RIM_PIXELS:
+		_pixel(Vector2(origin + pixel), rim_color)
 
 
-## The flame shape for `slot` right now: x = sway (-1, 0 or +1 px), y = height
-## (0..1, the tip shows above 0.35). Two sines at different speeds per slot, mixed,
-## give a flicker that looks random but never jumps around wildly. Each slot gets its
-## own speed and phase from its index, so neighbors never flicker in step.
+## How hot slot `slot` glows right now: x = the middle (0 = yellow, 1 = white-hot),
+## y = the rim (0 = red, 1 = orange), both 0..1. Two sines at different speeds,
+## mixed, give a drift that looks random but never jumps. Each slot gets its own
+## speed and phase from its index, so neighbours never glow in step.
 func _get_flicker(slot: int) -> Vector2:
 	var seconds: float = Time.get_ticks_msec() / 1000.0
 	var rate: float = FLICKER_RATE * (0.8 + 0.13 * float(slot % 3))
 	var phase: float = float(slot) * 2.39  # the golden angle, spreads phases evenly
-	var wave_a: float = sin(seconds * rate + phase)
-	var wave_b: float = sin(seconds * rate * 1.7 + phase * 1.3)
-	var sway: float = roundf(clampf(wave_a * 0.8 + wave_b * 0.4, -1.0, 1.0))
-	var height: float = 0.5 + 0.5 * sin(seconds * rate * 1.3 + phase * 0.7) * cos(seconds * rate * 0.6)
-	return Vector2(sway, height)
+	var middle_wave: float = sin(seconds * rate + phase) * 0.7 + sin(seconds * rate * 1.7 + phase * 1.3) * 0.3
+	var rim_wave: float = sin(seconds * rate * 1.3 + phase * 0.7) * 0.6 + sin(seconds * rate * 0.6) * 0.4
+	# The middle stays mostly yellow (white-hot only at the peaks); the rim swings wider.
+	return Vector2(clampf(middle_wave, 0.0, 1.0) * 0.6, 0.5 + 0.5 * rim_wave)
 
 
 func _pixel(position_px: Vector2, color: Color) -> void:

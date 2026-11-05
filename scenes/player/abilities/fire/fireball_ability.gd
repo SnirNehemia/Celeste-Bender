@@ -36,6 +36,13 @@ extends Node2D
 ##     fly (same gravity and lift as Fireball.get_launch_velocity), marching outward,
 ##     yellow near the hand cooling to red. Where it would hit a wall or a flammable,
 ##     a little flame star; where it would gutter out, a puff of gray.
+##   - Stage F13: the FIRST BOUNCE is shown too. The preview sweeps the fireball's own
+##     hitbox like the real one (Ricochet.find_contact), so it knows the angle of the
+##     surface; where the real fireball would bounce (nothing there burns, fast
+##     enough off the surface, a Shell), a small spark marks the bounce and the arc
+##     goes on, a little dimmer, to where the bounced ball ends: a star (it bursts
+##     there), a spark (it would bounce again: only the first bounce is shown) or a
+##     puff (it gutters out).
 
 ## The aim preview's ember colors (near the hand -> far end) and the end marks.
 const AIM_NEAR_COLOR: Color = Color("#FFD34D")
@@ -47,6 +54,11 @@ const AIM_DOT_SPACING: float = 6.0
 const AIM_MARCH_SPEED: float = 24.0
 ## The predicted path is stepped at 60 Hz, at most this many steps.
 const AIM_MAX_STEPS: int = 120
+## Embers after the bounce are this much fainter (the less certain part).
+const AIM_AFTER_BOUNCE_ALPHA: float = 0.65
+
+## How the predicted path ends (see the header).
+enum PathEnd { GUTTER, BURST, BOUNCE }
 ## The held flame: how far from the center toward the aim, its bob (px, per real s).
 const HELD_DISTANCE: float = 6.0
 const HELD_BOB_AMOUNT: float = 1.0
@@ -79,6 +91,11 @@ var last_process_msec: int = 0
 ## The predicted path (world points) and how it ends, refreshed every frame.
 var predicted_path: PackedVector2Array = PackedVector2Array()
 var predicted_hit: bool = false
+var predicted_end: PathEnd = PathEnd.GUTTER
+## The index in predicted_path of the first bounce, or -1 (no bounce).
+var predicted_bounce_index: int = -1
+## The fireball's hitbox, swept along the predicted path (made once).
+var preview_shape: RectangleShape2D
 
 
 func _ready() -> void:
@@ -252,7 +269,10 @@ func _update_held_flame() -> void:
 
 
 ## Steps the throw forward (60 Hz, the fireball's own gravity and lift) until it
-## reaches its range or a ray between two steps hits a wall or a flammable area.
+## reaches its range or meets something: an area (a flammable's catch area, an orb)
+## through a ray, a solid through a sweep of the fireball's hitbox (which gives the
+## surface's angle). The first solid it would bounce off, it bounces off; the second
+## ends the path either way (see the header).
 func _predict_path() -> void:
 	var tuning: FireTuning = player.fire_tuning
 	var throw_direction: Vector2 = get_throw_direction(aim_preview_direction)
@@ -262,25 +282,80 @@ func _predict_path() -> void:
 	var step_time: float = 1.0 / 60.0
 	var flown: float = 0.0
 	var space: PhysicsDirectSpaceState2D = get_world_2d().direct_space_state
+	if preview_shape == null:
+		preview_shape = RectangleShape2D.new()
+		preview_shape.size = Fireball.HITBOX_SIZE
 	predicted_path = PackedVector2Array([position_now])
 	predicted_hit = false
+	predicted_end = PathEnd.GUTTER
+	predicted_bounce_index = -1
 	for step: int in AIM_MAX_STEPS:
 		velocity.y += gravity * step_time
-		var next_position: Vector2 = position_now + velocity * step_time
-		# A ray between the two points: does the fireball's path cross anything?
+		var motion: Vector2 = velocity * step_time
+		# Areas (catch areas, orbs): a ray between the two points, as the real one's
+		# overlap would find them.
 		var query: PhysicsRayQueryParameters2D = PhysicsRayQueryParameters2D.create(
-			position_now, next_position, Fireball.HIT_MASK)
+			position_now, position_now + motion, Fireball.HIT_MASK)
 		query.collide_with_areas = true
+		query.collide_with_bodies = false
 		var hit: Dictionary = space.intersect_ray(query)
 		if not hit.is_empty():
 			predicted_path.append(hit["position"])
-			predicted_hit = true
+			_end_path(PathEnd.BURST)
 			return
-		flown += position_now.distance_to(next_position)
-		position_now = next_position
+		# Solids: swept like the real fireball, so the bounce angle is right.
+		var contact: Dictionary = Ricochet.find_contact(space, preview_shape, position_now, motion, Fireball.SOLID_MASK)
+		if not contact.is_empty():
+			var safe_position: Vector2 = contact["safe_position"]
+			var normal: Vector2 = contact["normal"]
+			flown += position_now.distance_to(safe_position)
+			position_now = safe_position
+			var bounced: Vector2 = _get_preview_bounce(contact["collider"], normal, contact["point"], velocity, tuning)
+			if bounced == Vector2.ZERO:
+				predicted_path.append(contact["point"])
+				_end_path(PathEnd.BURST)
+				return
+			predicted_path.append(position_now)
+			if predicted_bounce_index >= 0:
+				_end_path(PathEnd.BOUNCE)  # a second bounce: only the first is shown
+				return
+			predicted_bounce_index = predicted_path.size() - 1
+			velocity = bounced
+			continue
+		flown += motion.length()
+		position_now += motion
 		predicted_path.append(position_now)
 		if flown >= tuning.fireball_max_range:
 			return
+
+
+func _end_path(how: PathEnd) -> void:
+	predicted_end = how
+	predicted_hit = how == PathEnd.BURST
+
+
+## The velocity the real fireball would bounce off with at a solid (Fireball's
+## _on_solid_contact and _try_bounce, without doing anything), or ZERO if it would
+## burst there: an enemy that doesn't reflect it, something that would catch fire,
+## too slow off the surface, or the bounce cap.
+func _get_preview_bounce(collider: Object, normal: Vector2, point: Vector2, velocity: Vector2,
+		tuning: FireTuning) -> Vector2:
+	var touched: Node = collider as Node
+	if touched == null:
+		return Vector2.ZERO
+	if EnemyHit.is_enemy(touched):
+		if not EnemyHit.find_enemy(touched).is_in_group(EnemyHit.REFLECTS_GROUP):
+			return Vector2.ZERO
+	elif Flammable.find_flammable(touched) != null \
+			or Flammable.would_catch_near(get_tree(), point, tuning.fireball_splash):
+		return Vector2.ZERO
+	var bounce_number: int = 1 if predicted_bounce_index < 0 else 2
+	if tuning.fireball_max_bounces >= 0 and bounce_number > tuning.fireball_max_bounces:
+		return Vector2.ZERO
+	var bounced: Vector2 = Ricochet.bounce(velocity, normal, tuning.fireball_bounce_keep)
+	if bounced.dot(normal) < tuning.fireball_min_bounce_speed:
+		return Vector2.ZERO
+	return bounced
 
 
 func _draw() -> void:
@@ -305,16 +380,33 @@ func _draw() -> void:
 			var color: Color = AIM_NEAR_COLOR.lerp(AIM_FAR_COLOR, progress)
 			# Flicker like embers, fading out a little toward the end.
 			color.a = randf_range(0.55, 1.0) * lerpf(1.0, 0.6, progress)
+			if predicted_bounce_index >= 0 and point_index > predicted_bounce_index:
+				color.a *= AIM_AFTER_BOUNCE_ALPHA
 			draw_rect(Rect2(dot_position, Vector2.ONE), color)
 			next_dot_at += AIM_DOT_SPACING
 		walked += segment_length
+	if predicted_bounce_index >= 0:
+		_draw_bounce_mark(predicted_path[predicted_bounce_index])
 	_draw_path_end(predicted_path[predicted_path.size() - 1])
+
+
+## Where the fireball would bounce: a small white spark with 4 one-px rays on the
+## diagonals (a different shape from the hit star, which is a plus).
+func _draw_bounce_mark(point: Vector2) -> void:
+	var center: Vector2 = point.round()
+	var flicker: float = randf_range(0.7, 1.0)
+	draw_rect(Rect2(center, Vector2.ONE), Color("#FFF6CC", flicker))
+	for diagonal: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+		draw_rect(Rect2(center + diagonal, Vector2.ONE), Color(AIM_NEAR_COLOR, flicker * 0.8))
 
 
 ## The end of the predicted path: a flickering flame star where it would hit, a
 ## faint gray puff where it would gutter out in the air.
 func _draw_path_end(end_point: Vector2) -> void:
 	var center: Vector2 = end_point.round()
+	if predicted_end == PathEnd.BOUNCE:
+		_draw_bounce_mark(end_point)
+		return
 	if not predicted_hit:
 		var puff_alpha: float = 0.35 + 0.15 * sin(aim_real_time * 6.0)
 		draw_rect(Rect2(center - Vector2(1, 1), Vector2(2, 2)), Color(AIM_SMOKE_COLOR, puff_alpha))

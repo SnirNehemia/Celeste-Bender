@@ -5,13 +5,17 @@ extends CPUParticles2D
 ## fireball's fizzle and burst, and a brazier going out.
 ##
 ## SmokePuff.spawn(parent, world_position, count) makes one; it frees itself.
+## `drift` (Stage F13): a puff carried by wind (a gust snuffing a flame) leaves along
+## the drift instead of straight up.
+## Fire particle cap (Stage F13, FireFxBudget): a crowded room gets smaller puffs
+## (fewer squares), and the budget counts them while they live.
 
 const SMOKE_COLOR: Color = Color("#2E282B")
 
 
-static func spawn(parent: Node, world_position: Vector2, count: int) -> SmokePuff:
+static func spawn(parent: Node, world_position: Vector2, count: int, drift: Vector2 = Vector2.ZERO) -> SmokePuff:
 	var smoke: SmokePuff = SmokePuff.new()
-	smoke.amount = maxi(count, 1)
+	smoke.amount = FireFxBudget.scale_smoke(maxi(count, 1))
 	smoke.one_shot = true
 	smoke.explosiveness = 0.8
 	smoke.lifetime = 0.6
@@ -20,6 +24,12 @@ static func spawn(parent: Node, world_position: Vector2, count: int) -> SmokePuf
 	smoke.spread = 60.0
 	smoke.initial_velocity_min = 6.0
 	smoke.initial_velocity_max = 18.0
+	if drift != Vector2.ZERO:
+		# Blown: off along the wind, a little up (smoke still rises), and faster.
+		smoke.direction = (drift.normalized() * 2.0 + Vector2.UP).normalized()
+		smoke.spread = 25.0
+		smoke.initial_velocity_min = 20.0
+		smoke.initial_velocity_max = 40.0
 	smoke.gravity = Vector2(0.0, -10.0)
 	smoke.damping_min = 10.0
 	smoke.damping_max = 20.0
@@ -38,6 +48,8 @@ static func spawn(parent: Node, world_position: Vector2, count: int) -> SmokePuf
 	parent.add_child(smoke)
 	smoke.global_position = world_position
 	smoke.emitting = true
+	FireFxBudget.add_smoke(smoke.amount)
 	# `finished` fires when a one-shot emitter's last particle has died.
 	smoke.finished.connect(smoke.queue_free)
+	smoke.tree_exiting.connect(FireFxBudget.add_smoke.bind(-smoke.amount))
 	return smoke

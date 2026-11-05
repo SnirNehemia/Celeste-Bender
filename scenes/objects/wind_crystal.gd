@@ -324,6 +324,18 @@ func _update_conversion(delta: float) -> void:
 		_finish_conversion()
 	else:
 		_update_wipe_shape()
+		_spark_on_wipe_front()
+
+
+## Stage F13 (Fire_bending.md §9.3 "Diamond conversion"): the orange front crossing
+## the diamond burns like a fuse: a spark or two leaps off it every frame, from a
+## random spot along it.
+func _spark_on_wipe_front() -> void:
+	var edge_points: PackedVector2Array = wipe_edge.polygon
+	if edge_points.is_empty():
+		return
+	var spot: Vector2 = edge_points[randi() % edge_points.size()]
+	EmberEmitter.burst(get_parent(), diamond.to_global(spot), 1, -wipe_from, 70.0, 45.0)
 
 
 ## The orange part: the diamond cut by a straight front that moves from the fire's

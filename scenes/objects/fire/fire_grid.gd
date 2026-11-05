@@ -53,6 +53,11 @@ extends Node2D
 ##     foot); a dim soft glow sits under every flame. Glows are round and soft, never
 ##     tile squares.
 ##   - Smoldering cells show ember specks at random spots that blink out one by one.
+##   - Stage F13 (Fire_bending.md §9): a burning cell also LIGHTS THE ROOM around it
+##     (a wide faint HeatGlow per cell), a cell that just caught FLASHES along its
+##     open sides (the fire front, grass_front_flash_time), thicket about to break
+##     into flame pulses faster and spits sparks (the warning), and a gust bends the
+##     flames it snuffs downwind and blows them off with smoke and sparks.
 ##   - The ground colors are the GroundPainter's (it listens to `cells_changed`; it
 ##     makes the edges between burnt and unburnt ground ragged). The grass blades
 ##     curl and blacken as the creep reaches each one (get_burn_progress_at).
@@ -140,8 +145,6 @@ const TONGUE_OVERHANG: float = 0.15
 ## Soft glow under a flame: radius as a share of the tongue's length, and its alpha.
 const GLOW_RADIUS_SHARE: float = 0.7
 const GLOW_ALPHA: float = 0.22
-## Size of the shared glow picture, px (it's stretched to each glow's size).
-const GLOW_TEXTURE_SIZE: int = 32
 ## Thicket glowing from inside: glowing branch strokes per cell.
 const THICKET_BRANCHES_PER_CELL: int = 3
 ## A burning thicket cell drops a clump of glowing ash this often, on average per
@@ -155,14 +158,12 @@ const OVERGROWN_FLAME_SCALE: float = 1.7
 ## the rest is the whole sheet burning before it collapses.
 const FLASHOVER_FRONT_SHARE: float = 0.5
 
-## One soft round glow picture shared by every glow (made on first use). A `static
-## var` belongs to the class, not to one grid, like a Python class attribute.
-## WHY a picture: glows used to be 4 stacked draw_circle() calls each. Godot builds
-## every circle as a many-sided polygon on the CPU, and with a field of smoldering
-## cells (8 specks each) that was ~800 circles a frame and the frame rate fell to
-## ~27. A textured rectangle is 2 triangles, and rectangles sharing one texture are
-## drawn together in a single batch.
-static var glow_texture: GradientTexture2D
+## Glows: one soft round picture shared by every glow (HeatGlow.get_texture). WHY a
+## picture: glows used to be 4 stacked draw_circle() calls each. Godot builds every
+## circle as a many-sided polygon on the CPU, and with a field of smoldering cells (8
+## specks each) that was ~800 circles a frame and the frame rate fell to ~27. A
+## textured rectangle is 2 triangles, and rectangles sharing one texture are drawn
+## together in a single batch.
 
 ## preload() of the .tres returns the same resource object the player holds, so F5
 ## panel and Remote-tab edits reach the grid at once.
@@ -259,6 +260,7 @@ func _ready() -> void:
 	add_child(glow_layer)
 	glow_layer.draw.connect(_draw_glow)
 	flame_merge = FlameMerge.make(self)
+	flame_merge.has_heat_glow = false  # we draw a glow per cell ourselves (_draw_glow)
 
 
 ## The grid of the room containing `world_position`, or null.
@@ -458,6 +460,20 @@ func ignite_at(world_point: Vector2, radius: float, source: Node) -> bool:
 	return any_caught
 
 
+## Would ignite_at(world_point, radius) light any cell? Asks without lighting (the
+## fireball's aim preview, Stage F13). A wet cell would only dry: no.
+func would_catch_at(world_point: Vector2, radius: float) -> bool:
+	var point: Vector2 = to_local(world_point)
+	var first: Vector2i = geometry_layer.local_to_map(point - Vector2.ONE * (radius + 0.5) - geometry_layer.position)
+	var last: Vector2i = geometry_layer.local_to_map(point + Vector2.ONE * (radius + 0.5) - geometry_layer.position)
+	for x: int in range(first.x, last.x + 1):
+		for y: int in range(first.y, last.y + 1):
+			var cell: Vector2i = Vector2i(x, y)
+			if get_cell_rect(cell).grow(radius).has_point(point) and can_catch(cell):
+				return true
+	return false
+
+
 ## The room's SurfaceGrid (wet tiles), or null (no water in the room).
 func _get_surface_grid() -> SurfaceGrid:
 	if not has_looked_for_surface_grid:
@@ -491,12 +507,15 @@ func snuff() -> void:
 ## blew over (`world_polygon`: its cone, or circle), and stops the cells inside it
 ## that were about to catch. A cell counts if its middle, a corner, or its flame band
 ## is inside. Returns how many cells went out.
-func snuff_in(world_polygon: PackedVector2Array, _direction: Vector2) -> int:
+func snuff_in(world_polygon: PackedVector2Array, direction: Vector2) -> int:
 	if burning_count == 0 and pending.is_empty():
 		return 0
 	var polygon: PackedVector2Array = PackedVector2Array()
+	var polygon_middle: Vector2 = Vector2.ZERO
 	for world_point: Vector2 in world_polygon:
 		polygon.append(to_local(world_point))
+		polygon_middle += polygon[polygon.size() - 1]
+	polygon_middle /= maxf(float(polygon.size()), 1.0)
 	var grass_cells: Array[Vector2i] = []
 	var thicket_cells: Array[Vector2i] = []
 	for cell: Vector2i in time_left:
@@ -521,15 +540,45 @@ func snuff_in(world_polygon: PackedVector2Array, _direction: Vector2) -> int:
 	for cell: Vector2i in cancelled:
 		pending.erase(cell)
 		pending_origin.erase(cell)
+	for cell: Vector2i in grass_cells + thicket_cells:
+		# Downwind: the gust's way, or (all around) away from its middle.
+		var downwind: Vector2 = direction
+		if downwind == Vector2.ZERO:
+			downwind = (get_cell_rect(cell).get_center() - polygon_middle).normalized()
+		_blow_off(cell, downwind)
 	for cell: Vector2i in grass_cells:
 		burning_count -= 1
-		_remove_flames(cell)
-		SmokePuff.spawn(room, to_global(_get_top_point(cell)), 2)  # the gray puff before its ash
 		_become_ash(cell)
 	if not thicket_cells.is_empty():
 		_crumble_thicket(thicket_cells, false)
 	_requeue_from_burning_neighbours(cancelled)
 	return grass_cells.size() + thicket_cells.size()
+
+
+## A gust puts `cell` out (Fire_bending.md §9.3 "Snuff"): its flames bend hard
+## `downwind`, thin and blow off over snuff_blow_off_time, and a curl of smoke and a
+## few sparks are carried away downwind. The flames leave the cell's list at once
+## (the rules are done with them); each frees itself when its blow-off ends.
+func _blow_off(cell: Vector2i, downwind: Vector2) -> void:
+	if downwind == Vector2.ZERO:
+		downwind = Vector2.UP
+	var blow_time: float = maxf(fire_tuning.snuff_blow_off_time, 0.01)
+	for flame: Dictionary in flames.get(cell, []):
+		var tongue: FlameTongue = flame["node"]
+		if not tongue.visible:
+			tongue.queue_free()
+			continue
+		# FlameTongue points along its local -Y: the rotation that points it downwind.
+		var bent_rotation: float = lerp_angle(tongue.rotation, downwind.angle() + PI / 2.0, 0.8)
+		var blow_tween: Tween = tongue.create_tween().set_parallel()
+		blow_tween.tween_property(tongue, "rotation", bent_rotation, blow_time * 0.5)
+		blow_tween.tween_property(tongue, "length", 0.0, blow_time).set_ease(Tween.EASE_IN)
+		blow_tween.tween_property(tongue, "opacity", 0.0, blow_time)
+		blow_tween.chain().tween_callback(tongue.queue_free)
+	flames.erase(cell)
+	var top: Vector2 = to_global(_get_top_point(cell))
+	SmokePuff.spawn(room, top, 2, downwind)  # the gray puff before its ash, blown away
+	EmberEmitter.burst(room, top, fire_tuning.snuff_spark_count, downwind, 35.0, 70.0)
 
 
 ## True if `cell` (or its flame band) is inside `polygon` (our local px): its middle,
@@ -842,6 +891,31 @@ func _drop_thicket_clumps(delta: float) -> void:
 		AshFall.spawn(room, to_global(bottom), randi_range(2, 3), Vector2(2.0, 1.0), 0.8)
 
 
+## Thicket in the last part of its glow phase, about to break into flame, spits sparks
+## (Stage F13): the warning that it's about to turn deadly.
+func _warn_thicket(delta: float) -> void:
+	var chance: float = fire_tuning.thicket_warning_sparks_per_second * delta
+	if chance <= 0.0:
+		return
+	for cell: Vector2i in branches:
+		if _get_thicket_warning(cell) <= 0.0 or randf() >= chance:
+			continue
+		var rect: Rect2 = get_cell_rect(cell).grow(-1.0)
+		var spot: Vector2 = Vector2(randf_range(rect.position.x, rect.end.x), randf_range(rect.position.y, rect.end.y))
+		EmberEmitter.burst(room, to_global(spot), 1, Vector2.UP, 60.0, 35.0)
+
+
+## 0 outside the warning, rising to 1 the moment a thicket cell's flames break out
+## (the last thicket_warning_share of its glow phase).
+func _get_thicket_warning(cell: Vector2i) -> float:
+	var glow_time: float = _get_glow_time(cell)
+	var warning_time: float = glow_time * fire_tuning.thicket_warning_share
+	var since_lit: float = get_time_burning(cell)
+	if warning_time <= 0.0 or since_lit >= glow_time:
+		return 0.0
+	return clampf((since_lit - (glow_time - warning_time)) / warning_time, 0.0, 1.0)
+
+
 func _become_ash(cell: Vector2i) -> void:
 	cell_states[cell] = State.ASH
 	time_left.erase(cell)
@@ -922,6 +996,7 @@ func _physics_process(delta: float) -> void:
 	if not collapsed.is_empty():
 		_collapse_cover(collapsed)
 	_drop_thicket_clumps(delta)
+	_warn_thicket(delta)
 	_process_pending()
 	_check_player()
 	if burning_count > 0:
@@ -1176,6 +1251,11 @@ func _get_random_surface_point(cell: Vector2i) -> Vector2:
 ## flares), and the ember specks of smoldering cells.
 func _draw_glow() -> void:
 	var now: float = Time.get_ticks_msec() / 1000.0
+	# First, under everything: the light each burning cell throws on the room, and the
+	# flash of cells that just caught (the fire front).
+	for cell: Vector2i in flames:
+		_draw_room_glow(cell, now)
+		_draw_front_flash(cell)
 	for cell: Vector2i in flames:
 		var since_lit: float = get_time_burning(cell)
 		for flame: Dictionary in flames[cell]:
@@ -1199,15 +1279,57 @@ func _draw_glow() -> void:
 			_draw_flashover(cell)
 
 
+## The light a burning cell throws on the room around it (Stage F13): a wide faint
+## glow over its top (or middle), strongest early, dimming as it burns out. Thicket
+## glows from its first moment (the inside glow lights the room too); a flashing
+## cover only once the front has reached it.
+func _draw_room_glow(cell: Vector2i, now: float) -> void:
+	var since_lit: float = get_time_burning_signed(cell)
+	if since_lit < 0.0:
+		return
+	var center: Vector2 = _get_top_point(cell)
+	var strength: float = 1.0 - 0.6 * get_burn_progress(cell)
+	var flicker: float = HeatGlow.get_flicker(now * 5.0 + center.x * 0.37, 0.2)
+	_draw_soft_glow(center, fire_tuning.grass_room_glow_radius * (0.9 + 0.1 * flicker),
+		Color(EMBER_HOT_COLOR, fire_tuning.grass_room_glow_alpha * strength * flicker))
+
+
+## A cell that just caught flashes along its open sides for grass_front_flash_time:
+## a white-hot line on each side and a bright glow, so the eye follows the front.
+## Grass and thicket breaking out (a cover has its own flash-over front).
+func _draw_front_flash(cell: Vector2i) -> void:
+	var cell_fuel: Fuel = get_fuel(cell)
+	if cell_fuel == Fuel.OVERGROWN:
+		return
+	var since_flames: float = get_time_burning(cell)
+	if cell_fuel == Fuel.THICKET:
+		since_flames -= _get_glow_time(cell)  # its front is the flames breaking out
+	var flash_time: float = maxf(fire_tuning.grass_front_flash_time, 0.001)
+	if since_flames < 0.0 or since_flames >= flash_time:
+		return
+	var flash: float = 1.0 - since_flames / flash_time
+	var rect: Rect2 = get_cell_rect(cell)
+	for normal: Vector2i in get_open_sides(cell):
+		var across: Vector2 = Vector2(absf(normal.y), absf(normal.x))
+		# The side's own row of pixels, just inside the cell.
+		var side_middle: Vector2 = rect.get_center() + Vector2(normal) * (tile_size / 2.0 - 0.5)
+		var half_side: Vector2 = across * (tile_size / 2.0)
+		glow_layer.draw_line(side_middle - half_side, side_middle + half_side, Color(FlameTongue.CORE_COLOR, 0.9 * flash), 1.0)
+	_draw_soft_glow(_get_top_point(cell), tile_size * 1.2, Color(FlameTongue.INNER_COLOR, 0.4 * flash))
+
+
 ## A burning thicket cell glows from inside along its branches: brightening over the
-## glow phase, flickering, dimming as it's about to crumble.
+## glow phase, flickering, dimming as it's about to crumble. In the warning (just
+## before its flames break out, _get_thicket_warning) it pulses faster and brighter.
 func _draw_thicket_glow(cell: Vector2i, now: float) -> void:
 	var since_lit: float = get_time_burning(cell)
 	var glow_time: float = maxf(_get_glow_time(cell), 0.001)
 	var rise: float = clampf(since_lit / glow_time, 0.0, 1.0)
 	var fade: float = 1.0 - 0.5 * get_burn_progress(cell)
 	var center: Vector2 = get_cell_rect(cell).get_center()
-	var flicker: float = 0.75 + 0.25 * sin(now * 17.0 + center.x * 0.9 + center.y * 0.4)
+	var warning: float = _get_thicket_warning(cell)
+	var pulse_speed: float = lerpf(17.0, 45.0, warning)
+	var flicker: float = 0.75 + 0.25 * sin(now * pulse_speed + center.x * 0.9 + center.y * 0.4) + 0.3 * warning
 	var strength: float = rise * fade * flicker
 	_draw_soft_glow(center, tile_size * 0.8, Color(EMBER_HOT_COLOR, 0.3 * strength))
 	for branch: Array in branches[cell]:
@@ -1239,31 +1361,9 @@ func _make_branches(cell: Vector2i) -> Array:
 	return cell_branches
 
 
-## A round glow that fades toward its edge: the shared glow picture stretched to
-## `radius` and tinted `color` (see glow_texture).
+## A round glow that fades toward its edge, into the additive glow layer.
 func _draw_soft_glow(center: Vector2, radius: float, color: Color) -> void:
-	if radius < 0.5:
-		return
-	glow_layer.draw_texture_rect(_get_glow_texture(), Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2.0),
-		false, color)
-
-
-## The shared glow picture: white in the middle fading to transparent at the edge
-## (a radial GradientTexture2D, a texture Godot computes from a Gradient).
-static func _get_glow_texture() -> GradientTexture2D:
-	if glow_texture == null:
-		var gradient: Gradient = Gradient.new()
-		gradient.set_color(0, Color(1.0, 1.0, 1.0, 1.0))
-		gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
-		gradient.add_point(0.45, Color(1.0, 1.0, 1.0, 0.4))  # falls off fast, then trails
-		glow_texture = GradientTexture2D.new()
-		glow_texture.gradient = gradient
-		glow_texture.fill = GradientTexture2D.FILL_RADIAL
-		glow_texture.fill_from = Vector2(0.5, 0.5)
-		glow_texture.fill_to = Vector2(1.0, 0.5)
-		glow_texture.width = GLOW_TEXTURE_SIZE
-		glow_texture.height = GLOW_TEXTURE_SIZE
-	return glow_texture
+	HeatGlow.draw_glow(glow_layer, center, radius, color)
 
 
 ## A smoldering cell's specks: random spots along its open sides, each with its own

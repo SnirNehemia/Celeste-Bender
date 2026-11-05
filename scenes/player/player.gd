@@ -25,7 +25,7 @@ extends CharacterBody2D
 ##   ├─ EarthSnakeAbility  the snake: a long A bend brings it out at the shadow, and
 ##   │                     it's steered (abilities/earth/earth_snake_ability.gd)
 ##   ├─ FireBar            the fire pips shared by the fire moves (abilities/fire/fire_bar.gd)
-##   ├─ FirePipsDisplay    draws the pips as little flames over the head
+##   ├─ FirePipsDisplay    draws the pips as glowing dots over the head
 ##   │                     (abilities/fire/fire_pips_display.gd)
 ##   ├─ FlameJetAbility    Fire move W: pays the pip, thrust curve, plume and sputter
 ##   │                     (abilities/fire/flame_jet_ability.gd); Jetting moves the body

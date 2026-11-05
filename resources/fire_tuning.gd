@@ -10,7 +10,7 @@ extends Resource
 
 @export_group("Fire bar")
 ## Most pips the bar can hold (Fire_bending.md §4.1). Pips gained above this are lost.
-## The HUD draws this many slots, so changing it changes the row's width too.
+## (The HUD draws only the pips held, not empty slots: Stage F13.)
 @export_range(1, 10) var max_pips: int = 5
 
 @export_group("Flame jet")
@@ -432,3 +432,38 @@ extends Resource
 ## A gust nudges it at this speed, px/s (it's heavy), sliding out at shell_push_decel.
 @export var shell_gust_nudge_speed: float = 14.0
 @export var shell_push_decel: float = 200.0
+
+@export_group("Fire look")
+## Stage F13 (Fire_bending.md §9). HEAT GLOW: every fire throws a soft additive light
+## on what's around it (HeatGlow). This scales all of them: 0 = no glows at all.
+@export_range(0.0, 2.0) var heat_glow_strength: float = 1.0
+## A fire's own glow (FlameMerge: braziers, bonfires, fireballs, the jet, burning
+## enemies and vines): its brightness (alpha) and its reach, as a multiple of the
+## flames' length beyond where they stand.
+@export var heat_glow_alpha: float = 0.16
+@export var heat_glow_reach: float = 1.4
+## Burning grass and thicket light the room around them too: a wide faint glow per
+## burning cell, this many px across (radius) and this bright.
+@export var grass_room_glow_radius: float = 20.0
+@export var grass_room_glow_alpha: float = 0.05
+## The FIRE FRONT: a cell that just caught flashes along its open sides for this many
+## seconds (on top of its new flames' flare), so the eye follows the spread.
+@export var grass_front_flash_time: float = 0.12
+## Thicket about to break into flame: over the last share of its glow phase its glow
+## pulses faster and it spits sparks this often (per second), a warning.
+@export var thicket_warning_share: float = 0.4
+@export var thicket_warning_sparks_per_second: float = 6.0
+## A bonfire's SMOKE COLUMN (SmokeColumn): a gust across it pushes it sideways this
+## hard (px/s², eased out over smoke_column_gust_time seconds).
+@export var smoke_column_gust_push: float = 140.0
+@export var smoke_column_gust_time: float = 0.9
+## A gust snuffing burning grass: the flames bend downwind and blow off over this
+## many seconds, trailing smoke and a few sparks.
+@export var snuff_blow_off_time: float = 0.15
+@export var snuff_spark_count: int = 3
+## The PARTICLE CAP (FireFxBudget): past fire_fx_soft_cap fire particles alive, fewer
+## embers are made (down to fire_fx_min_share of them at fire_fx_hard_cap); past the
+## hard cap, less smoke too.
+@export var fire_fx_soft_cap: int = 300
+@export var fire_fx_hard_cap: int = 600
+@export_range(0.0, 1.0) var fire_fx_min_share: float = 0.25

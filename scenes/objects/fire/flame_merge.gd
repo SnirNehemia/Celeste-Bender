@@ -29,6 +29,14 @@ extends Node2D
 ## again. So when a tongue leaves (a fire burnt out, or R cleared it) we redraw once
 ## more, or its last frame would stay frozen on screen.
 ##
+## HEAT GLOW (Stage F13, Fire_bending.md §9.2 item 4): every merged fire also lights
+## what's around it, one soft additive glow (HeatGlow.draw_glow) under the whole
+## group: centered on the visible tongues, as wide as they spread plus
+## heat_glow_reach times their length, yellower the hotter they burn, flickering.
+## So braziers, bonfires, fireballs, the jet plume, burning enemies and vines all
+## light up their surroundings with no code of their own. A fire that draws its own
+## glows (the FireGrid: one per cell) turns it off with `has_heat_glow = false`.
+##
 ## Cost: less than separate tongues. The tongues' polygons are built as before, but
 ## sent to the renderer as one triangle list per canvas item (two, with the additive
 ## one), not one draw command per tongue and layer (see _draw_layers).
@@ -41,10 +49,23 @@ const HOT_LAYERS: Array[int] = [FlameTongue.Layer.INNER, FlameTongue.Layer.CORE]
 ## tongue's own "down"), so neighbouring tongues' feet overlap.
 @export var base_widen: float = 1.8
 @export var base_drop: float = 1.0
+## Draw the heat glow under the fire (see the header).
+@export var has_heat_glow: bool = true
+
+## The warm light's color at a cool and at a white-hot fire (§9.1 body and inner).
+const GLOW_COOL_COLOR: Color = Color(1.0, 0.5, 0.16)
+const GLOW_HOT_COLOR: Color = Color(1.0, 0.78, 0.35)
+## The glow stands this share of the flames' length above their bases.
+const GLOW_RISE_SHARE: float = 0.35
 
 var tongues: Array[FlameTongue] = []
 ## The additive child the inner and core layers are drawn into.
 var core_layer: Node2D
+## The additive child the heat glow is drawn into, behind the flames.
+var glow_layer: Node2D
+## Seconds of flicker, from a random start (two fires never pulse together).
+var glow_time: float = 0.0
+var fire_tuning: FireTuning = preload("res://resources/fire_tuning.tres")
 
 
 func _ready() -> void:
@@ -57,6 +78,15 @@ func _ready() -> void:
 	core_layer.material = additive
 	add_child(core_layer)
 	core_layer.draw.connect(_draw_hot_layers)
+	glow_layer = Node2D.new()
+	glow_layer.name = "HeatGlow"
+	glow_layer.show_behind_parent = true  # under the flames: light, not a veil
+	var glow_additive: CanvasItemMaterial = CanvasItemMaterial.new()
+	glow_additive.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	glow_layer.material = glow_additive
+	add_child(glow_layer)
+	glow_layer.draw.connect(_draw_heat_glow)
+	glow_time = randf() * 100.0
 
 
 ## A FlameMerge added to `parent`: put tongues in it with add_tongue().
@@ -84,13 +114,52 @@ func remove_tongue(tongue: FlameTongue) -> void:
 	queue_redraw()
 	if core_layer != null:
 		core_layer.queue_redraw()
+		glow_layer.queue_redraw()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	# The tongues change every frame (noise), so the merged drawing does too.
 	if not tongues.is_empty():
+		glow_time += delta
 		queue_redraw()
 		core_layer.queue_redraw()
+		glow_layer.queue_redraw()
+
+
+## One soft glow under the visible tongues (see the header).
+func _draw_heat_glow() -> void:
+	if not has_heat_glow:
+		return
+	var to_local_space: Transform2D = get_global_transform().affine_inverse()
+	var middles: PackedVector2Array = PackedVector2Array()
+	var total_length: float = 0.0
+	var total_heat: float = 0.0
+	var total_opacity: float = 0.0
+	for tongue: FlameTongue in tongues:
+		if not is_instance_valid(tongue) or not tongue.is_visible_in_tree() or not tongue.has_flame():
+			continue
+		var tongue_to_us: Transform2D = to_local_space * tongue.get_global_transform()
+		middles.append(tongue_to_us * Vector2(0.0, -tongue.length * GLOW_RISE_SHARE))
+		# The length as drawn: a scaled-down tongue (a guttering fireball) glows less.
+		total_length += tongue.length * tongue_to_us.get_scale().y
+		total_heat += tongue.heat
+		total_opacity += tongue.opacity
+	if middles.is_empty():
+		return
+	var count: float = float(middles.size())
+	var center: Vector2 = Vector2.ZERO
+	for middle: Vector2 in middles:
+		center += middle
+	center /= count
+	var spread: float = 0.0
+	for middle: Vector2 in middles:
+		spread = maxf(spread, middle.distance_to(center))
+	var average_length: float = total_length / count
+	var flicker: float = HeatGlow.get_flicker(glow_time * 7.0, 0.18)
+	var radius: float = (spread + average_length * fire_tuning.heat_glow_reach + 3.0) * (1.0 + (flicker - 1.0) * 0.5)
+	var color: Color = GLOW_COOL_COLOR.lerp(GLOW_HOT_COLOR, total_heat / count)
+	color.a = fire_tuning.heat_glow_alpha * (total_opacity / count) * flicker
+	HeatGlow.draw_glow(glow_layer, center, radius, color)
 
 
 func _draw() -> void:

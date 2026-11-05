@@ -31,8 +31,9 @@ func _ready() -> void:
 	await _check_f11_enemies(world, world.player)
 	await _check_f11b_elephant(world, world.player)
 	await _check_f12_shell(world, world.player)
+	await _check_f13_look(world, world.player)
 
-	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b", "F12"]:
+	for section_name: String in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F11", "F11b", "F12", "F13"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[FireSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -2028,6 +2029,158 @@ func _check_f12_shell(world: RoomManager, player: Player) -> void:
 	player.respawn_at(room_m.get_spawn_position())
 	await _physics_frames(3)
 	finished_sections.append("F12")
+
+
+## Stage F13, the look pass (in room Fire M): the pips show only what you hold, heat
+## glows on merged fires, the fire particle cap, the smoke column bending in a gust,
+## a gust blowing burning grass off downwind, the thicket's warning before its flames
+## break out, and the fireball aim preview's first bounce.
+func _check_f13_look(world: RoomManager, player: Player) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	var room_m: Room = world.get_node("RoomFireM") as Room
+	var grid: FireGrid = room_m.get_node_or_null("FireGrid") as FireGrid
+	var origin: Vector2 = room_m.global_position
+	var walk_speed: float = tuning.shell_walk_speed
+	tuning.shell_walk_speed = 0.0  # the Shells stay put
+	(room_m.get_node("OrbSentry") as Sentry).can_fire = false
+	world.jump_to_room(room_m)
+	room_m.reset_objects()
+	await _physics_frames(5)
+
+	# 1. The pips: only the held ones (no empty slots).
+	var pips_display: FirePipsDisplay = player.get_node("FirePipsDisplay") as FirePipsDisplay
+	var bar: FireBar = player.get_node("FireBar") as FireBar
+	bar.pips = 2
+	_check(pips_display._get_shown_slot_count() == 2, "the pip row is as long as the held pips (2 of %d)" % bar.get_max_pips())
+	# Centered over the 8 px body for any count and any sub-pixel x: as many pixels
+	# of the body stick out on the left of the row as on the right.
+	var off_center: Array[String] = []
+	var saved_x: float = player.global_position.x
+	for sub_pixel: float in [0.0, 0.3, 0.5, 0.7]:
+		player.global_position.x = floorf(saved_x) + sub_pixel
+		var body_left: int = roundi(player.global_position.x - 4.0)
+		for count: int in range(1, 6):
+			bar.pips = count
+			var row_left: int = pips_display._get_slot_origin(0).x
+			var row_right: int = pips_display._get_slot_origin(count - 1).x + FirePipsDisplay.SLOT_SIZE
+			if row_left - body_left != (body_left + 8) - row_right:
+				off_center.append("%d pips at +%.1f" % [count, sub_pixel])
+	player.global_position.x = saved_x
+	bar.pips = 2
+	_check(off_center.is_empty(), "the pip row is centered over the body (off: %s)" % [off_center])
+
+	# 2. Heat glows: every merged fire glows, except the ones that draw their own.
+	var glow_ball: Array[Fireball] = [Fireball.launch(world, origin + Vector2(200, 60), Vector2.RIGHT, tuning, null)]
+	await _physics_frames(2)
+	var ball_merge: FlameMerge = null
+	for child: Node in glow_ball[0].visual.get_children():
+		if child is FlameMerge:
+			ball_merge = child
+	_check(ball_merge != null and ball_merge.has_heat_glow and ball_merge.glow_layer != null,
+		"a fireball's flames throw a heat glow")
+	_check(grid != null and not grid.flame_merge.has_heat_glow, "burning grass draws its own glows (one per cell), not the merge's")
+	if is_instance_valid(glow_ball[0]):
+		glow_ball[0].queue_free()
+
+	# 3. The particle cap: past the soft cap embers thin out first, past the hard cap
+	# smoke too; bursts count while they live and uncount when they go.
+	FireFxBudget.clear()
+	_check(FireFxBudget.get_ember_share() == 1.0 and FireFxBudget.get_smoke_share() == 1.0, "an empty room: every ember and puff")
+	FireFxBudget.add_embers(roundi((tuning.fire_fx_soft_cap + tuning.fire_fx_hard_cap) * 0.5))  # between the caps
+	_check(FireFxBudget.get_ember_share() < 1.0 and FireFxBudget.get_smoke_share() == 1.0,
+		"between the caps: fewer embers (%.2f), smoke untouched" % FireFxBudget.get_ember_share())
+	_check(FireFxBudget.scale_embers(12) < 12 and FireFxBudget.scale_embers(1) == 1, "a burst gets fewer sparks, never none")
+	FireFxBudget.add_embers(tuning.fire_fx_hard_cap)
+	_check(FireFxBudget.get_smoke_share() < 1.0 and is_equal_approx(FireFxBudget.get_ember_share(), tuning.fire_fx_min_share),
+		"past the hard cap: less smoke too, embers at their floor")
+	FireFxBudget.clear()
+	var burst: EmberEmitter = EmberEmitter.burst(room_m, origin + Vector2(200, 60), 6, Vector2.UP, 30.0, 40.0)
+	_check(FireFxBudget.live_embers == burst.amount and burst.amount == 6, "a burst counts its sparks (%d)" % FireFxBudget.live_embers)
+	await _wait_game(1.5)
+	_check(FireFxBudget.live_embers == 0, "and uncounts them when it's gone (%d left)" % FireFxBudget.live_embers)
+
+	# 4. A smoke column leans away from a gust blowing across it.
+	var column: SmokeColumn = SmokeColumn.new()
+	room_m.add_child(column)
+	column.set_source(origin + Vector2(200, 100), 16.0)
+	column.emitting = true
+	await _physics_frames(2)
+	_check(absf(column.gravity.x) < 0.01 and column.gravity.y < 0.0, "a smoke column in still air rises straight up")
+	var gust_box: PackedVector2Array = PackedVector2Array([origin + Vector2(180, 70), origin + Vector2(220, 70),
+		origin + Vector2(220, 110), origin + Vector2(180, 110)])
+	Flammable.snuff_in_area(get_tree(), gust_box, Vector2.RIGHT)
+	await _physics_frames(2)
+	_check(column.gravity.x > 10.0, "a gust across it throws it downwind (lean %.0f)" % column.gravity.x)
+	await _wait_game(tuning.smoke_column_gust_time + 0.2)
+	_check(absf(column.gravity.x) < 0.01, "and it straightens up again")
+	column.queue_free()
+
+	# 5. A gust snuffing burning grass: ash at once, the flames blow off and are gone soon.
+	var grass_cell: Vector2i = Vector2i(7, 20)
+	if grid != null:
+		grid.ignite_at(origin + Vector2(60, 159), 1.0, null)
+		await _wait_game(0.2)
+		var cell_rect: Rect2 = grid.get_cell_rect(grass_cell)
+		var around_cell: PackedVector2Array = PackedVector2Array([origin + cell_rect.position + Vector2(-12, -12),
+			origin + Vector2(cell_rect.end.x + 12, cell_rect.position.y - 12), origin + cell_rect.end + Vector2(12, 4),
+			origin + Vector2(cell_rect.position.x - 12, cell_rect.end.y + 4)])
+		var was_burning: bool = grid.get_state(grass_cell) == FireGrid.State.BURNING
+		Flammable.snuff_in_area(get_tree(), around_cell, Vector2.RIGHT)
+		_check(was_burning and grid.get_state(grass_cell) == FireGrid.State.ASH and not grid.flames.has(grass_cell),
+			"a gust turns burning grass to ash and takes its flames off the cell")
+		await _wait_game(tuning.snuff_blow_off_time + 0.2)
+		var tongues_left: int = 0
+		for child: Node in grid.get_children():
+			if child is FlameTongue:
+				tongues_left += 1
+		_check(tongues_left == _count_grid_flames(grid), "the blown-off flames are gone after their blow-off (%d tongues left)" % tongues_left)
+		room_m.reset_objects()
+		await _physics_frames(3)
+
+	# 6. Thicket about to break into flame warns first (glows harder, sparks), and only
+	# kills once its flames are out.
+	var thicket_cell: Vector2i = Vector2i(35, 18)
+	if grid != null:
+		grid.ignite_at(origin + Vector2(35 * 8 + 4, 18 * 8 + 4), 4.0, null)
+		var glow_time: float = grid._get_glow_time(thicket_cell)
+		_check(glow_time > 0.0 and grid._get_thicket_warning(thicket_cell) == 0.0, "lit thicket starts glowing, no warning yet")
+		await _wait_game(glow_time * (1.0 - tuning.thicket_warning_share * 0.5))
+		_check(grid._get_thicket_warning(thicket_cell) > 0.0 and not grid.is_deadly(thicket_cell),
+			"just before its flames break out it warns (%.2f) and is still harmless" % grid._get_thicket_warning(thicket_cell))
+		await _wait_game(glow_time * tuning.thicket_warning_share * 0.5 + 0.1)
+		_check(grid.is_deadly(thicket_cell) and grid._get_thicket_warning(thicket_cell) == 0.0, "then its flames break out: the warning ends, it kills")
+		room_m.reset_objects()
+		await _physics_frames(3)
+
+	# 7. The aim preview shows the first bounce: aimed left at the bare left wall it
+	# bounces back to the right; aimed down at grass it ends there (it would burn).
+	var ability: FireballAbility = player.get_node("FireballAbility") as FireballAbility
+	player.global_position = origin + Vector2(40, 106)
+	ability.aim_preview_direction = Vector2.LEFT
+	ability._predict_path()
+	var bounce_index: int = ability.predicted_bounce_index
+	_check(bounce_index > 0 and ability.predicted_path[ability.predicted_path.size() - 1].x > ability.predicted_path[bounce_index].x,
+		"aimed at a bare wall the preview bounces back (bounce at point %d of %d)" % [bounce_index, ability.predicted_path.size()])
+	player.global_position = origin + Vector2(60, 150)
+	ability.aim_preview_direction = Vector2.DOWN
+	ability._predict_path()
+	_check(ability.predicted_bounce_index == -1 and ability.predicted_end == FireballAbility.PathEnd.BURST,
+		"aimed down at grass the preview ends there with a burst")
+
+	tuning.shell_walk_speed = walk_speed
+	(room_m.get_node("OrbSentry") as Sentry).can_fire = true
+	room_m.reset_objects()
+	player.respawn_at(room_m.get_spawn_position())
+	await _physics_frames(3)
+	finished_sections.append("F13")
+
+
+## The FlameTongues still in a FireGrid's burning cells.
+func _count_grid_flames(grid: FireGrid) -> int:
+	var count: int = 0
+	for cell: Vector2i in grid.flames:
+		count += (grid.flames[cell] as Array).size()
+	return count
 
 
 ## Waits this many seconds of game time (physics frames).

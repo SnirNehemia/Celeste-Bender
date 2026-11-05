@@ -9,6 +9,8 @@ extends CPUParticles2D
 ##     switch `emitting` on and off
 ##   - one-shot bursts: EmberEmitter.burst(parent, position, count, ...) makes a
 ##     temporary emitter that fires once and frees itself (ignition ring, pump flare)
+##     Bursts are extras, so they obey the fire particle cap (Stage F13,
+##     FireFxBudget): a crowded room gets fewer sparks per burst (never none).
 ##
 ## Godot concepts used:
 ##   - CPUParticles2D: a particle system simulated on the CPU (no shader needed), set
@@ -62,7 +64,7 @@ static func _make_color_ramp() -> Gradient:
 static func burst(parent: Node, world_position: Vector2, count: int, toward: Vector2,
 		spread_degrees: float, speed: float) -> EmberEmitter:
 	var emitter: EmberEmitter = EmberEmitter.new()
-	emitter.amount = maxi(count, 1)
+	emitter.amount = FireFxBudget.scale_embers(maxi(count, 1))
 	emitter.one_shot = true
 	emitter.explosiveness = 1.0  # all at once
 	emitter.direction = toward if toward != Vector2.ZERO else Vector2.UP
@@ -72,6 +74,9 @@ static func burst(parent: Node, world_position: Vector2, count: int, toward: Vec
 	parent.add_child(emitter)
 	emitter.global_position = world_position
 	emitter.emitting = true
+	FireFxBudget.add_embers(emitter.amount)
 	# `finished` fires when a one-shot emitter's last particle has died.
 	emitter.finished.connect(emitter.queue_free)
+	# Uncounted when it goes, however it goes (finished, or freed with its room).
+	emitter.tree_exiting.connect(FireFxBudget.add_embers.bind(-emitter.amount))
 	return emitter
