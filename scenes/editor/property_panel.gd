@@ -71,8 +71,13 @@ func _ready() -> void:
 
 ## Shows `properties` of `new_target` under `title` and `description`.
 ## `direction_properties` get the 8-way picker instead of x/y fields.
+## `toggle_grids` gathers bool properties into small tables of checkboxes:
+## {"Heading": {&"property": "Short label", ...}}. Each table shows once, where
+## the first of its properties comes in `properties` (the room's four element
+## switches take two rows instead of eight).
 func show_target(new_target: Object, title: String, properties: Array[StringName],
-		direction_properties: Array[StringName] = [], description: String = "") -> void:
+		direction_properties: Array[StringName] = [], description: String = "",
+		toggle_grids: Dictionary = {}) -> void:
 	target = new_target
 	title_label.text = title
 	description_label.text = description
@@ -86,13 +91,49 @@ func show_target(new_target: Object, title: String, properties: Array[StringName
 		return
 	if properties.is_empty():
 		rows.add_child(_make_hint("No settings."))
+	var shown_grids: Array[String] = []
 	for property: StringName in properties:
+		var grid_heading: String = _grid_heading_for(property, toggle_grids)
+		if grid_heading != "":
+			# A grid's property: the whole table goes here, the first time one comes up.
+			if not shown_grids.has(grid_heading):
+				shown_grids.append(grid_heading)
+				rows.add_child(_make_hint(grid_heading))
+				rows.add_child(_make_toggle_grid(toggle_grids[grid_heading]))
+			continue
 		var info: Dictionary = _find_property(property)
 		if info.is_empty():
 			continue  # the catalog names a property this object doesn't have
 		rows.add_child(_make_hint(String(property).capitalize()))
 		rows.add_child(_make_widget(property, info, direction_properties.has(property)))
 	refresh()
+
+
+## The heading of the toggle grid that holds `property`, or "" if none does.
+func _grid_heading_for(property: StringName, toggle_grids: Dictionary) -> String:
+	for heading: String in toggle_grids:
+		if (toggle_grids[heading] as Dictionary).has(property):
+			return heading
+	return ""
+
+
+## A two-column table of checkboxes, one per bool property in `labels`
+## ({&"property": "Short label"}). Each is registered in `widgets` as a "bool",
+## so refresh() and property_changed work as for any other checkbox.
+func _make_toggle_grid(labels: Dictionary) -> GridContainer:
+	var grid: GridContainer = GridContainer.new()
+	grid.columns = 2
+	for property: StringName in labels:
+		var info: Dictionary = _find_property(property)
+		if info.is_empty() or info["type"] != TYPE_BOOL:
+			continue  # only bools fit a checkbox table
+		var check_box: CheckBox = CheckBox.new()
+		check_box.text = labels[property]
+		check_box.focus_mode = Control.FOCUS_NONE  # Space must pan, not toggle it
+		check_box.toggled.connect(func(value: bool) -> void: property_changed.emit(target, property, value))
+		widgets[property] = {"kind": "bool", "control": check_box}
+		grid.add_child(check_box)
+	return grid
 
 
 func set_footer(text: String) -> void:
