@@ -10,7 +10,10 @@ extends CharacterBody2D
 ##   Player (this script)
 ##   ├─ CollisionShape2D   8x11 hitbox
 ##   ├─ SquashPivot        Node2D at the feet, scaled for squash & stretch
-##   │  └─ Visual (ColorRect) white 8x11 rectangle
+##   │  └─ Visual (ColorRect) white 8x11 rectangle (the PLAIN_RECTANGLE look)
+##   ├─ BodyLook          draws the body in the BACKPACK look (the default): outline,
+##   │                     eyes, a pack that trails and flaps (body_look.gd); it shows
+##   │                     itself or Visual, from PlayerTuning.body_style
 ##   ├─ DeathBurst         CPUParticles2D, one-shot burst played by the Dead state
 ##   ├─ GlideAbility       glide stamina, stamina bar, glide effects (abilities/glide_ability.gd)
 ##   ├─ GustAbility        gust charges + pips, cooldown, cone hit, gust effects (abilities/gust_ability.gd)
@@ -114,6 +117,10 @@ const ELEMENT_WATER: StringName = &"water"
 ## Emitted once when the player dies (spikes, pit, or R). RoomManager handles the respawn.
 signal died
 
+## True while the body isn't drawn at all (the Dead state). Whichever look is on,
+## BodyLook reads this; set it through set_body_hidden().
+var is_body_hidden: bool = false
+
 ## Play-test cheat (the level editor's PlaytestCheats): hazards and enemies can't
 ## kill. A pit or R still do (die(true)). Always false in the real game.
 var is_invincible: bool = false
@@ -121,6 +128,7 @@ var is_invincible: bool = false
 @onready var state_machine: PlayerStateMachine = $StateMachine
 @onready var hitbox: CollisionShape2D = $CollisionShape2D
 @onready var visual: ColorRect = $SquashPivot/Visual
+@onready var body_look: PlayerBodyLook = $BodyLook
 @onready var death_burst: CPUParticles2D = $DeathBurst
 @onready var glide: GlideAbility = $GlideAbility
 @onready var gust: GustAbility = $GustAbility
@@ -325,6 +333,12 @@ func respawn_at(spawn_position: Vector2) -> void:
 	# Idle switches to Fall by itself on the next frame if there's no floor below.
 	state_machine.transition_to(&"Idle")
 	movement_effects.on_respawned()
+
+
+## Hides (or shows again) the body, whichever look is on (PlayerTuning.body_style).
+func set_body_hidden(hidden: bool) -> void:
+	is_body_hidden = hidden
+	body_look.update_visibility()
 
 
 ## Stops (or resumes) all player movement and input, keeping the current velocity.

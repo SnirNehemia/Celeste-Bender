@@ -6,13 +6,13 @@ extends PlayerState
 
 func enter() -> void:
 	player.velocity = Vector2.ZERO
-	player.visual.visible = false
+	player.set_body_hidden(true)
 	# restart() plays the one-shot particle burst from the beginning.
 	player.death_burst.restart()
 
 
 func exit() -> void:
-	player.visual.visible = true
+	player.set_body_hidden(false)
 
 
 func physics_update(_delta: float) -> void:
