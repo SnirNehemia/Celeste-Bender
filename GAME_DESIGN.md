@@ -20,7 +20,7 @@ This doc covers **Milestone 1: the Air vertical slice** — one element, 5 rooms
 - Internal resolution **320×180**, scaled up with integer scaling (pixel-perfect), window 1280×720 by default.
 - Tile size **8×8 px**.
 - Placeholder art only: `ColorRect` / `Polygon2D` shapes. Color key:
-  - Player: white rectangle (8×11)
+  - Player: white rectangle (8×11). Since the character-look play-test: drawn with a dark outline, two 1×2 dot eyes (they look the way you face, glance up/down in the air, squint on landing, blink) and a small brown backpack on the back that trails a pixel behind the motion and whose lid flaps open while falling (`scenes/player/body_look.gd`). `PlayerTuning.body_style` = PLAIN_RECTANGLE brings back the plain white rectangle; the hitbox is 8×11 either way
   - Solid ground: dark gray, floors capped with green grass whose blades sway with wind, gusts and the player (added after Stage E3) · Spikes: red triangles · Wind zones: translucent cyan with drifting particles
   - Crates: brown · Windmills/fans: yellow · Enemies: purple · Projectiles: orange · Checkpoint/room exit: green
   - Puzzle objects (added in Stage 7): doors blue-gray · pressure plates tan, green when pressed · leaf platforms olive green with a pale pinwheel · sail platforms slate deck with a cream sail · rails thin gray-blue lines with end dots · leaf piles muted greens and golds (kept clear of yellow, orange and brown)

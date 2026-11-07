@@ -12,6 +12,51 @@ extends Resource
 ## and Remote tab edits are lost when the game stops. To keep them, press F4 in game:
 ## the debug overlay writes the live values into player_tuning.tres.)
 
+## The two ways the player can be drawn (see body_style below).
+enum BodyStyle { BACKPACK, PLAIN_RECTANGLE }
+
+@export_group("Look")
+## How the player is drawn. Looks only: the hitbox is the same 8x11 either way.
+## BACKPACK (default): the white body with a dark outline, two dot eyes and a small
+## pack on the back that trails behind the motion and whose lid flaps open while
+## falling (PlayerBodyLook, scenes/player/body_look.gd).
+## PLAIN_RECTANGLE: the original plain white rectangle (the Visual ColorRect).
+@export var body_style: BodyStyle = BodyStyle.BACKPACK
+## How far the pack trails behind the motion, px. 1 = one pixel: when running it
+## slides a pixel back and a seam of outline shows between pack and body. 0 = no lag.
+@export var pack_lag_pixels: float = 1.0
+## Horizontal speed at which the pack trails the full pack_lag_pixels, px/s.
+@export var pack_lag_full_speed_x: float = 80.0
+## Vertical speed at which the pack trails the full pack_lag_pixels, px/s.
+## (Rising: it hangs a pixel low; falling: it rides a pixel high.)
+@export var pack_lag_full_speed_y: float = 140.0
+## How hard the pack's spring pulls it toward where it trails to. Higher = it
+## catches up faster when you stop.
+@export var pack_spring_stiffness: float = 160.0
+## The pack spring's damping. Lower = more overshoot when it catches up.
+@export var pack_spring_damping: float = 14.0
+## After turning around, the pack stays on the old side this long, seconds, then
+## swings across: it reads as a separate thing strapped on.
+@export var pack_turn_delay: float = 0.07
+## The lid starts to lift once falling faster than this, px/s.
+@export var lid_open_fall_speed: float = 40.0
+## At this fall speed (or faster) the lid opens widest and flutters fastest, px/s.
+@export var lid_full_fall_speed: float = 220.0
+## How many times a second the lid flutters, at the slowest and fastest fall.
+@export var lid_flutter_rate_slow: float = 2.2
+@export var lid_flutter_rate_fast: float = 4.5
+## The eyes blink every blink_interval seconds, plus up to blink_interval_random more.
+@export var blink_interval: float = 2.2
+@export var blink_interval_random: float = 2.0
+## How long one blink keeps the eyes shut, seconds.
+@export var blink_time: float = 0.1
+## How long the eyes squint shut after a landing, seconds.
+@export var land_squint_time: float = 0.14
+## In the air, the eyes glance up a pixel while rising faster than this, px/s...
+@export var eye_glance_up_speed: float = 60.0
+## ...and down a pixel while falling faster than this, px/s.
+@export var eye_glance_down_speed: float = 90.0
+
 @export_group("Run")
 ## Top horizontal speed on the ground, px/s.
 @export var max_run_speed: float = 90.0
