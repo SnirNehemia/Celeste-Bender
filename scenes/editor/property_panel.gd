@@ -18,6 +18,8 @@ extends PanelContainer
 ##   Vector2 in `direction_properties` -> a DirectionPicker
 ## The `hint_string` gives an enum's names ("Up:0,Down:1") and a range's limits
 ## ("1.0,40.0") for @export_range.
+## `toggle_grids` gathers bool settings into one small table of labelled check
+## boxes under a heading (the room's four element switches), instead of a row each.
 
 ## A widget changed `property` of `target` to `value`.
 signal property_changed(target: Object, property: StringName, value: Variant)
@@ -71,8 +73,11 @@ func _ready() -> void:
 
 ## Shows `properties` of `new_target` under `title` and `description`.
 ## `direction_properties` get the 8-way picker instead of x/y fields.
+## `toggle_grids`: heading -> {bool property: label}. Those properties are shown
+## together as one table of check boxes, where the first of them would have been.
 func show_target(new_target: Object, title: String, properties: Array[StringName],
-		direction_properties: Array[StringName] = [], description: String = "") -> void:
+		direction_properties: Array[StringName] = [], description: String = "",
+		toggle_grids: Dictionary = {}) -> void:
 	target = new_target
 	title_label.text = title
 	description_label.text = description
@@ -86,7 +91,20 @@ func show_target(new_target: Object, title: String, properties: Array[StringName
 		return
 	if properties.is_empty():
 		rows.add_child(_make_hint("No settings."))
+	# Which grid each grouped property belongs to, and which grids are already shown.
+	var grid_of_property: Dictionary = {}
+	for heading: String in toggle_grids:
+		for grouped: StringName in (toggle_grids[heading] as Dictionary):
+			grid_of_property[grouped] = heading
+	var shown_grids: Dictionary = {}
 	for property: StringName in properties:
+		if grid_of_property.has(property):
+			var heading: String = grid_of_property[property]
+			if not shown_grids.has(heading):
+				shown_grids[heading] = true
+				rows.add_child(_make_hint(heading))
+				rows.add_child(_make_toggle_grid(toggle_grids[heading]))
+			continue
 		var info: Dictionary = _find_property(property)
 		if info.is_empty():
 			continue  # the catalog names a property this object doesn't have
@@ -135,6 +153,23 @@ func refresh() -> void:
 				(widget["y"] as SpinBox).set_value_no_signal(Vector2(value).y)
 			"direction":
 				(widget["control"] as DirectionPicker).set_direction(value)
+
+
+## A two-column table of check boxes, one per bool property in `labels`
+## ({property: label}). Each box is registered in `widgets`, so refresh() updates it.
+func _make_toggle_grid(labels: Dictionary) -> GridContainer:
+	var grid: GridContainer = GridContainer.new()
+	grid.columns = 2
+	for property: StringName in labels:
+		if _find_property(property).is_empty():
+			continue
+		var check_box: CheckBox = CheckBox.new()
+		check_box.text = String(labels[property])
+		check_box.focus_mode = Control.FOCUS_NONE  # Space must pan, not toggle it
+		check_box.toggled.connect(func(pressed: bool) -> void: property_changed.emit(target, property, pressed))
+		widgets[property] = {"kind": "bool", "control": check_box}
+		grid.add_child(check_box)
+	return grid
 
 
 func _find_property(property: StringName) -> Dictionary:
