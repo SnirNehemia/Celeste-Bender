@@ -164,7 +164,7 @@ func _generate_leaves() -> void:
 func _is_solid_anywhere(cell: Vector2i) -> bool:
 	for sibling: Node in layer.get_parent().get_children():
 		var other: TileMapLayer = sibling as TileMapLayer
-		if other != null and other.get_cell_source_id(cell) != -1:
+		if other != null and not other is StormCloudLayer and other.get_cell_source_id(cell) != -1:
 			return true
 	return false
 

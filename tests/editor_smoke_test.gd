@@ -13,6 +13,8 @@ extends Node
 const TEST_LEVELS_DIR: String = "user://editor_smoke_test_levels/"
 const TEST_PROGRESS_PATH: String = "user://editor_smoke_test_story_progress.cfg"
 const TEST_RECORD_PATH: String = "user://editor_smoke_test_playtest_record.cfg"
+const TEST_AUTOSAVE_DIR: String = "user://editor_smoke_test_autosave/"
+const TEST_RECENT_PATH: String = "user://editor_smoke_test_recent.cfg"
 const MAIN_MENU_SCENE: PackedScene = preload("res://scenes/ui/main_menu.tscn")
 const LEVEL_LIBRARY_SCENE: PackedScene = preload("res://scenes/ui/level_library.tscn")
 const LEVEL_EDITOR_SCENE: PackedScene = preload("res://scenes/editor/level_editor.tscn")
@@ -26,6 +28,8 @@ var finished_sections: Array[String] = []
 func _ready() -> void:
 	LevelStorage.levels_dir = TEST_LEVELS_DIR
 	PlaytestRecord.record_path = TEST_RECORD_PATH  # every play-test's deaths go there, not the real file
+	LevelStorage.autosave_dir = TEST_AUTOSAVE_DIR  # backups and "last opened" too
+	LevelStorage.recent_path = TEST_RECENT_PATH
 	_delete_test_folder()  # leftovers from a run that crashed
 
 	_check_l1_storage()  # waits for nothing, so no await
@@ -57,6 +61,7 @@ func _ready() -> void:
 	await _check_l16_designer_tools()
 	await _check_l17_backdrops()
 	await _check_metal_platform()
+	await _check_hazards_and_rails()
 	await _check_d1_depths()
 	await _check_d2_d3_depth_gates()
 
@@ -64,7 +69,11 @@ func _ready() -> void:
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECORD_PATH))
 	PlaytestRecord.record_path = PlaytestRecord.DEFAULT_RECORD_PATH
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "D1 depths", "D2 depth gates", "D3 pinned parallax"]:
+	_delete_folder(TEST_AUTOSAVE_DIR)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECENT_PATH))
+	LevelStorage.autosave_dir = LevelStorage.DEFAULT_AUTOSAVE_DIR
+	LevelStorage.recent_path = LevelStorage.DEFAULT_RECENT_PATH
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "D1 depths", "D2 depth gates", "D3 pinned parallax"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -403,6 +412,30 @@ func _check_l3_objects() -> void:
 	_check((saved.get_node("Player") as Node2D).position == Vector2(44, 168), "the saved Player starts on the moved spawn point")
 	saved.free()
 
+	# Spikes edit like tiles (SpikeCells): erasing one tile splits a strip, painting
+	# next to one grows it, an area fills only along the ground. One undo step each.
+	_check(editor.paint_spike_cells(room, [Vector2i(10, 20)], false) == 1, "erasing one spike tile")
+	var left_part: Spikes = editor.spikes_at_cell(room, Vector2i(8, 20))
+	var right_part: Spikes = editor.spikes_at_cell(room, Vector2i(11, 20))
+	_check(editor.spikes_at_cell(room, Vector2i(10, 20)) == null and left_part != null and right_part != null
+		and left_part.tile_count == 2 and right_part.tile_count == 2 and right_part.position == Vector2(88, 160),
+		"... splits the 5-tile floor strip into two of 2")
+	editor.undo()
+	_check(floor_spikes.get_parent() == room and editor.spikes_at_cell(room, Vector2i(10, 20)) == floor_spikes and floor_spikes.tile_count == 5,
+		"undo puts the very same 5-tile strip back")
+	_check(editor.paint_spike_cells(room, [Vector2i(13, 20), Vector2i(14, 20)], true) == 2, "painting 2 floor tiles next to the strip")
+	var grown: Spikes = editor.spikes_at_cell(room, Vector2i(8, 20))
+	_check(grown != null and grown.tile_count == 7 and grown.facing == Spikes.Facing.UP, "... grows it into one 7-tile strip pointing up")
+	editor.undo()
+	_check(editor.spikes_at_cell(room, Vector2i(13, 20)) == null and floor_spikes.get_parent() == room, "undo shrinks it back")
+	_check(editor.fill_spike_rectangle(room, Vector2i(20, 18), Vector2i(24, 20), true) == 5,
+		"a 5x3 area over the floor gets spikes only on the 5 tiles touching the ground")
+	var area_strip: Spikes = editor.spikes_at_cell(room, Vector2i(20, 20))
+	_check(area_strip != null and area_strip.tile_count == 5 and area_strip.facing == Spikes.Facing.UP, "... as one strip pointing up")
+	editor.undo()
+	_check(editor.spikes_at_cell(room, Vector2i(20, 20)) == null, "undo takes the area's spikes out")
+	_check(editor.paint_spike_cells(room, [Vector2i(5, 21)], true) == 0, "no spikes inside solid ground")
+
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("L3 objects")
@@ -475,6 +508,13 @@ func _check_l3_playtest() -> void:
 	editor.delete_object(goal)
 	var warnings: Array[String] = editor.get_play_warnings()
 	_check(warnings.size() == 1 and warnings[0].begins_with("No goal"), "no goal is a warning, got %s" % [warnings])
+	# Something for an element that's off in its room: a warning.
+	var source: Node2D = editor.place_object(PaletteCatalog.get_entry(&"water_source"), room, Vector2i(10, 10))
+	editor.set_property(room, &"water_allowed", false)
+	warnings = editor.get_play_warnings()
+	_check(warnings.size() == 2 and warnings.any(func(text: String) -> bool: return text.contains("Water is off")), "a water source with Water off is a warning, got %s" % [warnings])
+	editor.undo()
+	editor.delete_object(source)
 	_check(editor.start_playtest(), "and doesn't stop the play-test")
 	# One frame of play: the debug overlay adds its F5 tuning panel deferred, and a
 	# copy freed in its very first frame would leave that panel behind.
@@ -656,7 +696,7 @@ func _check_l5_properties() -> void:
 
 	# Nothing selected: the room's settings.
 	editor.select(null)
-	_check(panel.target == room and panel.widgets.keys() == LevelEditor.ROOM_SETTINGS, "with nothing selected, the panel shows the room")
+	_check(panel.target == room and panel.widgets.keys() == editor.get_room_settings(room), "with nothing selected, the panel shows the room")
 	var title_field: LineEdit = panel.widgets[&"display_title"]["control"]
 	title_field.text = "Windy Hall"
 	title_field.text_submitted.emit(title_field.text)
@@ -665,7 +705,14 @@ func _check_l5_properties() -> void:
 	_check(not room.air_allowed, "Air can be switched off for the room")
 	editor.undo()
 	_check(room.air_allowed and (panel.widgets[&"air_allowed"]["control"] as CheckBox).button_pressed, "undo switches it back on, in the panel too")
+	# Fire Start Pips shows only while Fire is on.
+	var fire_was_allowed: bool = room.fire_allowed
+	editor.set_property(room, &"fire_allowed", false)
+	_check(not panel.widgets.has(&"fire_start_pips"), "no Fire Start Pips while Fire is off")
+	(panel.widgets[&"fire_allowed"]["control"] as CheckBox).button_pressed = true
+	_check(room.fire_allowed and panel.widgets.has(&"fire_start_pips"), "ticking Fire brings the pips field")
 	_check(is_equal_approx((panel.widgets[&"fire_start_pips"]["control"] as SpinBox).max_value, 10.0), "fire start pips go 0 to 10")
+	editor.set_property(room, &"fire_allowed", fire_was_allowed)
 	editor.select(editor.place_spawn_point(room, Vector2i(3, 20)))
 	_check(panel.widgets.is_empty(), "the spawn point has no settings")
 
@@ -2033,6 +2080,26 @@ func _check_l12_palette_tools() -> void:
 		== (room.get_node("Tiles") as TileMapLayer).get_used_cells().size(), "the copy has the room's objects and tiles")
 	editor.undo()
 	_check(editor.get_rooms().size() == 1, "Ctrl+Z takes the pasted room away")
+	# Duplicate: copy and paste in one go.
+	map.duplicate_room(room)
+	_check(map.importing_room != null and map.clipboard_room_name == String(room.name), "Duplicate makes a copy that follows the mouse")
+	var duplicated: Room = map.place_import(room.position + Vector2(room.room_size.x, 0))
+	_check(duplicated != null and editor.get_rooms().size() == 2, "a click puts the duplicate down")
+	# Copy settings from one room, paste them into the other (one undo step).
+	room.water_allowed = true
+	room.is_dark = true
+	duplicated.water_allowed = false
+	duplicated.is_dark = false
+	map.copy_room_settings(room)
+	map.paste_room_settings([duplicated] as Array[Room])
+	_check(duplicated.water_allowed and duplicated.is_dark and duplicated.display_title != room.display_title,
+		"Paste settings copies the elements and darkness, not the title")
+	editor.undo()
+	_check(not duplicated.water_allowed and not duplicated.is_dark, "one Ctrl+Z takes the pasted settings back")
+	room.water_allowed = false
+	room.is_dark = false
+	editor.undo()
+	_check(editor.get_rooms().size() == 1, "Ctrl+Z takes the duplicate away")
 	editor.toggle_map()
 
 	editor.queue_free()
@@ -2570,6 +2637,10 @@ func _check_l16_designer_tools() -> void:
 	var reloaded: PlaytestRecord = PlaytestRecord.new()
 	reloaded.load_level(path)
 	_check(reloaded.deaths.size() == record.deaths.size(), "the deaths are saved for the level")
+	_check(reloaded.run_count == record.run_count and reloaded.get_death_age(reloaded.deaths.size() - 1) == 0,
+		"each death remembers its play-test: the last one's are age 0")
+	record.begin_trail()  # another play-test begins: the earlier deaths get older
+	_check(record.get_death_age(record.deaths.size() - 1) == 1, "a play-test later they're age 1 (drawn fainter)")
 	editor.play_record.clear_deaths()
 	reloaded.load_level(path)
 	_check(reloaded.deaths.is_empty(), "Ctrl+T clears them")
@@ -2618,6 +2689,146 @@ func _check_metal_platform() -> void:
 	solid.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("Metal platform")
+
+
+## After the W8c play-test: spikes in the Terrain tab, the STORM CLOUD (deadly
+## terrain that only stops the player) and the RAIL PLATFORM (rides a bent rail at a
+## constant speed once triggered, by standing on it or by a linked switch).
+func _check_hazards_and_rails() -> void:
+	_check(PaletteCatalog.get_entry(&"spikes").family == "Terrain", "spikes are in the Terrain tab")
+	var cloud_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"storm_cloud")
+	var rail_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"rail_platform")
+	_check(cloud_entry != null and cloud_entry.family == "Terrain" and cloud_entry.kind == PaletteCatalog.Kind.TERRAIN,
+		"the storm cloud is terrain, in the Terrain tab")
+	_check(rail_entry != null and rail_entry.family == "Activated" and rail_entry.extra_tabs.has("Objects"),
+		"the rail platform is in Activated (and Objects)")
+	var path: String = LevelStorage.create_level("Hazard Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+
+	# The storm cloud: painted like terrain, never solid.
+	var cloud_cells: Array[Vector2i] = [Vector2i(30, 18), Vector2i(30, 19), Vector2i(30, 20)]
+	editor.paint_cells(room, cloud_cells, true, cloud_entry)
+	var cloud: StormCloudLayer = room.get_node_or_null("StormCloud") as StormCloudLayer
+	_check(cloud != null and cloud.get_used_cells().size() == 3, "painting the storm cloud makes a StormCloud layer")
+	_check(not editor.is_solid_cell(room, Vector2i(30, 19)) and cloud.tile_set.get_physics_layers_count() == 0,
+		"a storm cloud is not solid (no collision)")
+
+	# Crumbling rock in the editor: its tiles stay hidden after a stroke (its own look
+	# draws it), an erase inside a patch splits it at once, and a patch picked with
+	# the Select tool takes its own crumble time (undoable, saved on the layer).
+	var crumble_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"crumble_rock")
+	var crumble_cells: Array[Vector2i] = [Vector2i(2, 5), Vector2i(3, 5), Vector2i(4, 5), Vector2i(5, 5), Vector2i(6, 5)]
+	editor.paint_cells(room, crumble_cells, true, crumble_entry)
+	await get_tree().process_frame
+	var crumble_layer: CrumbleRockLayer = room.get_node_or_null("CrumbleRock") as CrumbleRockLayer
+	_check(crumble_layer != null and crumble_layer.self_modulate.a == 0.0 and crumble_layer.crumble.patches.size() == 1,
+		"painted crumbling rock shows its own look, not its raw tiles")
+	editor.paint_cells(room, [Vector2i(4, 5)] as Array[Vector2i], false, crumble_entry)
+	await get_tree().process_frame
+	_check(crumble_layer.crumble.patches.size() == 2, "erasing inside a crumbling patch splits it in the editor at once, got %d" % crumble_layer.crumble.patches.size())
+	var default_crumble_time: float = CrumblePatchSettings.WATER_TUNING.crumble_time
+	editor._select_at(room.to_global(Vector2(5.5, 5.5) * LevelEditor.TILE))
+	var patch_settings: CrumblePatchSettings = editor.selected_patch
+	_check(patch_settings != null and is_equal_approx(patch_settings.crumble_time, default_crumble_time),
+		"the Select tool picks a crumbling patch, at the default crumble time")
+	editor.set_property(patch_settings, &"crumble_time", 5.0)
+	var other_patch: Dictionary = crumble_layer.crumble.patches[crumble_layer.crumble.get_patch_index(Vector2i(2, 5))]
+	_check(is_equal_approx(patch_settings.crumble_time, 5.0) and crumble_layer.patch_crumble_times.size() == 1
+		and is_equal_approx(CrumblePatches.get_time(other_patch, default_crumble_time), default_crumble_time),
+		"a patch takes its own crumble time; the other patch keeps the default")
+	editor.undo()
+	_check(is_equal_approx(patch_settings.crumble_time, default_crumble_time) and crumble_layer.patch_crumble_times.is_empty(),
+		"undo puts the default time back")
+	editor.redo()
+
+	# The rail platform: one corner to start with, a handle per corner.
+	var rail: RailPlatform = editor.place_object(rail_entry, room, Vector2i(10, 15)) as RailPlatform
+	_check(rail != null and rail.rail_points.size() == 1, "a rail platform starts with one rail piece")
+	var corner_handles: Array[Dictionary] = EditorHandles.get_handles(rail).filter(
+		func(handle: Dictionary) -> bool: return handle["kind"] == EditorHandles.Kind.PATH_POINT)
+	_check(corner_handles.size() == 1 and corner_handles[0]["position"] == rail.global_position + rail.rail_points[0],
+		"its corner has a drag handle")
+	var dragged: PackedVector2Array = EditorHandles.value_for_drag(rail, corner_handles[0], rail.global_position + Vector2(41, -15), false)
+	_check(dragged == PackedVector2Array([Vector2(40, -16)]) and rail.rail_points[0] == Vector2(48, 0),
+		"dragging the corner snaps to tiles and leaves the old list alone (for undo)")
+	editor.add_path_point(rail, &"rail_points")
+	_check(rail.rail_points.size() == 2 and rail.rail_points[1] == Vector2(80, 0), "Add rail corner carries on the last piece's way, got %s" % [rail.rail_points])
+	editor.undo()
+	_check(rail.rail_points.size() == 1, "undo takes the corner off again")
+	editor.set_property(rail, &"rail_points", PackedVector2Array([Vector2(24, 0), Vector2(24, -16)]))
+	editor.set_property(rail, &"speed", 60.0)
+	_check(is_equal_approx(rail.get_rail_length(), 40.0) and rail.get_offset_at(30.0) == Vector2(24, -6), "the rail bends: 40 px long, 30 px along is up the second piece")
+	# A second one, started by a pressure plate.
+	var plate: PressurePlate = editor.place_object(PaletteCatalog.get_entry(&"pressure_plate"), room, Vector2i(34, 20)) as PressurePlate
+	var linked_rail: RailPlatform = editor.place_object(rail_entry, room, Vector2i(26, 10)) as RailPlatform
+	_check(editor.toggle_link(linked_rail, plate) and linked_rail.switches == [plate], "a rail platform links to a switch")
+
+	# Play: the cloud kills, the platforms wait, then ride.
+	_check(editor.start_playtest(), "the hazard level play-tests")
+	var play_root: RoomManager = editor.play_root
+	var player: Player = play_root.player
+	await get_tree().create_timer(0.4).timeout
+	var play_cloud: StormCloudLayer = play_root.get_node("Room1/StormCloud") as StormCloudLayer
+	var play_rail: RailPlatform = play_root.get_node(NodePath("Room1/" + rail.name)) as RailPlatform
+	var play_linked: RailPlatform = play_root.get_node(NodePath("Room1/" + linked_rail.name)) as RailPlatform
+	var play_plate: PressurePlate = play_root.get_node(NodePath("Room1/" + plate.name)) as PressurePlate
+	var play_crumble: CrumbleRockLayer = play_root.get_node("Room1/CrumbleRock") as CrumbleRockLayer
+	_check(is_equal_approx(CrumblePatches.get_time(play_crumble.crumble.patches[play_crumble.crumble.get_patch_index(Vector2i(6, 5))], 0.0), 5.0),
+		"the play-test copy keeps the patch's own crumble time")
+	# A body passes through the cloud (here: rising up through it).
+	var tester: CharacterBody2D = CharacterBody2D.new()
+	var box: CollisionShape2D = CollisionShape2D.new()
+	box.shape = RectangleShape2D.new()
+	(box.shape as RectangleShape2D).size = Vector2(6, 6)
+	tester.add_child(box)
+	play_root.get_node("Room1").add_child(tester)
+	tester.position = Vector2(244, 160)
+	await get_tree().physics_frame
+	_check(not tester.test_move(tester.global_transform, Vector2(0, -24)), "a body moves through the storm cloud unblocked")
+	tester.queue_free()
+	_check(not play_rail.is_running and play_rail.position == rail.position, "the rail platform waits at its start")
+	player.respawn_at(Vector2(244, 168))
+	var died: bool = false
+	for frame: int in 10:
+		await get_tree().physics_frame
+		died = died or player.is_dead()
+	_check(died, "walking into the storm cloud kills you")
+	for frame: int in 120:
+		await get_tree().physics_frame
+		if not player.is_dead() and player.is_on_floor():
+			break
+	# Grazing the edge is fair: a box just touching the cloud's side isn't a hit.
+	var edge_box: Rect2 = Rect2(Vector2(240.0 - 6.0 + 1.0, 150.0), Vector2(6.0, 10.0))
+	_check(not play_cloud.touches_cloud(edge_box.grow(-StormCloudLayer.KILL_INSET)) and play_cloud.touches_cloud(edge_box),
+		"overlapping the cloud by 1 px is forgiven")
+
+	# Standing on it starts it; it carries you along the bent rail and stops at the end.
+	var start: Vector2 = play_rail.global_position
+	player.respawn_at(start + Vector2(0, -1))
+	for frame: int in 12:
+		await get_tree().physics_frame
+	_check(play_rail.is_running, "landing on the rail platform starts it")
+	await get_tree().create_timer(1.0).timeout
+	_check(play_rail.has_finished and not play_rail.is_running and play_rail.global_position == start + Vector2(24, -16),
+		"it rides the whole rail at its speed and stops at the end, at %s" % [play_rail.global_position - start])
+	_check(player.is_on_floor() and absf(player.global_position.y - play_rail.global_position.y) < 1.5,
+		"and carries you up with it (feet %.1f, top %.1f)" % [player.global_position.y, play_rail.global_position.y])
+	_check(not play_linked.is_running, "the linked one waits for its switch, not for a rider")
+	play_plate.set_on(true)
+	await get_tree().physics_frame
+	_check(play_linked.is_running, "its switch turning on starts it")
+	(play_root.get_node("Room1") as Room).reset_objects()
+	await get_tree().physics_frame
+	_check(not play_rail.is_running and not play_rail.has_finished and play_rail.global_position == start,
+		"death or R puts it back at its start, waiting")
+	editor.stop_playtest()
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Hazards and rails")
 
 
 func _check_l17_backdrops() -> void:
@@ -2760,6 +2971,26 @@ func _check_d1_depths() -> void:
 	_check(behind != null and behind.get_depth() == 1 and behind.get_map_position() == start.position,
 		"a room right behind the start room is allowed (overlap across depths), at depth 1, same map spot")
 	_check(map.create_room(Rect2(behind.position + Vector2(40, 0), MapView.MIN_ROOM_SIZE)) == null, "overlap within one depth is still refused")
+	# A room half a tile off the grid (under the start room, y = 180) and a room
+	# placed behind it: the one behind takes its tile rows and columns, or the layer
+	# behind shows its tiles 4 px off (Chapter 0 - Basics, Room 21 and its copy).
+	var off_grid: Room = map.create_room(Rect2(start.position + Vector2(0, 180), MapView.MIN_ROOM_SIZE))
+	var behind_off_grid: Rect2 = map.snap_moved(Rect2(off_grid.position + Vector2(3, 3) + Room.depth_offset(1), MapView.MIN_ROOM_SIZE), null, 0.5)
+	var phase: Vector2 = behind_off_grid.position - Room.depth_offset(1) - off_grid.position
+	_check(is_zero_approx(fposmod(phase.x, 8.0)) and is_zero_approx(fposmod(phase.y, 8.0)),
+		"a room placed behind one half a tile off the grid lines its tiles up with it (off by %s)" % phase)
+	# Two depths down: the nearest depth decides. A depth 1 room on the plain grid
+	# behind the off-grid depth 0 room; a depth 2 room behind both lines up with depth 1.
+	var middle: Room = map.create_room(Rect2(off_grid.position + Vector2(0, 4) + Room.depth_offset(1), MapView.MIN_ROOM_SIZE))
+	var deepest: Rect2 = map.snap_moved(Rect2(middle.get_map_position() + Vector2(3, 3) + Room.depth_offset(2), MapView.MIN_ROOM_SIZE), null, 0.5)
+	var deep_phase: Vector2 = deepest.position - Room.depth_offset(2) - middle.get_map_position()
+	_check(middle != null and is_zero_approx(fposmod(deep_phase.x, 8.0)) and is_zero_approx(fposmod(deep_phase.y, 8.0)),
+		"a room two depths down lines up with the room right in front of it, not the one further in front (off by %s)" % deep_phase)
+	# Alt (editor_free_place): half-tile steps, no snapping at all.
+	_check(map._half_tile_place(Rect2(Vector2(5, 7), MapView.MIN_ROOM_SIZE)).position == Vector2(4, 8),
+		"holding Alt moves a room in half-tile (4 px) steps with no snapping")
+	map.delete_room(middle)
+	map.delete_room(off_grid)
 	_check(behind.get_backdrop_altitude(start) == Backdrop.Altitude.SURFACE, "AUTO altitude compares map heights: behind the start is on the surface")
 	editor.fill_room_edges(behind, PaletteCatalog.get_entry(&"ground"))
 	_check(map.set_shown_depth(2) and not map.set_shown_depth(3), "one past the deepest is allowed (a new depth), no further")
@@ -2943,12 +3174,17 @@ func _button_texts(page: Node) -> Array[String]:
 
 
 func _delete_test_folder() -> void:
-	var dir: DirAccess = DirAccess.open(TEST_LEVELS_DIR)
+	_delete_folder(TEST_LEVELS_DIR)
+
+
+## Deletes the files in `folder`, then the folder.
+func _delete_folder(folder: String) -> void:
+	var dir: DirAccess = DirAccess.open(folder)
 	if dir == null:
 		return
 	for file_name: String in dir.get_files():
 		dir.remove(file_name)
-	DirAccess.remove_absolute(TEST_LEVELS_DIR)
+	DirAccess.remove_absolute(folder)
 
 
 func _check(condition: bool, description: String) -> void:

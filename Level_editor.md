@@ -32,7 +32,7 @@ A **parallel track**, not an element chapter: it can be built in its own session
 ## 4. The editor screen
 - **Layout:** a large canvas; a palette on the left with tabs Basics / Terrain / Air / Earth / Fire / Enemies; a property panel on the right; a top bar with the level title, current room, tool and an unsaved-changes dot; a status line at the bottom with the tile under the mouse and warnings.
 - **Resolution:** the game draws at 320×180 with `viewport` stretch, which would make editor text unreadable. While the editor is open it switches the window to `canvas_items` stretch at a larger size (start with 640×360) so text is sharp and the canvas can zoom freely. Play-testing switches back to the game's 320×180 `viewport`. Stage L2 checks that this switch is clean at runtime.
-- **Grid:** 8 px tiles. Objects snap to the grid; holding Alt places them freely to the pixel.
+- **Grid:** 8 px tiles. Objects snap to the grid; holding Alt places them freely to the pixel. On the map, holding Alt while moving or placing a room (paste, import) moves it in half-tile (4 px) steps with no snapping; otherwise a room lines up with its side neighbours' tile rows, and a room placed in front of or behind another (another depth) takes the nearest such room's tile rows and columns.
 - **Undo/redo for every edit**, using Godot's `UndoRedo` class.
 - **Controls.** All of them are InputMap actions named `editor_*`, so the code never reads raw keys:
 

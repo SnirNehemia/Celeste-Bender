@@ -111,9 +111,22 @@ const STRIPE_WIDTH: int = 7
 ## The red edge, screen pixels thick.
 const EXPOSED_EDGE_SCREEN_WIDTH: float = 3.0
 
+## The map's element letters (_draw_room_elements): Room property, letter, color.
+## Air cyan (wind zones), Earth brown (crates, earth), Fire orange, Water blue.
+const MAP_ELEMENT_MARKS: Array[Array] = [
+	[&"air_allowed", "A", Color(0.55, 0.95, 1.0)],
+	[&"earth_allowed", "E", Color(0.8, 0.6, 0.35)],
+	[&"fire_allowed", "F", Color(1.0, 0.55, 0.15)],
+	[&"water_allowed", "W", Color(0.35, 0.6, 1.0)],
+]
+
 ## Play-test record (PlaytestRecord): the trail see-through yellow-green, deaths red.
 const TRAIL_COLOR: Color = Color(0.85, 1.0, 0.3, 0.55)
 const DEATH_COLOR: Color = Color(1.0, 0.2, 0.2, 0.95)
+## Deaths of earlier play-tests fade: the last one full, then each older one this
+## much fainter, down to OLDEST_DEATH_ALPHA (PlaytestRecord.death_runs).
+const DEATH_FADE_PER_RUN: float = 0.25
+const OLDEST_DEATH_ALPHA: float = 0.2
 ## A death X's half size, screen pixels, and how far above the feet it's drawn, px.
 const DEATH_MARK_SCREEN_SIZE: float = 2.5
 const DEATH_MARK_LIFT: float = 6.0
@@ -181,6 +194,11 @@ func _draw() -> void:
 	if Input.is_action_pressed("editor_jump_reach") and editor.hover_room != null:
 		_draw_jump_reach()
 
+	# A crumbling patch picked with the Select tool: its outline.
+	if editor.selected_patch != null and editor.selected_patch.is_valid():
+		for loop: PackedVector2Array in editor.selected_patch.get_world_loops():
+			draw_polyline(loop, SELECTED_COLOR, -1.0)
+
 	# is_inside_tree(): an undo can take the selected object out of the level.
 	var selected: Node2D = editor.selected_object
 	if selected != null and is_instance_valid(selected) and selected.is_inside_tree():
@@ -193,6 +211,8 @@ func _draw() -> void:
 			draw_circle(eye, selected_sentry.sight_range, SIGHT_FILL_COLOR)
 			draw_arc(eye, selected_sentry.sight_range, 0.0, TAU, 96, SIGHT_RING_COLOR, -1.0)
 
+	for cell_rect: Rect2 in editor.preview_cell_rects:  # a spike drag's cells so far
+		draw_rect(cell_rect, editor.preview_color)
 	if editor.preview_active:
 		draw_rect(editor.preview_rect, editor.preview_color)
 	elif editor.hover_object != null:
@@ -211,17 +231,21 @@ func _draw() -> void:
 			draw_rect(cell_rect, HOVER_COLOR, false, -1.0)
 
 
-## The last play-test's trail (thin lines) and every death of this level (red X).
+## The last play-test's trail (thin lines) and every death of this level (red X,
+## fainter the more play-tests ago it was).
 func _draw_play_record(record: PlaytestRecord) -> void:
 	for segment: PackedVector2Array in record.trail:
 		if segment.size() >= 2:
 			draw_polyline(segment, TRAIL_COLOR, -1.0)
 	var arm: float = DEATH_MARK_SCREEN_SIZE / editor.camera.get_zoom_factor()
-	for death: Vector2 in record.deaths:
+	for index: int in record.deaths.size():
 		# Drawn at the middle of the body, not the feet: that's where you see it die.
-		var center: Vector2 = death + Vector2(0, -DEATH_MARK_LIFT)
-		draw_line(center + Vector2(-arm, -arm), center + Vector2(arm, arm), DEATH_COLOR, -1.0)
-		draw_line(center + Vector2(-arm, arm), center + Vector2(arm, -arm), DEATH_COLOR, -1.0)
+		var center: Vector2 = record.deaths[index] + Vector2(0, -DEATH_MARK_LIFT)
+		# The last play-test's deaths stand out; each older one is fainter.
+		var alpha: float = maxf(OLDEST_DEATH_ALPHA, 1.0 - record.get_death_age(index) * DEATH_FADE_PER_RUN)
+		var color: Color = Color(DEATH_COLOR, DEATH_COLOR.a * alpha)
+		draw_line(center + Vector2(-arm, -arm), center + Vector2(arm, arm), color, -1.0)
+		draw_line(center + Vector2(-arm, arm), center + Vector2(arm, -arm), color, -1.0)
 
 
 ## The Select tool's region (dashed), and with the Select tool on and something
@@ -379,6 +403,7 @@ func _draw_map(map: MapView) -> void:
 		# Inside the room: above it, the name would cover the room on top.
 		_draw_room_name(room, bounds, true)
 		_draw_room_backdrop(room, bounds, start_room, pixel)
+		_draw_room_elements(room, bounds)
 		if room == start_room:
 			var star_offset: float = (STAR_SCREEN_RADIUS + 3.0) * pixel
 			_draw_star(Vector2(bounds.end.x - star_offset, bounds.position.y + star_offset), STAR_SCREEN_RADIUS * pixel)
@@ -585,6 +610,7 @@ func _draw_handles(node: Node2D) -> void:
 	var half_size: float = EditorHandles.HANDLE_SCREEN_SIZE / editor.camera.get_zoom_factor() / 2.0
 	for handle: Dictionary in EditorHandles.get_handles(node):
 		var handle_position: Vector2 = handle["position"]
+		# (A rail's corners need no line: the rail itself joins them.)
 		if handle["kind"] == EditorHandles.Kind.POINT:
 			draw_dashed_line(node.global_position, handle_position, Color(SELECTED_COLOR, 0.7), -1.0, 2.0)
 		var square: Rect2 = Rect2(handle_position - Vector2.ONE * half_size, Vector2.ONE * half_size * 2.0)
@@ -645,6 +671,24 @@ func _draw_room_backdrop(room: Room, bounds: Rect2, start_room: Room, pixel: flo
 	draw_set_transform(Vector2.ZERO)
 	var strip_height: float = ALTITUDE_STRIP_SCREEN_HEIGHT * pixel
 	draw_rect(Rect2(bounds.position.x, bounds.end.y - strip_height, bounds.size.x, strip_height), Color(color, 0.5))
+
+
+## Third line inside a room on the map: a letter per element the room allows
+## (A E F W, each in its element's color), and "dark" for a dark room, so you
+## see at a glance which rooms let the player do what.
+func _draw_room_elements(room: Room, bounds: Rect2) -> void:
+	var zoom_factor: float = editor.camera.get_zoom_factor()
+	var font: Font = ThemeDB.fallback_font
+	var pen: Vector2 = Vector2.ZERO  # where the next letter goes, screen pixels
+	draw_set_transform(bounds.position + Vector2(4.0, NAME_FONT_SIZE * 3.0 + 7.0) / zoom_factor, 0.0, Vector2.ONE / zoom_factor)
+	for element: Array in MAP_ELEMENT_MARKS:
+		if not bool(room.get(element[0])):
+			continue
+		draw_string(font, pen, element[1], HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, element[2])
+		pen.x += font.get_string_size(element[1] + " ", HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE).x
+	if room.is_dark:
+		draw_string(font, pen, "dark", HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, ROOM_NAME_COLOR)
+	draw_set_transform(Vector2.ZERO)
 
 
 ## A small green figure standing where the player's feet go.

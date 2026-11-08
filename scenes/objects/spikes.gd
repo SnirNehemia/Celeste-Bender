@@ -130,10 +130,15 @@ func _rebuild() -> void:
 	# red tip, their heights varying a little along the strip.
 	var tooth_pitch: float = TILE_SIZE / TEETH_PER_TILE
 	var tooth_width: float = tooth_pitch - 2.0 * TOOTH_INSET
+	# The height pattern is counted from the room's grid, not the strip's start, so
+	# cutting a strip in two (the editor erases spikes tile by tile) or growing it
+	# leaves every remaining tooth exactly as it was.
+	var first_cell: int = roundi((position.x if facing == Facing.UP or facing == Facing.DOWN else position.y) / TILE_SIZE)
 	for tooth_index: int in tile_count * TEETH_PER_TILE:
 		var tooth_start: float = tooth_index * tooth_pitch + TOOTH_INSET
 		var tooth_middle: float = tooth_start + tooth_width / 2.0
-		var tooth_height: float = SPIKE_HEIGHTS[tooth_index % SPIKE_HEIGHTS.size()]
+		var pattern_index: int = posmod(first_cell * TEETH_PER_TILE + tooth_index, SPIKE_HEIGHTS.size())
+		var tooth_height: float = SPIKE_HEIGHTS[pattern_index]
 		_add_triangle(STONE_COLOR, tooth_start, tooth_start + tooth_width, BASE_LIP, tooth_middle, tooth_height)
 		_add_triangle(STONE_LIGHT_COLOR, tooth_start, tooth_middle, BASE_LIP, tooth_middle, tooth_height)
 		var tip_start: float = roundf(tooth_height * RED_TIP_START)  # whole pixels: crisp, same every time

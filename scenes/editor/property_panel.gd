@@ -10,7 +10,8 @@ extends PanelContainer
 ##
 ## Which widget: from the property's TYPE and HINT, found in the object's
 ## get_property_list() (the same info Godot's own Inspector reads):
-##   bool                       -> CheckBox
+##   bool                       -> CheckBox named after the setting (one row), or a
+##                                 cell of a small table (show_target's toggle_grids)
 ##   int with an enum hint      -> OptionButton (a dropdown)
 ##   int / float                -> SpinBox (type, arrows, or drag up/down)
 ##   String                     -> LineEdit (applied on Enter or leaving the field)
@@ -28,6 +29,9 @@ const FIELD_WIDTH: float = 52.0
 ## Limits for numbers without an @export_range: wide, the editor isn't the judge.
 const NUMBER_LIMIT: float = 10000.0
 const FLOAT_STEP: float = 0.5
+## Checkboxes per row in a toggle grid (show_target's `toggle_grids`): two fit the
+## narrow panel with names like "Water".
+const TOGGLE_GRID_COLUMNS: int = 2
 
 var title_label: Label
 ## A short description under the title (what the object does, what triggers or
@@ -104,6 +108,10 @@ func show_target(new_target: Object, title: String, properties: Array[StringName
 		var info: Dictionary = _find_property(property)
 		if info.is_empty():
 			continue  # the catalog names a property this object doesn't have
+		if info["type"] == TYPE_BOOL:
+			# A checkbox carries its own name: one row instead of a label and a box.
+			rows.add_child(_make_widget(property, info, false))
+			continue
 		rows.add_child(_make_hint(String(property).capitalize()))
 		rows.add_child(_make_widget(property, info, direction_properties.has(property)))
 	refresh()
@@ -122,18 +130,26 @@ func _grid_heading_for(property: StringName, toggle_grids: Dictionary) -> String
 ## so refresh() and property_changed work as for any other checkbox.
 func _make_toggle_grid(labels: Dictionary) -> GridContainer:
 	var grid: GridContainer = GridContainer.new()
-	grid.columns = 2
+	grid.columns = TOGGLE_GRID_COLUMNS
 	for property: StringName in labels:
 		var info: Dictionary = _find_property(property)
 		if info.is_empty() or info["type"] != TYPE_BOOL:
 			continue  # only bools fit a checkbox table
-		var check_box: CheckBox = CheckBox.new()
-		check_box.text = labels[property]
-		check_box.focus_mode = Control.FOCUS_NONE  # Space must pan, not toggle it
-		check_box.toggled.connect(func(value: bool) -> void: property_changed.emit(target, property, value))
-		widgets[property] = {"kind": "bool", "control": check_box}
+		var check_box: CheckBox = _make_check_box(property, labels[property])
+		check_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL  # even columns
 		grid.add_child(check_box)
 	return grid
+
+
+## A CheckBox named `text` that sets `property` (bool) and is listed in `widgets`,
+## so refresh() and property_changed work for it like for any other widget.
+func _make_check_box(property: StringName, text: String) -> CheckBox:
+	var check_box: CheckBox = CheckBox.new()
+	check_box.text = text
+	check_box.focus_mode = Control.FOCUS_NONE  # Space must pan, not toggle it
+	check_box.toggled.connect(func(value: bool) -> void: property_changed.emit(target, property, value))
+	widgets[property] = {"kind": "bool", "control": check_box}
+	return check_box
 
 
 func set_footer(text: String) -> void:
@@ -189,12 +205,7 @@ func _make_widget(property: StringName, info: Dictionary, is_direction: bool) ->
 	var emit: Callable = func(value: Variant) -> void: property_changed.emit(target, property, value)
 	match info["type"]:
 		TYPE_BOOL:
-			var check_box: CheckBox = CheckBox.new()
-			check_box.text = "on"
-			check_box.focus_mode = Control.FOCUS_NONE
-			check_box.toggled.connect(emit)
-			widgets[property] = {"kind": "bool", "control": check_box}
-			return check_box
+			return _make_check_box(property, String(property).capitalize())
 		TYPE_INT when info["hint"] == PROPERTY_HINT_ENUM:
 			var option_button: OptionButton = OptionButton.new()
 			option_button.focus_mode = Control.FOCUS_NONE

@@ -20,7 +20,9 @@ extends RefCounted
 ##       cells: Array[Vector2i]; can_crumble: bool; crack_left: float (game s of
 ##       crumbling left, -1 = not crumbling); loops: Array[PackedVector2Array] (its
 ##       outline, the layer's local px); perimeter: float (px).
-##     The owner may add its own keys (PlayerIceLayer adds its glass look).
+##     The owner may add its own keys (PlayerIceLayer adds its glass look). The
+##     painted layers may give a patch its own crumble time (key `time`, seconds;
+##     apply_custom_times, set in the level editor), else the tuning's time is used.
 ##   - THE TOUCH: the first time you or a crate (anything in WaterWorld.SOLID_GROUP,
 ##     whose get_water_box() is its box) touches a patch that can crumble, its
 ##     crack_left starts at crumble_time.
@@ -166,8 +168,39 @@ func _start_where_touched(layer: TileMapLayer, crumble_time: float, crack_sound:
 			for x: int in range(first.x, last.x + 1):
 				var index: int = get_patch_index(Vector2i(x, y))
 				if index >= 0 and bool(patches[index][&"can_crumble"]) and float(patches[index][&"crack_left"]) < 0.0:
-					patches[index][&"crack_left"] = crumble_time
+					patches[index][&"crack_left"] = get_time(patches[index], crumble_time)
 					FX.play_sfx(crack_sound)
+
+
+## How long `patch` takes to crumble, s: its own time if the level gave it one, else
+## `default_time` (the tuning's).
+static func get_time(patch: Dictionary, default_time: float) -> float:
+	return float(patch.get(&"time", default_time))
+
+
+## Painted platforms: gives each patch its own crumble time from `custom_times`
+## (cell -> seconds, the layer's patch_crumble_times, set in the level editor). A
+## patch takes the shortest time set on any of its cells; one with none set keeps
+## the tuning's time. Call it after rebuild() (and whenever the times change).
+func apply_custom_times(custom_times: Dictionary) -> void:
+	for patch: Dictionary in patches:
+		patch.erase(&"time")
+		for cell: Vector2i in patch[&"cells"]:
+			if custom_times.has(cell):
+				patch[&"time"] = minf(float(patch.get(&"time", INF)), float(custom_times[cell]))
+
+
+## A copy of `custom_times` where the patch made of `cells` crumbles in `seconds`:
+## every entry on its cells goes, and one is set on its first cell, unless `seconds`
+## is `default_time` (then the patch simply follows the tuning, and nothing is saved).
+static func with_patch_time(custom_times: Dictionary, cells: Array, seconds: float,
+		default_time: float) -> Dictionary:
+	var result: Dictionary = custom_times.duplicate()
+	for cell: Vector2i in cells:
+		result.erase(cell)
+	if not is_equal_approx(seconds, default_time) and not cells.is_empty():
+		result[cells[0]] = seconds
+	return result
 
 
 ## Where a patch is drawn this frame: shaking while it crumbles.
@@ -183,7 +216,7 @@ func draw_contour(canvas: CanvasItem, patch: Dictionary, crumble_time: float) ->
 	var crack_left: float = patch[&"crack_left"]
 	if crack_left < 0.0:
 		return
-	var share: float = clampf(1.0 - crack_left / maxf(crumble_time, 0.01), 0.0, 1.0)
+	var share: float = clampf(1.0 - crack_left / maxf(get_time(patch, crumble_time), 0.01), 0.0, 1.0)
 	var left: float = float(patch[&"perimeter"]) * share
 	for loop: PackedVector2Array in patch[&"loops"]:
 		for index: int in loop.size():
@@ -211,13 +244,23 @@ static func draw_cracks(canvas: CanvasItem, origin: Vector2, cell: Vector2i, col
 
 # --- Painted platforms: taking tiles away until the reset --------------------------
 
-## The painted layers' end of a frame: each patch in `done` (advance's result) breaks
-## into `pieces_per_tile` bits of `piece_color` per tile, with `break_sound`, and its
-## tiles are taken away until the reset. Returns true if any broke (the caller
-## rebuilds its patches now, so the next frame's touch reads them).
-static func break_patches(layer: TileMapLayer, done: Array[Array], removed: Dictionary,
-		piece_color: Color, pieces_per_tile: int, break_sound: StringName) -> bool:
+## The painted layers' end of a frame: each patch in `done` (advance's result) FALLS
+## (after the W8c play-test: it used to vanish). `draw_patch(canvas: CanvasItem,
+## patch: Dictionary)` is the layer's own drawing of one patch, in its local px: a
+## CrumbleFall drops that picture away while the tiles (and their collision) are
+## taken away at once, until the reset. A little dust (`pieces_per_tile` bits of
+## `piece_color` per tile) and `break_sound` go with it. Returns true if any broke
+## (the caller rebuilds its patches now, so the next frame's touch reads them).
+## Call it BEFORE that rebuild: it reads the done patches from `patches`.
+func break_patches(layer: TileMapLayer, done: Array[Array], removed: Dictionary,
+		piece_color: Color, pieces_per_tile: int, break_sound: StringName, draw_patch: Callable) -> bool:
 	for cells: Array in done:
+		var index: int = get_patch_index(cells[0])
+		if index >= 0:
+			var patch: Dictionary = patches[index]
+			# bind() adds the patch AFTER the arguments of the call: CrumbleFall calls it
+			# with the canvas, so draw_patch gets (canvas, patch).
+			CrumbleFall.spawn(layer, draw_patch.bind(patch), _get_center(layer, cells))
 		for cell: Vector2i in cells:
 			burst(layer, layer.map_to_local(cell), piece_color, pieces_per_tile)
 		take_away(layer, cells, removed)
@@ -225,15 +268,22 @@ static func break_patches(layer: TileMapLayer, done: Array[Array], removed: Dict
 	return not done.is_empty()
 
 
-## The painted layers' room reset (death or R): every broken patch is painted back
-## (returns true: the caller rebuilds its patches), or, if none broke, a patch caught
-## mid-crumble stops (returns false).
+## The middle of the box round `cells`, in `layer`'s local px (a falling patch spins round it).
+static func _get_center(layer: TileMapLayer, cells: Array) -> Vector2:
+	var box: Rect2 = Rect2(layer.map_to_local(cells[0]), Vector2.ZERO)
+	for cell: Vector2i in cells:
+		box = box.expand(layer.map_to_local(cell))
+	return box.get_center()
+
+
+## The painted layers' room reset (death or R): every patch caught mid-crumble stops
+## (its countdown is cleared FIRST: the rebuild after put_back would otherwise carry it
+## over and the patch would still fall, the bug found after the W8c play-test), and
+## every broken patch is painted back (returns true: the caller rebuilds its patches).
 func reset_painted(layer: TileMapLayer, removed: Dictionary) -> bool:
-	if put_back(layer, removed):
-		return true
 	for patch: Dictionary in patches:
 		patch[&"crack_left"] = -1.0
-	return false
+	return put_back(layer, removed)
 
 
 ## Erases `cells` from `layer`, remembering each tile (source id and atlas coords) in

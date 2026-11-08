@@ -6,7 +6,7 @@ extends RefCounted
 ## so the editor itself holds no per-object code.
 ##
 ## Tabs (`family`, the palette's tabs, TAB_ORDER; reorganized after the L11
-## play-test): Terrain, Basics (spawn, goal, spikes, zones), Triggers (switches),
+## play-test): Terrain (and spikes), Basics (spawn, goal, zones), Triggers (switches),
 ## Activated (what switches work: doors), Crystals (pick-ups), Breakable (walls and
 ## plant terrain that rocks, elephants or fire open), Objects (crates, platforms,
 ## rocks, vines, leaves), Enemies. Entries are written below in the order their
@@ -123,6 +123,10 @@ class Entry:
 	## Vector2 properties that are points relative to the object, given drag
 	## handles in Stage L5 (a leaf's travel, a sail's rail ends).
 	var point_properties: Array[StringName] = []
+	## A PackedVector2Array property of points relative to the object (a rail
+	## platform's corners): one drag handle per point (EditorHandles), and the
+	## panel's buttons add or remove the last one. Empty = none.
+	var path_property: StringName = &""
 	## The Array property that holds this object's links (Stage L6), and the class
 	## name its targets must have (e.g. a Door's `switches` <- "Switch").
 	var link_property: StringName = &""
@@ -195,12 +199,14 @@ const LINE_THICKNESS: float = 4.0
 const TAB_ORDER: Array[String] = ["Terrain", "Basics", "Triggers", "Activated", "Crystals", "Breakable", "Objects", "Enemies"]
 ## Each entry's tab, where it isn't the family it's written with (_assign_tabs).
 const TAB_OF: Dictionary = {
+	&"spikes": "Terrain",  # spikes sit on the ground like terrain (moved from Basics)
 	&"wind_zone": "Basics", &"no_glide_zone": "Basics",
 	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
 	&"door": "Activated", &"switch_wall": "Activated", &"step_pad": "Triggers",
 	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
 	&"cracked_wall": "Breakable", &"stone_wall": "Breakable", &"thicket": "Breakable",
 	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
+	&"rail_platform": "Activated",
 	&"crate": "Objects", &"leaf_platform": "Objects", &"sail_platform": "Objects", &"boulder": "Objects",
 	&"loose_rock": "Objects", &"vine": "Objects", &"hanging_platform": "Objects", &"leaf_pile": "Objects",
 	&"water_source": "Objects", &"water_sink": "Objects", &"current_zone": "Objects",
@@ -275,7 +281,7 @@ static func _build() -> void:
 	goal.editable_properties = [&"goal_size"]
 
 	var spikes: Entry = _add(&"spikes", "Spikes", "Basics", Kind.STRIP)
-	spikes.hint = "Kill on touch. Knocking an enemy into them defeats it. Drag along a row or column; they point away from the ground next to them (R turns them)."
+	spikes.hint = "Kill on touch. Knocking an enemy into them defeats it. Paint them like terrain: drag, Shift+drag an area, right-drag (or the eraser) to remove single tiles. They point away from the ground next to them (click a strip, R turns it)."
 	spikes.scene = preload("res://scenes/objects/spikes.tscn")
 	spikes.bounds = Bounds.SPIKE_STRIP
 	spikes.editable_properties = [&"facing", &"tile_count"]
@@ -344,6 +350,21 @@ static func _build() -> void:
 	leaf_platform.start_positions = {&"home_position": &""}
 
 	# The origin is the middle of the deck's top; the mast rises 16 px above it.
+	# Asked for after the W8c play-test: a platform that, once triggered, rides a
+	# bent rail at a constant speed (RailPlatform).
+	var rail_platform: Entry = _add_object(&"rail_platform", "Rail platform", "Basics", preload("res://scenes/objects/rail_platform.tscn"))
+	rail_platform.hint = "One-way platform on a rail of straight pieces. It waits (red lamp) until triggered: by its linked switches (L), or, with none linked, when you land on it. Then it rides the rail at Speed: stops at the end, goes back and forth, or loops. Drag the corner handles; the panel adds or removes corners."
+	rail_platform.bounds = Bounds.WIDTH_CENTERED
+	rail_platform.width_property = &"platform_width"
+	rail_platform.local_rect = Rect2(0, 0, 0, 10)
+	rail_platform.placement = Placement.HANGING
+	rail_platform.editable_properties = [&"platform_width", &"speed", &"end_behavior"]
+	rail_platform.path_property = &"rail_points"
+	rail_platform.start_positions = {&"home_position": &""}
+	rail_platform.link_property = &"switches"
+	rail_platform.link_target_class = &"Switch"
+	rail_platform.extra_tabs = ["Objects"]  # with the other platforms too
+
 	var sail_platform: Entry = _add_object(&"sail_platform", "Sail platform", "Air", preload("res://scenes/objects/sail_platform.tscn"))
 	sail_platform.hint = "One-way deck on a rail that moves with the wind: gusts and wind zones push it. A burning sail stops catching wind."
 	sail_platform.bounds = Bounds.WIDTH_CENTERED
@@ -589,6 +610,16 @@ static func _build() -> void:
 	# keeps its own button in Breakable: EditorUI gives extra tabs plain buttons).
 	crumble_rock.menu_group = "Crumbling block"
 	crumble_ice.menu_group = "Crumbling block"
+
+	# A deadly area that only stops the player: no collision, so crates, rocks,
+	# fireballs, water and enemies pass through it (StormCloudLayer).
+	var storm_cloud: Entry = _add(&"storm_cloud", "Storm cloud", "Terrain", Kind.TERRAIN)
+	storm_cloud.hint = "A thundercloud that KILLS you on touch (its edge is a little forgiving), but isn't solid: crates, rocks, fireballs, water, enemies and gusts all pass straight through."
+	storm_cloud.layer_name = &"StormCloud"
+	storm_cloud.tile_set = preload("res://resources/tiles/storm_cloud_tileset.tres")
+	storm_cloud.layer_script = preload("res://scenes/objects/storm_cloud_layer.gd")
+	storm_cloud.tile_plain = TileBrush.TILE_PLAIN
+	storm_cloud.tile_top_edge = TileBrush.TILE_PLAIN
 
 	# Sources and drains (Stage W2; Water_bending.md §6.2, §8.1). A room with a source
 	# gets a WaterWorld even without painted water.
@@ -955,8 +986,10 @@ static func copy_settings(source: Node, target: Node) -> void:
 		var usage: int = property["usage"]
 		if usage & PROPERTY_USAGE_SCRIPT_VARIABLE and usage & PROPERTY_USAGE_STORAGE:
 			var value: Variant = source.get(property["name"])
-			# Arrays are shared by reference: give the copy its own list.
-			target.set(property["name"], value.duplicate() if value is Array else value)
+			# Arrays (and packed ones, a rail's corners) are shared by reference: give
+			# the copy its own list.
+			var is_list: bool = value is Array or value is PackedVector2Array
+			target.set(property["name"], value.duplicate() if is_list else value)
 
 
 ## One axis of a snapped center: an even number of tiles long -> on the tile line

@@ -178,6 +178,11 @@ func _mirror_object(copy: Node2D, template: Node2D, origin: Vector2, corner: Vec
 	for point_property: StringName in entry.point_properties:
 		var point: Vector2 = copy.get(point_property)
 		copy.set(point_property, Vector2(-point.x, point.y))
+	if entry.path_property != &"":
+		var points: PackedVector2Array = (copy.get(entry.path_property) as PackedVector2Array).duplicate()
+		for index: int in points.size():
+			points[index] = Vector2(-points[index].x, points[index].y)
+		copy.set(entry.path_property, points)
 	if entry.uses_rotation:
 		copy.rotation_degrees = -template.rotation_degrees
 	for side_property: StringName in SIDE_PROPERTIES:

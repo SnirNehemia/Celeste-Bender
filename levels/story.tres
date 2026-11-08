@@ -3,6 +3,11 @@
 [ext_resource type="Script" path="res://scenes/ui/story_entry.gd" id="1_ryadu"]
 [ext_resource type="Script" path="res://scenes/ui/story_list.gd" id="2_whaoq"]
 
+[sub_resource type="Resource" id="Resource_whaoq"]
+script = ExtResource("1_ryadu")
+title = "Chapter 0 - Basics"
+scene_path = "res://levels/chapter_1_air_copy.tscn"
+
 [sub_resource type="Resource" id="Resource_ryadu"]
 script = ExtResource("1_ryadu")
 title = "Chapter 1 - Air"
@@ -10,4 +15,4 @@ scene_path = "res://levels/chapter_1_air.tscn"
 
 [resource]
 script = ExtResource("2_whaoq")
-entries = Array[ExtResource("1_ryadu")]([SubResource("Resource_ryadu")])
+entries = Array[ExtResource("1_ryadu")]([SubResource("Resource_whaoq"), SubResource("Resource_ryadu")])

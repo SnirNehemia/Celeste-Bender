@@ -61,8 +61,9 @@ const LEFT_SECTIONS: Array = [
 	["Map of rooms", [
 		["editor_map", "map on / off"],
 		["Drag", "empty space: select rooms; room: move; edge: resize"],
+		["editor_free_place", "+ move / place a room: half-tile steps, no snapping"],
 		["Ctrl+click", "add a room to the selection, or take it out"],
-		["Right-click", "new room; backdrop of the selected rooms; copy"],
+		["Right-click", "new room; duplicate, copy; copy / paste room settings; backdrop"],
 		["Room panel", "with several rooms selected, changes all of them"],
 		["editor_backdrop_preview", "preview every backdrop (Enter: use it)"],
 		["Fill edges", "room panel button: wall a room in"],
@@ -70,6 +71,7 @@ const LEFT_SECTIONS: Array = [
 		["editor_start_room", "make the selected room the start"],
 		["editor_delete", "delete the selected room"],
 		["editor_import", "import a room as a copy"],
+		["editor_duplicate", "duplicate the selected room (click to place)"],
 		["editor_depth_deeper", "show the depth behind (rooms behind rooms)"],
 		["editor_depth_shallower", "back toward the front depth"],
 		["Right-click", "move rooms behind / to the front; add gate twins"],
@@ -101,7 +103,7 @@ const RIGHT_SECTIONS: Array = [
 		["playtest_pause", "in play: pause / resume"],
 		["playtest_step", "in play, paused: one frame"],
 		["editor_toggle_trail", "show / hide trail and deaths"],
-		["editor_clear_deaths", "clear this level's deaths"],
+		["editor_clear_deaths", "clear this level's deaths (older ones are fainter)"],
 		["editor_jump_reach", "hold: the jump's reach from the mouse"],
 	]],
 	["File", [

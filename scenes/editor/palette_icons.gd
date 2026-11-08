@@ -136,6 +136,14 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 4, 3, 1, 4, DARK_GRAY)
 			_rect(image, 1, 6, 4, 1, DARK_GRAY)
 			_rect(image, 6, 5, 1, 5, DARK_GRAY)
+		&"storm_cloud":
+			# A dark cloud with a lit top and a bolt out of it.
+			_rect(image, 1, 2, 8, 5, Color8(62, 56, 86))
+			_rect(image, 2, 1, 3, 1, Color8(96, 90, 128))
+			_rect(image, 5, 2, 3, 1, Color8(96, 90, 128))
+			_rect(image, 5, 4, 1, 3, WHITE)
+			_rect(image, 4, 7, 1, 1, WHITE)
+			_rect(image, 4, 8, 2, 1, YELLOW)
 		&"crumble_ice":
 			# Ice with white cracks through it.
 			_rect(image, 0, 2, 10, 8, CYAN)
@@ -263,6 +271,13 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"leaf_platform":
 			_rect(image, 0, 5, 10, 2, OLIVE)
 			_rect(image, 4, 2, 2, 2, CREAM)
+		&"rail_platform":
+			# A gray platform on a bent rail.
+			_rect(image, 1, 8, 4, 1, BLUE_GRAY)
+			_rect(image, 4, 3, 1, 6, BLUE_GRAY)
+			_rect(image, 4, 3, 5, 1, BLUE_GRAY)
+			_rect(image, 0, 5, 7, 2, GRAY)
+			_rect(image, 0, 5, 7, 1, WHITE.darkened(0.3))
 		&"sail_platform":
 			_rect(image, 0, 7, 10, 2, BLUE_GRAY.darkened(0.2))
 			for row: int in 5:

@@ -11,3 +11,7 @@ grass_tongues_per_tile = 4
 grass_flame_length = 4.0
 grass_flare_time = 0.3
 bonfire_min_leaves = 12
+dark_player_light_radius = 30.0
+dark_player_light_strength = 0.9
+dark_brazier_light_scale = 2.0
+dark_grass_light_radius = 50.0

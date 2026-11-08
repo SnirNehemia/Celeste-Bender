@@ -45,8 +45,11 @@ extends Node2D
 ##     get cheats (PlaytestCheats). Hold J: the jump's reach (JumpReach, drawn
 ##     by EditorOverlay).
 ##   - H: the quick reference (EditorHelp), every key, read from the InputMap.
-##   - Strips (spikes): drag along a row or column; facing comes from the ground
-##     next to them; R turns the selected strip.
+##   - Spikes paint like terrain (SpikeCells): drag a brush, Shift+drag an area,
+##     right-drag or the eraser removes single cells; each points away from the
+##     ground next to it. They're still saved as strips (Spikes nodes): each edit
+##     re-cuts the room's spikes into the fewest strips. A click on a strip selects
+##     it; R turns the selected strip.
 ##   - Link mode (L, Stage L6): with a door (or anything whose catalog entry has a
 ##     `link_property`) selected, L starts it; clicking a switch links or unlinks
 ##     it; L or Esc ends it. Links are the door's own `switches` list, node
@@ -112,6 +115,16 @@ extends Node2D
 ## The level the editor opens in _ready(). The library sets it before switching
 ## scenes: a static var is shared by the class, so it survives the scene change.
 static var path_to_open: String = ""
+## Auto-save: every this many seconds, a level with unsaved changes is written to a
+## BACKUP file (LevelStorage.autosave_path_for), never over the level itself. Saving,
+## or leaving without saving, deletes the backup; one found when opening means the
+## editor closed with changes unsaved, and you're asked whether to restore them.
+const AUTOSAVE_SECONDS: float = 60.0
+## A Timer node counts down and emits `timeout`, again and again unless one_shot.
+var autosave_timer: Timer
+## The answer to "restore the auto-saved changes?": "restore", "discard" or ""
+## (Cancel: open the saved level, keep the backup for next time).
+var autosave_choice: String = ""
 
 const LEVEL_LIBRARY_SCENE: String = "res://scenes/ui/level_library.tscn"
 ## The editor draws at 640x360 (twice the game's 320x180), stretched with
@@ -119,6 +132,8 @@ const LEVEL_LIBRARY_SCENE: String = "res://scenes/ui/level_library.tscn"
 ## and the camera can zoom the level freely. Play-tests use the game's settings.
 const EDITOR_VIEW_SIZE: Vector2i = Vector2i(640, 360)
 const TILE: int = 8
+## "Add rail corner" puts the new corner this many tiles on from the last one.
+const PATH_STEP_TILES: int = 4
 const OUTSIDE_COLOR: Color = Color(0.05, 0.05, 0.07)
 ## Inside rooms: the game's own background color, so the level looks as in play.
 const ROOM_BACKGROUND_SETTING: String = "rendering/environment/defaults/default_clear_color"
@@ -207,6 +222,9 @@ var selected_object: Node2D = null:
 	set(value):
 		selected_object = value
 		_show_selection_in_panel()
+## A patch of painted crumbling rock or ice clicked with the Select tool (its own
+## crumble time shows in the panel), or null. Not an object: see CrumblePatchSettings.
+var selected_patch: CrumblePatchSettings = null
 ## The room last clicked in: its settings show in the panel when nothing is selected.
 var current_room: Room = null:
 	set(value):
@@ -231,6 +249,8 @@ var hover_object: Node2D = null
 var preview_active: bool = false
 var preview_rect: Rect2 = Rect2()
 var preview_color: Color = PAINT_PREVIEW_COLOR
+## A spike drag's cells so far, level rectangles (drawn in preview_color).
+var preview_cell_rects: Array[Rect2] = []
 
 ## A terrain stroke (free-hand, rectangle, fill). It can cross into the rooms next
 ## door: each room it reaches gets a StrokePart, and end_stroke makes ONE undo step.
@@ -276,10 +296,18 @@ var region_dragging: bool = false
 var region_start_cell: Vector2i = Vector2i.ZERO
 ## What Ctrl+C / Ctrl+X copied last (EditorClipboard), or null.
 var clipboard: EditorClipboard = null
-## A spike strip being dragged out: its room and first cell.
-var strip_active: bool = false
-var strip_room: Room = null
-var strip_start_cell: Vector2i = Vector2i.ZERO
+## A spike drag (the Spikes tool, or the eraser over spikes): the cells it has
+## passed so far, per room ({Room: {Vector2i: true}}), painted or erased as one
+## undo step on release (_finish_spike_stroke). Spikes edit like tiles (SpikeCells).
+var spike_stroke_active: bool = false
+var spike_stroke_painting: bool = true
+var spike_stroke_cells: Dictionary = {}
+var spike_stroke_last_point: Vector2 = Vector2.ZERO
+## The strip the Spikes tool's press landed on: a click without a drag selects it
+## (to turn it with R or set it in the panel) instead of painting.
+var spike_stroke_pressed_strip: Spikes = null
+## The Shift+drag rectangle is the Spikes tool's: it fills (or clears) spike cells.
+var rectangle_is_spikes: bool = false
 ## An object being dragged: where it and the mouse were when the drag began.
 var dragged_object: Node2D = null
 var drag_start_position: Vector2 = Vector2.ZERO
@@ -376,8 +404,15 @@ func _ready() -> void:
 	ui.set_zoom(camera.get_zoom_factor())
 	choose_entry(PaletteCatalog.get_entry(&"ground"))
 
+	autosave_timer = Timer.new()
+	autosave_timer.name = "AutosaveTimer"
+	autosave_timer.wait_time = AUTOSAVE_SECONDS
+	autosave_timer.autostart = true
+	autosave_timer.timeout.connect(_autosave)
+	add_child(autosave_timer)
+
 	if path_to_open != "":
-		open_level(path_to_open)
+		_open_checking_autosave(path_to_open)
 		path_to_open = ""
 
 
@@ -411,9 +446,53 @@ func _process(_delta: float) -> void:
 
 # --- Opening and saving ---
 
+## Opens the level at `path`, asking first if an auto-save backup of unsaved
+## changes is waiting for it (see AUTOSAVE_SECONDS).
+func _open_checking_autosave(path: String) -> void:
+	if not LevelStorage.has_autosave(path):
+		open_level(path)
+		return
+	autosave_choice = ""
+	# PromptPanel emits `closed` before it runs the chosen button's code, so the
+	# level opens a frame later (call_deferred), once autosave_choice is set.
+	ui.prompt.closed.connect(func() -> void: _finish_autosave_open.call_deferred(path), CONNECT_ONE_SHOT)
+	ui.prompt.ask("This level has changes that were never saved (auto-saved). Restore them?", [
+		["Restore", func(_text: String) -> void: autosave_choice = "restore"],
+		["Throw them away", func(_text: String) -> void: autosave_choice = "discard"],
+	])
+
+
+func _finish_autosave_open(path: String) -> void:
+	if autosave_choice == "restore":
+		if open_level(path, LevelStorage.autosave_path_for(path)) == OK:
+			saved_version = -1  # the restored changes aren't in the level file yet: unsaved
+			ui.show_message("Restored the auto-saved changes. Ctrl+S keeps them.")
+		return
+	if autosave_choice == "discard":
+		LevelStorage.delete_autosave(path)
+	open_level(path)
+
+
+## Every AUTOSAVE_SECONDS: a level with unsaved changes is backed up (not saved over).
+func _autosave() -> void:
+	if level_root == null or is_playtesting or not is_dirty():
+		return
+	# Not in the middle of a stroke or a drag (packing takes the level out of the
+	# tree for a moment); the timer comes round again soon enough.
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		return
+	_make_level_whole()
+	var error: Error = LevelStorage.save_autosave(level_root, level_path)
+	_set_level_aside(true)
+	if error != OK:
+		ui.show_message("Auto-save failed: %s" % error_string(error), true)
+
+
 ## Loads the level at `path` and shows it for editing. Returns OK or an error code.
-func open_level(path: String) -> Error:
-	var packed: PackedScene = LevelStorage.load_level(path)
+## `source_path`: read the level from there instead (its auto-save backup); it's
+## still edited and saved as `path`.
+func open_level(path: String, source_path: String = "") -> Error:
+	var packed: PackedScene = LevelStorage.load_level(source_path if source_path != "" else path)
 	if packed == null:
 		ui.show_message("Could not load %s" % path, true)
 		return ERR_FILE_NOT_FOUND
@@ -446,6 +525,7 @@ func open_level(path: String) -> Error:
 	current_room = start_room
 	if start_room != null:
 		fit_view(start_room.get_bounds())
+	LevelStorage.remember_last_opened(path)  # the library selects it next time
 	ui.show_message("Opened %s" % path.get_file())
 	return OK
 
@@ -466,6 +546,7 @@ func save() -> Error:
 	_set_level_aside(true)
 	if error == OK:
 		saved_version = undo_redo.get_version()
+		LevelStorage.delete_autosave(level_path)  # the level file has it all now
 		ui.show_message("Saved %s" % level_path)
 	else:
 		ui.show_message("Could not save: %s" % error_string(error), true)
@@ -486,7 +567,9 @@ func request_leave() -> void:
 		["Save and leave", func(_text: String) -> void:
 			if save() == OK:
 				_leave()],
-		["Leave without saving", func(_text: String) -> void: _leave()],
+		["Leave without saving", func(_text: String) -> void:
+			LevelStorage.delete_autosave(level_path)  # the changes were thrown away
+			_leave()],
 	])
 
 
@@ -686,6 +769,20 @@ func toggle_eraser() -> void:
 ## the spawn point is skipped quietly instead of saying it can't go.
 func erase_at(world_point: Vector2, is_drag: bool = false) -> void:
 	var hit: Node2D = object_at(world_point, true)
+	if hit is Spikes:
+		# Spikes erase like tiles: only the cell under the mouse, the rest of the
+		# strip stays. In a mouse drag the cells gather into one step on release.
+		var spikes_room: Room = hit.get_parent() as Room
+		if is_erasing:
+			# Only the cell under the mouse (no line from the last point: the drag
+			# may have wandered over terrain in between).
+			if not spike_stroke_active:
+				_start_spike_stroke(world_point, false, null)
+			else:
+				_add_spike_stroke_point(world_point)
+		else:
+			paint_spike_cells(spikes_room, [cell_at(spikes_room, world_point)], false)
+		return
 	if hit != null:
 		if PaletteCatalog.entry_for_node(hit).kind == PaletteCatalog.Kind.SPAWN_POINT:
 			if not is_drag:
@@ -889,15 +986,25 @@ func erase_block(room: Room, corner_a: Vector2i, corner_b: Vector2i) -> void:
 	var changes: Array[Array] = _finish_stroke()
 	var block: Rect2 = Rect2(room.global_position + Vector2(cells.position * TILE), Vector2(cells.size * TILE))
 	var doomed: Array[Node2D] = []
+	var added_spikes: Dictionary = {}  # Room -> Array[Spikes]: what's left of strips the block cut
 	for block_room: Room in get_rooms():
 		if not block_room.get_bounds().intersects(block):
 			continue
+		# Spikes are cut like tiles: the block's cells go, the rest of each strip stays.
+		var block_cells: Rect2i = Rect2i(Vector2i(((block.position - block_room.global_position) / TILE).round()), cells.size)
+		var spike_changes: Dictionary = {}
+		for cell: Vector2i in SpikeCells.read(block_room):
+			if block_cells.has_point(cell):
+				spike_changes[cell] = SpikeCells.NONE
+		var spike_diff: Array = _spike_strip_diff(block_room, spike_changes)
+		if not spike_diff[1].is_empty():
+			added_spikes[block_room] = spike_diff[1]
 		for child: Node in block_room.get_children():
 			var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(child)
-			var is_inside: bool = entry != null and block.encloses(PaletteCatalog.get_bounds(child as Node2D))
-			if is_inside and entry.kind != PaletteCatalog.Kind.SPAWN_POINT:
+			var is_inside: bool = entry != null and not child is Spikes and block.encloses(PaletteCatalog.get_bounds(child as Node2D))
+			if (is_inside and entry.kind != PaletteCatalog.Kind.SPAWN_POINT) or (child is Spikes and spike_diff[0].has(child)):  # `is` first: the typed array refuses other nodes
 				doomed.append(child)
-	if changes.is_empty() and doomed.is_empty():
+	if changes.is_empty() and doomed.is_empty() and added_spikes.is_empty():
 		return
 	# Last child first: removing it doesn't shift the indices of the ones before
 	# it, and undo (which runs backwards) puts them back first-child first.
@@ -906,6 +1013,8 @@ func erase_block(room: Room, corner_a: Vector2i, corner_b: Vector2i) -> void:
 	_add_stroke_steps(changes)
 	for node: Node2D in doomed:
 		_add_delete_steps(node)
+	for spikes_room: Room in added_spikes:
+		_add_spike_swap_steps(spikes_room, [], added_spikes[spikes_room])
 	undo_redo.commit_action(true)
 	_warn_if_chamber_exposed()
 
@@ -1148,6 +1257,10 @@ func _select_at(mouse_world: Vector2) -> void:
 		return
 	if found.is_empty():
 		select(null)
+		# No object: a crumbling patch there can be picked for its crumble time.
+		selected_patch = CrumblePatchSettings.find_at(room_at(mouse_world), mouse_world)
+		if selected_patch != null:
+			_show_selection_in_panel()
 		return
 	var names: Array[String] = []
 	for object: Node2D in found:
@@ -1327,6 +1440,7 @@ func _objects_top_first() -> Array[Node2D]:
 
 
 func select(node: Node2D) -> void:
+	selected_patch = null  # before the setter: it shows the panel
 	selected_object = node
 
 
@@ -1421,6 +1535,8 @@ func _apply_property(target: Object, property: StringName, value: Variant) -> vo
 		(target as CanvasItem).queue_redraw()
 	if target is Room and property == &"painted_ground":
 		RoomLook.refresh(target)  # the painter comes or goes
+	if target is Room and property == &"fire_allowed":
+		_show_selection_in_panel()  # Fire Start Pips shows only while Fire is on
 	# Pips alone do nothing: fire works only where it's allowed (off by default).
 	if target is Room and property == &"fire_start_pips" and int(value) > 0 and not (target as Room).fire_allowed:
 		ui.show_message("Fire Allowed is off in this room: tick it, or the pips can't be used.", true)
@@ -1441,25 +1557,79 @@ func _show_selection_in_panel() -> void:
 		if entry.link_property != &"":
 			# The same as L: starts link mode, or ends it if it's on.
 			ui.property_panel.add_button("Link / unlink (L)", toggle_link_mode)
+		if entry.path_property != &"":
+			# A rail's corners: drag their handles; these add or take off the last one.
+			var path_object: Node2D = selected
+			var path_property: StringName = entry.path_property
+			ui.property_panel.add_button("Add rail corner", func() -> void: add_path_point(path_object, path_property))
+			if (selected.get(path_property) as PackedVector2Array).size() > 1:
+				ui.property_panel.add_button("Remove last corner", func() -> void: remove_path_point(path_object, path_property))
 		_update_link_footer()
+	elif selected_patch != null and selected_patch.is_valid():
+		ui.property_panel.show_target(selected_patch, selected_patch.get_title(), [&"crumble_time"], [],
+			"The seconds from the first touch until this whole patch falls (%.1f s unless you change it). Click another patch to set its own." \
+			% CrumblePatchSettings.WATER_TUNING.crumble_time)
 	elif current_room != null and is_instance_valid(current_room):
 		var title: String = "Room\n%s" % room_title(current_room)
 		var room_count: int = _get_panel_rooms().size()
 		if room_count > 1:
 			title = "%d rooms selected\n(changes go to all)" % room_count
-		ui.property_panel.show_target(current_room, title, ROOM_SETTINGS, [], "", ROOM_ELEMENT_GRID)
+		ui.property_panel.show_target(current_room, title, get_room_settings(current_room), [], "", ROOM_ELEMENT_GRID)
 		ui.property_panel.add_button("Preview backdrops (%s)" % EditorHelp.key_text("editor_backdrop_preview"),
 			open_backdrop_preview)
 		# Walls in the room's edges with the terrain chosen last (Ground at first).
 		var terrain: PaletteCatalog.Entry = last_terrain_entry if last_terrain_entry != null else PaletteCatalog.get_entry(&"ground")
 		var room: Room = current_room
 		ui.property_panel.add_button("Fill edges: %s" % terrain.display_name, func() -> void: fill_room_edges(room, terrain))
+		# A copy of this room that follows the mouse in the map until a click places it.
+		ui.property_panel.add_button("Duplicate room (%s in map)" % EditorHelp.key_text("editor_duplicate"),
+			func() -> void:
+				if not map_view.is_open:
+					toggle_map()
+				map_view.select_room(room)
+				map_view.duplicate_room(room))
 		# The red X marks pile up over every play-test: one click starts them afresh.
 		if not play_record.deaths.is_empty():
 			ui.property_panel.add_button("Clear %d X marks (%s)" % [play_record.deaths.size(),
 				EditorHelp.key_text("editor_clear_deaths")], clear_death_marks)
 	else:
 		ui.property_panel.show_target(null, "", [])
+
+
+## Adds a corner at the end of `node`'s point list `property` (a rail platform's
+## corners), one undo step: PATH_STEP_TILES tiles on along the last piece's way
+## (to the right if there is no piece yet), snapped to the tiles.
+func add_path_point(node: Node2D, property: StringName) -> void:
+	var points: PackedVector2Array = (node.get(property) as PackedVector2Array).duplicate()
+	var last: Vector2 = points[points.size() - 1] if not points.is_empty() else Vector2.ZERO
+	var before_last: Vector2 = points[points.size() - 2] if points.size() > 1 else Vector2.ZERO
+	var way: Vector2 = (last - before_last).normalized()
+	if way == Vector2.ZERO:
+		way = Vector2.RIGHT
+	points.append((last + way * PATH_STEP_TILES * TILE).snapped(Vector2.ONE * TILE))
+	set_property(node, property, points, null, false)
+	_show_selection_in_panel()  # "Remove last corner" shows once there are two
+
+
+## Takes the last corner off `node`'s point list `property`, one undo step. The
+## first stays: a rail needs at least one piece.
+func remove_path_point(node: Node2D, property: StringName) -> void:
+	var points: PackedVector2Array = (node.get(property) as PackedVector2Array).duplicate()
+	if points.size() <= 1:
+		return
+	points.resize(points.size() - 1)
+	set_property(node, property, points, null, false)
+	_show_selection_in_panel()
+
+
+## The room settings the panel shows for `room`: ROOM_SETTINGS, without Fire
+## Start Pips while Fire is off (pips do nothing there; ticking Fire brings the
+## field back, see _apply_property).
+func get_room_settings(room: Room) -> Array[StringName]:
+	var settings: Array[StringName] = ROOM_SETTINGS.duplicate()
+	if not room.fire_allowed:
+		settings.erase(&"fire_start_pips")
+	return settings
 
 
 ## Forgets this level's death markers (the red X's of past play-tests): the button
@@ -1625,18 +1795,203 @@ func place_spawn_point(room: Room, cell: Vector2i) -> Node2D:
 	return spawn_point
 
 
-## Lays a STRIP entry (spikes) from `start_cell` toward `end_cell`: along the row
-## if the drag was more sideways, else along the column. Facing comes from the
-## ground next to the first cell. Undoable.
-func place_strip(entry: PaletteCatalog.Entry, room: Room, start_cell: Vector2i, end_cell: Vector2i) -> Node2D:
+## Lays spikes in a straight line from `start_cell` toward `end_cell`: along the row
+## if the drag was more sideways, else along the column, all facing the way the
+## ground next to the first cell says. (What the smoke test and scripts call; the
+## mouse paints cell by cell, see paint_spike_cells.) Joins neighbouring strips
+## with the same facing. Undoable. Returns the strip that now covers `start_cell`.
+func place_strip(_entry: PaletteCatalog.Entry, room: Room, start_cell: Vector2i, end_cell: Vector2i) -> Node2D:
 	var cells: Rect2i = _strip_cells(start_cell, end_cell)
 	var is_horizontal: bool = cells.size.y == 1  # a single tile counts as a row
-	var spikes: Spikes = PaletteCatalog.instantiate(entry) as Spikes
-	spikes.position = Vector2(cells.position * TILE)
-	spikes.facing = _auto_facing(room, cells.position, is_horizontal)
-	spikes.tile_count = maxi(cells.size.x, cells.size.y)
-	_add_object_undoable(room, spikes, "Place spikes")
-	return spikes
+	var facing: Spikes.Facing = _auto_facing(room, cells.position, is_horizontal)
+	var changes: Dictionary = {}
+	for y: int in range(cells.position.y, cells.end.y):
+		for x: int in range(cells.position.x, cells.end.x):
+			changes[Vector2i(x, y)] = facing
+	set_spike_cells({room: changes}, "Place spikes")
+	var placed: Spikes = spikes_at_cell(room, start_cell)
+	select(placed)  # like any placed object: selected, its settings in the panel
+	return placed
+
+
+## The spike strip of `room` covering `cell`, or null.
+func spikes_at_cell(room: Room, cell: Vector2i) -> Spikes:
+	for strip: Spikes in SpikeCells.strips_of(room):
+		if SpikeCells.cells_of(strip).has(cell):
+			return strip
+	return null
+
+
+## Paints (`painting`) or erases spikes on `cells` of `room` as ONE undo step, like
+## terrain: painting skips solid cells and cells that already have spikes, and
+## points each new spike away from its ground (SpikeCells.auto_facing; corners
+## settled by `prefer_rows`). With `needs_ground` (an area), cells with no ground
+## next to them are skipped; else they get spikes pointing up (or right, if not
+## `prefer_rows`), as the strip tool always allowed. Returns how many cells changed.
+func paint_spike_cells(room: Room, cells: Array[Vector2i], painting: bool, prefer_rows: bool = true,
+		needs_ground: bool = false) -> int:
+	var changes: Dictionary = _spike_paint_changes(room, cells, painting, prefer_rows, needs_ground)
+	if changes.is_empty():
+		return 0
+	set_spike_cells({room: changes}, "Paint spikes" if painting else "Erase spikes")
+	return changes.size()
+
+
+## What paint_spike_cells would change: {cell: facing, or SpikeCells.NONE}.
+func _spike_paint_changes(room: Room, cells: Array[Vector2i], painting: bool, prefer_rows: bool,
+		needs_ground: bool) -> Dictionary:
+	var current: Dictionary = SpikeCells.read(room)
+	var bounds: Rect2i = room_cell_rect(room)
+	var changes: Dictionary = {}
+	for cell: Vector2i in cells:
+		if not bounds.has_point(cell):
+			continue
+		if not painting:
+			if current.has(cell):
+				changes[cell] = SpikeCells.NONE
+			continue
+		if current.has(cell) or SpikeCells.is_ground(room, cell):
+			continue
+		var facing: int = SpikeCells.auto_facing(room, cell, prefer_rows)
+		if facing == SpikeCells.NONE:
+			if needs_ground:
+				continue
+			facing = Spikes.Facing.UP if prefer_rows else Spikes.Facing.RIGHT
+		changes[cell] = facing
+	return changes
+
+
+## The Spikes tool's Shift+drag: paints (or erases) spikes on every cell of the
+## rectangle between two cells of `room` that has ground next to it, all pointing
+## away from it. One undo step. Returns how many cells changed.
+func fill_spike_rectangle(room: Room, corner_a: Vector2i, corner_b: Vector2i, painting: bool) -> int:
+	var area: Rect2i = _rect_between(corner_a, corner_b)
+	var cells: Array[Vector2i] = []
+	for y: int in range(area.position.y, area.end.y):
+		for x: int in range(area.position.x, area.end.x):
+			cells.append(Vector2i(x, y))
+	var changed: int = paint_spike_cells(room, cells, painting, area.size.x >= area.size.y, true)
+	if changed == 0 and painting:
+		ui.show_message("No spikes there: they need ground right next to them.", true)
+	return changed
+
+
+## Starts a spike drag at `world_point` (see spike_stroke_cells).
+func _start_spike_stroke(world_point: Vector2, painting: bool, pressed_strip: Spikes) -> void:
+	spike_stroke_active = true
+	spike_stroke_painting = painting
+	spike_stroke_cells = {}
+	spike_stroke_pressed_strip = pressed_strip
+	spike_stroke_last_point = world_point
+	_add_spike_stroke_point(world_point)
+
+
+## Adds every cell on the line from the last mouse point to `world_point` (a fast
+## mouse skips cells between two motion events), into whichever room each lies in.
+func _continue_spike_stroke(world_point: Vector2) -> void:
+	var travel: Vector2 = world_point - spike_stroke_last_point
+	var steps: int = ceili(maxf(absf(travel.x), absf(travel.y)) / TILE)
+	for step: int in range(1, steps + 1):
+		_add_spike_stroke_point(spike_stroke_last_point.lerp(world_point, float(step) / steps))
+	spike_stroke_last_point = world_point
+
+
+func _add_spike_stroke_point(world_point: Vector2) -> void:
+	spike_stroke_last_point = world_point
+	var room: Room = room_at(world_point)
+	if room == null:
+		return
+	if not spike_stroke_cells.has(room):
+		spike_stroke_cells[room] = {}
+	spike_stroke_cells[room][cell_at(room, world_point)] = true
+
+
+## Mouse released: the spike drag becomes one undo step. A plain click on a strip
+## (one cell, no drag) with the Spikes tool selects that strip instead.
+func _finish_spike_stroke() -> void:
+	spike_stroke_active = false
+	var pressed_strip: Spikes = spike_stroke_pressed_strip
+	spike_stroke_pressed_strip = null
+	var cell_count: int = 0
+	for room: Room in spike_stroke_cells:
+		cell_count += spike_stroke_cells[room].size()
+	if pressed_strip != null and cell_count == 1:
+		select(pressed_strip)
+		spike_stroke_cells = {}
+		return
+	var changes_by_room: Dictionary = {}
+	for room: Room in spike_stroke_cells:
+		var cells: Array[Vector2i] = []
+		cells.assign(spike_stroke_cells[room].keys())
+		# A stroke wider than tall settles corners as floor/ceiling spikes, else as wall spikes.
+		var reach: Rect2i = Rect2i(cells[0], Vector2i.ZERO)
+		for cell: Vector2i in cells:
+			reach = reach.expand(cell)
+		var changes: Dictionary = _spike_paint_changes(room, cells, spike_stroke_painting, reach.size.x >= reach.size.y, false)
+		if not changes.is_empty():
+			changes_by_room[room] = changes
+	spike_stroke_cells = {}
+	set_spike_cells(changes_by_room, "Paint spikes" if spike_stroke_painting else "Erase spikes")
+
+
+## Applies spike cell changes ({Room: {cell: facing, or SpikeCells.NONE to remove}})
+## as ONE undo step: each room's spikes are re-cut into the fewest strips, and only
+## the strips that differ are swapped (undo puts the very same old strips back).
+## Returns false if nothing changed.
+func set_spike_cells(changes_by_room: Dictionary, action_name: String) -> bool:
+	var removed_by_room: Dictionary = {}  # Room -> Array[Spikes], child order
+	var added_by_room: Dictionary = {}    # Room -> Array[Spikes], not in the tree yet
+	for room: Room in changes_by_room:
+		var diff: Array = _spike_strip_diff(room, changes_by_room[room])
+		if not diff[0].is_empty() or not diff[1].is_empty():
+			removed_by_room[room] = diff[0]
+			added_by_room[room] = diff[1]
+	if removed_by_room.is_empty():
+		return false
+	undo_redo.create_action(action_name)
+	for room: Room in removed_by_room:
+		_add_spike_swap_steps(room, removed_by_room[room], added_by_room[room])
+	undo_redo.commit_action()
+	return true
+
+
+## The strips of `room` to take out and the new ones to put in so that its spikes
+## match `changes` applied to what it has now: [removed (child order), added].
+func _spike_strip_diff(room: Room, changes: Dictionary) -> Array:
+	var cells: Dictionary = SpikeCells.read(room)
+	for cell: Vector2i in changes:
+		if changes[cell] == SpikeCells.NONE:
+			cells.erase(cell)
+		else:
+			cells[cell] = changes[cell]
+	var wanted: Dictionary = {}  # run key -> run
+	for run: Dictionary in SpikeCells.to_runs(cells):
+		wanted[SpikeCells.run_key(run["start"], run["facing"], run["count"])] = run
+	var removed: Array[Spikes] = []
+	for strip: Spikes in SpikeCells.strips_of(room):
+		var key: String = SpikeCells.strip_key(strip)
+		if wanted.has(key):
+			wanted.erase(key)  # this strip stays as it is
+		else:
+			removed.append(strip)
+	var added: Array[Spikes] = []
+	for run: Dictionary in wanted.values():
+		var strip: Spikes = PaletteCatalog.instantiate(PaletteCatalog.get_entry(&"spikes")) as Spikes
+		strip.position = Vector2(run["start"] * TILE)
+		strip.facing = run["facing"]
+		strip.tile_count = run["count"]
+		added.append(strip)
+	return [removed, added]
+
+
+## Inside the undo action being made: takes `removed` strips out of `room` and puts
+## `added` ones in. Last child first, so undo (which runs backwards) puts each old
+## strip back at its own index.
+func _add_spike_swap_steps(room: Room, removed: Array, added: Array) -> void:
+	for index: int in range(removed.size() - 1, -1, -1):
+		_add_delete_steps(removed[index])
+	for strip: Spikes in added:
+		add_object_steps(room, strip)
 
 
 ## Catalog `snaps_to_ground`: the position (room-local) at which `node` in `room`
@@ -1744,8 +2099,8 @@ func _is_body_free(room: Room, body: Rect2, room_size: Vector2i) -> bool:
 func is_solid_cell(room: Room, cell: Vector2i) -> bool:
 	for child: Node in room.get_children():
 		var layer: TileMapLayer = child as TileMapLayer
-		if layer is HiddenLayer:
-			continue  # a hidden chamber is open space (a gap in the wall), not a surface
+		if layer is HiddenLayer or layer is StormCloudLayer:
+			continue  # a hidden chamber is open space (a gap in the wall); a storm cloud isn't solid
 		if layer != null and layer.get_cell_source_id(cell) != -1:
 			return true
 	return false
@@ -2025,9 +2380,8 @@ func _strip_cells(start_cell: Vector2i, end_cell: Vector2i) -> Rect2i:
 ## Along a row: floor below -> up, ceiling above -> down. Along a column: wall on
 ## the left -> right, wall on the right -> left.
 func _auto_facing(room: Room, cell: Vector2i, is_horizontal: bool) -> Spikes.Facing:
-	var ground: TileMapLayer = room.get_node_or_null(NodePath(PaletteCatalog.get_entry(&"ground").layer_name)) as TileMapLayer
 	var is_solid: Callable = func(at: Vector2i) -> bool:
-		return ground != null and ground.get_cell_source_id(at) != -1
+		return SpikeCells.is_ground(room, at)
 	if is_horizontal:
 		if not is_solid.call(cell + Vector2i.DOWN) and is_solid.call(cell + Vector2i.UP):
 			return Spikes.Facing.DOWN
@@ -2192,8 +2546,40 @@ func get_play_warnings() -> Array[String]:
 		# Fire objects turn Fire on, but without pips the player can't light anything.
 		if room.fire_allowed and room.fire_start_pips == 0 and not has_fire_diamond:
 			warnings.append("%s allows Fire but has no fire pips (set Fire Start Pips, or place a fire diamond)." % room_title(room))
+		warnings.append_array(get_element_warnings(room))
 	if not has_goal:
 		warnings.append("No goal yet: the level can't be finished.")
+	return warnings
+
+
+## Elements a room has things for but doesn't allow: e.g. a brazier with Fire off
+## (the player can't light it), painted water with Water off (it sloshes but
+## can't be bent). Placing those things ticks the element on
+## (PaletteCatalog.Entry.room_settings_on_create); this catches it ticked off
+## again, or a room imported that way. One line per element.
+func get_element_warnings(room: Room) -> Array[String]:
+	var found: Dictionary = {}  # element setting -> the first thing that needs it
+	for child: Node in room.get_children():
+		var entries: Array[PaletteCatalog.Entry] = []
+		var layer: TileMapLayer = child as TileMapLayer
+		if layer != null:
+			if layer.get_used_cells().is_empty():
+				continue
+			for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
+				if entry.kind == PaletteCatalog.Kind.TERRAIN and entry.layer_name == layer.name:
+					entries.append(entry)
+		else:
+			var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(child)
+			if entry != null:
+				entries.append(entry)
+		for entry: PaletteCatalog.Entry in entries:
+			for setting: StringName in entry.room_settings_on_create:
+				if String(setting).ends_with("_allowed") and entry.room_settings_on_create[setting] == true 						and not bool(room.get(setting)) and not found.has(setting):
+					found[setting] = entry.display_name
+	var warnings: Array[String] = []
+	for setting: StringName in found:
+		var element: String = String(setting).trim_suffix("_allowed").capitalize()
+		warnings.append("%s has %s, but %s is off in that room." % [room_title(room), found[setting], element])
 	return warnings
 
 
@@ -2252,6 +2638,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			region_cells = _rect_between(region_start_cell, cell_at(region_room, mouse_world))
 		elif is_erasing:
 			erase_at(mouse_world, true)
+		elif spike_stroke_active:
+			_continue_spike_stroke(mouse_world)
 		elif stroke_room != null:
 			_continue_stroke(mouse_world)
 		elif not dragged_handle.is_empty():
@@ -2426,6 +2814,15 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 		return
 	# Object tools: an object under the mouse is picked up, else a new one is placed.
 	var hit: Node2D = object_at(mouse_world)
+	if current_entry.kind == PaletteCatalog.Kind.STRIP and room != null and (hit == null or hit is Spikes):
+		# Spikes paint like terrain: drag a brush, Shift+drag an area. A click on a
+		# strip without dragging selects it (_finish_spike_stroke).
+		if Input.is_action_pressed("editor_rectangle"):
+			_start_rectangle(room, mouse_world, true, false)
+			rectangle_is_spikes = true
+		else:
+			_start_spike_stroke(mouse_world, true, hit as Spikes)
+		return
 	if hit != null:
 		select(hit)
 		dragged_object = hit
@@ -2442,10 +2839,6 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 		PaletteCatalog.Kind.OBJECT:
 			place_object_at(current_entry, room, mouse_world - room.global_position,
 				Input.is_action_pressed("editor_free_place"))
-		PaletteCatalog.Kind.STRIP:
-			strip_active = true
-			strip_room = room
-			strip_start_cell = cell
 
 
 func _on_right_pressed(mouse_world: Vector2) -> void:
@@ -2466,6 +2859,15 @@ func _on_right_pressed(mouse_world: Vector2) -> void:
 			_start_terrain(room, mouse_world, false)
 		return
 	var hit: Node2D = object_at(mouse_world, true)  # right-click deletes a zone from inside too
+	var right_room: Room = room_at(mouse_world)
+	if current_entry.kind == PaletteCatalog.Kind.STRIP and right_room != null and (hit == null or hit is Spikes):
+		# The Spikes tool erases spikes like tiles: a drag, or Shift+drag an area.
+		if Input.is_action_pressed("editor_rectangle"):
+			_start_rectangle(right_room, mouse_world, false, false)
+			rectangle_is_spikes = true
+		else:
+			_start_spike_stroke(mouse_world, false, null)
+		return
 	if hit != null:
 		delete_object(hit)
 
@@ -2478,6 +2880,8 @@ func _on_mouse_released(mouse_world: Vector2) -> void:
 	elif is_erasing:
 		is_erasing = false
 		end_stroke()
+		if spike_stroke_active:
+			_finish_spike_stroke()  # spikes the eraser passed over
 	elif not dragged_handle.is_empty():
 		# The drag already changed it live; record the whole drag as one step.
 		var property: StringName = dragged_handle["property"]
@@ -2485,15 +2889,16 @@ func _on_mouse_released(mouse_world: Vector2) -> void:
 		set_property(selected_object, property, selected_object.get(property), dragged_handle_start_value)
 	elif rectangle_active:
 		rectangle_active = false
-		if rectangle_erases_block:
+		if rectangle_is_spikes:
+			fill_spike_rectangle(rectangle_room, rectangle_start_cell, cell_at(rectangle_room, mouse_world), rectangle_painting)
+		elif rectangle_erases_block:
 			erase_block(rectangle_room, rectangle_start_cell, cell_at(rectangle_room, mouse_world))
 		else:
 			fill_rectangle(rectangle_room, rectangle_start_cell, cell_at(rectangle_room, mouse_world), rectangle_painting)
 	elif stroke_room != null:
 		end_stroke()
-	elif strip_active:
-		strip_active = false
-		place_strip(current_entry, strip_room, strip_start_cell, cell_at(strip_room, mouse_world))
+	elif spike_stroke_active:
+		_finish_spike_stroke()
 	elif dragged_object != null:
 		# The drag already moved it; record the move (from the start) as one step.
 		# Things bolted down (a sentry) drop onto the ground under where it was let go.
@@ -2545,6 +2950,7 @@ func _start_rectangle(room: Room, mouse_world: Vector2, painting: bool, erases_b
 	rectangle_start_cell = cell_at(room, mouse_world)
 	rectangle_painting = painting
 	rectangle_erases_block = erases_block
+	rectangle_is_spikes = false  # the Spikes tool sets it after this
 
 
 ## Stamps the brush along the line from the last mouse point to `world_point`, at
@@ -2558,17 +2964,23 @@ func _continue_stroke(world_point: Vector2) -> void:
 	last_stroke_point = world_point
 
 
-## What the overlay previews this frame: the rectangle or spike strip being dragged.
+## What the overlay previews this frame: the rectangle being dragged, or the
+## cells a spike drag has passed (preview_cell_rects).
 func _update_preview() -> void:
-	preview_active = rectangle_active or strip_active
+	preview_active = rectangle_active
+	preview_cell_rects.clear()
 	if rectangle_active:
-		# Not cut to the room: the rectangle carries on into the rooms next door.
+		# Not cut to the room (terrain carries on into the rooms next door), except spikes.
 		preview_rect = _cells_to_world(rectangle_room, _rect_between(rectangle_start_cell,
-			cell_at(rectangle_room, get_global_mouse_position())), false)
+			cell_at(rectangle_room, get_global_mouse_position())), rectangle_is_spikes)
 		preview_color = PAINT_PREVIEW_COLOR if rectangle_painting else ERASE_PREVIEW_COLOR
-	elif strip_active:
-		preview_rect = _cells_to_world(strip_room, _strip_cells(strip_start_cell, cell_at(strip_room, get_global_mouse_position())))
-		preview_color = STRIP_PREVIEW_COLOR
+		if rectangle_is_spikes and rectangle_painting:
+			preview_color = STRIP_PREVIEW_COLOR
+	elif spike_stroke_active:
+		preview_color = STRIP_PREVIEW_COLOR if spike_stroke_painting else ERASE_PREVIEW_COLOR
+		for room: Room in spike_stroke_cells:
+			for cell: Vector2i in spike_stroke_cells[room]:
+				preview_cell_rects.append(_cells_to_world(room, Rect2i(cell, Vector2i.ONE)))
 
 
 func _update_hover() -> void:

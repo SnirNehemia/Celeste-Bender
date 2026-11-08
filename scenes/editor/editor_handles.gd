@@ -5,12 +5,14 @@ extends RefCounted
 ## Which handles an object has comes from its catalog entry (PaletteCatalog):
 ##   - its outline kind: a size corner, a width edge, or a spike strip's end
 ##   - its `point_properties`: one handle per point (a leaf's travel, a sail's rail ends)
+##   - its `path_property`: one handle per point of a list (a rail platform's corners)
 ## LevelEditor finds the handle under the mouse (handle_at), asks for the new
 ## value while dragging (value_for_drag), and records the change for undo.
 ## EditorOverlay draws them (get_handles).
 ##
 ## A handle is a Dictionary: {"property": StringName, "kind": Kind, "position": Vector2}
-## with `position` in level (global) coordinates.
+## with `position` in level (global) coordinates; a PATH_POINT handle also has
+## "index", which point of the list it is.
 
 enum Kind {
 	SIZE_FROM_TOP_LEFT,   ## bottom-right corner of a top-left outline (door, zones, goal)
@@ -18,6 +20,7 @@ enum Kind {
 	WIDTH,                ## right edge of an outline centered on the origin (platforms, plate)
 	STRIP_LENGTH,         ## the far end of a spike strip
 	POINT,                ## a point relative to the origin
+	PATH_POINT,           ## one point of a list of points relative to the origin (a rail's corner)
 }
 
 const TILE: int = 8
@@ -54,6 +57,12 @@ static func get_handles(node: Node2D) -> Array[Dictionary]:
 			handles.append(_handle(&"tile_count", Kind.STRIP_LENGTH, far_end))
 	for point_property: StringName in entry.point_properties:
 		handles.append(_handle(point_property, Kind.POINT, node.global_position + (node.get(point_property) as Vector2)))
+	if entry.path_property != &"":
+		var points: PackedVector2Array = node.get(entry.path_property)
+		for index: int in points.size():
+			var handle: Dictionary = _handle(entry.path_property, Kind.PATH_POINT, node.global_position + points[index])
+			handle["index"] = index
+			handles.append(handle)
 	return handles
 
 
@@ -93,6 +102,12 @@ static func value_for_drag(node: Node2D, handle: Dictionary, world_point: Vector
 		Kind.STRIP_LENGTH:
 			var along: float = (world_point.x - origin.x) if _is_horizontal_strip(node as Spikes) else (world_point.y - origin.y)
 			return clampi(roundi(along / TILE), 1, 40)
+		Kind.PATH_POINT:
+			# The whole list, with this one point moved. duplicate(): a new list, so
+			# the value the drag started from (kept for undo) isn't changed with it.
+			var points: PackedVector2Array = (node.get(handle["property"]) as PackedVector2Array).duplicate()
+			points[handle["index"]] = (world_point - origin).snapped(Vector2.ONE * step)
+			return points
 		_:
 			return (world_point - origin).snapped(Vector2.ONE * step)
 

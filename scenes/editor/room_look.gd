@@ -59,6 +59,12 @@ const NEIGHBOUR_STEPS: Array[Vector2i] = [Vector2i.LEFT, Vector2i.RIGHT, Vector2
 ## A room that just entered the editor (opened, or imported as a copy): its
 ## FireGrid goes, and its painter and plants are rebuilt without it.
 static func prepare_for_editing(room: Room) -> void:
+	# Every room of an editor level draws its ground with the painter, so all rooms
+	# look alike (an imported chapter room or an old level's room had flat tiles).
+	# Saved with the level; the panel no longer offers the switch.
+	if not room.painted_ground:
+		room.painted_ground = true
+		refresh(room)
 	_convert_wall_objects(room)
 	_open_hidden_chambers(room)
 	var water_world: Node = room.get_node_or_null(NodePath(WATER_WORLD_NAME))
@@ -88,6 +94,10 @@ static func refresh(room: Room) -> void:
 			_regrow_plants(child as TileMapLayer)
 		elif child is WallLayer:
 			(child as WallLayer).build_walls()
+		elif child.has_method(&"rebuild_look"):
+			# Layers that draw themselves (ice, crumbling rock and ice, storm clouds):
+			# hide their tiles again and redo their look from the cells as they are.
+			child.call(&"rebuild_look")
 	# Before the painter is built: it reads which chamber cells are covered.
 	_open_hidden_chambers(room)
 	var has_earth: bool = room.get_node_or_null(NodePath(EARTH_LAYER_NAME)) is EarthLayer
@@ -99,7 +109,8 @@ static func refresh(room: Room) -> void:
 	if not has_earth and not room.painted_ground:
 		# No painter: the tiles draw themselves again (a chamber's never: it's air).
 		for child: Node in room.get_children():
-			if child is TileMapLayer and not child is HiddenLayer and not child is WallLayer:
+			if child is TileMapLayer and not child is HiddenLayer and not child is WallLayer \
+					and not child.has_method(&"rebuild_look"):
 				(child as TileMapLayer).self_modulate = Color.WHITE
 		return
 	room._add_ground_painter()

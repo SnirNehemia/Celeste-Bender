@@ -95,6 +95,14 @@ func _ready() -> void:
 	_rebuild()
 
 
+## The level editor, after a stroke or an undo: the tiles may have changed (and the
+## editor may have shown them while painting), so they're hidden and the look redone.
+## (TileMapLayer's `changed` signal doesn't fire for every cell edit.)
+func rebuild_look() -> void:
+	self_modulate = Color(1.0, 1.0, 1.0, 0.0)
+	_queue_rebuild()
+
+
 func _queue_rebuild() -> void:
 	if is_rebuild_queued:
 		return
@@ -217,6 +225,6 @@ func _is_open_below(root: Vector2) -> bool:
 	var below: Vector2i = local_to_map(root + Vector2(0.0, 1.0))
 	for sibling: Node in get_parent().get_children():
 		var layer: TileMapLayer = sibling as TileMapLayer
-		if layer != null and not layer is WaterLayer and layer.get_cell_source_id(below) != -1:
+		if layer != null and not layer is WaterLayer and not layer is StormCloudLayer and layer.get_cell_source_id(below) != -1:
 			return false
 	return true

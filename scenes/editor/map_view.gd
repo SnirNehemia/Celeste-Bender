@@ -21,7 +21,10 @@ extends RefCounted
 ## screen, empty but for a spawn point; the room panel's "Fill edges" walls it in),
 ## or "Draw a new room", after which a drag on empty space makes one at the dragged
 ## size. On a room: copy it, paste the copied one (a ghost follows the mouse like
-## an import, a click puts it down), edit it, make it the start room, delete it.
+## an import, a click puts it down), duplicate it (copy and paste in one go, also
+## Ctrl+D), copy its settings and paste them into the selected rooms (elements,
+## pips, backdrop, dark: everything in the room panel but the title), edit it,
+## make it the start room, delete it.
 ## Both: the backdrop look or altitude of the selected rooms, and the backdrop
 ## preview (BackdropPreview), which can set them too.
 ## Copying packs the level as it is now (unsaved changes too) and keeps that
@@ -63,6 +66,8 @@ const EDGE_RIGHT: int = 2
 const EDGE_TOP: int = 4
 const EDGE_BOTTOM: int = 8
 const TILE: int = 8
+## The step of a room move while the half-tile key (Alt) is held.
+const HALF_TILE: int = 4
 const MIN_ROOM_SIZE: Vector2 = Vector2(320, 180)
 ## How close (screen pixels) the mouse must be to an edge to grab it.
 const EDGE_PICK_SCREEN_PIXELS: float = 4.0
@@ -104,6 +109,9 @@ var importing_room: Room = null
 var clipboard: PackedScene = null
 var clipboard_room_name: String = ""
 var clipboard_title: String = ""
+## Copied room settings (Copy settings), setting -> value; empty = none copied.
+var settings_clipboard: Dictionary = {}
+var settings_clipboard_title: String = ""
 
 ## The room view's camera, to come back to when the map closes.
 var room_view_zoom_index: int = 0
@@ -239,6 +247,11 @@ func handle_input(event: InputEvent, mouse_world: Vector2) -> bool:
 			editor.ui.show_message("Click a room first, then S makes it the start room.", true)
 	elif event.is_action_pressed("editor_import"):
 		editor.ui.import_picker.open(editor.level_path)
+	elif event.is_action_pressed("editor_duplicate"):
+		if selected_room != null:
+			duplicate_room(selected_room)
+		else:
+			editor.ui.show_message("Click a room first, then %s duplicates it." % EditorHelp.key_text("editor_duplicate"), true)
 	elif event.is_action_pressed("editor_depth_deeper"):
 		if not set_shown_depth(shown_depth + 1):
 			editor.ui.show_message("Depth %d is empty: make a room there before going deeper." % shown_depth, true)
@@ -261,16 +274,16 @@ func mouse_moved(mouse_world: Vector2) -> void:
 		Drag.CREATE:
 			preview_rect = snap_new_room(drag_start_mouse, mouse_world, snap_distance)
 		Drag.MOVE:
-			preview_rect = snap_moved(Rect2(drag_start_rect.position + mouse_world - drag_start_mouse, drag_start_rect.size),
-				drag_room, snap_distance)
+			var moved: Rect2 = Rect2(drag_start_rect.position + mouse_world - drag_start_mouse, drag_start_rect.size)
+			preview_rect = _half_tile_place(moved) if _is_half_tile_held() else snap_moved(moved, drag_room, snap_distance)
 		Drag.RESIZE:
 			preview_rect = snap_resized(drag_start_rect, drag_edges, mouse_world, drag_room, snap_distance)
 		Drag.SELECT:
 			preview_rect = Rect2(drag_start_mouse, Vector2.ZERO).expand(mouse_world)
 		Drag.NONE:
 			if importing_room != null:
-				preview_rect = snap_moved(Rect2(mouse_world - importing_room.room_size / 2.0, importing_room.room_size),
-					null, snap_distance)
+				var placed: Rect2 = Rect2(mouse_world - importing_room.room_size / 2.0, importing_room.room_size)
+				preview_rect = _half_tile_place(placed) if _is_half_tile_held() else snap_moved(placed, null, snap_distance)
 	if (drag != Drag.NONE and drag != Drag.SELECT) or importing_room != null:
 		preview_valid = is_free(preview_rect, drag_room)
 		for group_rect: Rect2 in get_group_preview_rects():
@@ -448,6 +461,22 @@ func snap_new_room(start: Vector2, end: Vector2, snap_distance: float) -> Rect2:
 	return snap_moved(Rect2(top_left, size), null, snap_distance)
 
 
+## True while the half-tile key (editor_free_place, Alt: the same key that frees
+## objects from the grid) is held during a room move or a paste / import.
+func _is_half_tile_held() -> bool:
+	return Input.is_action_pressed("editor_free_place")
+
+
+## HALF-TILE MOVES (hold Alt): `rect` with its position on a 4 px grid and no
+## other snapping: no neighbour edges, no row lining-up, no depth lining-up. The
+## automatic rules can't always agree (a room may touch a neighbour on one grid
+## and sit behind a room on the other), so this hands the choice to the designer.
+## The status line says it's on, so a stray Alt doesn't go unnoticed.
+func _half_tile_place(rect: Rect2) -> Rect2:
+	editor.ui.show_message("Half-tile steps (%s held): no snapping. Let go for the normal grid." % EditorHelp.key_text("editor_free_place"))
+	return Rect2(rect.position.snapped(Vector2.ONE * HALF_TILE), rect.size)
+
+
 ## `rect` (a room being moved) with its position on the grid, or on a
 ## neighbour's edge when one is within `snap_distance`. `ignore`: the moved room.
 func snap_moved(rect: Rect2, ignore: Room, snap_distance: float) -> Rect2:
@@ -478,7 +507,7 @@ func snap_moved(rect: Rect2, ignore: Room, snap_distance: float) -> Rect2:
 ## tile); one touching a top or bottom edge takes its column offset. Returns the
 ## corrected position.
 func _align_to_side_neighbours(rect: Rect2, ignore: Room) -> Vector2:
-	var aligned: Vector2 = rect.position
+	var aligned: Vector2 = _align_to_other_depths(rect, ignore)
 	for room: Room in editor.get_rooms():
 		if room == ignore or drag_group.has(room):
 			continue
@@ -492,6 +521,40 @@ func _align_to_side_neighbours(rect: Rect2, ignore: Room) -> Vector2:
 		elif above_or_below:
 			aligned.x = _snap_to_phase(aligned.x, other.position.x)
 	return aligned
+
+
+## Tile cells line up with the rooms in front of and behind this one. A room in
+## another depth's band usually has no neighbours there, so it would snap to the
+## plain 8 px grid, while the room it sits behind may be half a tile off that grid
+## (it took a neighbour's row offset, see above). Seen through the layer behind
+## (BackRoomView) the two rooms' tiles were then 4 px apart. So a room whose MAP
+## rectangle overlaps a room of another depth takes that room's row AND column
+## offset. Same-depth side neighbours are applied after this and win, since walls
+## and exits meeting matters more. Returns the corrected position.
+func _align_to_other_depths(rect: Rect2, ignore: Room) -> Vector2:
+	var my_depth: int = Room.depth_at(rect.get_center().y)
+	var map_rect: Rect2 = Rect2(rect.position - Room.depth_offset(my_depth), rect.size)
+	# The NEAREST depth decides (the room right in front, else right behind, then
+	# further away): a room at depth 2 lines up with the one at depth 1 it's seen
+	# behind, even if a depth 0 room further in front is on another grid.
+	var best_room: Room = null
+	var best_score: int = 0
+	for room: Room in editor.get_rooms():
+		if room == ignore or drag_group.has(room):
+			continue
+		var depth_gap: int = room.get_depth() - my_depth
+		if depth_gap == 0 or not map_rect.intersects(room.get_map_bounds()):
+			continue
+		# 2 * gap, minus one for the room in front, so in front wins a tie.
+		var score: int = 2 * absi(depth_gap) - (1 if depth_gap < 0 else 0)
+		if best_room == null or score < best_score:
+			best_room = room
+			best_score = score
+	if best_room == null:
+		return rect.position
+	# That room's grid origin, moved into this room's band.
+	var origin: Vector2 = best_room.get_map_position() + Room.depth_offset(my_depth)
+	return Vector2(_snap_to_phase(rect.position.x, origin.x), _snap_to_phase(rect.position.y, origin.y))
 
 
 ## `value` moved to the nearest spot a whole number of tiles from `grid_origin`.
@@ -875,11 +938,19 @@ func _open_room_menu(mouse_world: Vector2) -> void:
 			is_drawing_next_room = true
 			editor.ui.show_message("Drag on empty space: the new room's size."))
 	else:
+		rows.append("Duplicate %s (%s)" % [editor.room_title(room), EditorHelp.key_text("editor_duplicate")])
+		actions.append(duplicate_room.bind(room))
 		rows.append("Copy %s" % editor.room_title(room))
 		actions.append(copy_room.bind(room))
 	if clipboard != null:
 		rows.append("Paste %s" % clipboard_title)
 		actions.append(begin_paste)
+	if room != null:
+		rows.append("Copy settings of %s" % editor.room_title(room))
+		actions.append(copy_room_settings.bind(room))
+	if not settings_clipboard.is_empty() and not selected_rooms.is_empty():
+		rows.append("Paste settings of %s into %s" % [settings_clipboard_title, _selection_text()])
+		actions.append(func() -> void: paste_room_settings(selected_rooms.duplicate()))
 	if room != null:
 		rows.append("Edit room")
 		actions.append(close.bind(room))
@@ -957,6 +1028,43 @@ func copy_room(room: Room) -> void:
 	clipboard_room_name = String(room.name)
 	clipboard_title = editor.room_title(room)
 	editor.ui.show_message("Copied %s. Right-click and Paste to place a copy." % editor.room_title(room))
+
+
+## Duplicate: Copy and Paste in one go: a copy of `room` follows the mouse until a
+## click puts it down. (It also becomes what Paste pastes.)
+func duplicate_room(room: Room) -> void:
+	copy_room(room)
+	begin_paste()
+
+
+## The room settings Copy settings takes: the room panel's, but not the title.
+static func get_copyable_settings() -> Array[StringName]:
+	var settings: Array[StringName] = LevelEditor.ROOM_SETTINGS.duplicate()
+	settings.erase(&"display_title")
+	return settings
+
+
+## Copy settings: remembers `room`'s settings (get_copyable_settings) as they are now.
+func copy_room_settings(room: Room) -> void:
+	settings_clipboard = {}
+	for setting: StringName in get_copyable_settings():
+		settings_clipboard[setting] = room.get(setting)
+	settings_clipboard_title = editor.room_title(room)
+	editor.ui.show_message("Copied the settings of %s. Select rooms, right-click, Paste settings." % settings_clipboard_title)
+
+
+## Paste settings: gives `rooms` the copied settings, as ONE undo step.
+func paste_room_settings(rooms: Array[Room]) -> void:
+	if settings_clipboard.is_empty() or rooms.is_empty():
+		return
+	editor.undo_redo.create_action("Paste room settings into %d rooms" % rooms.size())
+	for room: Room in rooms:
+		for setting: StringName in settings_clipboard:
+			editor.undo_redo.add_do_method(editor._apply_property.bind(room, setting, settings_clipboard[setting]))
+			editor.undo_redo.add_undo_method(editor._apply_property.bind(room, setting, room.get(setting)))
+	editor.undo_redo.commit_action()
+	editor.ui.show_message("Settings of %s pasted into %s." % [settings_clipboard_title,
+		editor.room_title(rooms[0]) if rooms.size() == 1 else "%d rooms" % rooms.size()])
 
 
 ## Paste: a new copy of the copied room follows the mouse until a click puts it

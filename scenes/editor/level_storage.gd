@@ -247,6 +247,61 @@ static func _slugify(title: String) -> String:
 
 ## Builds the level's nodes from its file, outside the scene tree (nothing runs
 ## _ready). The caller frees the result.
+# --- Auto-save backups and the last level opened ---
+
+## Where LevelEditor's auto-save keeps backups of levels with unsaved changes, one
+## file per level, never in the levels folder (the library would list them). A
+## backup is deleted when the level is saved or its changes are thrown away, so
+## one still there on opening means the editor closed with changes unsaved.
+## Static vars: the smoke test points them at throwaway places.
+static var autosave_dir: String = DEFAULT_AUTOSAVE_DIR
+const DEFAULT_AUTOSAVE_DIR: String = "user://editor_autosave/"
+## The last level opened in the editor (the library selects it first).
+static var recent_path: String = DEFAULT_RECENT_PATH
+const DEFAULT_RECENT_PATH: String = "user://editor_recent.cfg"
+const RECENT_SECTION: String = "recent"
+const LAST_OPENED_KEY: String = "last_opened"
+
+
+## The backup file of the level at `path`: its file name plus a hash of the whole
+## path, so two levels with the same name in different folders don't share one.
+static func autosave_path_for(path: String) -> String:
+	return autosave_dir.path_join("%s_%d.tscn" % [path.get_file().get_basename(), absi(path.hash())])
+
+
+## Writes `level_root` (made whole by the caller, as for save_level) as the backup
+## of the level at `path`. Returns OK or an error code.
+static func save_autosave(level_root: Node, path: String) -> Error:
+	DirAccess.make_dir_recursive_absolute(autosave_dir)
+	return save_level(level_root, autosave_path_for(path))
+
+
+static func has_autosave(path: String) -> bool:
+	return FileAccess.file_exists(autosave_path_for(path))
+
+
+static func delete_autosave(path: String) -> void:
+	if has_autosave(path):
+		DirAccess.remove_absolute(autosave_path_for(path))
+
+
+## Remembers `path` as the last level opened in the editor.
+static func remember_last_opened(path: String) -> void:
+	var config: ConfigFile = ConfigFile.new()
+	config.load(recent_path)  # missing the first time
+	config.set_value(RECENT_SECTION, LAST_OPENED_KEY, path)
+	config.save(recent_path)
+
+
+## The last level opened in the editor, or "" (none yet, or it's gone).
+static func get_last_opened() -> String:
+	var config: ConfigFile = ConfigFile.new()
+	if config.load(recent_path) != OK:
+		return ""
+	var path: String = config.get_value(RECENT_SECTION, LAST_OPENED_KEY, "")
+	return path if FileAccess.file_exists(path) else ""
+
+
 static func _instantiate(path: String) -> Node:
 	var packed: PackedScene = load_level(path)
 	if packed == null:

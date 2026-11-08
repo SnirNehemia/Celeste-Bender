@@ -159,7 +159,7 @@ func _grows_blades(_cell: Vector2i) -> bool:
 func _is_solid_anywhere(cell: Vector2i) -> bool:
 	for sibling: Node in get_parent().get_children():
 		var layer: TileMapLayer = sibling as TileMapLayer
-		if layer != null and layer.get_cell_source_id(cell) != -1:
+		if layer != null and not layer is StormCloudLayer and layer.get_cell_source_id(cell) != -1:
 			return true
 	return false
 

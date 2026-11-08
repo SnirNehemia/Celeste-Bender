@@ -1009,6 +1009,10 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 		and rock.get_cell_source_id(Vector2i(103, 16)) == -1 and rock.crumble.shatter_count == shatters_before + 1,
 		"crumble_time after the landing, all of patch A is gone")
 	_check(rock.get_cell_source_id(patch_b) != -1 and not rock.crumble.is_crumbling(patch_b), "patch B is untouched")
+	# Patch A's picture falls away instead of vanishing (after the W8c play-test).
+	var falls: Array[Node] = rock.get_children().filter(func(child: Node) -> bool: return child is CrumbleFall)
+	_check(falls.size() == 1 and (falls[0] as CrumbleFall).position.y > (falls[0] as CrumbleFall).pivot.y,
+		"the crumbled patch falls (%d falling pieces)" % falls.size())
 	_check(not water.is_cell_solid(patch_a), "the water's solid grid knows patch A is gone")
 
 	# Patch B crumbles on its own.
@@ -1025,6 +1029,37 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 	_check(rock.get_cell_source_id(patch_a) != -1 and rock.get_cell_source_id(patch_b) != -1
 		and not rock.crumble.is_crumbling(patch_a) and rock.crumble.patches.size() == 2 and water.is_cell_solid(patch_a),
 		"R brings the crumbled rock back")
+	await get_tree().process_frame  # queue_free() lands at the end of the frame
+	_check(not rock.get_children().any(func(child: Node) -> bool: return child is CrumbleFall),
+		"and its falling pieces are gone")
+
+	# A reset stops a countdown too, even when another patch had already broken (after
+	# the W8c play-test: the rebuild after painting A back carried B's countdown over).
+	await _stand_at(player, origin + Vector2(102.0 * 8.0 + 4.0, 128.0))
+	await _stand_at(player, safe_feet)
+	for frame: int in crumble_frames + 5:
+		await get_tree().physics_frame
+	await _stand_at(player, origin + Vector2(107.0 * 8.0 + 4.0, 128.0))
+	_check(rock.get_cell_source_id(patch_a) == -1 and rock.crumble.is_crumbling(patch_b), "A broke and B is crumbling")
+	room.reset_objects()
+	await _stand_at(player, origin + Vector2(124.0 * 8.0 + 4.0, 128.0))
+	for frame: int in crumble_frames + 5:
+		await get_tree().physics_frame
+	_check(rock.get_cell_source_id(patch_a) != -1 and rock.get_cell_source_id(patch_b) != -1
+		and not rock.crumble.is_crumbling(patch_b), "a reset stops B's countdown: it never falls")
+
+	# A patch's own crumble time (set in the level editor): B falls after 0.5 s.
+	var quick_times: Dictionary[Vector2i, float] = {patch_b: 0.5}
+	rock.patch_crumble_times = quick_times
+	await _stand_at(player, origin + Vector2(107.0 * 8.0 + 4.0, 128.0))
+	await _stand_at(player, origin + Vector2(124.0 * 8.0 + 4.0, 128.0))
+	for frame: int in ceili(0.5 * Engine.physics_ticks_per_second) + 5:
+		await get_tree().physics_frame
+	_check(rock.get_cell_source_id(patch_b) == -1 and rock.get_cell_source_id(patch_a) != -1,
+		"a patch with its own 0.5 s crumble time falls after 0.5 s")
+	rock.patch_crumble_times = {} as Dictionary[Vector2i, float]
+	room.reset_objects()
+	await get_tree().physics_frame
 
 	# Crumbling ice: slippery, keeps speed above run speed (I5), then shatters, and
 	# gives no water.

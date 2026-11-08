@@ -62,11 +62,11 @@ const MESSAGE_SECONDS: float = 4.0
 ## Key hints per kind of palette entry, then the ones that always apply.
 const TERRAIN_HINTS: String = "Left: paint  Right: erase  Shift+drag: rectangle"
 const OBJECT_HINTS: String = "Left: place / drag  Alt: free  Right: delete  Del  Ctrl+D: copy  L: link"
-const STRIP_HINTS: String = "Drag along a row or column: spikes  R: turn selected  Right: delete"
+const STRIP_HINTS: String = "Drag: paint spikes  Shift+drag: area  Right: erase  Click a strip: select, R turns it"
 const ERASER_HINTS: String = "Click or drag: remove objects (zones too), else tiles  Shift+drag: a block  E: eraser off"
 const SELECT_HINTS: String = "Left: select, drag to move  Shift+drag: region  Ctrl+C/X/V: copy, cut, paste  Ctrl+Shift+V: mirrored"
 const FILL_HINTS: String = "Left: fill the connected area  Shift: all over the room  Right: clear it  B: back to the brush"
-const MAP_HINTS: String = "Drag empty: select rooms  Ctrl+click: add  Drag room / edge: move / resize  Double-click: edit  Right: new room, backdrop, copy, depth  K: backdrops  S: start  Del  PgDn/PgUp: depth  M: back"
+const MAP_HINTS: String = "Drag empty: select rooms  Ctrl+click: add  Drag room / edge: move / resize  +Alt: half tile  Double-click: edit  Right: new room, backdrop, copy, depth  K: backdrops  S: start  Del  PgDn/PgUp: depth  M: back"
 ## How strongly a palette button is tinted in its element's color: resting,
 ## under the mouse, chosen.
 const ELEMENT_TINT: Array[float] = [0.22, 0.34, 0.6]
@@ -453,13 +453,13 @@ func _build_palette(column: VBoxContainer) -> void:
 
 	menu_group_button_group = entry_group
 	for entry: PaletteCatalog.Entry in PaletteCatalog.get_entries():
-		if entry.menu_group != "":
-			_add_to_menu_group(entry)
-			continue
 		if entry.family != "":
-			(family_lists[entry.family] as VBoxContainer).add_child(_make_entry_button(entry, entry_group))
-			# Its other tabs get a button of their own (made after the main one, so
-			# palette_buttons keeps the main one).
+			if entry.menu_group != "":
+				_add_to_menu_group(entry)
+			else:
+				(family_lists[entry.family] as VBoxContainer).add_child(_make_entry_button(entry, entry_group))
+			# Its other tabs get a plain button of their own (made after the main one,
+			# so palette_buttons keeps the main one or its group's).
 			var main_button: Button = palette_buttons[entry.id]
 			var extra_buttons: Array[Button] = []
 			for tab: String in entry.extra_tabs:

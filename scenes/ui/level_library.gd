@@ -85,8 +85,14 @@ func _ready() -> void:
 	add_child(prompt)
 	prompt.closed.connect(func() -> void: level_list.grab_focus())
 
-	_refresh_list(path_to_select)
+	# Back from the editor: the level you were on. Fresh from the menu: the level
+	# opened last time, even in an earlier session (Enter reopens it).
+	var select_path: String = path_to_select if path_to_select != "" else LevelStorage.get_last_opened()
+	_refresh_list(select_path)
 	path_to_select = ""
+	var last_title: String = LevelStorage.read_title(select_path) if select_path != "" and level_paths.has(select_path) else ""
+	if last_title != "" and level_paths.size() > 0:
+		_set_status("Last opened: %s (Enter)" % last_title, false)
 	level_list.grab_focus()
 
 

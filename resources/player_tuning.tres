@@ -4,6 +4,7 @@
 
 [resource]
 script = ExtResource("1_tuning")
+wall_slide_max_speed = 25.0
 glide_stamina_time = 3.0
 gust_cooldown = 0.0
 gust_recoil_speed = 200.0
