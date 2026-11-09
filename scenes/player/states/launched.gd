@@ -45,7 +45,7 @@ func physics_update(delta: float) -> void:
 		player.apply_horizontal_movement(delta, false, player.earth_tuning.launch_overspeed_deceleration)
 
 	if player.can_wall_jump():
-		player.start_wall_jump(player.get_wall_direction())
+		player.start_wall_jump(player.get_wall_jump_direction())
 		transition_requested.emit(&"Jump")
 	elif player.wants_to_glide():
 		player.consume_jump_press()  # one press = one action

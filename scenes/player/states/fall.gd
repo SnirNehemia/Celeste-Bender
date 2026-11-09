@@ -38,7 +38,7 @@ func physics_update(delta: float) -> void:
 		player.start_ground_jump()
 		transition_requested.emit(&"Jump")
 	elif player.can_wall_jump():
-		player.start_wall_jump(player.get_wall_direction())
+		player.start_wall_jump(player.get_wall_jump_direction())
 		transition_requested.emit(&"Jump")
 	elif player.wants_to_glide():
 		# Spend the press so landing right after doesn't trigger a buffered jump.

@@ -47,7 +47,7 @@ func physics_update(delta: float) -> void:
 	player.glide.update_glide_effects(delta)
 
 	if player.can_wall_jump():
-		player.start_wall_jump(player.get_wall_direction())
+		player.start_wall_jump(player.get_wall_jump_direction())
 		transition_requested.emit(&"Jump")
 	elif player.is_on_floor():
 		transition_requested.emit(&"Run" if player.velocity.x != 0.0 else &"Idle")

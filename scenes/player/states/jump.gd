@@ -55,7 +55,7 @@ func physics_update(delta: float) -> void:
 	elif player.can_wall_jump():
 		# A fresh jump press next to a wall mid-rise: wall jump. Switching Jump -> Jump
 		# re-runs enter(), restarting the hold with the new launch speed.
-		player.start_wall_jump(player.get_wall_direction())
+		player.start_wall_jump(player.get_wall_jump_direction())
 		transition_requested.emit(&"Jump")
 	elif player.is_on_ceiling():
 		# Bonked our head (corner correction didn't save us): stop rising.

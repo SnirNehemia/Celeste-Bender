@@ -107,6 +107,11 @@ enum BodyStyle { BACKPACK, PLAIN_RECTANGLE }
 ## A wall within this many pixels counts as "touching" for wall jumps and wall
 ## slides, so you don't need pixel-perfect contact (or to press into the wall).
 @export var wall_jump_check_distance: float = 2.0
+## SAME-WALL RULE: when on, you can't wall jump off the same side twice in a row.
+## Landing, a wind crystal, a launch or a respawn clear it; a wall jump off the
+## OTHER side is always allowed (so shafts still work). Stops climbing one wall by
+## wall jump -> glide back -> wall jump. Off = unlimited wall jumps, to compare.
+@export var wall_jump_same_side_rule: bool = true
 
 @export_group("Glide")
 ## Fall speed while gliding, px/s (GAME_DESIGN.md §5.2: 30).
@@ -223,7 +228,7 @@ enum BodyStyle { BACKPACK, PLAIN_RECTANGLE }
 @export_range(0.05, 1.0) var gust_aim_time_scale: float = 0.25
 ## The gust fires by itself after this many REAL seconds of aiming, so holding Z
 ## can't be used to hang in slow motion.
-@export var gust_aim_max_real_time: float = 0.4
+@export var gust_aim_max_real_time: float = 0.8
 
 @export_group("Feel: squash & dust")
 ## Body scale at the start of a jump or wall jump (x = width, y = height). Tall and

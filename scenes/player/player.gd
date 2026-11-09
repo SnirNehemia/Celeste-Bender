@@ -154,6 +154,10 @@ var coyote_time_remaining: float = 0.0
 var jump_buffer_remaining: float = 0.0
 ## Counts down after a wall jump. While > 0 horizontal input is ignored.
 var wall_jump_lock_remaining: float = 0.0
+## Side of the last wall jump this airtime (-1 left, +1 right, 0 none). With
+## tuning.wall_jump_same_side_rule, that side can't be wall jumped again until it
+## clears (landing, crystal, launch, respawn). See get_wall_jump_direction().
+var last_wall_jump_side: float = 0.0
 ## Which way the player faces: -1 left, +1 right. Follows the last held direction.
 ## Used as the gust direction when no arrow is held.
 var facing_direction: float = 1.0
@@ -264,6 +268,9 @@ func _update_timers(delta: float) -> void:
 	elif is_on_floor() or absf(velocity.x) <= tuning.max_run_speed:
 		carries_ice_speed = false
 	gust_overspeed_remaining = 0.0 if is_on_floor() else maxf(gust_overspeed_remaining - delta, 0.0)
+	# Landing clears the same-wall rule: every airtime starts with both walls allowed.
+	if is_on_floor():
+		last_wall_jump_side = 0.0
 
 	# is_action_just_pressed is true only on the one physics frame the key went down.
 	if Input.is_action_just_pressed("jump"):
@@ -326,6 +333,7 @@ func respawn_at(spawn_position: Vector2) -> void:
 	coyote_time_remaining = 0.0
 	jump_buffer_remaining = 0.0
 	wall_jump_lock_remaining = 0.0
+	last_wall_jump_side = 0.0
 	glide.refill()
 	gust.reset()
 	# Fire pips are per room: back to what this room starts you with.
@@ -411,9 +419,23 @@ func can_ground_jump() -> bool:
 	return jump_buffer_remaining > 0.0 and coyote_time_remaining > 0.0
 
 
-## True if a jump was pressed recently and a wall is within reach on either side.
+## True if a jump was pressed recently and a wall we may jump off is within reach.
 func can_wall_jump() -> bool:
-	return jump_buffer_remaining > 0.0 and get_wall_direction() != 0.0
+	return jump_buffer_remaining > 0.0 and get_wall_jump_direction() != 0.0
+
+
+## The wall side a wall jump would push off right now (-1 left, +1 right, 0 none).
+## Like get_wall_direction(), but skips the side we last wall jumped off when the
+## same-wall rule is on. In a narrow shaft the other wall is still found, so
+## zig-zagging up a shaft works; hugging one wall doesn't.
+func get_wall_jump_direction() -> float:
+	var side: float = get_wall_direction()
+	if not tuning.wall_jump_same_side_rule or side == 0.0 or side != last_wall_jump_side:
+		return side
+	# The preferred wall is the blocked one: is there a wall on the other side?
+	if is_wall_on_side(-side):
+		return -side
+	return 0.0
 
 
 ## Launches a normal jump. The Jump state then holds this upward speed while jump is held.
@@ -434,6 +456,7 @@ func start_wall_jump(wall_direction: float) -> void:
 	# Ignore input briefly: otherwise holding toward the wall (which you usually are,
 	# since you were sliding on it) would cancel the push away on the very next frame.
 	wall_jump_lock_remaining = tuning.wall_jump_input_lock_time
+	last_wall_jump_side = wall_direction
 	movement_effects.on_wall_jumped(wall_direction)
 
 
@@ -484,6 +507,9 @@ func refill_from_crystal() -> bool:
 	# Both calls must run: `or` would skip the second one if the first returned true.
 	var breath_restored: bool = glide.refill()
 	var gust_restored: bool = gust.refill_charges()
+	# A crystal also clears the same-wall rule (doesn't count as "helping" on its own,
+	# so the crystal isn't used up just for that).
+	last_wall_jump_side = 0.0
 	return breath_restored or gust_restored
 
 
@@ -688,6 +714,7 @@ func launch_from_column(direction: Vector2) -> void:
 	# A buffered jump or coyote time must not turn the launch into a small jump.
 	consume_jump_press()
 	glide.refill()
+	last_wall_jump_side = 0.0  # a launch is a fresh airtime
 	movement_effects.play_squash(tuning.jump_squash)
 	state_machine.transition_to(&"Launched")
 
@@ -700,6 +727,7 @@ func launch_by(launch_velocity: Vector2) -> void:
 	velocity = launch_velocity
 	consume_jump_press()
 	glide.refill()
+	last_wall_jump_side = 0.0  # a launch is a fresh airtime
 	movement_effects.play_squash(tuning.jump_squash)
 	state_machine.transition_to(&"Launched")
 

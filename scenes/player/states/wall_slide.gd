@@ -80,7 +80,7 @@ func physics_update(delta: float) -> void:
 			player.velocity.y, player.get_wall_slide_max_speed(), player.tuning.gravity * delta)
 
 	if player.can_wall_jump():
-		player.start_wall_jump(player.get_wall_direction())
+		player.start_wall_jump(player.get_wall_jump_direction())
 		transition_requested.emit(&"Jump")
 	elif player.is_on_floor():
 		transition_requested.emit(&"Idle")

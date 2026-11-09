@@ -128,7 +128,7 @@ func physics_update(delta: float) -> void:
 		player.start_ground_jump()
 		transition_requested.emit(&"Jump")
 	elif player.can_wall_jump():
-		player.start_wall_jump(player.get_wall_direction())
+		player.start_wall_jump(player.get_wall_jump_direction())
 		transition_requested.emit(&"Jump")
 	elif phase == Phase.RECOIL and player.wants_to_glide():
 		# Glide right out of the shove (no waiting for the lock to end), so the recoil
