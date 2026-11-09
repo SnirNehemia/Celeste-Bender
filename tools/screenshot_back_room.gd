@@ -17,6 +17,9 @@ extends Node
 ##   <front>_out_1..3.png  during the step back out, the same moments
 ##   <front>_back.png      back out at depth 0
 ## and prints how far the twin is from the gate on screen in the first shot.
+## With `dark` anywhere in the arguments, the back room is made a DARK ROOM with a
+## lit brazier 40 px right of the gate (DarkRoomBacks: hidden layout, dimmed view,
+## the brazier's faint glow).
 
 const SCALE: int = 3
 ## How far the player is moved for the second shot, px (left: rooms end in walls
@@ -25,10 +28,14 @@ const MOVE_DISTANCE: float = -100.0
 ## Frames to wait so the camera, backdrop and fades settle.
 const SETTLE_FRAMES: int = 60
 const GATE_SCENE: PackedScene = preload("res://scenes/objects/depth_gate.tscn")
+const BRAZIER_SCENE: PackedScene = preload("res://scenes/objects/fire/brazier.tscn")
 
 
 func _ready() -> void:
 	var arguments: PackedStringArray = OS.get_cmdline_user_args()
+	var make_dark: bool = arguments.has("dark")
+	if make_dark:
+		arguments.remove_at(arguments.find("dark"))
 	if arguments.size() < 4:
 		push_error("[BackRoomShot] usage: -- <level.tscn> <front room> <back room> <output folder>")
 		get_tree().quit()
@@ -50,6 +57,12 @@ func _ready() -> void:
 	var twin: DepthGate = GATE_SCENE.instantiate() as DepthGate
 	twin.position = gate_spot
 	back.add_child(twin)
+	if make_dark:
+		back.is_dark = true
+		var brazier: Brazier = BRAZIER_SCENE.instantiate() as Brazier
+		brazier.starts_lit = true
+		brazier.position = gate_spot + Vector2(40.0, 0.0)
+		back.add_child(brazier)
 	add_child(level)
 	var manager: RoomManager = level as RoomManager
 	var view: BackRoomView = manager.back_room_view

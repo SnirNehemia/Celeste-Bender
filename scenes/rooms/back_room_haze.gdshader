@@ -22,6 +22,49 @@ uniform float saturation : hint_range(0.0, 1.0) = 1.0;
 // The blur's reach, in pixels of the picture (0 = sharp).
 uniform float blur_radius = 0.0;
 
+// DARK ROOMS in this layer (DarkRoomBacks sets these; none in the editor): inside
+// each rectangle the room is hidden and only a dimmed see-through black is left, so
+// what's behind it (the backdrop, a deeper layer) shows through darkened. Lit
+// braziers there glow faintly. Rectangles (x, y, w, h) and glows (x, y, radius,
+// strength) are in pixels of the picture.
+const int MAX_DARK_RECTS = 8;
+const int MAX_DARK_GLOWS = 16;
+uniform vec4 dark_rects[MAX_DARK_RECTS];
+uniform int dark_rect_count = 0;
+uniform vec4 dark_glows[MAX_DARK_GLOWS];
+uniform int dark_glow_count = 0;
+// How dark the view behind a dark room gets (1 = black).
+uniform float dark_dim : hint_range(0.0, 1.0) = 0.6;
+uniform vec4 dark_glow_color : source_color = vec4(1.0, 0.5, 0.16, 1.0);
+
+// True if this pixel (in picture pixels) is inside one of the dark rooms.
+bool is_in_dark_room(vec2 pixel) {
+	for (int index = 0; index < MAX_DARK_RECTS; index++) {
+		if (index >= dark_rect_count) {
+			break;
+		}
+		vec4 rect = dark_rects[index];
+		if (pixel.x >= rect.x && pixel.y >= rect.y && pixel.x < rect.x + rect.z && pixel.y < rect.y + rect.w) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// How much glow reaches this pixel (0-1): soft round spots, falling off squared.
+float dark_glow_at(vec2 pixel) {
+	float glow = 0.0;
+	for (int index = 0; index < MAX_DARK_GLOWS; index++) {
+		if (index >= dark_glow_count) {
+			break;
+		}
+		vec4 light = dark_glows[index];
+		float reach = clamp(1.0 - distance(pixel, light.xy) / max(light.z, 0.001), 0.0, 1.0);
+		glow += reach * reach * light.w;
+	}
+	return clamp(glow, 0.0, 1.0);
+}
+
 void fragment() {
 	// The picture, softened by the same 3x3 tent blur, alpha-weighted so
 	// see-through pixels don't darken the colors. Inline: Godot doesn't take the
@@ -46,6 +89,17 @@ void fragment() {
 	float haze_brightness = dot(haze_color.rgb, luma_weights);
 	color = haze_brightness + (color - haze_brightness) * contrast;
 	color = mix(color, haze_color.rgb, haze_amount);
-	// COLOR starts as the vertex color times modulate: keep only its alpha (the fade).
-	COLOR = vec4(color, picture.a * COLOR.a);
+	// Inside a dark room: hide the room, dim what's behind it, add the braziers'
+	// glow. With alpha = dark_dim the screen gets glow + behind * (1 - dark_dim), so
+	// the color is the glow divided by the alpha.
+	vec2 pixel = UV / TEXTURE_PIXEL_SIZE;
+	if (dark_rect_count > 0 && is_in_dark_room(pixel)) {
+		float glow = dark_glow_at(pixel);
+		vec3 glow_color = mix(dark_glow_color.rgb, haze_color.rgb, haze_amount * 0.5) * glow;
+		float alpha = max(dark_dim, 0.001);
+		COLOR = vec4(min(glow_color / alpha, vec3(1.0)), alpha * COLOR.a);
+	} else {
+		// COLOR starts as the vertex color times modulate: keep only its alpha (the fade).
+		COLOR = vec4(color, picture.a * COLOR.a);
+	}
 }

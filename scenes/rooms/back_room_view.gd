@@ -62,6 +62,10 @@ extends CanvasLayer
 ## looks now (apply_look, a fraction during a gate's step), so steps blend them
 ## smoothly too. The editor's previews use the same look (EditorDepthView).
 ##
+## DARK ROOMS behind (Room.is_dark): DarkRoomBacks hides their layout in every
+## layer and only darkens the view behind them, with a faint glow at lit braziers,
+## so you learn their layout only by going in.
+##
 ## Made by RoomManager next to the Backdrop. Listens to GameState.room_entered.
 ## RoomManager drives it through a gate step (begin_step / end_step going in,
 ## begin_return / release_view going out).
@@ -151,6 +155,8 @@ var _deeper_centers: Array[Vector2] = []
 var _is_handing_over: bool = false
 ## The color every layer is hazed toward now (INF alpha: not set yet).
 var _haze_color: Color = Color(0.0, 0.0, 0.0, -1.0)
+## Hides dark rooms' layouts in every layer (see the header).
+var _dark_backs: DarkRoomBacks = null
 
 
 func _ready() -> void:
@@ -169,6 +175,7 @@ func _ready() -> void:
 	_viewport = _picture.get_meta(&"viewport") as SubViewport
 	_view_camera = _viewport.get_child(0) as Camera2D
 	_haze = _picture.material as ShaderMaterial
+	_dark_backs = DarkRoomBacks.new(rooms)
 	GameState.room_entered.connect(_on_room_entered)
 
 
@@ -248,6 +255,7 @@ func _process(delta: float) -> void:
 	_place_picture(_picture, _picture_scale, _last_focus)
 	# The one behind looks one depth back, less as a step brings it forward.
 	apply_look(_haze, 1.0 - _step_progress)
+	_dark_backs.apply(_haze, _shown_depth, _view_camera.position, Vector2(_viewport.size), 1.0 - _step_progress)
 	_update_deeper_layers(delta)
 
 
@@ -295,6 +303,7 @@ func _update_deeper_layers(delta: float) -> void:
 		_deeper_cameras[index].position = center.round()
 		_place_picture(_deeper_pictures[index], pow(BACK_SCALE, looks_back), _last_focus)
 		apply_look(_deeper_pictures[index].material as ShaderMaterial, looks_back)
+		_dark_backs.apply(_deeper_pictures[index].material as ShaderMaterial, _shown_depth + index + 1, _deeper_cameras[index].position, Vector2(_deeper_viewports[index].size), looks_back)
 		_deeper_pictures[index].modulate.a = _picture.modulate.a * _layer_fades[index]
 
 

@@ -485,3 +485,10 @@ extends Resource
 @export var dark_light_fade_time: float = 0.5
 ## How many steps the light falls off in (pixel-art banding, dithered between steps).
 @export_range(1, 16) var dark_light_steps: int = 5
+## A dark room SEEN FROM ANOTHER DEPTH (BackRoomView, DarkRoomBacks): its layout is
+## hidden and the view behind it is darkened by this much (1 = black), instead of
+## a blank black block.
+@export_range(0.0, 1.0) var dark_back_dim: float = 0.6
+## A lit brazier in such a room shows as a faint warm glow: radius px, strength.
+@export var dark_back_glow_radius: float = 26.0
+@export_range(0.0, 1.0) var dark_back_glow_strength: float = 0.45
