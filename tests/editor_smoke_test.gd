@@ -1376,7 +1376,7 @@ func _check_l9_fire() -> void:
 	# Objects. A brazier stands on the floor and (in a room without Fire) turns it on.
 	editor.set_property(room, &"fire_allowed", false)
 	var brazier: Brazier = editor.place_object(PaletteCatalog.get_entry(&"brazier"), room, Vector2i(6, 19)) as Brazier
-	_check(brazier.position == Vector2(52, 160) and room.fire_allowed, "a brazier stands on the clicked tile and turns Fire on, got %s" % brazier.position)
+	_check(brazier.position == Vector2(56, 160) and room.fire_allowed, "a brazier (2x2 tiles) stands on the clicked tile, on a tile line, and turns Fire on, got %s" % brazier.position)
 	editor.undo()
 	_check(not brazier.is_inside_tree() and not room.fire_allowed, "undo takes the brazier and the setting back")
 	editor.redo()

@@ -334,7 +334,7 @@ static func _build() -> void:
 	# The hub is the origin; the blades reach Windmill.HIT_RADIUS (11 px) round it.
 	var windmill: Entry = _add_object(&"windmill", "Windmill", "Air", preload("res://scenes/objects/windmill.tscn"))
 	windmill.hint = "A switch: a gust spins it and powers the doors linked to it for a few seconds, refreshed by every gust."
-	windmill.local_rect = Rect2(-11, -11, 22, 22)
+	windmill.local_rect = Rect2(-12, -12, 24, 24)  # 3x3 tiles: its hub on a tile's middle
 	windmill.placement = Placement.CENTERED
 	windmill.editable_properties = [&"spin_time", &"post_length"]
 
@@ -625,7 +625,7 @@ static func _build() -> void:
 	# gets a WaterWorld even without painted water.
 	var water_source: Entry = _add_object(&"water_source", "Water source", "Water", preload("res://scenes/objects/water/water_source.tscn"))
 	water_source.hint = "Endless water: pours Rate units a second, falling (a waterfall) or, under a pool's surface, into it. Put it over a channel for a stream. Pair it with a Drain, or the room slowly fills."
-	water_source.local_rect = Rect2(-4, -5, 8, 6)
+	water_source.local_rect = Rect2(-4, -8, 8, 8)  # one tile: the spout fills it, the mouth on its bottom edge
 	water_source.placement = Placement.CENTERED
 	water_source.editable_properties = [&"rate", &"launch_velocity", &"pour_width"]
 	water_source.room_settings_on_create = {&"water_allowed": true}
@@ -669,7 +669,7 @@ static func _build() -> void:
 	# The origin is where the post meets the floor; the bowl sits post_height above.
 	var brazier: Entry = _add_object(&"brazier", "Brazier", "Fire", preload("res://scenes/objects/fire/brazier.tscn"))
 	brazier.hint = "A switch: light it (fireball or flame jet) and the doors linked to it open. Burn Time 0: lit until death or R; else it goes out after that many seconds. Starts Lit: already burning (and its doors open) from the start and after every reset: a steady light for dark rooms. Gusts can't put it out."
-	brazier.local_rect = Rect2(-6, -12, 12, 12)
+	brazier.local_rect = Rect2(-8, -16, 16, 16)  # 2x2 tiles, origin on a tile line
 	brazier.placement = Placement.ON_FLOOR
 	brazier.snaps_to_ground = true
 	brazier.editable_properties = [&"burn_time", &"post_height", &"starts_lit"]
@@ -750,14 +750,14 @@ static func _build() -> void:
 	# Fire Stage F12 (still being built when L10 was): its scene exists already.
 	var shell: Entry = _add_object(&"shell", "Shell", "Enemies", preload("res://scenes/enemies/shell.tscn"))
 	shell.hint = "Earth's armored crawler: fireballs and orbs bounce off its dome. Knock it over or into something to beat it."
-	shell.local_rect = Rect2(-6, -8, 12, 8)
+	shell.local_rect = Rect2(-8, -8, 16, 8)  # 2x1 tiles: it starts on a tile line
 	shell.placement = Placement.ON_FLOOR
 	shell.editable_properties = [&"start_direction"]
 
 	# A row of pips, one per linked enemy, centered on the origin.
 	var enemy_gate: Entry = _add_object(&"enemy_gate", "Enemy gate", "Enemies", preload("res://scenes/objects/enemy_gate.tscn"))
 	enemy_gate.hint = "A switch that turns on once every enemy linked to it (L) is beaten. Link a door to it (select the door, then L) for a 'beat them all' exit."
-	enemy_gate.local_rect = Rect2(-6, -4, 12, 8)
+	enemy_gate.local_rect = Rect2(-8, -4, 16, 8)  # 2x1 tiles: its middle on a tile line
 	enemy_gate.placement = Placement.CENTERED
 	enemy_gate.link_property = &"enemies"
 	enemy_gate.link_target_group = EnemyHit.GROUP

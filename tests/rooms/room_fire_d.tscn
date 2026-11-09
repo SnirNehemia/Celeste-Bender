@@ -36,7 +36,7 @@ script = ExtResource("6_7tutl")
 position = Vector2(24, 160)
 
 [node name="BrazierFuse" parent="." unique_id=1123415366 instance=ExtResource("7_6m4vd")]
-position = Vector2(244, 160)
+position = Vector2(240, 160)
 
 [node name="DoorFuse" parent="." unique_id=907817984 node_paths=PackedStringArray("switches") instance=ExtResource("8_s7gct")]
 position = Vector2(264, 8)

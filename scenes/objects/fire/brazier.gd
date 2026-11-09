@@ -20,6 +20,11 @@ extends Switch
 ## means flying right past it.
 ## A gust doesn't put it out (the bowl protects the flame, §5.4): snuff() does nothing.
 ##
+## ON THE TILE GRID: at the default post_height it is exactly 2x2 tiles (16 px wide
+## at the bowl's rim, 16 px from the floor to the rim), with its origin on a tile
+## line, so it lines up with the tiles around it (the editor's outline is the same
+## 2x2 tiles, PaletteCatalog).
+##
 ## Place the node where the post meets the floor; the bowl sits post_height above.
 ## It joins the room's reset group: death or R puts it out (or, with `starts_lit`,
 ## lights it again).
@@ -33,17 +38,19 @@ extends Switch
 const BOWL_COLOR: Color = Color(0.24, 0.24, 0.27)
 const RIM_COLOR: Color = Color(0.45, 0.45, 0.5)
 const COAL_COLOR: Color = Color("#8A2410")
-## Bowl: 12 px across the top, 8 at the bottom, 4 tall.
-const BOWL_TOP_HALF_WIDTH: float = 6.0
-const BOWL_BOTTOM_HALF_WIDTH: float = 4.0
+## Bowl: 16 px across the top (2 tiles), 10 at the bottom, 4 tall.
+const BOWL_TOP_HALF_WIDTH: float = 8.0
+const BOWL_BOTTOM_HALF_WIDTH: float = 5.0
 const BOWL_HEIGHT: float = 4.0
 const POST_WIDTH: float = 2.0
-## The catch area around the bowl and its flame, px (wider than the bowl: aiming at
-## a small thing should be forgiving).
-const CATCH_SIZE: Vector2 = Vector2(14, 16)
+## The catch area: wider than the bowl (aiming at a small thing should be
+## forgiving), from CATCH_ABOVE_BOWL px above the bowl's rim (its flame) all the way
+## down to the floor, so burning grass at its foot (a fuse) reaches it too.
+const CATCH_WIDTH: float = 18.0
+const CATCH_ABOVE_BOWL: float = 11.0
 ## The flame: three tongues, calm (little flicker = "controlled fire", §9.3).
 const FLAME_LENGTHS: Array[float] = [8.0, 11.0, 7.0]
-const FLAME_OFFSETS_X: Array[float] = [-3.0, 0.0, 3.0]
+const FLAME_OFFSETS_X: Array[float] = [-4.0, 0.0, 4.0]
 ## Lighting effects.
 const LIGHT_FREEZE_TIME: float = 2.0 / 60.0
 const LIGHT_SPARK_COUNT: int = 12
@@ -59,8 +66,9 @@ const SMALLEST_FLAME_SCALE: float = 0.35
 		queue_redraw()
 ## Already lit when the room starts and after every reset (see the header).
 @export var starts_lit: bool = false
-## Height of the post (from the floor to the bottom of the bowl), px.
-@export var post_height: float = 8.0:
+## Height of the post (from the floor to the bottom of the bowl), px. 12 + the
+## bowl's 4 = 2 tiles: keep it a tile multiple minus 4 to stay on the grid.
+@export var post_height: float = 12.0:
 	set(value):
 		post_height = value
 		queue_redraw()
@@ -83,9 +91,10 @@ func _ready() -> void:
 	catch_area.monitoring = false  # it is only found, it doesn't look for anything
 	var shape_node: CollisionShape2D = CollisionShape2D.new()
 	var box: RectangleShape2D = RectangleShape2D.new()
-	box.size = CATCH_SIZE
+	var catch_rect: Rect2 = _get_catch_rect()
+	box.size = catch_rect.size
 	shape_node.shape = box
-	shape_node.position = _get_catch_center()
+	shape_node.position = catch_rect.get_center()
 	catch_area.add_child(shape_node)
 	add_child(catch_area)
 	# One merged flame: the tongues share an outline (FlameMerge).
@@ -152,7 +161,8 @@ func snuff() -> void:
 
 
 func get_fire_rect() -> Rect2:
-	return Rect2(global_position + _get_catch_center() - CATCH_SIZE / 2.0, CATCH_SIZE)
+	var catch_rect: Rect2 = _get_catch_rect()
+	return Rect2(global_position + catch_rect.position, catch_rect.size)
 
 
 # --- Reset and the timer -----------------------------------------------------------
@@ -215,8 +225,10 @@ func _get_bowl_top_y() -> float:
 	return -post_height - BOWL_HEIGHT
 
 
-func _get_catch_center() -> Vector2:
-	return Vector2(0.0, _get_bowl_top_y() - 3.0)
+## The catch area, local: see CATCH_WIDTH / CATCH_ABOVE_BOWL.
+func _get_catch_rect() -> Rect2:
+	var top_y: float = _get_bowl_top_y() - CATCH_ABOVE_BOWL
+	return Rect2(-CATCH_WIDTH / 2.0, top_y, CATCH_WIDTH, -top_y)
 
 
 func _draw() -> void:
@@ -224,7 +236,7 @@ func _draw() -> void:
 	var bowl_top_y: float = _get_bowl_top_y()
 	draw_rect(Rect2(-POST_WIDTH / 2.0, bowl_bottom_y, POST_WIDTH, post_height), BOWL_COLOR)
 	# A foot plate so it reads as standing on the floor.
-	draw_rect(Rect2(-3.0, -1.0, 6.0, 1.0), BOWL_COLOR)
+	draw_rect(Rect2(-4.0, -1.0, 8.0, 1.0), BOWL_COLOR)
 	var bowl: PackedVector2Array = PackedVector2Array([
 		Vector2(-BOWL_TOP_HALF_WIDTH, bowl_top_y),
 		Vector2(BOWL_TOP_HALF_WIDTH, bowl_top_y),
@@ -235,7 +247,7 @@ func _draw() -> void:
 	draw_line(Vector2(-BOWL_TOP_HALF_WIDTH, bowl_top_y), Vector2(BOWL_TOP_HALF_WIDTH, bowl_top_y), RIM_COLOR, 1.0)
 	# Cold coals in the bowl; they glow while lit.
 	var coal_color: Color = Color("#FF8A1E") if is_on() else COAL_COLOR.darkened(0.4)
-	draw_rect(Rect2(-3.0, bowl_top_y + 1.0, 6.0, 1.0), coal_color)
+	draw_rect(Rect2(-5.0, bowl_top_y + 1.0, 10.0, 1.0), coal_color)
 	# A timed brazier has notches on its post, so you can tell it apart before lighting.
 	if burn_time > 0.0:
 		for notch_index: int in 2:

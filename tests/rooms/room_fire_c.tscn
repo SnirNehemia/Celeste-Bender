@@ -40,7 +40,7 @@ position = Vector2(64, 168)
 tile_count = 8
 
 [node name="BrazierPit" parent="." unique_id=644315255 instance=ExtResource("8_mnmcp")]
-position = Vector2(148, 160)
+position = Vector2(144, 160)
 
 [node name="DoorPit" parent="." unique_id=1213357728 node_paths=PackedStringArray("switches") instance=ExtResource("9_fcw7s")]
 position = Vector2(168, 8)
@@ -51,7 +51,7 @@ door_size = Vector2(8, 152)
 position = Vector2(180, 152)
 
 [node name="BrazierTimed" parent="." unique_id=29983193 instance=ExtResource("8_mnmcp")]
-position = Vector2(204, 160)
+position = Vector2(200, 160)
 burn_time = 1.8
 
 [node name="DoorTimed" parent="." unique_id=1060456439 node_paths=PackedStringArray("switches") instance=ExtResource("9_fcw7s")]
@@ -64,4 +64,4 @@ position = Vector2(324, 151)
 pip_amount = 2
 
 [node name="BrazierTunnel" parent="." unique_id=1801220879 instance=ExtResource("8_mnmcp")]
-position = Vector2(316, 56)
+position = Vector2(312, 56)

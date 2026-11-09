@@ -19,6 +19,8 @@ extends Node2D
 
 const SPOUT_COLOR: Color = Color("#3E4A5C")
 const SPOUT_RIM_COLOR: Color = Color("#BFE4FF")
+## The spout's height, px: one tile (see _draw).
+const SPOUT_HEIGHT: float = 8.0
 ## Ice this many px under the mouth stops the pour (a frozen waterfall). The wall
 ## starts in the tile holding this point (IcePlan.for_wall).
 const FROZEN_CHECK_BELOW: float = 4.0
@@ -71,6 +73,8 @@ func _physics_process(delta: float) -> void:
 
 func _draw() -> void:
 	# A little spout: a dark pipe end with a light rim where the water comes out.
+	# One tile tall, so with the origin on a tile's bottom edge (where the editor
+	# puts it) the spout fills its tile and meets the ceiling above.
 	var half_width: float = maxf(pour_width, 4.0) / 2.0 + 1.0
-	draw_rect(Rect2(-half_width, -5.0, half_width * 2.0, 5.0), SPOUT_COLOR)
+	draw_rect(Rect2(-half_width, -SPOUT_HEIGHT, half_width * 2.0, SPOUT_HEIGHT), SPOUT_COLOR)
 	draw_rect(Rect2(-half_width, -1.0, half_width * 2.0, 1.0), SPOUT_RIM_COLOR)

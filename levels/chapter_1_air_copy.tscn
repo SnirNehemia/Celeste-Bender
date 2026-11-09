@@ -1342,7 +1342,7 @@ platform_floor_layers = 4294967293
 script = ExtResource("35_fd1hp")
 
 [node name="Brazier" type="Node2D" parent="Room28" unique_id=802904726 instance=ExtResource("36_bwn67")]
-position = Vector2(92, 152)
+position = Vector2(88, 152)
 script = ExtResource("37_n4c0c")
 starts_lit = true
 

@@ -295,10 +295,11 @@ func _build_room_fire_b() -> void:
 	_finish_room(Vector2(24, 336), "res://tests/rooms/room_fire_b.tscn")
 
 
-## A brazier standing on the floor at tile column `column` (its post's foot on the top
-## of row `floor_row`). `burn_time` 0 = permanent.
+## A brazier standing on the floor at the left edge of tile column `column` (2 tiles
+## wide: it covers columns column-1 and column; its post's foot on the top of row
+## `floor_row`). `burn_time` 0 = permanent.
 func _brazier(node_name: String, column: int, floor_row: int, burn_time: float = 0.0) -> Node2D:
-	return _add(BRAZIER_SCENE, node_name, Vector2(column * TILE + TILE / 2.0, floor_row * TILE),
+	return _add(BRAZIER_SCENE, node_name, Vector2(column * TILE, floor_row * TILE),
 		{"burn_time": burn_time})
 
 
