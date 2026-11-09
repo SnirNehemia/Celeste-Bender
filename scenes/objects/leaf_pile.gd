@@ -346,6 +346,14 @@ func _blow_leaf(leaf_index: int, push_direction: Vector2, speed: float) -> void:
 		+ Vector2(0.0, -launch_random.randf_range(60.0, 120.0)))
 
 
+## The ground under the pile changed (a crumbling or falling patch broke away,
+## GroundProps.wake_leaf_piles): the leaves still lying where they were placed check
+## what's under them next frame. (Leaves that landed on something re-check by
+## themselves, and ride along when it moves, so they fall with a falling block.)
+func ground_changed() -> void:
+	leaf_supports_dirty = true
+
+
 ## Called by Room.reset_objects() when the player dies or restarts the room.
 func reset() -> void:
 	leaf_positions = home_positions.duplicate()

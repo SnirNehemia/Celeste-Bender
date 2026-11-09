@@ -1568,7 +1568,7 @@ func _show_selection_in_panel() -> void:
 	elif selected_patch != null and selected_patch.is_valid():
 		ui.property_panel.show_target(selected_patch, selected_patch.get_title(), [&"crumble_time"], [],
 			"The seconds from the first touch until this whole patch falls (%.1f s unless you change it). Click another patch to set its own." \
-			% CrumblePatchSettings.WATER_TUNING.crumble_time)
+			% selected_patch.get_default_time())
 	elif current_room != null and is_instance_valid(current_room):
 		var title: String = "Room\n%s" % room_title(current_room)
 		var room_count: int = _get_panel_rooms().size()

@@ -65,6 +65,18 @@ func _physics_process(delta: float) -> void:
 		_rebuild()  # now, not at the end of the frame: the next frame's touch reads it
 
 
+## A falling block landed on the global `world_point`: the patch there starts
+## crumbling (a direct hit, whatever was resting on it before).
+func touch_at_world(world_point: Vector2) -> void:
+	crumble.start_patch(crumble.get_patch_index(local_to_map(to_local(world_point))),
+		WATER_TUNING.crumble_time, &"ice_crack")
+
+
+## The crumble time of a patch with none of its own (the editor's Select panel shows it).
+func get_default_crumble_time() -> float:
+	return WATER_TUNING.crumble_time
+
+
 ## Room reset (death or R): every shattered patch is back, whole and still.
 func reset() -> void:
 	if crumble.reset_painted(self, removed_cells):

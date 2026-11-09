@@ -16,8 +16,9 @@ extends RefCounted
 ## (`anchor_cell`); the patch is looked up again on every read, so it stays right
 ## when the tiles around it change.
 
-## The painted layers that crumble, by node name (PaletteCatalog layer_name).
-const LAYER_NAMES: Array[StringName] = [&"CrumbleRock", &"CrumbleIce"]
+## The painted layers that crumble or drop, by node name (PaletteCatalog layer_name).
+## Each has `crumble`, `patch_crumble_times` and get_default_crumble_time().
+const LAYER_NAMES: Array[StringName] = [&"CrumbleRock", &"CrumbleIce", &"FallingBlock"]
 const WATER_TUNING: WaterTuning = preload("res://resources/water_tuning.tres")
 
 ## The patch's layer (a CrumbleRockLayer or CrumbleIceLayer: both have `crumble`
@@ -30,13 +31,13 @@ var anchor_cell: Vector2i
 @export_range(0.1, 30.0) var crumble_time: float:
 	get:
 		var patch: Dictionary = get_patch()
-		return CrumblePatches.get_time(patch, WATER_TUNING.crumble_time)
+		return CrumblePatches.get_time(patch, get_default_time())
 	set(value):
 		var patch: Dictionary = get_patch()
 		if patch.is_empty():
 			return
 		var times: Dictionary = CrumblePatches.with_patch_time(layer.get(&"patch_crumble_times"),
-			patch[&"cells"], value, WATER_TUNING.crumble_time)
+			patch[&"cells"], value, get_default_time())
 		# Through a typed Dictionary[Vector2i, float] export: assign() keeps its type.
 		var typed_times: Dictionary[Vector2i, float] = {}
 		typed_times.assign(times)
@@ -61,6 +62,13 @@ static func find_at(room: Room, world_point: Vector2) -> CrumblePatchSettings:
 	return null
 
 
+## The time of a patch of this layer with none of its own (the tuning's).
+func get_default_time() -> float:
+	if not is_instance_valid(layer):
+		return WATER_TUNING.crumble_time
+	return float(layer.call(&"get_default_crumble_time"))
+
+
 ## Still a patch there (an undo or an erase may have taken it away)?
 func is_valid() -> bool:
 	return is_instance_valid(layer) and layer.is_inside_tree() and not get_patch().is_empty()
@@ -77,7 +85,11 @@ func get_patch() -> Dictionary:
 
 ## The panel's title: which kind, and how big.
 func get_title() -> String:
-	var kind: String = "Crumbling ice" if layer is CrumbleIceLayer else "Crumbling rock"
+	var kind: String = "Crumbling rock"
+	if layer is CrumbleIceLayer:
+		kind = "Crumbling ice"
+	elif layer is FallingBlockLayer:
+		kind = "Falling block"
 	var patch: Dictionary = get_patch()
 	var tile_count: int = (patch[&"cells"] as Array).size() if not patch.is_empty() else 0
 	return "%s patch\n%d tiles" % [kind, tile_count]

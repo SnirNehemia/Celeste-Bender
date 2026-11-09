@@ -996,6 +996,9 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 
 	# Landing on patch A starts it; B waits. Step off before it goes (spikes below).
 	var shatters_before: int = rock.crumble.shatter_count
+	var field: PebbleField = room.get_node_or_null("PebbleField") as PebbleField
+	_check(field != null, "a room with crumbling rock has a PebbleField")
+	var pebbles_before: int = field.pebble_positions.size() if field != null else 0
 	await _stand_at(player, origin + Vector2(102.0 * 8.0 + 4.0, 128.0))
 	_check(player.is_on_floor() and rock.crumble.is_crumbling(patch_a) and not rock.crumble.is_crumbling(patch_b),
 		"standing on rock patch A starts its crumble; patch B waits")
@@ -1009,10 +1012,15 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 		and rock.get_cell_source_id(Vector2i(103, 16)) == -1 and rock.crumble.shatter_count == shatters_before + 1,
 		"crumble_time after the landing, all of patch A is gone")
 	_check(rock.get_cell_source_id(patch_b) != -1 and not rock.crumble.is_crumbling(patch_b), "patch B is untouched")
-	# Patch A's picture falls away instead of vanishing (after the W8c play-test).
-	var falls: Array[Node] = rock.get_children().filter(func(child: Node) -> bool: return child is CrumbleFall)
-	_check(falls.size() == 1 and (falls[0] as CrumbleFall).position.y > (falls[0] as CrumbleFall).pivot.y,
-		"the crumbled patch falls (%d falling pieces)" % falls.size())
+	# Patch A breaks into pebbles of the room's PebbleField (after the falling-block
+	# play-test: they react to you and fall when their ground goes, like any pebble).
+	var new_pebbles: int = (field.pebble_positions.size() if field != null else 0) - pebbles_before
+	_check(new_pebbles == 3 * CrumbleRockLayer.PEBBLES_PER_TILE,
+		"the crumbled patch breaks into pebbles (%d new)" % new_pebbles)
+	for frame: int in 90:
+		await get_tree().physics_frame
+	var resting: int = field.pebble_is_moving.count(0) if field != null else 0
+	_check(resting > 0, "a little later they lie still on the ground below (%d resting)" % resting)
 	_check(not water.is_cell_solid(patch_a), "the water's solid grid knows patch A is gone")
 
 	# Patch B crumbles on its own.
@@ -1030,8 +1038,7 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 		and not rock.crumble.is_crumbling(patch_a) and rock.crumble.patches.size() == 2 and water.is_cell_solid(patch_a),
 		"R brings the crumbled rock back")
 	await get_tree().process_frame  # queue_free() lands at the end of the frame
-	_check(not rock.get_children().any(func(child: Node) -> bool: return child is CrumbleFall),
-		"and its falling pieces are gone")
+	_check(field != null and field.pebble_positions.is_empty(), "and its pebbles are gone")
 
 	# A reset stops a countdown too, even when another patch had already broken (after
 	# the W8c play-test: the rebuild after painting A back carried B's countdown over).

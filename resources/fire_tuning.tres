@@ -15,3 +15,6 @@ dark_player_light_radius = 30.0
 dark_player_light_strength = 0.9
 dark_brazier_light_scale = 2.0
 dark_grass_light_radius = 50.0
+dark_back_dim = 0.7000000000000001
+dark_back_glow_radius = 90.0
+dark_back_glow_strength = 0.27

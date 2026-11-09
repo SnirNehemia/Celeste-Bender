@@ -312,6 +312,14 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## Shattering, each tile's water bursts out at up to this speed, px/s, then falls
 ## (melting by fire or the ice cap just drops it).
 @export var ice_shatter_speed: float = 30.0
+## FALLING BLOCKS (painted dark basalt, FallingBlockLayer, after the W8c play-test):
+## the default seconds from the first touch until a patch drops (each patch can have
+## its own, set in the level editor), its gravity, px/s², and its top speed, px/s.
+## The gravity and top speed are a crate's (900, 300), so a crate riding one keeps
+## up with it instead of floating off.
+@export_range(0.1, 10.0) var falling_block_time: float = 0.6
+@export var falling_block_gravity: float = 900.0
+@export var falling_block_max_speed: float = 300.0
 
 @export_group("Ice")
 ## Ice ground (Water_bending.md §7.1): acceleration and friction are these shares

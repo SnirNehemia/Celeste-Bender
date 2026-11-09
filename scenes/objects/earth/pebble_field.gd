@@ -168,6 +168,25 @@ static func leave_colored_pebbles(tree: SceneTree, world_position: Vector2, coun
 		field.add_pebble(world_position, direction, colors[field.pebble_random.randi() % colors.size()])
 
 
+## One pebble at each of `world_positions`, DROPPING from there with a small sideways
+## drift (not thrown out like gravel): ground breaking up under them (crumbling rock,
+## after the falling-block play-test). Each a random pick from `colors`; a pebble
+## size is picked as usual, so crumbled rock leaves 1-2 px stones.
+static func leave_falling_pebbles(tree: SceneTree, world_positions: PackedVector2Array,
+		colors: Array[Color]) -> void:
+	if world_positions.is_empty() or colors.is_empty():
+		return
+	var field: PebbleField = _find_field(tree, world_positions[0])
+	if field == null:
+		return
+	for spot: Vector2 in world_positions:
+		while field.pebble_positions.size() - field.ash_count >= field.earth_tuning.pebble_max_per_room:
+			field._remove_oldest(false)
+		var drift: Vector2 = Vector2(field.pebble_random.randf_range(-15.0, 15.0), field.pebble_random.randf_range(-10.0, 0.0))
+		field._append_pebble(field.to_local(spot), drift, field._pick_pebble_size(),
+			colors[field.pebble_random.randi() % colors.size()], false)
+
+
 ## `count` ash flakes (see the header) scattered over `area` px centered on
 ## `world_position`, drifting off with a little speed. `colors`: picked at random.
 static func leave_ash(tree: SceneTree, world_position: Vector2, count: int, area: Vector2,

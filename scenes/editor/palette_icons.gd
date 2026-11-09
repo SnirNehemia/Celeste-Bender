@@ -136,6 +136,14 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 4, 3, 1, 4, DARK_GRAY)
 			_rect(image, 1, 6, 4, 1, DARK_GRAY)
 			_rect(image, 6, 5, 1, 5, DARK_GRAY)
+		&"falling_block":
+			# Dark basalt with a lit top, a down arrow under it.
+			_rect(image, 1, 0, 8, 5, Color(0.11, 0.11, 0.14))
+			_rect(image, 1, 0, 8, 1, Color(0.36, 0.4, 0.48))
+			_rect(image, 4, 1, 1, 3, Color(0.24, 0.27, 0.33))
+			_rect(image, 4, 6, 2, 2, WHITE)
+			_rect(image, 3, 8, 4, 1, WHITE)
+			_rect(image, 4, 9, 2, 1, WHITE)
 		&"storm_cloud":
 			# A dark cloud with a lit top and a bolt out of it.
 			_rect(image, 1, 2, 8, 5, Color8(62, 56, 86))

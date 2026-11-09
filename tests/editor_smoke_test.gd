@@ -62,6 +62,8 @@ func _ready() -> void:
 	await _check_l17_backdrops()
 	await _check_metal_platform()
 	await _check_hazards_and_rails()
+	await _check_falling_blocks()
+	await _check_falling_block_between_rooms()
 	await _check_d1_depths()
 	await _check_d2_d3_depth_gates()
 
@@ -73,7 +75,7 @@ func _ready() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECENT_PATH))
 	LevelStorage.autosave_dir = LevelStorage.DEFAULT_AUTOSAVE_DIR
 	LevelStorage.recent_path = LevelStorage.DEFAULT_RECENT_PATH
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "D1 depths", "D2 depth gates", "D3 pinned parallax"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -2829,6 +2831,185 @@ func _check_hazards_and_rails() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("Hazards and rails")
+
+
+## After the W8c play-test: FALLING BLOCKS (dark basalt that drops as one solid
+## piece), and what rests on crumbling ground riding or falling with it.
+func _check_falling_blocks() -> void:
+	var block_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"falling_block")
+	_check(block_entry != null and block_entry.family == "Terrain" and block_entry.kind == PaletteCatalog.Kind.TERRAIN
+		and block_entry.menu_group == "", "the falling block has its own Terrain entry")
+	var path: String = LevelStorage.create_level("Falling Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	# A: a ledge with a crate and a brazier on it, and a crate on the floor under it.
+	var block_a: Array[Vector2i] = [Vector2i(4, 15), Vector2i(5, 15), Vector2i(6, 15), Vector2i(7, 15), Vector2i(8, 15), Vector2i(9, 15)]
+	editor.paint_cells(room, block_a, true, block_entry)
+	var crate_on: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(4, 14)) as Crate
+	var brazier_on: Brazier = editor.place_object(PaletteCatalog.get_entry(&"brazier"), room, Vector2i(8, 14)) as Brazier
+	var crate_under: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(6, 20)) as Crate
+	_check(crate_on.position.y == 120.0 and brazier_on.position.y == 120.0 and crate_under.position.y == 168.0,
+		"a crate and a brazier stand on block A, a crate on the floor under it (%s, %s)" % [crate_on.position, brazier_on.position])
+	# B over a pool; D over crumbling rock C.
+	var ground: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"ground")
+	var walls: Array[Vector2i] = [Vector2i(20, 18), Vector2i(20, 19), Vector2i(20, 20), Vector2i(27, 18), Vector2i(27, 19), Vector2i(27, 20)]
+	editor.paint_cells(room, walls, true, ground)
+	var pool: Array[Vector2i] = []
+	for x: int in range(21, 27):
+		for y: int in range(18, 21):
+			pool.append(Vector2i(x, y))
+	editor.paint_cells(room, pool, true, PaletteCatalog.get_entry(&"water"))
+	editor.paint_cells(room, [Vector2i(22, 8), Vector2i(23, 8), Vector2i(24, 8)] as Array[Vector2i], true, block_entry)
+	editor.paint_cells(room, [Vector2i(32, 6), Vector2i(33, 6), Vector2i(34, 6)] as Array[Vector2i], true, block_entry)
+	var rock_c: Array[Vector2i] = [Vector2i(31, 12), Vector2i(32, 12), Vector2i(33, 12), Vector2i(34, 12), Vector2i(35, 12)]
+	editor.paint_cells(room, rock_c, true, PaletteCatalog.get_entry(&"crumble_rock"))
+	await get_tree().process_frame
+	var block_layer: FallingBlockLayer = room.get_node_or_null("FallingBlock") as FallingBlockLayer
+	_check(block_layer != null and block_layer.crumble.patches.size() == 3 and block_layer.self_modulate.a == 0.0,
+		"three falling-block patches, drawn as basalt")
+	editor._select_at(room.to_global(Vector2(33.5, 6.5) * LevelEditor.TILE))
+	_check(editor.selected_patch != null and editor.selected_patch.get_title().begins_with("Falling block")
+		and is_equal_approx(editor.selected_patch.crumble_time, CrumblePatchSettings.WATER_TUNING.falling_block_time),
+		"the Select tool picks a falling block, at its own default time")
+
+	_check(editor.start_playtest(), "the falling level play-tests")
+	var play_root: RoomManager = editor.play_root
+	var player: Player = play_root.player
+	var play_room: Room = play_root.get_node("Room1") as Room
+	var blocks: FallingBlockLayer = play_room.get_node("FallingBlock") as FallingBlockLayer
+	var rock: CrumbleRockLayer = play_room.get_node("CrumbleRock") as CrumbleRockLayer
+	var play_crate_on: Crate = play_room.get_node(NodePath(crate_on.name)) as Crate
+	var play_crate_under: Crate = play_room.get_node(NodePath(crate_under.name)) as Crate
+	var play_brazier: Brazier = play_room.get_node(NodePath(brazier_on.name)) as Brazier
+	var water: WaterWorld = play_room.get_node(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
+	await get_tree().create_timer(0.5).timeout
+	_check(not blocks.crumble.is_crumbling(Vector2i(4, 15)), "the crate and brazier resting on A from the start don't start it")
+
+	# You stand on A: it drops, carrying you, the crate and the brazier; the crate under breaks.
+	player.respawn_at(Vector2(60, 119))
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(blocks.crumble.is_crumbling(Vector2i(4, 15)), "standing on block A starts it")
+	await get_tree().create_timer(1.4).timeout
+	_check(blocks.get_cell_source_id(Vector2i(4, 20)) != -1 and blocks.get_cell_source_id(Vector2i(4, 15)) == -1,
+		"A fell straight down and landed on the floor as tiles")
+	_check(play_crate_under.burn_state == Crate.BurnState.GONE, "the crate under it broke")
+	_check(not player.is_dead() and absf(player.global_position.y - 160.0) < 1.5, "you rode it down (feet at %.1f)" % player.global_position.y)
+	_check(absf(play_brazier.global_position.y - 160.0) < 0.5 and absf(play_crate_on.global_position.y - 160.0) < 1.5,
+		"the brazier and the crate on it came down with it (%.1f, %.1f)" % [play_brazier.global_position.y, play_crate_on.global_position.y])
+
+	# Reset: everything back.
+	play_room.reset_objects()
+	await get_tree().physics_frame
+	_check(blocks.get_cell_source_id(Vector2i(4, 15)) != -1 and blocks.get_cell_source_id(Vector2i(4, 20)) == -1
+		and play_brazier.global_position.y == 120.0 and play_crate_under.burn_state == Crate.BurnState.SOLID,
+		"death or R puts the block, the brazier and the broken crate back")
+
+	# Under it, you die.
+	player.respawn_at(Vector2(74, 168))
+	await get_tree().create_timer(0.3).timeout
+	blocks.touch_at_world(Vector2(74, 124))
+	var died: bool = false
+	for frame: int in 90:
+		await get_tree().physics_frame
+		died = died or player.is_dead()
+	_check(died, "a block falling on you kills you")
+	for frame: int in 120:
+		await get_tree().physics_frame
+		if not player.is_dead() and player.is_on_floor():
+			break
+
+	# B into the pool: the water splashes and settles round it, none lost.
+	var books_before: float = water.get_books_units()
+	blocks.touch_at_world(Vector2(184, 68))
+	await get_tree().create_timer(1.5).timeout
+	_check(blocks.get_cell_source_id(Vector2i(23, 20)) != -1, "block B landed on the pool's floor")
+	_check(absf(water.get_books_units() - books_before) < 0.05, "no water is made or lost (%.2f -> %.2f)" % [books_before, water.get_books_units()])
+
+	# D lands on crumbling rock C, which starts; when C breaks, D falls on to the floor.
+	blocks.touch_at_world(Vector2(264, 52))
+	await get_tree().create_timer(1.2).timeout
+	_check(blocks.get_cell_source_id(Vector2i(33, 11)) != -1 and rock.crumble.is_crumbling(Vector2i(33, 12)),
+		"block D landed on crumbling rock and started it")
+	await get_tree().create_timer(2.6).timeout
+	_check(rock.get_cell_source_id(Vector2i(33, 12)) == -1 and blocks.get_cell_source_id(Vector2i(33, 20)) != -1
+		and blocks.get_cell_source_id(Vector2i(33, 11)) == -1, "when the rock broke, D fell on to the floor")
+	editor.stop_playtest()
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Falling blocks")
+
+
+## Play-test: a block falling out of the bottom of its room into the room below froze
+## where it crossed. Now it's handed to the room below (FallingBlock._hand_over), lands
+## there as that room's tiles, even with you far away (its room stays awake), and the
+## reset puts it back home.
+func _check_falling_block_between_rooms() -> void:
+	var path: String = LevelStorage.create_level("Two Room Fall")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	# Room 2 right under Room 1 (half a tile off the grid: rooms are 180 px tall).
+	var lower: Room = editor.map_view.create_room(Rect2(room.position + Vector2(0, 180), Vector2(320, 180)))
+	var ground: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"ground")
+	var shaft: Array[Vector2i] = []
+	for x: int in range(17, 23):
+		for y: int in range(15, 23):
+			shaft.append(Vector2i(x, y))
+	editor.paint_cells(room, shaft, false, ground)
+	var opening: Array[Vector2i] = []
+	for x: int in range(17, 23):
+		for y: int in range(0, 4):
+			opening.append(Vector2i(x, y))
+	editor.paint_cells(lower, opening, false, ground)
+	var lower_floor: Array[Vector2i] = []
+	for x: int in range(14, 26):
+		lower_floor.append(Vector2i(x, 20))
+	editor.paint_cells(lower, lower_floor, true, ground)
+	editor.paint_cells(room, [Vector2i(18, 19), Vector2i(19, 19), Vector2i(20, 19)] as Array[Vector2i], true,
+		PaletteCatalog.get_entry(&"falling_block"))
+	_check(editor.start_playtest(), "the two-room level play-tests")
+	var play_root: RoomManager = editor.play_root
+	var play_room: Room = play_root.get_node("Room1") as Room
+	var play_lower: Room = play_root.get_node(NodePath(lower.name)) as Room
+	var blocks: FallingBlockLayer = play_room.get_node("FallingBlock") as FallingBlockLayer
+	# You stay up in Room 1, far from Room 2 (which would sleep), and set it off.
+	play_root.player.respawn_at(play_room.get_spawn_position())
+	await get_tree().physics_frame
+	blocks.touch_at_world(play_room.to_global(Vector2(156, 156)))
+	var lower_blocks: FallingBlockLayer = null
+	for frame: int in 240:
+		await get_tree().physics_frame
+		lower_blocks = play_lower.get_node_or_null("FallingBlock") as FallingBlockLayer
+		if lower_blocks != null and not lower_blocks.landed_cells.is_empty():
+			break
+	_check(lower_blocks != null and lower_blocks.landed_cells.size() == 3,
+		"the block fell into the room below and landed there as its tiles (%s)"
+		% [str(lower_blocks.landed_cells.keys()) if lower_blocks != null else "no layer"])
+	var landed_bottom: float = -1.0
+	if lower_blocks != null and not lower_blocks.landed_cells.is_empty():
+		var cell: Vector2i = lower_blocks.landed_cells.keys()[0]
+		landed_bottom = lower_blocks.to_global(Vector2(cell + Vector2i.ONE) * 8.0).y
+	_check(landed_bottom > play_lower.global_position.y + 100.0,
+		"it fell all the way to Room 2's floor (bottom at %.1f, Room 2 starts at %.1f)" % [landed_bottom, play_lower.global_position.y])
+	_check(not blocks.get_children().any(func(child: Node) -> bool: return child is FallingBlock),
+		"Room 1 keeps nothing of it")
+	# Reset (a death or R resets every room): home again, Room 2 is clear.
+	for each_room: Room in play_root.rooms:
+		each_room.reset_objects()
+	await get_tree().physics_frame
+	_check(blocks.get_cell_source_id(Vector2i(19, 19)) != -1 and lower_blocks != null
+		and lower_blocks.landed_cells.is_empty() and lower_blocks.get_used_cells().is_empty(),
+		"the reset puts it back in Room 1 and clears Room 2")
+	editor.stop_playtest()
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Falling between rooms")
 
 
 func _check_l17_backdrops() -> void:

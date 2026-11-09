@@ -50,6 +50,7 @@
 [ext_resource type="Script" path="res://scenes/objects/depth_gate.gd" id="32_fywoe"]
 [ext_resource type="PackedScene" path="res://scenes/objects/metal_platform.tscn" id="33_clpq5"]
 [ext_resource type="Script" path="res://scenes/objects/metal_platform.gd" id="34_kl5js"]
+[ext_resource type="Script" path="res://scenes/objects/falling_block_layer.gd" id="36_1wu2q"]
 
 [sub_resource type="Resource" id="Resource_clpq5"]
 script = ExtResource("22_mteop")
@@ -357,6 +358,18 @@ display_title = "Room 7"
 painted_ground = true
 backdrop_theme = 12
 backdrop_altitude = 3
+
+[node name="CrumbleRock" type="TileMapLayer" parent="Room7" unique_id=1257403302]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAAgAAsAAAAAAAAAAAAhAAsAAAAAAAAAAAAiAAsAAAAAAAAAAAAiAAoAAAAAAAAAAAAjAAoAAAAAAAAAAAAhAAoAAAAAAAAAAAAgAAoAAAAAAAAAAAASABAAAAAAAAAAAAATABAAAAAAAAAAAAAUABAAAAAAAAAAAAAVABAAAAAAAAAAAAAWABAAAAAAAAAAAAAXABAAAAAAAAAAAAAXAA8AAAAAAAAAAAAWAA8AAAAAAAAAAAAVAA8AAAAAAAAAAAAUAA8AAAAAAAAAAAATAA8AAAAAAAAAAAASAA8AAAAAAAAAAAA=")
+tile_set = ExtResource("3_u1nm5")
+script = ExtResource("31_kl5js")
+
+[node name="FallingBlock" type="TileMapLayer" parent="Room7" unique_id=2047732987]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAAkAA4AAAAAAAAAAAAkAA0AAAAAAAAAAAAlAA0AAAAAAAAAAAAlAA4AAAAAAAAAAAA=")
+tile_set = ExtResource("3_u1nm5")
+script = ExtResource("36_1wu2q")
 
 [node name="Earth" type="TileMapLayer" parent="Room7" unique_id=1836582904]
 self_modulate = Color(1, 1, 1, 0)

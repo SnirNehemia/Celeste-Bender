@@ -245,12 +245,17 @@ func _on_player_died() -> void:
 
 
 ## Wakes the current room and every room within AWAKE_MARGIN of the player's
-## hitbox; freezes all the others. Cheap: one rectangle test per room.
+## hitbox; freezes all the others. Cheap: one rectangle test per room. A room with a
+## falling block on its way down stays awake too, until the block lands or falls
+## into the next room (FallingBlock.MOVING_GROUP): frozen, it would hang in mid-air.
 func _update_awake_rooms() -> void:
 	var near_player: Rect2 = player.get_hitbox_rect().grow(AWAKE_MARGIN)
+	var rooms_with_moving_blocks: Array[Node] = []
+	for block: Node in get_tree().get_nodes_in_group(FallingBlock.MOVING_GROUP):
+		rooms_with_moving_blocks.append((block as FallingBlock).layer.get_parent())
 	for room: Room in rooms:
 		var is_near: bool = room == current_room or room.get_bounds().intersects(near_player)
-		_set_room_awake(room, is_near)
+		_set_room_awake(room, is_near or rooms_with_moving_blocks.has(room))
 
 
 ## True: the room runs normally (INHERIT: it follows this node, so pausing the game

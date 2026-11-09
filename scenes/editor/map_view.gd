@@ -28,7 +28,8 @@ extends RefCounted
 ## Both: the backdrop look or altitude of the selected rooms, and the backdrop
 ## preview (BackdropPreview), which can set them too.
 ## Copying packs the level as it is now (unsaved changes too) and keeps that
-## (`clipboard`), so later changes to the original don't change the copy. Links to
+## (`clipboard`, static: it stays when you leave for another level, so rooms can be
+## pasted across levels), so later changes to the original don't change the copy. Links to
 ## things outside the room are dropped, as with an import.
 ##
 ## Snapping ("180 + whole tiles", decided in Stage L7):
@@ -105,13 +106,17 @@ var preview_valid: bool = true
 ## A copied room waiting to be placed with a click (I, or Paste), or null.
 var importing_room: Room = null
 ## The copied room: the level packed when Copy was chosen, and the room's name in
-## it. Null = nothing copied yet.
-var clipboard: PackedScene = null
-var clipboard_room_name: String = ""
-var clipboard_title: String = ""
+## it. Null = nothing copied yet. STATIC on purpose: a MapView lives only as long
+## as one level's editor, so a plain member would be lost on leaving the level;
+## a static var survives while the game runs, which is what lets you copy a room
+## in one level, open another level and paste it there.
+static var clipboard: PackedScene = null
+static var clipboard_room_name: String = ""
+static var clipboard_title: String = ""
 ## Copied room settings (Copy settings), setting -> value; empty = none copied.
-var settings_clipboard: Dictionary = {}
-var settings_clipboard_title: String = ""
+## Static for the same reason: settings can be pasted into rooms of another level.
+static var settings_clipboard: Dictionary = {}
+static var settings_clipboard_title: String = ""
 
 ## The room view's camera, to come back to when the map closes.
 var room_view_zoom_index: int = 0

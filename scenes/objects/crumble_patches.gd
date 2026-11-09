@@ -25,7 +25,12 @@ extends RefCounted
 ##     apply_custom_times, set in the level editor), else the tuning's time is used.
 ##   - THE TOUCH: the first time you or a crate (anything in WaterWorld.SOLID_GROUP,
 ##     whose get_water_box() is its box) touches a patch that can crumble, its
-##     crack_left starts at crumble_time.
+##     crack_left starts at crumble_time. Objects count only on a NEW contact (after
+##     the W8c play-test): a crate resting on a patch when the room starts (or after
+##     a reset) never starts it, it rides or falls with it; one that lands or is blown
+##     onto it later does. You always count. (`contacts` remembers last frame's.)
+##   - PROPS: when a painted patch breaks, braziers and fire diamonds standing on it
+##     fall (GroundProps, GroundPropFall) and leaf piles on it settle again.
 ##   - THE COUNTDOWN: advance() runs it down and returns the patches that are done.
 ##   - THE LOOK: get_shake() for a crumbling patch (a 1 px jitter), and draw_contour():
 ##     a bright line running round the outline, closing as the time runs out.
@@ -33,12 +38,17 @@ extends RefCounted
 ## The contour that runs round a crumbling patch, and how far it shakes, px.
 const CONTOUR_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const SHAKE_PX: float = 1.0
+## After this share of its time, a crumbling patch shakes twice as far.
+const SHAKE_HARDER_AFTER: float = 0.6
 ## The pieces a crumbled platform breaks into (burst): how long they live, s, how fast
 ## they fly, px/s, and how hard they fall, px/s². A look only.
 const BURST_LIFETIME: float = 0.6
 const BURST_MIN_SPEED: float = 20.0
 const BURST_MAX_SPEED: float = 60.0
 const BURST_GRAVITY: float = 420.0
+## A patch's pieces come out of ONE burst over its whole area (one particle node per
+## tile made big patches stutter as they broke), at most this many pieces.
+const MAX_BURST_PIECES: int = 48
 
 var patches: Array[Dictionary] = []
 ## cell -> its patch's index in `patches` (rebuilt with them): finding a cell's patch
@@ -46,6 +56,12 @@ var patches: Array[Dictionary] = []
 var patch_of_cell: Dictionary = {}
 ## For tests: how many patches have finished crumbling.
 var shatter_count: int = 0
+## Last frame's contacts: an object's instance id -> the keys of the patches it
+## touched (a patch's key is its smallest cell, so it survives rebuilds).
+var contacts: Dictionary = {}
+## False until the first touch check after the start or a reset: that check only
+## records what's already resting on the patches (see THE TOUCH above).
+var has_contact_baseline: bool = false
 
 
 ## Cuts `cells` into patches. `crumble_test(cells: Array[Vector2i]) -> bool` says
@@ -79,11 +95,16 @@ func rebuild(cells: Array[Vector2i], crumble_test: Callable, trace: Callable) ->
 		for loop: PackedVector2Array in loops:
 			for index: int in loop.size():
 				perimeter += loop[index].distance_to(loop[(index + 1) % loop.size()])
+		# The patch's key: its smallest cell (it stays the same through rebuilds
+		# while the patch is whole). Vector2i compares x first, then y.
+		var key: Vector2i = patch_cells[0]
 		for cell: Vector2i in patch_cells:
 			patch_of_cell[cell] = patches.size()
+			if cell < key:
+				key = cell
 		patches.append({
 			&"cells": patch_cells, &"can_crumble": crumbles, &"crack_left": crack_left,
-			&"loops": loops, &"perimeter": perimeter,
+			&"loops": loops, &"perimeter": perimeter, &"key": key,
 		})
 
 
@@ -151,15 +172,20 @@ func advance(layer: TileMapLayer, delta: float, crumble_time: float, crack_sound
 	return done
 
 
-## Patches that can crumble and that you or a crate touch start crumbling. Each box is
-## grown by 1 px: standing on a platform, your feet are on its top edge, not in it.
+## Patches that can crumble and that you touch, or an object newly touches, start
+## crumbling (THE TOUCH in the header). Each box is grown by 1 px: standing on a
+## platform, your feet are on its top edge, not in it.
 func _start_where_touched(layer: TileMapLayer, crumble_time: float, crack_sound: StringName) -> void:
+	var new_contacts: Dictionary = {}
 	for member: Node in layer.get_tree().get_nodes_in_group(WaterWorld.SOLID_GROUP):
 		if not member.has_method(&"get_water_box"):
 			continue
 		var box: Rect2 = member.call(&"get_water_box")
 		if box.size.x <= 0.0:
 			continue
+		var is_player: bool = member.is_in_group(Player.GROUP)
+		var old_keys: Array = contacts.get(member.get_instance_id(), [])
+		var touched_keys: Array = []
 		box = Rect2(layer.to_local(box.position), box.size).grow(1.0)
 		var first: Vector2i = layer.local_to_map(box.position)
 		# Just inside the far edge: a box ending exactly on a tile line doesn't reach the next tile.
@@ -167,9 +193,29 @@ func _start_where_touched(layer: TileMapLayer, crumble_time: float, crack_sound:
 		for y: int in range(first.y, last.y + 1):
 			for x: int in range(first.x, last.x + 1):
 				var index: int = get_patch_index(Vector2i(x, y))
-				if index >= 0 and bool(patches[index][&"can_crumble"]) and float(patches[index][&"crack_left"]) < 0.0:
-					patches[index][&"crack_left"] = get_time(patches[index], crumble_time)
-					FX.play_sfx(crack_sound)
+				if index < 0 or touched_keys.has(patches[index][&"key"]):
+					continue
+				var key: Vector2i = patches[index][&"key"]
+				touched_keys.append(key)
+				var is_new_contact: bool = has_contact_baseline and not old_keys.has(key)
+				if is_player or is_new_contact:
+					start_patch(index, crumble_time, crack_sound)
+		if not touched_keys.is_empty():
+			new_contacts[member.get_instance_id()] = touched_keys
+	contacts = new_contacts
+	has_contact_baseline = true
+
+
+## Starts patch `index` crumbling (if it can and isn't yet), playing `crack_sound`.
+## Also for a direct hit: a falling block landing on the patch. Returns true if it started.
+func start_patch(index: int, crumble_time: float, crack_sound: StringName) -> bool:
+	if index < 0 or not bool(patches[index][&"can_crumble"]) or float(patches[index][&"crack_left"]) >= 0.0:
+		return false
+	var total: float = get_time(patches[index], crumble_time)
+	patches[index][&"crack_left"] = total
+	patches[index][&"crack_total"] = total  # the shake grows over it (get_shake)
+	FX.play_sfx(crack_sound)
+	return true
 
 
 ## How long `patch` takes to crumble, s: its own time if the level gave it one, else
@@ -203,16 +249,21 @@ static func with_patch_time(custom_times: Dictionary, cells: Array, seconds: flo
 	return result
 
 
-## Where a patch is drawn this frame: shaking while it crumbles.
+## Where a patch is drawn this frame: shaking while it crumbles, harder in the last
+## part of its time (it reads ever more unsteady).
 func get_shake(patch: Dictionary) -> Vector2:
-	if float(patch[&"crack_left"]) < 0.0:
+	var crack_left: float = patch[&"crack_left"]
+	if crack_left < 0.0:
 		return Vector2.ZERO
-	return Vector2(randi_range(-1, 1), randi_range(-1, 1)) * SHAKE_PX
+	var share_gone: float = 1.0 - crack_left / maxf(float(patch.get(&"crack_total", 1.0)), 0.01)
+	var reach: int = 2 if share_gone >= SHAKE_HARDER_AFTER else 1
+	return Vector2(randi_range(-reach, reach), randi_range(-reach, reach)) * SHAKE_PX
 
 
 ## The crumbling contour of `patch` on `canvas`: a bright line along its outline, as
 ## much of it as the time gone (0 at the touch, all the way round when it's done).
-func draw_contour(canvas: CanvasItem, patch: Dictionary, crumble_time: float) -> void:
+func draw_contour(canvas: CanvasItem, patch: Dictionary, crumble_time: float,
+		color: Color = CONTOUR_COLOR) -> void:
 	var crack_left: float = patch[&"crack_left"]
 	if crack_left < 0.0:
 		return
@@ -226,7 +277,7 @@ func draw_contour(canvas: CanvasItem, patch: Dictionary, crumble_time: float) ->
 			var to: Vector2 = loop[(index + 1) % loop.size()]
 			var edge_length: float = from.distance_to(to)
 			var drawn_to: Vector2 = to if edge_length <= left else from.lerp(to, left / edge_length)
-			canvas.draw_line(from, drawn_to, CONTOUR_COLOR, 1.0)
+			canvas.draw_line(from, drawn_to, color, 1.0)
 			left -= edge_length
 
 
@@ -244,13 +295,14 @@ static func draw_cracks(canvas: CanvasItem, origin: Vector2, cell: Vector2i, col
 
 # --- Painted platforms: taking tiles away until the reset --------------------------
 
-## The painted layers' end of a frame: each patch in `done` (advance's result) FALLS
-## (after the W8c play-test: it used to vanish). `draw_patch(canvas: CanvasItem,
-## patch: Dictionary)` is the layer's own drawing of one patch, in its local px: a
-## CrumbleFall drops that picture away while the tiles (and their collision) are
-## taken away at once, until the reset. A little dust (`pieces_per_tile` bits of
-## `piece_color` per tile) and `break_sound` go with it. Returns true if any broke
-## (the caller rebuilds its patches now, so the next frame's touch reads them).
+## The painted layers' end of a frame: each patch in `done` (advance's result) breaks
+## off: its tiles (and their collision) are taken away at once, until the reset.
+## `draw_patch(canvas: CanvasItem, patch: Dictionary)`, if given, is the layer's own
+## drawing of one patch, in its local px: a CrumbleFall drops that picture away (ice;
+## crumbling rock passes none and breaks into pebbles itself). A little dust
+## (`pieces_per_tile` bits of `piece_color` per tile) and `break_sound` go with it,
+## and the props standing on the patch fall (GroundPropFall). Returns true if any
+## broke (the caller rebuilds its patches now, so the next frame's touch reads them).
 ## Call it BEFORE that rebuild: it reads the done patches from `patches`.
 func break_patches(layer: TileMapLayer, done: Array[Array], removed: Dictionary,
 		piece_color: Color, pieces_per_tile: int, break_sound: StringName, draw_patch: Callable) -> bool:
@@ -260,16 +312,20 @@ func break_patches(layer: TileMapLayer, done: Array[Array], removed: Dictionary,
 			var patch: Dictionary = patches[index]
 			# bind() adds the patch AFTER the arguments of the call: CrumbleFall calls it
 			# with the canvas, so draw_patch gets (canvas, patch).
-			CrumbleFall.spawn(layer, draw_patch.bind(patch), _get_center(layer, cells))
-		for cell: Vector2i in cells:
-			burst(layer, layer.map_to_local(cell), piece_color, pieces_per_tile)
+			if draw_patch.is_valid():
+				CrumbleFall.spawn(layer, draw_patch.bind(patch), get_center(layer, cells))
+		burst_over(layer, cells, piece_color, pieces_per_tile)
+		var props: Array[Node2D] = GroundProps.find_on(layer, cells)
 		take_away(layer, cells, removed)
+		GroundPropFall.spawn(layer, props)
 		FX.play_sfx(break_sound)
+	if not done.is_empty():
+		GroundProps.wake_leaf_piles(layer.get_parent())  # leaves on it fall too
 	return not done.is_empty()
 
 
 ## The middle of the box round `cells`, in `layer`'s local px (a falling patch spins round it).
-static func _get_center(layer: TileMapLayer, cells: Array) -> Vector2:
+static func get_center(layer: TileMapLayer, cells: Array) -> Vector2:
 	var box: Rect2 = Rect2(layer.map_to_local(cells[0]), Vector2.ZERO)
 	for cell: Vector2i in cells:
 		box = box.expand(layer.map_to_local(cell))
@@ -283,7 +339,15 @@ static func _get_center(layer: TileMapLayer, cells: Array) -> Vector2:
 func reset_painted(layer: TileMapLayer, removed: Dictionary) -> bool:
 	for patch: Dictionary in patches:
 		patch[&"crack_left"] = -1.0
+	reset_contacts()
+	GroundProps.restore_homes(layer.get_parent())  # props that fell go back
 	return put_back(layer, removed)
+
+
+## After a reset: what rests on the patches now is the new start (THE TOUCH).
+func reset_contacts() -> void:
+	contacts.clear()
+	has_contact_baseline = false
 
 
 ## Erases `cells` from `layer`, remembering each tile (source id and atlas coords) in
@@ -324,9 +388,20 @@ static func _tell_water(layer: TileMapLayer, ground_lost: bool) -> void:
 		world.refresh_solid_cells()
 
 
+## The pieces of the patch `cells` (map coords of `layer`): one burst over its box,
+## `pieces_per_tile` per tile up to MAX_BURST_PIECES.
+static func burst_over(layer: TileMapLayer, cells: Array, color: Color, pieces_per_tile: int) -> void:
+	var tile_px: Vector2 = Vector2(layer.tile_set.tile_size)
+	var box: Rect2 = Rect2(Vector2(cells[0]) * tile_px, tile_px)
+	for cell: Vector2i in cells:
+		box = box.merge(Rect2(Vector2(cell) * tile_px, tile_px))
+	burst(layer, box.get_center(), color, mini(cells.size() * pieces_per_tile, MAX_BURST_PIECES), box.size)
+
+
 ## A one-shot burst of `amount` bits of `color` at `layer`-local `point` (a crumbled
-## platform's pieces). Added to the current scene, so the bits stay where they were made.
-static func burst(layer: Node2D, point: Vector2, color: Color, amount: int) -> void:
+## platform's pieces), spread over `area` px round it if given. Added to the current
+## scene, so the bits stay where they were made.
+static func burst(layer: Node2D, point: Vector2, color: Color, amount: int, area: Vector2 = Vector2.ZERO) -> void:
 	var scene: Node = layer.get_tree().current_scene
 	if scene == null or amount <= 0:
 		return
@@ -343,6 +418,10 @@ static func burst(layer: Node2D, point: Vector2, color: Color, amount: int) -> v
 	bits.scale_amount_min = 1.0
 	bits.scale_amount_max = 2.0
 	bits.color = color
+	if area != Vector2.ZERO:
+		# Spawned anywhere over the area, not all from its middle.
+		bits.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+		bits.emission_rect_extents = area / 2.0
 	bits.global_position = layer.to_global(point)
 	scene.add_child(bits)
 	bits.emitting = true

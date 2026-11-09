@@ -1450,15 +1450,43 @@ func _drop_unsupported_bodies() -> void:
 				break
 		if is_supported:
 			continue
-		spawn_group = BLACK_GROUP if body.is_black else 0  # black water stays ink
-		for column: int in body.get_column_count():
-			var area: float = body.depth[column] * column_width
-			if area > 0.01:
-				var middle: Vector2 = Vector2(body.get_column_left(column) + column_width * 0.5,
-					body.floor_y[column] - body.depth[column] * 0.5)
-				_spawn_ball(middle, Vector2.ZERO, area)
-		spawn_group = 0
-		bodies.erase(body)
+		_body_to_loose(body)
+
+
+## Turns all of `body`'s water into loose water where it stood (and drops the body).
+func _body_to_loose(body: WaterBody) -> void:
+	spawn_group = BLACK_GROUP if body.is_black else 0  # black water stays ink
+	for column: int in body.get_column_count():
+		var area: float = body.depth[column] * column_width
+		if area > 0.01:
+			var middle: Vector2 = Vector2(body.get_column_left(column) + column_width * 0.5,
+				body.floor_y[column] - body.depth[column] * 0.5)
+			_spawn_ball(middle, Vector2.ZERO, area)
+	spawn_group = 0
+	bodies.erase(body)
+
+
+## Solid tiles just appeared in `cells` (room-local tiles): a FALLING BLOCK landed
+## (FallingBlockLayer, after the W8c play-test). The solid grid is read again; a pool
+## the block landed in turns into loose water (the block slams into it: it splashes
+## and settles again round the block, its level raised); drops caught inside the
+## block are set on top of it. Books unchanged: no water is made or lost.
+func solid_landed(cells: Array[Vector2i]) -> void:
+	refresh_solid_cells()
+	for body: WaterBody in bodies.duplicate():
+		for cell: Vector2i in cells:
+			var center_x: float = (cell.x + 0.5) * TILE
+			var column: int = body.get_column_at(center_x)
+			if column < 0 or body.depth[column] <= WaterBody.DRY_DEPTH:
+				continue
+			var cell_top: float = cell.y * TILE
+			var cell_bottom: float = cell_top + TILE
+			# The cell reaches into the water between its surface and its floor.
+			if cell_bottom > body.get_surface_y(column) and cell_top < body.floor_y[column]:
+				_body_to_loose(body)
+				break
+	_push_drops_out_of(cells)
+	wake_all()
 
 
 func _has_raft_of(freeze_id: int) -> bool:

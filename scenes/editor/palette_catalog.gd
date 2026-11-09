@@ -590,7 +590,7 @@ static func _build() -> void:
 	# each connected patch crumbles like brittle player ice, 2 s after the first touch,
 	# and stays gone until the room resets. Both share CrumblePatches.
 	var crumble_rock: Entry = _add(&"crumble_rock", "Crumbling rock", "Terrain", Kind.TERRAIN)
-	crumble_rock.hint = "Grey rock that crumbles: 2 s after you or a crate first touch a patch, the whole connected patch shakes, a bright line runs round it, and it breaks into gravel. Gone until the room resets. Water runs over it like rock; it never gets wet."
+	crumble_rock.hint = "Grey rock that crumbles: 2 s after you first touch a patch (or a crate lands on it: crates, braziers and diamonds already on it don't count), the whole connected patch trembles, drips grit, a bright line runs round it, and it breaks into pebbles. What stood on it falls. Gone until the room resets. Select a patch to set its own time."
 	crumble_rock.layer_name = &"CrumbleRock"
 	crumble_rock.tile_set = preload("res://resources/tiles/placeholder_tileset.tres")
 	crumble_rock.layer_script = preload("res://scenes/objects/crumble_rock_layer.gd")
@@ -610,6 +610,16 @@ static func _build() -> void:
 	# keeps its own button in Breakable: EditorUI gives extra tabs plain buttons).
 	crumble_rock.menu_group = "Crumbling block"
 	crumble_ice.menu_group = "Crumbling block"
+
+	# A solid patch that DROPS as one piece (FallingBlockLayer + FallingBlock): its
+	# own entry, not in the crumbling dropdown, so it reads as a different thing.
+	var falling_block: Entry = _add(&"falling_block", "Falling block", "Terrain", Kind.TERRAIN)
+	falling_block.hint = "Dark basalt that DROPS: 0.6 s after you first touch a patch (or a crate or another block lands on it), the whole connected patch falls straight down as one solid block. It carries you and what stands on it, kills you and breaks crates under it, splashes into water, and lands as solid ground (it can start crumbling ground it lands on). Back in place when the room resets. Select a patch to set its own time."
+	falling_block.layer_name = &"FallingBlock"
+	falling_block.tile_set = crumble_rock.tile_set
+	falling_block.layer_script = preload("res://scenes/objects/falling_block_layer.gd")
+	falling_block.tile_plain = TileBrush.TILE_PLAIN
+	falling_block.tile_top_edge = TileBrush.TILE_PLAIN
 
 	# A deadly area that only stops the player: no collision, so crates, rocks,
 	# fireballs, water and enemies pass through it (StormCloudLayer).

@@ -139,8 +139,12 @@ func _ready() -> void:
 	if get_node_or_null("Earth") is EarthLayer:
 		_add_ground_painter()
 		_add_pebble_field()
-	elif painted_ground:
-		_add_ground_painter()
+	else:
+		if painted_ground:
+			_add_ground_painter()
+		# Crumbling rock breaks into pebbles that stay (CrumbleRockLayer).
+		if get_node_or_null("CrumbleRock") is CrumbleRockLayer:
+			_add_pebble_field()
 	if get_node_or_null("Water") is WaterLayer or _has_water_source(self):
 		_add_water_world()
 	# A crust outside the edge tiles, for when the room is seen from another depth.

@@ -82,6 +82,8 @@ const CHARRED_COLOR: Color = Color(0.13, 0.09, 0.08)
 const ASH_HEAP_COLOR: Color = Color("#4A4545")
 const ASH_HEAP_FLECK_COLOR: Color = Color("#7A7470")
 const ASH_FLAKE_COLORS: Array[Color] = [Color("#4A4545"), Color("#7A7470"), Color("#5E5858")]
+## Splinters a crate breaks into when a falling block crushes it (smash()).
+const SMASH_SPLINTERS: int = 10
 ## A burning crate looks for grass and leaves to light this often, seconds.
 const IGNITE_INTERVAL: float = 0.15
 ## Flame tongues along the top of a burning crate, and the middle ones' length, px.
@@ -579,6 +581,29 @@ func _collapse() -> void:
 	PebbleField.leave_ash(get_tree(), center, 6, crate_size, ASH_FLAKE_COLORS)
 	SmokePuff.spawn(get_parent(), center, 5)
 	EmberEmitter.burst(get_parent(), center, 6, Vector2.UP, 120.0, 40.0)
+	FX.shake(1.5, 0.12)
+	FX.play_sfx(&"crate_collapse")
+	queue_redraw()
+
+
+## Crushed by a falling block (FallingBlock, after the W8c play-test): it breaks into
+## splinters and is gone until death or R, like a burnt-out crate but with no ash
+## heap and no fire. Wood or metal, both break: the block is far heavier.
+func smash() -> void:
+	if burn_state == BurnState.GONE:
+		return
+	burn_state = BurnState.GONE
+	ash_heap_visible = false
+	rotation = 0.0
+	fire_hazard.active = false
+	for flame: FlameTongue in flames:
+		flame.visible = false
+	velocity = Vector2.ZERO
+	# Deferred: physics shapes can't change in the middle of a physics step.
+	hitbox.set_deferred("disabled", true)
+	remove_from_group(PressurePlate.HEAVY_GROUP)
+	var center: Vector2 = global_position + Vector2(0.0, -crate_size.y / 2.0)
+	CrumblePatches.burst(get_parent(), get_parent().to_local(center), METAL_COLOR if is_metal else CRATE_COLOR, SMASH_SPLINTERS)
 	FX.shake(1.5, 0.12)
 	FX.play_sfx(&"crate_collapse")
 	queue_redraw()
