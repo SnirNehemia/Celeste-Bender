@@ -226,8 +226,11 @@ func _refresh_select_page() -> void:
 func get_entry_label(index: int) -> String:
 	var entry: StoryEntry = story.entries[index]
 	if StoryProgress.is_finished(entry.scene_path):
-		return "%s %s   %s, %d deaths" % [_check_mark(), entry.title,
+		var label: String = "%s %s   %s, %d deaths" % [_check_mark(), entry.title,
 			StoryProgress.format_time(StoryProgress.get_best_time(entry.scene_path)), StoryProgress.get_best_deaths(entry.scene_path)]
+		# Relic shards and gold (Collectibles.md §2.2), when there are any.
+		var collectibles: String = StoryProgress.get_collectibles_text(entry.scene_path)
+		return label + ("   " + collectibles if collectibles != "" else "")
 	if not StoryProgress.is_open(story, index):
 		return "   %s  (locked)" % entry.title
 	return "   %s" % entry.title

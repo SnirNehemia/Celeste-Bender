@@ -53,6 +53,60 @@ static func record_finish(scene_path: String, time: float, deaths: int) -> void:
 	config.save(progress_path)
 
 
+## The relic shards saved for a level (Collectibles.md §2): element
+## (RelicShard.Element) -> Array of its saved slots (1..4). Every element has its
+## own relic, so a level can hold shards of several.
+static func get_shards(scene_path: String) -> Dictionary:
+	return _load().get_value(scene_path, "relic_shards", {})
+
+
+## True if shard `slot` of `element`'s relic is saved for a level.
+static func has_shard(scene_path: String, element: int, slot: int) -> bool:
+	var shards: Dictionary = get_shards(scene_path)
+	return shards.has(element) and (shards[element] as Array).has(slot)
+
+
+## Saves shard `slot` of `element`'s relic for a level at once (RelicShard, when
+## it's secured in a story run), so quitting mid-level keeps it.
+static func record_shard(scene_path: String, element: int, slot: int) -> void:
+	var config: ConfigFile = _load()
+	var shards: Dictionary = config.get_value(scene_path, "relic_shards", {})
+	var slots: Array = shards.get(element, [])
+	if slots.has(slot):
+		return
+	slots.append(slot)
+	slots.sort()
+	shards[element] = slots
+	config.set_value(scene_path, "relic_shards", shards)
+	config.save(progress_path)
+
+
+## True if the level was finished carrying the golden feather (Collectibles.md §3).
+static func is_golden(scene_path: String) -> bool:
+	return _load().get_value(scene_path, "golden", false)
+
+
+static func record_golden(scene_path: String) -> void:
+	var config: ConfigFile = _load()
+	config.set_value(scene_path, "golden", true)
+	config.save(progress_path)
+
+
+## The level's collectibles in one short line, e.g. "Air relic  Water 2/4  Gold":
+## each element's relic, complete or how many of its 4 quarters, then "Gold" for a
+## golden level ("" when there is nothing yet).
+static func get_collectibles_text(scene_path: String) -> String:
+	var parts: Array[String] = []
+	var shards: Dictionary = get_shards(scene_path)
+	var elements: Array = shards.keys()
+	elements.sort()
+	for element: int in elements:
+		parts.append(RelicShard.get_relic_progress_text(element, (shards[element] as Array).size()))
+	if is_golden(scene_path):
+		parts.append("Gold")
+	return "  ".join(parts)
+
+
 ## New run: forgets everything.
 static func reset_all() -> void:
 	ConfigFile.new().save(progress_path)  # an empty file

@@ -11,6 +11,8 @@ extends CanvasLayer
 ##   - "Restart room" calls RoomManager.restart_room(), the same path as R.
 ##   - "Rooms" (only in worlds with an F2 room picker) closes this menu and opens
 ##     the picker, found through RoomPicker.GROUP. Phones have no F2.
+##   - The level's relic (RelicView, Collectibles.md §2.2) sits beside the buttons:
+##     its quarters found so far; hidden in levels without relic shards.
 ##   - It refuses to open while another menu has the game paused (the F2 room
 ##     picker) or after the Goal (the end screen is up).
 ##
@@ -39,6 +41,8 @@ var resume_button: Button
 var rooms_button: Button
 ## The whole menu (dim + buttons), shown/hidden as one.
 var menu_root: Control
+## The level's relic, beside the buttons.
+var relic_view: RelicView
 
 
 func _ready() -> void:
@@ -46,6 +50,20 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_ui()
 	menu_root.visible = false
+
+
+## Left / Right flip the relic view's pages. In _input, not _unhandled_input: it
+## runs BEFORE the focused button's own arrow navigation, which would take them.
+func _input(event: InputEvent) -> void:
+	if not menu_root.visible or relic_view == null:
+		return
+	var direction: int = 0
+	if event.is_action_pressed("move_left"):
+		direction = -1
+	elif event.is_action_pressed("move_right"):
+		direction = 1
+	if direction != 0 and relic_view.show_page(direction):
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -75,6 +93,8 @@ func _set_open(open: bool) -> void:
 	if open:
 		# Checked on every open, not in _ready: the picker may join the scene after us.
 		rooms_button.visible = _get_room_picker() != null
+		# The running level's root: our RoomManager, or our parent if it isn't set.
+		relic_view.refresh(room_manager if room_manager != null else get_parent())
 		resume_button.grab_focus()
 
 
@@ -134,9 +154,17 @@ func _build_ui() -> void:
 	var center: CenterContainer = CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu_root.add_child(center)
+	# The buttons on the left, the relic on the right (an HBoxContainer lines its
+	# children up side by side).
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	center.add_child(row)
 	var column: VBoxContainer = VBoxContainer.new()
 	column.add_theme_constant_override("separation", 2)
-	center.add_child(column)
+	row.add_child(column)
+	relic_view = RelicView.new()
+	relic_view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(relic_view)
 
 	column.add_child(_make_label("Paused", 16, TITLE_COLOR))
 	resume_button = _make_button("Resume", _on_resume_pressed)

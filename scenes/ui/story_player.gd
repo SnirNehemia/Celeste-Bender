@@ -114,11 +114,19 @@ func _on_run_finished() -> void:
 	var time: float = GameState.elapsed_time
 	var deaths: int = GameState.death_count
 	StoryProgress.record_finish(entry.scene_path, time, deaths)
+	# Carried the golden feather to the Goal: the level is gold (Collectibles.md §3).
+	if GameState.is_carrying_golden:
+		StoryProgress.record_golden(entry.scene_path)
 	total_time += time
 	total_deaths += deaths
 	title_label.text = "Level complete"
 	stats_label.text = "%s\nTime: %s    Deaths: %d\nBest: %s, %d deaths" % [entry.title, StoryProgress.format_time(time), deaths,
 		StoryProgress.format_time(StoryProgress.get_best_time(entry.scene_path)), StoryProgress.get_best_deaths(entry.scene_path)]
+	var collectibles: String = StoryProgress.get_collectibles_text(entry.scene_path)
+	if GameState.is_carrying_golden:
+		collectibles += "  (golden feather carried!)"
+	if collectibles != "":
+		stats_label.text += "\n" + collectibles.strip_edges()
 	var is_last: bool = entry_index + 1 >= story.entries.size()
 	hint_label.text = "Press Jump (C) to finish" if is_last else "Press Jump (C): next, %s" % story.entries[entry_index + 1].title
 	_show_card()

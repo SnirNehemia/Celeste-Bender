@@ -63,6 +63,8 @@ const PACK_LAND_KICK: float = 30.0
 ## The lid: a quick spring toward how open it should be (0 shut, 1 lifted, 2 tipped up).
 const LID_STIFFNESS: float = 300.0
 const LID_DAMPING: float = 20.0
+## pop_lid()'s kick to the lid's spring (openness per second): about one pixel up and back.
+const LID_POP_KICK: float = 30.0
 
 ## The Player, our parent.
 var player: Player
@@ -185,6 +187,20 @@ func _update_motion(delta: float) -> void:
 	if blink_wait_remaining <= 0.0:
 		blink_remaining = tuning.blink_time
 		blink_wait_remaining = tuning.blink_interval + randf() * tuning.blink_interval_random
+
+
+## Where the pack is right now, in world px (its middle): a collected KeyOrb flies
+## there. Follows the facing and the trail, close enough for a pick-up to aim at.
+func get_pack_global_position() -> Vector2:
+	var facing: float = 1.0 if player.facing_direction >= 0.0 else -1.0
+	# The pack is 2 px wide right behind the 8 px body, 3..8 px down an 11 px body.
+	return player.global_position + Vector2(-facing * 5.0, -6.0) + pack_lag
+
+
+## Flips the lid open for a moment (something just went into the pack); the lid's
+## spring shuts it again.
+func pop_lid() -> void:
+	lid_velocity = LID_POP_KICK
 
 
 ## Touched down after falling at `fall_speed` px/s: squint, shut the lid, and kick

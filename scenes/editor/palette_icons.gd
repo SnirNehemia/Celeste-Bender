@@ -219,6 +219,28 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 		&"fire_diamond":
 			_diamond(image, 5, 5, 4, ORANGE)
 			_diamond(image, 5, 5, 1, YELLOW)
+		&"key_orb":
+			_diamond(image, 5, 5, 3, RED)  # a round-ish orb
+			_rect(image, 3, 3, 5, 5, RED)
+			_rect(image, 4, 4, 1, 1, WHITE)
+		&"relic_shard":
+			_rect(image, 4, 1, 2, 2, CYAN)
+			_rect(image, 3, 3, 4, 3, CYAN)
+			_rect(image, 4, 6, 2, 3, CYAN)
+			_rect(image, 4, 3, 1, 2, WHITE)
+		&"golden_feather":
+			for step: int in 7:
+				_rect(image, 5 - floori(step / 2.0), 1 + step, 3, 1, YELLOW)
+			_rect(image, 2, 8, 1, 2, LEAF_GOLD)
+		&"key_light":
+			_rect(image, 2, 8, 6, 2, GRAY)
+			_rect(image, 4, 6, 2, 2, GRAY)
+			_rect(image, 3, 2, 4, 4, YELLOW)
+		&"grand_door":
+			_rect(image, 1, 0, 8, 10, DARK_GRAY)
+			_rect(image, 1, 0, 8, 1, GRAY)
+			_rect(image, 4, 2, 2, 2, RED)
+			_rect(image, 4, 6, 2, 2, CYAN)
 		# --- Triggers and what they open ---
 		&"pressure_plate":
 			_rect(image, 1, 7, 8, 2, TAN)

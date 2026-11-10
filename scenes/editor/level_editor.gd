@@ -2549,6 +2549,37 @@ func get_play_warnings() -> Array[String]:
 		warnings.append_array(get_element_warnings(room))
 	if not has_goal:
 		warnings.append("No goal yet: the level can't be finished.")
+	warnings.append_array(get_relic_warnings())
+	return warnings
+
+
+## Relic shards that don't make whole relics (Collectibles.md §2): two shards of
+## the same element in one slot (only one can ever count), or an element with
+## fewer than its four slots placed (its relic can't be completed).
+func get_relic_warnings() -> Array[String]:
+	var warnings: Array[String] = []
+	var slots_of: Dictionary = {}  # element -> Array of placed slots
+	for room: Room in get_rooms():
+		for child: Node in room.get_children():
+			var shard: RelicShard = child as RelicShard
+			if shard == null:
+				continue
+			var slots: Array = slots_of.get(shard.element, [])
+			if slots.has(shard.slot):
+				warnings.append("Two %s shards in slot %d: only one can count. Give one another slot or element." % [
+					RelicShard.get_relic_name(shard.element), shard.slot])
+			else:
+				slots.append(shard.slot)
+			slots_of[shard.element] = slots
+	for element: int in slots_of:
+		var slots: Array = slots_of[element]
+		if slots.size() < RelicShard.SHARDS_PER_RELIC:
+			var missing: Array[String] = []
+			for slot: int in range(1, RelicShard.SHARDS_PER_RELIC + 1):
+				if not slots.has(slot):
+					missing.append(str(slot))
+			warnings.append("The %s has no shard in slot %s: it can't be completed." % [
+				RelicShard.get_relic_name(element), ", ".join(missing)])
 	return warnings
 
 

@@ -59,6 +59,12 @@ func _on_run_finished() -> void:
 	if GameState.is_story_run:
 		return
 	stats_label.text = "Deaths: %d\nTime: %s" % [GameState.death_count, GameState.get_formatted_time()]
+	# This run's collectibles (Collectibles.md §2.2), when there are any.
+	# One line per relic with shards secured: "Air relic" (complete) or "Water 2/4".
+	for element: int in GameState.secured_shards:
+		stats_label.text += "\n" + RelicShard.get_relic_progress_text(element, (GameState.secured_shards[element] as Array).size())
+	if GameState.is_carrying_golden:
+		stats_label.text += "\nGolden feather carried!"
 	input_delay_remaining = INPUT_DELAY
 	visible = true
 

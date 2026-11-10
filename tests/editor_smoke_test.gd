@@ -66,6 +66,8 @@ func _ready() -> void:
 	await _check_falling_block_between_rooms()
 	await _check_d1_depths()
 	await _check_d2_d3_depth_gates()
+	await _check_hub_keys()
+	await _check_collectibles()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
@@ -75,7 +77,7 @@ func _ready() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECENT_PATH))
 	LevelStorage.autosave_dir = LevelStorage.DEFAULT_AUTOSAVE_DIR
 	LevelStorage.recent_path = LevelStorage.DEFAULT_RECENT_PATH
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax", "Hub keys", "Collectibles"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -3330,6 +3332,182 @@ func _check_d2_d3_depth_gates() -> void:
 
 ## Presses an action the way a real key does (see earth_smoke_test.gd's
 ## _press_action): an input EVENT, held for two physics ticks.
+## Hub keys: a KeyOrb's color, once collected, lights the KeyLights of that color
+## (whatever room they're in), and a GrandDoor linked to them opens. None of it
+## resets on death; a new run (GameState.reset_run) clears the keys.
+func _check_hub_keys() -> void:
+	for id: StringName in [&"key_orb", &"key_light", &"grand_door"]:
+		_check(PaletteCatalog.get_entry(id) != null, "the palette has %s" % id)
+	_check(PaletteCatalog.get_entry(&"key_orb").family == "Crystals", "the key orb is in the Crystals tab")
+	_check(PaletteCatalog.get_entry(&"key_light").family == "Triggers", "the key light is in the Triggers tab")
+	_check(PaletteCatalog.get_entry(&"grand_door").family == "Activated", "the grand door is in the Activated tab")
+	GameState.reset_run()
+	# Outside any room: Room.find_room_of() and GameState.current_room are both null,
+	# so the light counts as "in the current room" and lights after its beat.
+	var blue_light: KeyLight = (load("res://scenes/objects/key_light.tscn") as PackedScene).instantiate() as KeyLight
+	blue_light.key_color = KeyColors.Name.BLUE
+	add_child(blue_light)
+	var red_light: KeyLight = (load("res://scenes/objects/key_light.tscn") as PackedScene).instantiate() as KeyLight
+	red_light.key_color = KeyColors.Name.RED
+	add_child(red_light)
+	var door: GrandDoor = (load("res://scenes/objects/grand_door.tscn") as PackedScene).instantiate() as GrandDoor
+	door.switches = [blue_light, red_light]
+	door.link_mode = Door.LinkMode.ALL
+	door.position = Vector2(400, 0)
+	add_child(door)
+	await get_tree().process_frame
+	_check(door.door_size == Vector2(16, 48), "a new grand door is 2 x 6 tiles, got %s" % door.door_size)
+	_check(not blue_light.is_on() and not door.wants_open, "nothing is lit and the door is shut before any key")
+	GameState.collect_key(KeyColors.Name.BLUE)
+	await get_tree().create_timer(KeyLight.IGNITE_DELAY + 0.2).timeout
+	_check(blue_light.is_on() and not red_light.is_on(), "the blue key lights only the blue light")
+	_check(not door.wants_open, "one light of two: the door (Link Mode All) stays shut")
+	GameState.collect_key(KeyColors.Name.RED)
+	await get_tree().create_timer(KeyLight.IGNITE_DELAY + 0.2).timeout
+	_check(red_light.is_on() and door.wants_open, "both lights lit: the door wants to open")
+	await get_tree().create_timer(GrandDoor.OPEN_DELAY * 0.5).timeout
+	_check(door.open_amount == 0.0, "the grand door waits a beat before it moves")
+	await get_tree().create_timer(GrandDoor.OPEN_DELAY * 0.5 + door.open_time + 0.3).timeout
+	_check(door.open_amount == 1.0, "then it opens all the way, got %.2f" % door.open_amount)
+	door.reset()  # what a death or R does to the room
+	await get_tree().physics_frame
+	_check(blue_light.is_on() and door.open_amount == 1.0, "a reset leaves the lights lit and the door open")
+	var orb: KeyOrb = (load("res://scenes/objects/key_orb.tscn") as PackedScene).instantiate() as KeyOrb
+	orb.key_color = KeyColors.Name.BLUE
+	add_child(orb)
+	await get_tree().process_frame
+	_check(orb.phase == KeyOrb.Phase.COLLECTED, "an orb whose key is already in the bag shows only its ghost")
+	var green_orb: KeyOrb = (load("res://scenes/objects/key_orb.tscn") as PackedScene).instantiate() as KeyOrb
+	green_orb.key_color = KeyColors.Name.GREEN
+	add_child(green_orb)
+	await get_tree().process_frame
+	_check(green_orb.phase == KeyOrb.Phase.WAITING, "an orb not yet collected waits to be touched")
+	GameState.reset_run()
+	_check(not GameState.has_key(KeyColors.Name.BLUE), "a new run empties the bag")
+	for node: Node in [blue_light, red_light, door, orb, green_orb]:
+		node.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Hub keys")
+
+
+## Collectibles.md: relic shards (follow, then count once you stand on the ground;
+## a death sends a following one home) and the golden feather (only before any
+## death; a death breaks it), in a play-test; then StoryProgress's saving.
+func _check_collectibles() -> void:
+	for id: StringName in [&"relic_shard", &"golden_feather"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Crystals", "%s is in the Crystals tab" % id)
+	var path: String = LevelStorage.create_level("Collectibles Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	# All on the floor row the spawn stands on (feet at y 168: tile row 20).
+	var first_shard: RelicShard = editor.place_object(PaletteCatalog.get_entry(&"relic_shard"), room, Vector2i(5, 20)) as RelicShard
+	var second_shard: RelicShard = editor.place_object(PaletteCatalog.get_entry(&"relic_shard"), room, Vector2i(25, 20)) as RelicShard
+	editor.set_property(second_shard, &"slot", 2)
+	# A Water shard too: every element is its own relic (a page each in the pause menu).
+	var water_shard: RelicShard = editor.place_object(PaletteCatalog.get_entry(&"relic_shard"), room, Vector2i(35, 10)) as RelicShard
+	editor.set_property(water_shard, &"element", RelicShard.Element.WATER)
+	var relic_warnings: Array[String] = editor.get_relic_warnings()
+	_check(relic_warnings.size() == 2 and relic_warnings[0].contains("Air relic") and relic_warnings[0].contains("3, 4")
+		and relic_warnings[1].contains("Water relic"), "incomplete relics are warned about, got %s" % [relic_warnings])
+	var twin_shard: RelicShard = editor.place_object(PaletteCatalog.get_entry(&"relic_shard"), room, Vector2i(35, 5)) as RelicShard
+	editor.set_property(twin_shard, &"element", RelicShard.Element.WATER)
+	_check(editor.get_relic_warnings().any(func(text: String) -> bool: return text.begins_with("Two Water relic shards in slot 1")),
+		"two shards of one element in one slot are warned about")
+	editor.delete_object(twin_shard)
+	editor.place_object(PaletteCatalog.get_entry(&"golden_feather"), room, Vector2i(15, 20))
+	_check(first_shard != null and second_shard != null, "shards can be placed")
+	var key_orb: Node2D = editor.place_object(PaletteCatalog.get_entry(&"key_orb"), room, Vector2i(30, 10))
+	var key_light: Node2D = editor.place_object(PaletteCatalog.get_entry(&"key_light"), room, Vector2i(32, 20))
+	for placed: Node2D in [first_shard, key_orb]:
+		_check(fposmod(placed.position.x, 8.0) == 0.0 and fposmod(placed.position.y, 8.0) == 0.0,
+			"%s sits on a tile corner (2x2 tiles on the grid), got %s" % [placed.name, placed.position])
+	_check(fposmod(key_light.position.x, 8.0) == 0.0 and fposmod(key_light.position.y, 8.0) == 0.0,
+		"a key light stands on a tile line, got %s" % key_light.position)
+	editor.delete_object(key_orb)
+	editor.delete_object(key_light)
+	_check(editor.start_playtest(), "play-test the level")
+	var player: Player = editor.play_root.player
+	var play_shards: Array[RelicShard] = []
+	var feather: GoldenFeather = null
+	for node: Node in editor.play_root.find_children("*", "", true, false):
+		if node is RelicShard and (node as RelicShard).element == RelicShard.Element.AIR:
+			play_shards.append(node)
+		elif node is GoldenFeather:
+			feather = node
+	play_shards.sort_custom(func(a: RelicShard, b: RelicShard) -> bool: return a.slot < b.slot)
+	_check(play_shards.size() == 2 and feather != null, "the play copy has both Air shards and the feather")
+	# 1. Shard 1: it follows, then counts once the player stands on the ground.
+	player.respawn_at(play_shards[0].global_position + Vector2(0, 4))
+	await _wait_until_true(func() -> bool: return play_shards[0].state != TrailingPickup.State.HOME, 1.0)
+	_check(play_shards[0].state == TrailingPickup.State.FOLLOWING or GameState.has_shard(RelicShard.Element.AIR, 1), "touching a shard makes it follow")
+	await _wait_until_true(func() -> bool: return GameState.has_shard(RelicShard.Element.AIR, 1), 2.0)
+	_check(GameState.has_shard(RelicShard.Element.AIR, 1) and not GameState.has_shard(RelicShard.Element.WATER, 1),
+		"standing on the ground secures it (Air slot 1, not Water slot 1)")
+	await get_tree().create_timer(RelicShard.SECURE_TIME + 0.1).timeout
+	_check(play_shards[0].state == TrailingPickup.State.GONE and TrailingPickup.chain.is_empty(), "a secured shard is gone and out of the chain")
+	# The pause menu shows the relic with that quarter found.
+	var pause_menu: PauseMenu = editor.play_root.get_node("PauseMenu") as PauseMenu
+	pause_menu._set_open(true)
+	var relic_view: RelicView = pause_menu.relic_view
+	_check(relic_view.visible and relic_view.page_elements == [RelicShard.Element.AIR, RelicShard.Element.WATER],
+		"the pause menu has a page per relic in the level (Air, Water), got %s" % [relic_view.page_elements])
+	relic_view.page_index = 0
+	_check(relic_view.found.get(RelicShard.Element.AIR, []) == [1] and not relic_view.found.has(RelicShard.Element.WATER),
+		"the Air relic shows quarter 1 found, the Water relic none, got %s" % [relic_view.found])
+	_check(relic_view.show_page(1) and relic_view.get_shown_element() == RelicShard.Element.WATER, "Right flips to the Water relic")
+	_check(relic_view.show_page(1) and relic_view.get_shown_element() == RelicShard.Element.AIR, "and round again to Air")
+	pause_menu._set_open(false)
+	# 2. The feather (no deaths yet): it follows, first in the chain.
+	player.respawn_at(feather.global_position + Vector2(0, 4))
+	await _wait_until_true(func() -> bool: return feather.state == TrailingPickup.State.FOLLOWING, 1.0)
+	_check(feather.state == TrailingPickup.State.FOLLOWING and GameState.is_carrying_golden, "the golden feather is taken before any death")
+	_check(feather.get_parent() == editor.play_root, "a follower leaves its room for the world (rooms far away freeze)")
+	# 3. Shard 2, then a death before it counts: it goes home, the feather breaks.
+	player.respawn_at(play_shards[1].global_position + Vector2(0, 4))
+	await _wait_until_true(func() -> bool: return play_shards[1].state == TrailingPickup.State.FOLLOWING, 1.0)
+	_check(TrailingPickup.chain.size() == 2 and TrailingPickup.chain[0] == feather, "the feather stays first in the chain, got %s" % [TrailingPickup.chain])
+	player.die(true)
+	await get_tree().physics_frame
+	_check(feather.state == TrailingPickup.State.GONE and GameState.is_golden_broken and not GameState.is_carrying_golden, "a death breaks the feather")
+	await get_tree().create_timer(TrailingPickup.RETURN_TIME + 0.2).timeout
+	_check(play_shards[1].state == TrailingPickup.State.HOME and play_shards[1].get_parent() is Room, "a following shard flies home after a death")
+	_check(not GameState.has_shard(RelicShard.Element.AIR, 2) and GameState.has_shard(RelicShard.Element.AIR, 1), "it isn't counted; the secured one still is")
+	# 4. After a death the feather can't be taken.
+	await get_tree().create_timer(player.tuning.death_respawn_delay + 0.2).timeout
+	player.respawn_at(feather.global_position + Vector2(0, 4))
+	await get_tree().create_timer(0.2).timeout
+	_check(feather.state == TrailingPickup.State.GONE, "the broken feather can't be taken again")
+	editor.stop_playtest()
+	_check(TrailingPickup.chain.is_empty(), "ending the play-test empties the chain")
+	editor.queue_free()
+	await get_tree().process_frame
+	# Saving (Story Mode): shards by slot, gold, the line the cards show.
+	StoryProgress.progress_path = TEST_PROGRESS_PATH
+	StoryProgress.reset_all()
+	var level: String = "res://levels/some_level.tscn"
+	StoryProgress.record_shard(level, RelicShard.Element.AIR, 3)
+	StoryProgress.record_shard(level, RelicShard.Element.AIR, 1)
+	StoryProgress.record_shard(level, RelicShard.Element.AIR, 3)
+	StoryProgress.record_shard(level, RelicShard.Element.WATER, 1)
+	_check(StoryProgress.get_shards(level) == {RelicShard.Element.AIR: [1, 3], RelicShard.Element.WATER: [1]},
+		"shards are saved per element, once each, got %s" % [StoryProgress.get_shards(level)])
+	_check(StoryProgress.has_shard(level, RelicShard.Element.WATER, 1) and not StoryProgress.has_shard(level, RelicShard.Element.WATER, 3),
+		"Water slot 1 is saved, Water slot 3 isn't")
+	_check(StoryProgress.get_collectibles_text(level) == "Air 2/4  Water 1/4", "the card lists each relic, got \"%s\"" % StoryProgress.get_collectibles_text(level))
+	StoryProgress.record_shard(level, RelicShard.Element.AIR, 2)
+	StoryProgress.record_shard(level, RelicShard.Element.AIR, 4)
+	StoryProgress.record_golden(level)
+	_check(StoryProgress.get_collectibles_text(level) == "Air relic  Water 1/4  Gold", "a complete relic and gold, got \"%s\"" % StoryProgress.get_collectibles_text(level))
+	StoryProgress.reset_all()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS_PATH))
+	StoryProgress.progress_path = StoryProgress.DEFAULT_PROGRESS_PATH
+	GameState.reset_run()
+	finished_sections.append("Collectibles")
+
+
 func _press_action(action: StringName) -> void:
 	var press: InputEventAction = InputEventAction.new()
 	press.action = action

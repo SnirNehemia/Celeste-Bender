@@ -410,6 +410,42 @@ static func _build() -> void:
 	switch_wall.link_property = &"switches"
 	switch_wall.link_target_class = &"Switch"
 
+	# Hub-room keys: a colored orb collected once per run lights every key light of
+	# its color (any room), and a grand door linked to the lights opens when all are lit.
+	var key_orb: Entry = _add_object(&"key_orb", "Key orb", "Crystals", preload("res://scenes/objects/key_orb.tscn"))
+	key_orb.hint = "A key of one color, collected once per run (deaths and R don't take it back). Lights every Key light of the same color, in any room. Put one at the end of each path from a hub room."
+	key_orb.local_rect = Rect2(-8, -8, 16, 16)  # 2x2 tiles: its middle on a tile corner
+	key_orb.placement = Placement.CENTERED
+	key_orb.editable_properties = [&"key_color"]
+
+	# Collectibles (Collectibles.md): four relic shards per level (the "100%"), and
+	# an optional golden feather (the no-death challenge).
+	var relic_shard: Entry = _add_object(&"relic_shard", "Relic shard", "Crystals", preload("res://scenes/objects/relic_shard.tscn"))
+	relic_shard.hint = "A quarter of an element's relic: Element picks the relic, Slot (1-4) the quarter. Place all four slots of an element somewhere in the level. Touch: it follows you, and counts once you stand on the ground; die first and it flies home."
+	relic_shard.local_rect = Rect2(-8, -8, 16, 16)  # 2x2 tiles: its middle on a tile corner
+	relic_shard.placement = Placement.CENTERED
+	relic_shard.editable_properties = [&"slot", &"element"]
+
+	var golden_feather: Entry = _add_object(&"golden_feather", "Golden feather", "Crystals", preload("res://scenes/objects/golden_feather.tscn"))
+	golden_feather.hint = "The no-death challenge (one per level, usually in the first room). Can only be taken before any death; a death while carrying it breaks it. Carry it to the goal and the level is gold."
+	golden_feather.local_rect = Rect2(-8, -8, 16, 16)  # 2x2 tiles, like the shards
+	golden_feather.placement = Placement.CENTERED
+
+	var key_light: Entry = _add_object(&"key_light", "Key light", "Triggers", preload("res://scenes/objects/key_light.tscn"))
+	key_light.hint = "A switch: a glass ball on a pedestal that lights once the Key orb of its color is collected (anywhere in the level), and stays lit. It lights when the player next walks into its room. Link a Grand door to all of them (Link Mode: All)."
+	key_light.local_rect = Rect2(-8, -16, 16, 16)  # 2x2 tiles, origin on a tile line
+	key_light.placement = Placement.ON_FLOOR
+	key_light.snaps_to_ground = true
+	key_light.editable_properties = [&"key_color"]
+
+	var grand_door: Entry = _add_object(&"grand_door", "Grand door", "Activated", preload("res://scenes/objects/grand_door.tscn"))
+	grand_door.hint = "A big stone door with one socket per linked switch (L): Key lights show their color. Opens slowly with a rumble once its switches are on (Link Mode All: every one). Size it in whole tiles."
+	grand_door.bounds = Bounds.SIZE_TOP_LEFT
+	grand_door.size_property = &"door_size"
+	grand_door.editable_properties = [&"door_size", &"link_mode", &"open_when_off", &"retract_toward"]
+	grand_door.link_property = &"switches"
+	grand_door.link_target_class = &"Switch"
+
 	var no_glide_zone: Entry = _add_object(&"no_glide_zone", "No-glide zone", "Air", preload("res://scenes/objects/no_glide_zone.tscn"))
 	no_glide_zone.hint = "Dead air: gliding can't start inside it and a glide drifting in ends. Jump, gust and the flame jet still work."
 	no_glide_zone.bounds = Bounds.SIZE_TOP_LEFT
