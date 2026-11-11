@@ -53,7 +53,10 @@ extends Node2D
 ##   - Link mode (L, Stage L6): with a door (or anything whose catalog entry has a
 ##     `link_property`) selected, L starts it; clicking a switch links or unlinks
 ##     it; L or Esc ends it. Links are the door's own `switches` list, node
-##     references that the saved scene stores as paths.
+##     references that the saved scene stores as paths. An entry with a
+##     `back_link_property` (the rail platform) has a second list: L again
+##     switches link mode to it, a third L ends. Link mode stays on through
+##     Page Down / Page Up, so a door can be linked to switches in another depth.
 ##   - Any tool: the selected object's handles (EditorHandles) resize it or move
 ##     its points. Its settings are in the property panel on the right; with
 ##     nothing selected, the panel shows the current room's settings (the room
@@ -234,6 +237,15 @@ var current_room: Room = null:
 			_show_selection_in_panel()
 ## Link mode: the object whose links are being edited (null = not in link mode).
 var link_source: Node2D = null
+## Which of its link lists link mode fills: the entry's link_property, or its
+## back_link_property after a second L.
+var link_property_in_use: StringName = &""
+## Link mode's third kind (an object with two lists, from the panel's Unlink
+## button): a click takes the target out of whichever list holds it.
+var is_unlink_mode: bool = false
+## The panel's Forward / Backward / Unlink buttons for an object with two lists
+## (empty otherwise): lit to show link mode's kind.
+var link_mode_buttons: Array[Button] = []
 ## A handle being dragged ({} = none), and its property's value when the drag began.
 var dragged_handle: Dictionary = {}
 var dragged_handle_start_value: Variant = null
@@ -641,13 +653,15 @@ func show_depth(depth: int) -> bool:
 	if depth < 0 or depth > map_view.get_deepest_depth() + 1 or depth == shown:
 		return false
 	end_stroke()
-	end_link_mode()
-	select(null)
+	# Link mode stays on (and the object being linked selected), so a door in one
+	# depth can be linked to switches in another: switch depth, click the switch.
+	if link_source == null:
+		select(null)
 	camera.position += Room.depth_offset(depth) - Room.depth_offset(shown)
 	var room: Room = room_at(camera.position)
 	if room != null:
 		current_room = room
-	ui.show_message("Editing depth %d%s." % [depth, " (the front)" if depth == 0
+	ui.show_message("%s depth %d%s." % ["Linking in" if link_source != null else "Editing", depth, " (the front)" if depth == 0
 		else (": no rooms here yet, make one in the map (M)" if map_view.get_rooms_at_depth(depth).is_empty() else "")])
 	return true
 
@@ -1554,7 +1568,17 @@ func _show_selection_in_panel() -> void:
 			direction_properties.append(entry.arrow_property)
 		ui.property_panel.show_target(selected, "%s\n%s" % [entry.display_name, selected.name],
 			entry.editable_properties, direction_properties, entry.hint)
-		if entry.link_property != &"":
+		link_mode_buttons.clear()
+		if entry.back_link_property != &"":
+			# Two lists (a rail platform): one button per kind of link mode, side by
+			# side; the lit one is the mode on now, pressing it again ends it.
+			var linked_object: Node2D = selected
+			link_mode_buttons = ui.property_panel.add_button_row([
+				["Forward", func() -> void: _on_link_mode_button(linked_object, LinkKind.FORWARD)],
+				["Backward", func() -> void: _on_link_mode_button(linked_object, LinkKind.BACKWARD)],
+				["Unlink", func() -> void: _on_link_mode_button(linked_object, LinkKind.UNLINK)]])
+			_update_link_mode_buttons()
+		elif entry.link_property != &"":
 			# The same as L: starts link mode, or ends it if it's on.
 			ui.property_panel.add_button("Link / unlink (L)", toggle_link_mode)
 		if entry.path_property != &"":
@@ -1648,7 +1672,11 @@ func _update_link_footer() -> void:
 		ui.property_panel.set_footer("")
 		return
 	var link_count: int = (selected.get(entry.link_property) as Array).size()
-	ui.property_panel.set_footer("Links: %d %s\nL: link / unlink" % [link_count, PaletteCatalog.link_target_name(entry)])
+	if entry.back_link_property == &"":
+		ui.property_panel.set_footer("Links: %d %s\nL: link / unlink" % [link_count, PaletteCatalog.link_target_name(entry)])
+		return
+	var back_count: int = (selected.get(entry.back_link_property) as Array).size()
+	ui.property_panel.set_footer("Links: %d forward, %d backward\nL: link forward, L again: backward" % [link_count, back_count])
 
 
 # --- Links (Stage L6) ---
@@ -1661,23 +1689,90 @@ func start_link_mode(source: Node2D) -> bool:
 		ui.show_message("Select something that links first (a door, a hanging platform, a crate, an enemy gate), then L.", true)
 		return false
 	link_source = source
-	ui.set_tool("Linking %s to %s" % [source.name, PaletteCatalog.link_target_name(entry)])
-	ui.show_message("Click a %s to link or unlink it.  L or Esc: done." % PaletteCatalog.link_target_name(entry))
+	link_property_in_use = entry.link_property
+	_show_link_mode_message(entry)
 	return true
 
 
-## L, or the panel's Link button: link mode on for the selected object, or off.
-func toggle_link_mode() -> void:
-	if link_source != null:
+## The kinds of link mode an object with two link lists has (the panel's buttons).
+enum LinkKind { FORWARD, BACKWARD, UNLINK }
+
+
+## A Forward / Backward / Unlink button: that kind of link mode for `source`, or,
+## when it's the kind already on, link mode off.
+func _on_link_mode_button(source: Node2D, kind: LinkKind) -> void:
+	if link_source == source and _get_link_kind() == kind:
 		end_link_mode()
-	else:
+		return
+	if link_source != source:
+		end_link_mode()
+		if not start_link_mode(source):
+			return
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(source)
+	is_unlink_mode = kind == LinkKind.UNLINK
+	link_property_in_use = entry.back_link_property if kind == LinkKind.BACKWARD else entry.link_property
+	_show_link_mode_message(entry)
+
+
+## The kind of link mode on now (FORWARD when it's off, or for one-list objects).
+func _get_link_kind() -> LinkKind:
+	if is_unlink_mode:
+		return LinkKind.UNLINK
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(link_source) if link_source != null else null
+	if entry != null and entry.back_link_property != &"" and link_property_in_use == entry.back_link_property:
+		return LinkKind.BACKWARD
+	return LinkKind.FORWARD
+
+
+## Lights the panel's button of the link mode on now (none when it's off).
+func _update_link_mode_buttons() -> void:
+	var kind: int = _get_link_kind() if link_source != null and link_source == selected_object else -1
+	for index: int in link_mode_buttons.size():
+		if is_instance_valid(link_mode_buttons[index]):
+			link_mode_buttons[index].set_pressed_no_signal(index == kind)
+
+
+## The tool label and the message for link mode now: which list, and the keys.
+func _show_link_mode_message(entry: PaletteCatalog.Entry) -> void:
+	_update_link_mode_buttons()
+	var target_name: String = PaletteCatalog.link_target_name(entry)
+	if entry.back_link_property == &"":
+		ui.set_tool("Linking %s to %s" % [link_source.name, target_name])
+		ui.show_message("Click a %s to link or unlink it (Page Down / Up: other depths).  L or Esc: done." % target_name)
+		return
+	if is_unlink_mode:
+		ui.set_tool("Unlinking from %s" % link_source.name)
+		ui.show_message("Click a linked %s to unlink it (forward or backward).  L or Esc: done." % target_name)
+		return
+	var is_back: bool = link_property_in_use == entry.back_link_property
+	ui.set_tool("Linking %s: %s %s" % [link_source.name, "BACKWARD" if is_back else "FORWARD", target_name])
+	ui.show_message("Click a %s to link or unlink it as %s.  %s" % [target_name,
+		"backward (back toward the start)" if is_back else "forward (along the rail)",
+		"L or Esc: done." if is_back else "L: switch to backward links.  Esc: done."])
+
+
+## L, or the panel's Link button: link mode on for the selected object, then (for
+## an object with a second list) on to that list, then off.
+func toggle_link_mode() -> void:
+	if link_source == null:
 		start_link_mode(selected_object)
+		return
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(link_source)
+	if entry != null and entry.back_link_property != &"" and not is_unlink_mode \
+			and link_property_in_use == entry.link_property:
+		link_property_in_use = entry.back_link_property
+		_show_link_mode_message(entry)
+	else:
+		end_link_mode()
 
 
 func end_link_mode() -> void:
 	if link_source == null:
 		return
 	link_source = null
+	link_property_in_use = &""
+	is_unlink_mode = false
+	_update_link_mode_buttons()
 	ui.show_chosen_entry(current_entry)  # the tool label goes back to the palette's
 	ui.show_message("")
 
@@ -1689,8 +1784,12 @@ func toggle_link(source: Node2D, target: Node2D) -> bool:
 	if target == source or not PaletteCatalog.is_link_target(entry, target):
 		ui.show_message("%s can't be linked to %s: it needs a %s." % [source.name, target.name, PaletteCatalog.link_target_name(entry)], true)
 		return false
+	if entry.back_link_property != &"" and entry.tie_kind == PaletteCatalog.TieKind.NONE:
+		return _toggle_two_list_link(source, target, entry)
+	# Link mode's list (the second one after L twice), else the first.
+	var property: StringName = link_property_in_use if link_source == source and link_property_in_use != &"" else entry.link_property
 	# duplicate(): a new list, so undo can put the old one back as it was.
-	var old_links: Array = (source.get(entry.link_property) as Array).duplicate()
+	var old_links: Array = (source.get(property) as Array).duplicate()
 	var links: Array = old_links.duplicate()
 	var was_linked: bool = links.has(target)
 	if was_linked:
@@ -1699,7 +1798,7 @@ func toggle_link(source: Node2D, target: Node2D) -> bool:
 		links.append(target)
 	var end_property: StringName = _get_tie_end_property(target)
 	if entry.tie_kind == PaletteCatalog.TieKind.NONE or end_property == &"":
-		set_property(source, entry.link_property, links, null, false)
+		set_property(source, property, links, null, false)
 	else:
 		# A holder and its vine: linking ties the vine's end onto it (the nearest
 		# spot), unlinking unties it. Both in the one undo step.
@@ -1719,17 +1818,58 @@ func toggle_link(source: Node2D, target: Node2D) -> bool:
 	return true
 
 
-## Every link in the level as [source, target] pairs (the overlay draws them).
-## Links to objects that are out of the level (deleted, undone) are skipped.
+## toggle_link for an object with two link lists (a rail platform), in ONE undo step:
+##   - Unlink mode: takes `target` out of whichever list holds it.
+##   - Forward / Backward: a target already in this list is unlinked; one in the
+##     OTHER list moves to this one (a switch is never in both); else it's linked.
+func _toggle_two_list_link(source: Node2D, target: Node2D, entry: PaletteCatalog.Entry) -> bool:
+	var this_property: StringName = entry.link_property
+	if link_source == source and link_property_in_use != &"":
+		this_property = link_property_in_use
+	var other_property: StringName = entry.back_link_property if this_property == entry.link_property else entry.link_property
+	var old_this: Array = (source.get(this_property) as Array).duplicate()
+	var old_other: Array = (source.get(other_property) as Array).duplicate()
+	var new_this: Array = old_this.duplicate()
+	var new_other: Array = old_other.duplicate()
+	var was_in_this: bool = old_this.has(target)
+	var was_in_other: bool = old_other.has(target)
+	var message: String
+	if link_source == source and is_unlink_mode:
+		if not was_in_this and not was_in_other:
+			ui.show_message("%s isn't linked to %s." % [target.name, source.name], true)
+			return false
+		new_this.erase(target)
+		new_other.erase(target)
+		message = "Unlinked %s from %s." % [target.name, source.name]
+	elif was_in_this:
+		new_this.erase(target)
+		message = "Unlinked %s from %s." % [target.name, source.name]
+	else:
+		new_other.erase(target)
+		new_this.append(target)
+		var kind_name: String = "backward" if this_property == entry.back_link_property else "forward"
+		message = "%s %s to %s (%s)." % ["Moved" if was_in_other else "Linked", target.name, source.name, kind_name]
+	undo_redo.create_action("Link %s" % target.name, UndoRedo.MERGE_DISABLE)
+	undo_redo.add_do_method(_apply_property.bind(source, this_property, new_this))
+	undo_redo.add_do_method(_apply_property.bind(source, other_property, new_other))
+	undo_redo.add_undo_method(_apply_property.bind(source, this_property, old_this))
+	undo_redo.add_undo_method(_apply_property.bind(source, other_property, old_other))
+	undo_redo.commit_action()
+	ui.show_message(message)
+	return true
+
+
+## Every link in the level as [source, target, is_backward] (the overlay draws
+## them; is_backward: in the source's back_link_property list). Links to objects
+## that are out of the level (deleted, undone) are skipped.
 func get_links() -> Array[Array]:
 	var links: Array[Array] = []
 	for source: Node2D in get_objects():
 		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(source)
-		if entry.link_property == &"":
-			continue
-		for target: Variant in source.get(entry.link_property):
-			if target != null and is_instance_valid(target) and (target as Node).is_inside_tree():
-				links.append([source, target])
+		for property: StringName in PaletteCatalog.get_link_properties(entry):
+			for target: Variant in source.get(property):
+				if target != null and is_instance_valid(target) and (target as Node).is_inside_tree():
+					links.append([source, target, property == entry.back_link_property])
 	return links
 
 
@@ -2259,18 +2399,19 @@ func fill_room_edges(room: Room, terrain: PaletteCatalog.Entry) -> void:
 func add_unlink_steps(removed: Node) -> void:
 	for linker: Node2D in get_objects():
 		var linker_entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(linker)
-		if linker_entry.link_property == &"" or removed.is_ancestor_of(linker):
+		if removed.is_ancestor_of(linker):
 			continue
-		var old_links: Array = linker.get(linker_entry.link_property)
-		# Walking the list (not has()): a typed Array[Switch] refuses, with an
-		# error, even to be asked whether it holds a non-Switch.
-		var new_links: Array = old_links.duplicate()
-		for target: Variant in old_links:
-			if target == removed or (target is Node and removed.is_ancestor_of(target)):
-				new_links.erase(target)
-		if new_links.size() != old_links.size():
-			undo_redo.add_do_method(_apply_property.bind(linker, linker_entry.link_property, new_links))
-			undo_redo.add_undo_method(_apply_property.bind(linker, linker_entry.link_property, old_links.duplicate()))
+		for property: StringName in PaletteCatalog.get_link_properties(linker_entry):
+			var old_links: Array = linker.get(property)
+			# Walking the list (not has()): a typed Array[Switch] refuses, with an
+			# error, even to be asked whether it holds a non-Switch.
+			var new_links: Array = old_links.duplicate()
+			for target: Variant in old_links:
+				if target == removed or (target is Node and removed.is_ancestor_of(target)):
+					new_links.erase(target)
+			if new_links.size() != old_links.size():
+				undo_redo.add_do_method(_apply_property.bind(linker, property, new_links))
+				undo_redo.add_undo_method(_apply_property.bind(linker, property, old_links.duplicate()))
 
 
 ## R: turns the selected spikes a quarter turn, or an object whose catalog entry

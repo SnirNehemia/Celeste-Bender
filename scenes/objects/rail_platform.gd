@@ -6,15 +6,30 @@ extends AnimatableBody2D
 ## play-test). The rail can bend: it is several straight pieces, corner to corner.
 ##
 ## Triggered by:
-##   - its linked SWITCHES (`switches`, linked in the level editor with L, like a
-##     door): the first time any of them turns on, it starts.
-##   - with no switches linked: standing on it. The first time you (or a crate)
-##     land on it, it starts.
-## Once started it doesn't stop for the switch turning off again: "after it is
-## triggered, it starts moving". At the end of the rail, `end_behavior` says what
-## happens: STOP there, go BACK_AND_FORTH along the rail forever, or LOOP (a straight
-## piece back from the last corner to the start, round and round).
-## Death or R puts it back at the start, waiting (Room.RESETTABLE_GROUP).
+##   - its FORWARD switches (`switches`, linked in the level editor with L, like a
+##     door): whenever one turns on, it rides along the rail, away from the start.
+##   - its BACKWARD switches (`backward_switches`, L a second time in the editor):
+##     whenever one turns on, it rides back toward the start. So one set of
+##     switches sends it out and another brings it home (asked for after the hub
+##     play-test). A switch that stays on (a step pad) sends it only once; a
+##     pressure plate sends it every time something lands on it.
+##   - with no switches linked at all: standing on it. The first time you (or a
+##     crate) land on it, it starts.
+## Once moving it doesn't stop for a switch turning off again. At an end of the
+## rail, `end_behavior` says what happens: STOP there (until a switch sends it the
+## other way), go BACK_AND_FORTH along the rail forever, or LOOP (a straight piece
+## back from the last corner to the start, round and round; backward runs it the
+## other way round). Death or R puts it back at the start, waiting
+## (Room.RESETTABLE_GROUP).
+##
+## PASSENGERS: level objects placed standing on its top (a step pad, a pressure
+## plate, a key light: their origin on its surface, within its width) ride with
+## it. Found once when the level starts (_find_passengers), moved every frame by
+## the same amount, put back with it on a reset. Bodies (the player, crates,
+## enemies) aren't passengers: they ride by physics, standing on it.
+##
+## A switch in another room (or another depth) can send it: it remembers the
+## order and moves once you're in its room.
 ##
 ## The rail: the node's position is the START (where it waits); `rail_points` are the
 ## corners after it, relative to the start, in px. [(48, 0)] = 48 px to the right;
@@ -55,9 +70,13 @@ const LAMP_DONE_COLOR: Color = Color(0.5, 0.5, 0.55)
 ## editor draws links itself).
 const LINK_LINE_COLOR: Color = Color(0.6, 0.72, 0.9, 0.6)
 
+## A placed object counts as standing on it (a passenger) if its origin is within
+## this many px of the top surface's height.
+const PASSENGER_TOLERANCE: float = 1.0
 ## Physics frames after a reset during which landing on it doesn't count: a rider's
 ## last floor contact (from before the reset) still names this platform for a frame.
-const RESET_GRACE_FRAMES: int = 2
+## Also how long switches are ignored after a reset (send()).
+const RESET_GRACE_FRAMES: int = 3
 
 ## Width of the platform, px.
 @export var platform_width: float = 24.0:
@@ -79,10 +98,16 @@ const RESET_GRACE_FRAMES: int = 2
 	set(value):
 		end_behavior = value
 		queue_redraw()  # LOOP draws the closing piece of rail
-## The switches that start it. None: standing on it starts it.
+## FORWARD switches: on = ride along the rail. None (and no backward ones either):
+## standing on it starts it.
 @export var switches: Array[Switch] = []:
 	set(value):
 		switches = value
+		queue_redraw()
+## BACKWARD switches: on = ride back toward the start.
+@export var backward_switches: Array[Switch] = []:
+	set(value):
+		backward_switches = value
 		queue_redraw()
 
 ## The start, in the parent's coordinates (the room).
@@ -95,6 +120,9 @@ var direction_sign: float = 1.0
 var is_running: bool = false
 var has_finished: bool = false
 var reset_grace_left: int = 0
+## Level objects standing on it (see PASSENGERS in the header) -> their offset
+## from the platform's position.
+var passenger_offsets: Dictionary = {}
 
 var surface: CollisionShape2D
 
@@ -116,8 +144,15 @@ func _ready() -> void:
 		if linked_switch == null:
 			push_warning("[RailPlatform] %s has an empty slot in `switches`" % name)
 			continue
-		# The signal passes the switch's new state: on = go.
-		linked_switch.switched.connect(_on_switch_changed)
+		# The signal passes the switch's new state: on = go. bind() adds one more
+		# argument after it, which says which way.
+		linked_switch.switched.connect(_on_switch_changed.bind(1.0))
+	for linked_switch: Switch in backward_switches:
+		if linked_switch == null:
+			push_warning("[RailPlatform] %s has an empty slot in `backward_switches`" % name)
+			continue
+		linked_switch.switched.connect(_on_switch_changed.bind(-1.0))
+	_find_passengers()
 
 
 func _process(_delta: float) -> void:
@@ -127,33 +162,88 @@ func _process(_delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if Engine.is_editor_hint() or not _is_in_current_room():
+	if Engine.is_editor_hint():
+		return
+	if reset_grace_left > 0:
+		reset_grace_left -= 1
+	if not _is_in_current_room():
 		return
 	if not is_running:
 		if reset_grace_left > 0:
-			reset_grace_left -= 1
-		elif not has_finished and switches.is_empty() and _is_stood_on():
+			pass  # just reset: a stale floor contact doesn't count
+		elif not has_finished and switches.is_empty() and backward_switches.is_empty() and _is_stood_on():
 			trigger()
 		return
 	_advance(delta)
-	# Moving an AnimatableBody2D = setting its position inside _physics_process.
-	# round() keeps it on whole pixels, so it and a rider don't shimmer by a sub-pixel.
-	position = home_position + get_offset_at(distance_along_rail).round()
+	_move_to_rail_position()
 	queue_redraw()  # the rail stays still on screen while the plate moves along it
 
 
-## Starts it moving (once: a running or finished platform ignores it).
+## Puts the platform where distance_along_rail says, and its passengers with it.
+func _move_to_rail_position() -> void:
+	# Moving an AnimatableBody2D = setting its position inside _physics_process.
+	# round() keeps it on whole pixels, so it and a rider don't shimmer by a sub-pixel.
+	var target: Vector2 = home_position + get_offset_at(distance_along_rail).round()
+	position = target
+	# From `target`, not `position`: an AnimatableBody2D that syncs to physics
+	# reads back LAST frame's position right after being moved, and the passengers
+	# would trail a pixel behind.
+	for passenger: Variant in passenger_offsets:
+		if is_instance_valid(passenger):
+			(passenger as Node2D).position = target + passenger_offsets[passenger]
+
+
+## Starts it moving forward, along the rail (standing on it, or a forward switch).
 func trigger() -> void:
-	if is_running or has_finished or not _is_in_current_room():
+	send(1.0)
+
+
+## Sends it along the rail (`direction` 1) or back toward the start (-1). A STOP
+## platform already at that end stays put. Remembered even when its room isn't
+## the one being played (a switch elsewhere): it moves once you're there. Never
+## in the level editor (no room is being played there).
+func send(direction: float) -> void:
+	if GameState.current_room == null:
 		return
+	# Just reset: ignore switches for a few frames. A switch's Area2D still sees
+	# what stood on it before the reset (overlaps refresh a frame late), so a step
+	# pad the player died on would send it off again right after the reset.
+	if reset_grace_left > 0:
+		return
+	if end_behavior == EndBehavior.STOP:
+		var at_far_end: bool = direction > 0.0 and distance_along_rail >= get_rail_length()
+		var at_start: bool = direction < 0.0 and distance_along_rail <= 0.0
+		if at_far_end or at_start:
+			return
+	direction_sign = direction
 	is_running = true
-	direction_sign = 1.0
+	has_finished = false
 	queue_redraw()  # the lamp turns green
 
 
-func _on_switch_changed(is_now_on: bool) -> void:
+## A linked switch changed; `direction` is bound per list (1 forward, -1 backward).
+func _on_switch_changed(is_now_on: bool, direction: float) -> void:
 	if is_now_on:
-		trigger()
+		send(direction)
+
+
+## The level objects standing on the platform's top when the level starts: placed
+## scene instances (not nodes made in code, not bodies) among the room's children
+## whose origin is on the top surface, within its width.
+func _find_passengers() -> void:
+	passenger_offsets.clear()
+	var parent: Node = get_parent()
+	if parent == null:
+		return
+	for sibling: Node in parent.get_children():
+		var object: Node2D = sibling as Node2D
+		if object == null or object == self or object.scene_file_path == "":
+			continue
+		if object is PhysicsBody2D:
+			continue  # bodies ride by physics (or are other platforms)
+		var offset: Vector2 = object.position - position
+		if absf(offset.y) <= PASSENGER_TOLERANCE and absf(offset.x) <= platform_width / 2.0:
+			passenger_offsets[object] = offset
 
 
 ## One physics frame along the rail at `speed`, and what happens at its end.
@@ -170,6 +260,10 @@ func _advance(delta: float) -> void:
 				distance_along_rail = rail_length
 				is_running = false
 				has_finished = true
+			elif distance_along_rail <= 0.0 and direction_sign < 0.0:
+				# Back home: waiting again (red lamp), for a forward switch.
+				distance_along_rail = 0.0
+				is_running = false
 		EndBehavior.BACK_AND_FORTH:
 			# Past an end: bounce back by however far it overshot.
 			if distance_along_rail >= rail_length:
@@ -242,7 +336,8 @@ func reset() -> void:
 	distance_along_rail = 0.0
 	direction_sign = 1.0
 	reset_grace_left = RESET_GRACE_FRAMES
-	position = home_position
+	_move_to_rail_position()  # home, with its passengers
+	queue_redraw()
 	queue_redraw()
 
 
@@ -259,7 +354,10 @@ func _draw() -> void:
 	# draw it from the start, relative to where the plate is now.
 	var home_local: Vector2 = Vector2.ZERO
 	if not Engine.is_editor_hint():
-		home_local = home_position - position
+		# Where the start is from the plate, worked out from distance_along_rail,
+		# NOT from `position`: right after a move (a reset), an AnimatableBody2D
+		# still reads back its old position, and the rail was drawn shifted by it.
+		home_local = -get_offset_at(distance_along_rail).round()
 	var corners: PackedVector2Array = get_corners()
 	for index: int in corners.size() - 1:
 		RailTrack.draw(self, home_local + corners[index] + RAIL_OFFSET, home_local + corners[index + 1] + RAIL_OFFSET)
@@ -284,6 +382,6 @@ func _draw() -> void:
 		lamp_color = LAMP_DONE_COLOR
 	draw_rect(Rect2(-1.0, 1.5, 2.0, 2.0), lamp_color)
 	if Engine.is_editor_hint():
-		for linked_switch: Switch in switches:
+		for linked_switch: Switch in switches + backward_switches:
 			if linked_switch != null:
 				draw_dashed_line(Vector2.ZERO, to_local(linked_switch.global_position), LINK_LINE_COLOR, 1.0, 3.0)

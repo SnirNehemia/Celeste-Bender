@@ -34,7 +34,7 @@ var size_cells: Vector2i = Vector2i.ZERO
 ## [Vector2i offset, StringName layer name, Vector3i value] per copied tile.
 var tiles: Array[Array] = []
 ## [Node2D copy, Vector2 origin offset from the region's corner (px),
-##  Array[int] indexes of the copied objects it links to] per copied object.
+##  Dictionary: link property -> Array[int] indexes of the copied objects it links to] per copied object.
 var objects: Array[Array] = []
 
 
@@ -78,12 +78,16 @@ static func copy_from(editor: LevelEditor, grid_room: Room, cells: Rect2i) -> Ed
 		var template: Node2D = PaletteCatalog.instantiate(entry)
 		PaletteCatalog.copy_settings(source, template)
 		template.rotation = source.rotation  # a node setting, not a script one: copy_settings skips it
-		var linked: Array[int] = []
-		if entry.link_property != &"":
-			for target: Variant in source.get(entry.link_property):
+		# Per link list (PaletteCatalog.get_link_properties): the indexes of the
+		# copied objects it links to.
+		var linked: Dictionary = {}
+		for property: StringName in PaletteCatalog.get_link_properties(entry):
+			var indexes: Array[int] = []
+			for target: Variant in source.get(property):
 				var index: int = sources.find(target)
 				if index != -1:
-					linked.append(index)
+					indexes.append(index)
+			linked[property] = indexes
 		copied.objects.append([template, source.global_position - region.position, linked])
 	return copied
 
@@ -121,15 +125,15 @@ func paste(editor: LevelEditor, grid_room: Room, top_left: Vector2i, mirrored: b
 	# Links between copies point at the new copies; links to anything else are gone.
 	for index: int in objects.size():
 		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(copies[index])
-		if entry.link_property == &"":
-			continue
-		# duplicate() then clear(): keeps the list's type (a door's Array[Switch]).
-		var links: Array = (copies[index].get(entry.link_property) as Array).duplicate()
-		links.clear()
-		for target_index: int in (objects[index][2] as Array):
-			if _is_placed(copies[target_index], new_objects):
-				links.append(copies[target_index])
-		copies[index].set(entry.link_property, links)
+		var linked: Dictionary = objects[index][2]
+		for property: StringName in PaletteCatalog.get_link_properties(entry):
+			# duplicate() then clear(): keeps the list's type (a door's Array[Switch]).
+			var links: Array = (copies[index].get(property) as Array).duplicate()
+			links.clear()
+			for target_index: int in linked.get(property, []):
+				if _is_placed(copies[target_index], new_objects):
+					links.append(copies[target_index])
+			copies[index].set(property, links)
 	for copy: Node2D in copies:
 		if not _is_placed(copy, new_objects):
 			copy.free()

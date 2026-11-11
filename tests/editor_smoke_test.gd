@@ -68,6 +68,7 @@ func _ready() -> void:
 	await _check_d2_d3_depth_gates()
 	await _check_hub_keys()
 	await _check_collectibles()
+	await _check_rail_links_and_passengers()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
@@ -77,7 +78,7 @@ func _ready() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECENT_PATH))
 	LevelStorage.autosave_dir = LevelStorage.DEFAULT_AUTOSAVE_DIR
 	LevelStorage.recent_path = LevelStorage.DEFAULT_RECENT_PATH
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax", "Hub keys", "Collectibles"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax", "Hub keys", "Collectibles", "Rail links and passengers"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -3506,6 +3507,110 @@ func _check_collectibles() -> void:
 	StoryProgress.progress_path = StoryProgress.DEFAULT_PROGRESS_PATH
 	GameState.reset_run()
 	finished_sections.append("Collectibles")
+
+
+## A rail platform's two link lists (L: forward, L again: backward), link mode
+## staying on through a depth switch, and passengers: a step pad placed on the
+## platform rides with it.
+func _check_rail_links_and_passengers() -> void:
+	var path: String = LevelStorage.create_level("Rail Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var platform: RailPlatform = editor.place_object(PaletteCatalog.get_entry(&"rail_platform"), room, Vector2i(10, 15)) as RailPlatform
+	var rider: StepPad = editor.place_object(PaletteCatalog.get_entry(&"step_pad"), room, Vector2i(10, 14)) as StepPad
+	_check(rider.position.y == platform.position.y and absf(rider.position.x - platform.position.x) <= platform.platform_width / 2.0,
+		"a step pad placed in the tile above the platform stands on its top, got %s vs %s" % [rider.position, platform.position])
+	var forward_pad: StepPad = editor.place_object(PaletteCatalog.get_entry(&"step_pad"), room, Vector2i(20, 20)) as StepPad
+	var backward_pad: StepPad = editor.place_object(PaletteCatalog.get_entry(&"step_pad"), room, Vector2i(25, 20)) as StepPad
+	editor.select(platform)
+	editor.toggle_link_mode()
+	_check(editor.link_property_in_use == &"switches", "L starts linking the forward switches")
+	editor.toggle_link(platform, forward_pad)
+	_check(editor.show_depth(1) and editor.link_source == platform, "link mode stays on through a depth switch")
+	editor.show_depth(0)
+	editor.toggle_link_mode()
+	_check(editor.link_source == platform and editor.link_property_in_use == &"backward_switches", "L again switches to the backward switches")
+	editor.toggle_link(platform, backward_pad)
+	editor.toggle_link_mode()
+	_check(editor.link_source == null, "a third L ends link mode")
+	_check(platform.switches == [forward_pad] and platform.backward_switches == [backward_pad],
+		"each pad went into its own list, got %s / %s" % [platform.switches, platform.backward_switches])
+	# The panel's three buttons: Forward / Backward / Unlink, side by side.
+	editor.select(platform)
+	_check(editor.link_mode_buttons.size() == 3 and editor.link_mode_buttons[0].text == "Forward"
+		and editor.link_mode_buttons[2].text == "Unlink", "a rail platform's panel has Forward, Backward and Unlink buttons")
+	_check(editor.link_mode_buttons[0].get_parent() == editor.link_mode_buttons[2].get_parent()
+		and editor.link_mode_buttons[0].get_parent() is HBoxContainer, "side by side in one row")
+	editor.link_mode_buttons[1].pressed.emit()
+	_check(editor.link_source == platform and editor.link_property_in_use == &"backward_switches"
+		and editor.link_mode_buttons[1].button_pressed and not editor.link_mode_buttons[0].button_pressed,
+		"Backward starts backward link mode and lights its button")
+	editor.toggle_link(platform, forward_pad)
+	_check(platform.backward_switches == [backward_pad, forward_pad] and platform.switches.is_empty(), "a forward switch clicked in backward mode moves to the backward list, got %s / %s" % [platform.switches, platform.backward_switches])
+	editor.undo()
+	_check(platform.switches == [forward_pad] and platform.backward_switches == [backward_pad], "one undo puts it back")
+	editor.link_mode_buttons[2].pressed.emit()
+	_check(editor.is_unlink_mode and editor.link_mode_buttons[2].button_pressed, "Unlink starts unlink mode")
+	editor.toggle_link(platform, backward_pad)
+	_check(platform.backward_switches.is_empty() and platform.switches == [forward_pad], "unlink mode takes a switch out of its list")
+	editor.undo()
+	editor.link_mode_buttons[2].pressed.emit()
+	_check(editor.link_source == null and not editor.link_mode_buttons[2].button_pressed, "pressing the lit button again ends link mode")
+	var backward_links: Array = editor.get_links().filter(func(link: Array) -> bool: return link[0] == platform and link[2])
+	_check(backward_links.size() == 1 and backward_links[0][1] == backward_pad, "get_links marks the backward link")
+	editor.undo()
+	_check(platform.backward_switches.is_empty() and platform.switches.size() == 1, "undo takes the backward link back")
+	editor.redo()
+
+	_check(editor.start_playtest(), "play-test the rail level")
+	var play_platform: RailPlatform = editor.play_root.find_child(String(platform.name), true, false) as RailPlatform
+	var play_rider: StepPad = editor.play_root.find_child(String(rider.name), true, false) as StepPad
+	var play_forward: StepPad = editor.play_root.find_child(String(forward_pad.name), true, false) as StepPad
+	var play_backward: StepPad = editor.play_root.find_child(String(backward_pad.name), true, false) as StepPad
+	_check(play_platform.passenger_offsets.has(play_rider) and play_platform.passenger_offsets.size() == 1,
+		"the step pad on the platform is its only passenger")
+	var rider_offset: Vector2 = play_rider.position - play_platform.position
+	play_forward.set_on(true)
+	await get_tree().create_timer(0.5).timeout
+	_check(play_platform.is_running and play_platform.distance_along_rail > 5.0, "a forward switch sends it along the rail")
+	await get_tree().physics_frame
+	_check(play_rider.position != rider.position and play_rider.position - play_platform.position == rider_offset,
+		"the step pad rides with it, got %s vs platform %s" % [play_rider.position, play_platform.position])
+	play_backward.set_on(true)
+	await get_tree().physics_frame
+	_check(play_platform.direction_sign < 0.0, "a backward switch turns it round")
+	await _wait_until_true(func() -> bool: return not play_platform.is_running, 2.0)
+	_check(play_platform.distance_along_rail == 0.0 and not play_platform.is_running and play_platform.position == platform.position,
+		"back at the start it stops (STOP), got %.1f" % play_platform.distance_along_rail)
+	_check(play_rider.position == rider.position, "and its passenger is back home too, got %s vs %s (platform %s)" % [play_rider.position, rider.position, play_platform.position])
+	editor.stop_playtest()
+	editor.queue_free()
+	await get_tree().process_frame
+	# A HOLD step pad (Stays On off): on only while the player stands on it.
+	var hold_path: String = LevelStorage.create_level("Hold Pad Level")
+	LevelEditor.path_to_open = hold_path
+	editor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	room = editor.get_rooms()[0]
+	var hold_pad: StepPad = editor.place_object(PaletteCatalog.get_entry(&"step_pad"), room, Vector2i(25, 20)) as StepPad
+	editor.set_property(hold_pad, &"stays_on", false)
+	_check(editor.start_playtest(), "play-test the hold pad level")
+	var play_hold: StepPad = editor.play_root.find_child(String(hold_pad.name), true, false) as StepPad
+	var player: Player = editor.play_root.player
+	player.respawn_at(play_hold.global_position)
+	await _wait_until_true(func() -> bool: return play_hold.is_on(), 1.0)
+	_check(play_hold.is_on(), "standing on a hold pad turns it on")
+	player.respawn_at(play_hold.global_position + Vector2(-80, -8))
+	await _wait_until_true(func() -> bool: return not play_hold.is_on(), 1.0)
+	_check(not play_hold.is_on(), "stepping off a hold pad turns it off")
+	editor.stop_playtest()
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Rail links and passengers")
 
 
 func _press_action(action: StringName) -> void:

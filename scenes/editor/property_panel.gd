@@ -167,6 +167,30 @@ func add_button(text: String, on_pressed: Callable) -> Button:
 	return button
 
 
+## Adds a ROW of buttons side by side, sharing the width ([text, on_pressed] per
+## button); gone with the settings on the next show_target. Returns the buttons.
+## Each is a toggle button, so the caller can show which one is active
+## (button_pressed) without that pressing it.
+func add_button_row(buttons: Array[Array]) -> Array[Button]:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	var made: Array[Button] = []
+	for spec: Array in buttons:
+		var button: Button = Button.new()
+		button.text = spec[0]
+		button.toggle_mode = true
+		button.focus_mode = Control.FOCUS_NONE  # Space must pan, not press it
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL  # equal shares of the row
+		button.clip_text = true
+		# `pressed` fires on every click; set_pressed_no_signal() (used to show the
+		# active mode) doesn't fire it.
+		button.pressed.connect(spec[1])
+		row.add_child(button)
+		made.append(button)
+	rows.add_child(row)
+	return made
+
+
 ## Re-reads every shown value into its widget, without emitting anything.
 func refresh() -> void:
 	if target == null or not is_instance_valid(target):

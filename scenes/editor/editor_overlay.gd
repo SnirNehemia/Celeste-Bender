@@ -46,6 +46,19 @@ const ERASER_HOVER_COLOR: Color = Color(1.0, 0.35, 0.3, 0.95)
 ## Links: the selection's yellow, see-through when not involving the selection.
 const LINK_COLOR: Color = Color(1.0, 0.85, 0.2, 0.3)
 const LINK_BRIGHT_COLOR: Color = Color(1.0, 0.85, 0.2, 0.95)
+## Backward links (a rail platform's back_link_property list): pink-red, far from
+## the forward links' yellow, so the two lists read apart.
+const BACK_LINK_COLOR: Color = Color(1.0, 0.35, 0.55, 0.35)
+const BACK_LINK_BRIGHT_COLOR: Color = Color(1.0, 0.35, 0.55, 0.95)
+## A link to another depth: dashes this long (screen px).
+const CROSS_DEPTH_DASH_SCREEN: float = 4.0
+## The two kinds of a two-list object's links read apart (asked for after the rail
+## platform play-test), by more than color: FORWARD links are solid with a filled
+## dot and an arrowhead pointing at the switch; BACKWARD links are dashed (dashes
+## this long) with a hollow square and a "back" tag. Sizes in screen px.
+const BACK_LINK_DASH_SCREEN: float = 3.0
+const LINK_ARROW_SCREEN: float = 4.0
+const BACK_LINK_SQUARE_SCREEN: float = 3.0
 ## Link mode: what can be clicked (cyan, clearly not the selection's yellow).
 const LINK_TARGET_COLOR: Color = Color(0.3, 0.9, 1.0, 0.9)
 ## The dot on a link's target end, screen pixels.
@@ -332,17 +345,87 @@ func _draw_dashed_rect(rect: Rect2, color: Color) -> void:
 
 
 ## A line from each linking object to each of its targets, with a dot at the
-## target. Bright when it involves the selected object (or the one being linked).
+## target. Bright when it involves the selected object (or the one being linked);
+## backward links (a rail platform's second list) in their own color.
+## Links reaching ANOTHER DEPTH: only those with one end in the depth shown are
+## drawn; the other end is shown where it sits on the map (moved into the shown
+## depth's band), dashed, with a ring and "depth N" instead of the dot.
 func _draw_links() -> void:
 	var focus: Node2D = editor.link_source if editor.link_source != null else editor.selected_object
-	var dot_radius: float = LINK_DOT_SCREEN_RADIUS / editor.camera.get_zoom_factor()
+	var zoom_factor: float = editor.camera.get_zoom_factor()
+	var dot_radius: float = LINK_DOT_SCREEN_RADIUS / zoom_factor
+	var shown_depth: int = editor.get_shown_depth()
 	for link: Array in editor.get_links():
 		var source: Node2D = link[0]
 		var target: Node2D = link[1]
-		var color: Color = LINK_BRIGHT_COLOR if focus == source or focus == target else LINK_COLOR
+		var is_bright: bool = focus == source or focus == target
+		var color: Color
+		if link[2]:
+			color = BACK_LINK_BRIGHT_COLOR if is_bright else BACK_LINK_COLOR
+		else:
+			color = LINK_BRIGHT_COLOR if is_bright else LINK_COLOR
+		var source_depth: int = _get_depth_of(source)
+		var target_depth: int = _get_depth_of(target)
+		var source_center: Vector2 = PaletteCatalog.get_bounds(source).get_center()
 		var target_center: Vector2 = PaletteCatalog.get_bounds(target).get_center()
-		draw_line(PaletteCatalog.get_bounds(source).get_center(), target_center, color, -1.0)
-		draw_circle(target_center, dot_radius, color)
+		var source_entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(source)
+		var has_two_lists: bool = source_entry != null and source_entry.back_link_property != &""
+		if source_depth == target_depth:
+			if has_two_lists:
+				_draw_two_list_link(source_center, target_center, link[2], color, is_bright)
+			else:
+				draw_line(source_center, target_center, color, -1.0)
+				draw_circle(target_center, dot_radius, color)
+			continue
+		if source_depth != shown_depth and target_depth != shown_depth:
+			continue  # neither end is here
+		# Move the far end into the shown depth's band: same spot on the map.
+		var far_depth: int = target_depth if source_depth == shown_depth else source_depth
+		var far_end: Vector2 = target_center if source_depth == shown_depth else source_center
+		var near_end: Vector2 = source_center if source_depth == shown_depth else target_center
+		far_end += Room.depth_offset(shown_depth) - Room.depth_offset(far_depth)
+		draw_dashed_line(near_end, far_end, color, -1.0, CROSS_DEPTH_DASH_SCREEN / zoom_factor)
+		draw_arc(far_end, dot_radius * 2.0, 0.0, TAU, 12, color, -1.0)
+		draw_set_transform(far_end + Vector2(dot_radius * 2.5, -dot_radius * 2.0), 0.0, Vector2.ONE / zoom_factor)
+		var depth_text: String = "depth %d" % far_depth
+		if has_two_lists:
+			depth_text = ("back, " if link[2] else "fwd, ") + depth_text
+		draw_string(ThemeDB.fallback_font, Vector2.ZERO, depth_text, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, color)
+		draw_set_transform(Vector2.ZERO)
+
+
+## One link of a two-list object (see BACK_LINK_DASH_SCREEN): forward solid with
+## a filled dot and an arrowhead toward the switch; backward dashed with a hollow
+## square. Bright (the object selected): tagged "fwd" / "back" at the switch.
+func _draw_two_list_link(from: Vector2, to: Vector2, is_backward: bool, color: Color, is_bright: bool) -> void:
+	var zoom_factor: float = editor.camera.get_zoom_factor()
+	var dot_radius: float = LINK_DOT_SCREEN_RADIUS / zoom_factor
+	if is_backward:
+		draw_dashed_line(from, to, color, -1.0, BACK_LINK_DASH_SCREEN / zoom_factor)
+		var half: float = BACK_LINK_SQUARE_SCREEN / zoom_factor
+		draw_rect(Rect2(to - Vector2.ONE * half, Vector2.ONE * half * 2.0), color, false, -1.0)
+	else:
+		draw_line(from, to, color, -1.0)
+		draw_circle(to, dot_radius, color)
+		# An arrowhead halfway along, pointing at the switch.
+		if from.distance_to(to) > 0.5:
+			var direction: Vector2 = (to - from).normalized()
+			var tip: Vector2 = from.lerp(to, 0.5) + direction * LINK_ARROW_SCREEN / zoom_factor * 0.5
+			var size: float = LINK_ARROW_SCREEN / zoom_factor
+			draw_colored_polygon(PackedVector2Array([tip,
+				tip - direction * size + direction.orthogonal() * size * 0.6,
+				tip - direction * size - direction.orthogonal() * size * 0.6]), color)
+	if is_bright:
+		draw_set_transform(to + Vector2(dot_radius * 2.5, dot_radius * 1.5), 0.0, Vector2.ONE / zoom_factor)
+		draw_string(ThemeDB.fallback_font, Vector2(0.0, NAME_FONT_SIZE), "back" if is_backward else "fwd",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_FONT_SIZE, color)
+		draw_set_transform(Vector2.ZERO)
+
+
+## The depth of the room `node` is in (0 if it isn't in one).
+func _get_depth_of(node: Node) -> int:
+	var room: Room = Room.find_room_of(node)
+	return room.get_depth() if room != null else 0
 
 
 ## Every vine's anchor (catalog LINE_TO_POINT: the origin), and the swing arc of

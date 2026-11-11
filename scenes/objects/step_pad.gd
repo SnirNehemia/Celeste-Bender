@@ -1,10 +1,15 @@
 @tool
 class_name StepPad
 extends Switch
-## Step pad: a switch the PLAYER turns on by standing on it. Unlike a pressure plate
-## (which wants a heavy crate) it stays on once stepped on, until death or R, so a
-## door linked to several pads (link mode ALL) opens after you have visited every
-## platform they sit on.
+## Step pad: a switch the PLAYER turns on by standing on it (a pressure plate wants
+## a heavy crate). Two kinds (`stays_on`, a checkbox in the editor's panel):
+##   - STAYS ON (the default): once stepped on it stays on, until death or R, so a
+##     door linked to several pads (link mode ALL) opens after you have visited
+##     every platform they sit on.
+##   - HOLD (stays_on off): on only while you stand on it, off when you step off.
+##     Each landing turns it on again: a rail platform's forward or backward
+##     switch that works every time, or a door held open while you wait on it.
+##     Drawn with notches at its ends, like a button, so the two read apart.
 ##
 ## Place the node ON the floor surface, at the CENTER of the pad (like a pressure
 ## plate). One tile wide by default; `pad_width` changes it (the editor's width handle).
@@ -22,6 +27,11 @@ const PAD_HEIGHT: float = 2.0
 ## Height of the sensor box above the floor, px: only a player resting on the pad counts.
 const SENSOR_HEIGHT: float = 4.0
 
+## On for good once stepped on (true), or only while the player stands on it.
+@export var stays_on: bool = true:
+	set(value):
+		stays_on = value
+		queue_redraw()  # the hold pad's notches
 ## Width of the pad, px (8 = one tile).
 @export var pad_width: float = 8.0:
 	set(value):
@@ -29,6 +39,9 @@ const SENSOR_HEIGHT: float = 4.0
 		_resize_sensor()
 		queue_redraw()
 
+## Physics frames after a reset during which the sensor isn't trusted.
+const RESET_GRACE_FRAMES: int = 3
+var reset_grace_left: int = 0
 var sensor: Area2D
 var sensor_shape_node: CollisionShape2D
 
@@ -49,15 +62,25 @@ func _ready() -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	if Engine.is_editor_hint() or is_on():
-		return  # once stepped on it stays on
-	if not sensor.get_overlapping_bodies().is_empty():
-		set_on(true)
+	if Engine.is_editor_hint():
+		return
+	if reset_grace_left > 0:
+		# Just reset: the sensor may still list the player from before (overlaps
+		# refresh a frame late), which would switch it straight back on.
+		reset_grace_left -= 1
+		return
+	if stays_on:
+		if not is_on() and not sensor.get_overlapping_bodies().is_empty():
+			set_on(true)  # and it stays on
+		return
+	# Hold: on exactly while someone stands on it (set_on only signals changes).
+	set_on(not sensor.get_overlapping_bodies().is_empty())
 
 
 ## Called by Room.reset_objects() (death or R): waiting again.
 func reset() -> void:
 	set_on(false)
+	reset_grace_left = RESET_GRACE_FRAMES
 
 
 func _resize_sensor() -> void:
@@ -72,3 +95,7 @@ func _draw() -> void:
 	var half_width: float = pad_width / 2.0
 	draw_rect(Rect2(-half_width, -PAD_HEIGHT, pad_width, PAD_HEIGHT), color)
 	draw_rect(Rect2(-half_width, -1.0, pad_width, 1.0), PAD_BASE_COLOR)
+	if not stays_on:
+		# A hold pad: notches at both ends, so it reads as a button you hold down.
+		draw_rect(Rect2(-half_width, -PAD_HEIGHT, 1.0, PAD_HEIGHT - 1.0), PAD_BASE_COLOR)
+		draw_rect(Rect2(half_width - 1.0, -PAD_HEIGHT, 1.0, PAD_HEIGHT - 1.0), PAD_BASE_COLOR)

@@ -130,6 +130,11 @@ class Entry:
 	## The Array property that holds this object's links (Stage L6), and the class
 	## name its targets must have (e.g. a Door's `switches` <- "Switch").
 	var link_property: StringName = &""
+	## A SECOND link list of the same kind of targets, for objects with two roles
+	## (a rail platform: `switches` send it forward, `backward_switches` back).
+	## L links into the first list; L again switches link mode to this one
+	## (LevelEditor.toggle_link_mode). Empty = only one list.
+	var back_link_property: StringName = &""
 	var link_target_class: StringName = &""
 	## Or, instead of a class: the group its targets are in (an EnemyGate's
 	## `enemies` <- any enemy, group "enemies"; Stage L10). Enemies join it in
@@ -353,7 +358,7 @@ static func _build() -> void:
 	# Asked for after the W8c play-test: a platform that, once triggered, rides a
 	# bent rail at a constant speed (RailPlatform).
 	var rail_platform: Entry = _add_object(&"rail_platform", "Rail platform", "Basics", preload("res://scenes/objects/rail_platform.tscn"))
-	rail_platform.hint = "One-way platform on a rail of straight pieces. It waits (red lamp) until triggered: by its linked switches (L), or, with none linked, when you land on it. Then it rides the rail at Speed: stops at the end, goes back and forth, or loops. Drag the corner handles; the panel adds or removes corners."
+	rail_platform.hint = "One-way platform on a rail of straight pieces. It waits (red lamp) until triggered: its FORWARD switches (L) send it along the rail, its BACKWARD switches (L twice) send it back toward the start; with none linked, landing on it starts it. Then it rides at Speed: stops at the end, goes back and forth, or loops. Step pads, plates and lights standing on it ride with it. Drag the corner handles; the panel adds or removes corners."
 	rail_platform.bounds = Bounds.WIDTH_CENTERED
 	rail_platform.width_property = &"platform_width"
 	rail_platform.local_rect = Rect2(0, 0, 0, 10)
@@ -362,6 +367,7 @@ static func _build() -> void:
 	rail_platform.path_property = &"rail_points"
 	rail_platform.start_positions = {&"home_position": &""}
 	rail_platform.link_property = &"switches"
+	rail_platform.back_link_property = &"backward_switches"
 	rail_platform.link_target_class = &"Switch"
 	rail_platform.extra_tabs = ["Objects"]  # with the other platforms too
 
@@ -393,12 +399,12 @@ static func _build() -> void:
 	pressure_plate.editable_properties = [&"plate_width"]
 
 	var step_pad: Entry = _add_object(&"step_pad", "Step pad", "Air", preload("res://scenes/objects/step_pad.tscn"))
-	step_pad.hint = "A switch the player turns on by standing on it; it stays on until death or R. Put several on different platforms and link a door to them all (door Link Mode: All) so the player must visit each. One tile wide; drag the handle to widen."
+	step_pad.hint = "A switch the player turns on by standing on it. Stays On (default): on until death or R; put several on different platforms and link a door to them all (door Link Mode: All) so the player must visit each. Off: on only while you stand on it (notched ends), so every landing switches it again. One tile wide; drag the handle to widen."
 	step_pad.bounds = Bounds.WIDTH_CENTERED
 	step_pad.width_property = &"pad_width"
 	step_pad.local_rect = Rect2(0, -4, 0, 4)
 	step_pad.placement = Placement.ON_FLOOR
-	step_pad.editable_properties = [&"pad_width"]
+	step_pad.editable_properties = [&"pad_width", &"stays_on"]
 
 	var switch_wall: Entry = _add_object(&"switch_wall", "Switch wall", "Air", preload("res://scenes/objects/earth/switch_wall.tscn"))
 	switch_wall.hint = "A cracked-looking wall that breaks open when its linked switches turn on (select it, then L, and click a step pad, plate or brazier). Link Mode All needs every switch. Rocks don't break it. Back whole on death or R."
@@ -1007,6 +1013,18 @@ static func _get_center_line(holder: Node2D, entry: Entry) -> PackedVector2Array
 
 
 ## What an entry's link targets are called in messages: "Switch", "Vine", "enemy".
+## The link lists of `entry`: its link_property, then its back_link_property if
+## it has one. Empty for things that don't link.
+static func get_link_properties(entry: Entry) -> Array[StringName]:
+	var properties: Array[StringName] = []
+	if entry == null or entry.link_property == &"":
+		return properties
+	properties.append(entry.link_property)
+	if entry.back_link_property != &"":
+		properties.append(entry.back_link_property)
+	return properties
+
+
 static func link_target_name(entry: Entry) -> String:
 	return entry.link_target_label if entry.link_target_label != "" else String(entry.link_target_class)
 
