@@ -331,8 +331,9 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## Top run speed on ice, as a share of the normal one (Claude's addition in W5: a
 ## long run on ice builds up to it slowly, so a frozen pool is a runway for a long
 ## jump even with no other momentum; 1 = off). Faster than that (a jet, a launch),
-## ice doesn't slow you to it.
-@export_range(1.0, 2.5) var ice_max_run_scale: float = 1.4
+## ice doesn't slow you to it. After the crumbling-ice play-test ("make the maximal
+## speed on ice larger, so the slippery effect is more present"): 1.4 -> 2.0 (180 px/s).
+@export_range(1.0, 3.0) var ice_max_run_scale: float = 2.0
 ## Speed ABOVE that on ice (a gust, a jet, a launch, a slide ending on flat ice) is
 ## braked this much, px/s² (0: not at all, you keep it until you jump or leave the
 ## ice), unless you steer against it (Stage I5: ice keeps any speed).

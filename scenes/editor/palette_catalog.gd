@@ -641,7 +641,7 @@ static func _build() -> void:
 	crumble_rock.extra_tabs = ["Breakable"]
 
 	var crumble_ice: Entry = _add(&"crumble_ice", "Crumbling ice", "Terrain", Kind.TERRAIN)
-	crumble_ice.hint = "Ice that crumbles: slippery like ice (you keep your speed on it), and 2 s after you or a crate first touch a patch, the whole connected patch shatters. Gone until the room resets. It holds no water and never melts."
+	crumble_ice.hint = "Ice that crumbles: slippery like ice (you keep your speed on it), and 2 s after you or a crate first touch a patch, the whole connected patch trembles, drips water, a bright line runs round it, and it breaks into ice shards and a little water. Gone until the room resets. Never melts by fire. Select a patch to set its own time."
 	crumble_ice.layer_name = &"CrumbleIce"
 	crumble_ice.tile_set = ice.tile_set
 	crumble_ice.layer_script = preload("res://scenes/objects/water/crumble_ice_layer.gd")
@@ -662,6 +662,18 @@ static func _build() -> void:
 	falling_block.layer_script = preload("res://scenes/objects/falling_block_layer.gd")
 	falling_block.tile_plain = TileBrush.TILE_PLAIN
 	falling_block.tile_top_edge = TileBrush.TILE_PLAIN
+
+	# Falling ice (FallingIceLayer): a falling block of darker ice, slippery. Shares
+	# one Terrain button with the falling block, in a dropdown.
+	var falling_ice: Entry = _add(&"falling_ice", "Falling ice", "Terrain", Kind.TERRAIN)
+	falling_ice.hint = "A falling block of dark ice: slippery like ice (you keep your speed on it), and like a falling block, 0.6 s after you first touch a patch (or a crate or another block lands on it) the whole patch drops straight down as one solid block, carries you, kills you under it, splashes, and lands as solid ice. Back in place when the room resets. Select a patch to set its own time."
+	falling_ice.layer_name = &"FallingIce"
+	falling_ice.tile_set = crumble_rock.tile_set
+	falling_ice.layer_script = preload("res://scenes/objects/water/falling_ice_layer.gd")
+	falling_ice.tile_plain = TileBrush.TILE_PLAIN
+	falling_ice.tile_top_edge = TileBrush.TILE_PLAIN
+	falling_block.menu_group = "Falling block"
+	falling_ice.menu_group = "Falling block"
 
 	# A deadly area that only stops the player: no collision, so crates, rocks,
 	# fireballs, water and enemies pass through it (StormCloudLayer).

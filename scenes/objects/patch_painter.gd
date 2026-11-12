@@ -6,7 +6,8 @@ extends RefCounted
 ## falling-block play-test: "make it the same as the ground ... add some texture in
 ## the middle too".
 ##
-## Used by CrumbleRockLayer and FallingBlockLayer: one picture per patch, so a patch
+## Used by CrumbleRockLayer, CrumbleIceLayer, FallingBlockLayer and FallingIceLayer:
+## one picture per patch, so a patch
 ## can shake (and a block fall) on its own; the GroundPainter paints the whole room as
 ## one picture. Static functions only: paint() makes one picture, paint_patches() gives
 ## every patch of a CrumblePatches its picture and keeps the ones already painted.
@@ -54,6 +55,18 @@ const ROCK_PALETTE: Array[Color] = [Color(0.5, 0.46, 0.42), Color(0.66, 0.61, 0.
 const BASALT_PALETTE: Array[Color] = [Color(0.12, 0.13, 0.19), Color(0.31, 0.36, 0.49),
 	Color(0.04, 0.04, 0.07), Color(0.07, 0.075, 0.11), Color(0.1, 0.105, 0.15),
 	Color(0.36, 0.43, 0.58), Color(0.19, 0.21, 0.3)]
+
+## Crumbling ice (after the crumbling-ice play-test: "match the crumbling rocks"): the
+## same ground look in ice colors, a pale blue crust with a near-white rim, a deep blue
+## hatched inside, white glints for flecks (with the CRACKED grain, like the rock).
+const ICE_PALETTE: Array[Color] = [Color(0.55, 0.78, 0.9), Color(0.86, 0.96, 1.0),
+	Color(0.2, 0.4, 0.58), Color(0.13, 0.28, 0.43), Color(0.19, 0.36, 0.53),
+	Color(0.95, 1.0, 1.0), Color(0.36, 0.58, 0.75)]
+## Falling ice: DARKER ice, a steel-blue crust, a cold pale rim, an inky inside (with
+## the COLUMNS grain: the joints read as stacked blocks of ice).
+const DARK_ICE_PALETTE: Array[Color] = [Color(0.22, 0.38, 0.55), Color(0.52, 0.72, 0.87),
+	Color(0.05, 0.1, 0.18), Color(0.06, 0.13, 0.22), Color(0.09, 0.18, 0.29),
+	Color(0.75, 0.9, 1.0), Color(0.2, 0.34, 0.5)]
 
 ## Crust thickness, px (from open air to where the edge line starts), plus up to
 ## CRUST_WOBBLE more where the noise is high: the ground's values.

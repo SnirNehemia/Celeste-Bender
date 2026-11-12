@@ -142,8 +142,9 @@ func _ready() -> void:
 	else:
 		if painted_ground:
 			_add_ground_painter()
-		# Crumbling rock breaks into pebbles that stay (CrumbleRockLayer).
-		if get_node_or_null("CrumbleRock") is CrumbleRockLayer:
+		# Crumbling rock breaks into pebbles that stay (CrumbleRockLayer), crumbling
+		# ice into ice shards (CrumbleIceLayer).
+		if get_node_or_null("CrumbleRock") is CrumbleRockLayer or get_node_or_null("CrumbleIce") is CrumbleIceLayer:
 			_add_pebble_field()
 	if get_node_or_null("Water") is WaterLayer or _has_water_source(self):
 		_add_water_world()

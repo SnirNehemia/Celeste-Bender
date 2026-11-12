@@ -1068,9 +1068,10 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 	room.reset_objects()
 	await get_tree().physics_frame
 
-	# Crumbling ice: slippery, keeps speed above run speed (I5), then shatters, and
-	# gives no water.
+	# Crumbling ice: slippery, keeps speed above run speed (I5), then shatters into
+	# ice shards and a little water (after the crumbling-ice play-test).
 	var books: float = water.get_books_units()
+	var shards_before: int = field.pebble_positions.size() if field != null else 0
 	await _stand_at(player, origin + Vector2(112.0 * 8.0, 128.0))
 	_check(player.is_on_ice, "standing on crumbling ice is standing on ice")
 	player.velocity = Vector2(200.0, 0.0)
@@ -1087,7 +1088,11 @@ func _check_w8c_crumbling(world: RoomManager, player: Player) -> void:
 		await get_tree().physics_frame
 	var ice_left: int = ice.get_used_cells().size()
 	_check(ice_left == 0 and ice.crumble.shatter_count == 1, "the whole ice run shattered (%d tiles left)" % ice_left)
-	_check(absf(water.get_books_units() - books) < CONSERVATION_TOLERANCE, "shattered crumbling ice gives no water")
+	var melt: float = 10.0 * CrumbleIceLayer.MELT_UNITS_PER_TILE
+	_check(absf(water.get_books_units() - books - melt) < CONSERVATION_TOLERANCE,
+		"shattered crumbling ice melts into %.2f units of water (%.2f)" % [melt, water.get_books_units() - books])
+	var shards: int = (field.pebble_positions.size() if field != null else 0) - shards_before
+	_check(shards == 10 * CrumbleIceLayer.PEBBLES_PER_TILE, "and breaks into ice shards (%d)" % shards)
 
 	room.reset_objects()
 	await get_tree().physics_frame

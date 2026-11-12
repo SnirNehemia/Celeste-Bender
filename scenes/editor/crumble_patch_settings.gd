@@ -18,7 +18,7 @@ extends RefCounted
 
 ## The painted layers that crumble or drop, by node name (PaletteCatalog layer_name).
 ## Each has `crumble`, `patch_crumble_times` and get_default_crumble_time().
-const LAYER_NAMES: Array[StringName] = [&"CrumbleRock", &"CrumbleIce", &"FallingBlock"]
+const LAYER_NAMES: Array[StringName] = [&"CrumbleRock", &"CrumbleIce", &"FallingBlock", &"FallingIce"]
 const WATER_TUNING: WaterTuning = preload("res://resources/water_tuning.tres")
 
 ## The patch's layer (a CrumbleRockLayer or CrumbleIceLayer: both have `crumble`
@@ -88,6 +88,8 @@ func get_title() -> String:
 	var kind: String = "Crumbling rock"
 	if layer is CrumbleIceLayer:
 		kind = "Crumbling ice"
+	elif layer is FallingIceLayer:
+		kind = "Falling ice"
 	elif layer is FallingBlockLayer:
 		kind = "Falling block"
 	var patch: Dictionary = get_patch()

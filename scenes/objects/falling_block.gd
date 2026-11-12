@@ -97,6 +97,9 @@ func _ready() -> void:
 	sync_to_physics = true
 	add_to_group(WaterWorld.SOLID_GROUP)  # loose water bumps into it; it touches patches
 	add_to_group(MOVING_GROUP)
+	# A block of falling ice is ice while it falls too: you slide on it.
+	if layer.is_in_group(IceLayer.ICE_GROUP):
+		add_to_group(IceLayer.ICE_GROUP)
 	var tile_px: Vector2 = Vector2(layer.tile_set.tile_size)
 	probe_shape.size = Vector2(tile_px.x - 2.0 * SIDE_SLACK, tile_px.y)
 	for cell: Vector2i in cells:
@@ -153,7 +156,7 @@ func _hand_over_if_crossed() -> void:
 	for sibling: Node in own_room.get_parent().get_children():
 		var room: Room = sibling as Room
 		if room != null and room != own_room and room.get_bounds().has_point(middle):
-			_hand_over(FallingBlockLayer.ensure_in(room))
+			_hand_over(layer.ensure_twin_in(room))
 			return
 	# No room there: it fell out of the level (a pit). Gone until the reset, which
 	# paints its tiles back (it would otherwise fall, and keep its room awake, forever).
@@ -329,7 +332,7 @@ func _land(passed: Array[RID]) -> void:
 	var tile_px: Vector2 = Vector2(layer.tile_set.tile_size)
 	# Dust along the whole bottom, in one burst.
 	var box: Rect2 = get_water_box()
-	CrumblePatches.burst(layer, layer.to_local(Vector2(box.get_center().x, box.end.y)), FallingBlockLayer.DUST_COLOR,
+	CrumblePatches.burst(layer, layer.to_local(Vector2(box.get_center().x, box.end.y)), layer.get_dust_color(),
 		mini(bottom_cells.size() * LAND_DUST_PER_TILE, CrumblePatches.MAX_BURST_PIECES), Vector2(box.size.x, 2.0))
 	for cell: Vector2i in bottom_cells:
 		var bottom_middle: Vector2 = _to_world(Vector2(cell) * tile_px + Vector2(tile_px.x / 2.0, tile_px.y))

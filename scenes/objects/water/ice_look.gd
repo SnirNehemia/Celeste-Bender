@@ -111,6 +111,16 @@ func draw(canvas: CanvasItem) -> void:
 		canvas.draw_polyline(closed, RIM_COLOR, 1.0)
 
 
+## Only the icicles, moved by `offset` px (CrumbleIceLayer: its patches are painted
+## in the ground's look, PatchPainter, and keep the glass icicles under them; the
+## offset tucks their roots into the picture's dented bottom edge).
+func draw_icicles(canvas: CanvasItem, offset: Vector2 = Vector2.ZERO) -> void:
+	for icicle: PackedVector2Array in icicles:
+		var moved: PackedVector2Array = _shifted(icicle, offset)
+		canvas.draw_colored_polygon(moved, BODY_COLOR)
+		canvas.draw_line(moved[0], moved[2], RIM_COLOR, 1.0)
+
+
 static func _shifted(polygon: PackedVector2Array, offset: Vector2) -> PackedVector2Array:
 	var result: PackedVector2Array = PackedVector2Array()
 	for point: Vector2 in polygon:

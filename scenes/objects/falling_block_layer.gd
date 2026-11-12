@@ -29,6 +29,10 @@ extends TileMapLayer
 ## the layer draws it shaking, the falling body draws the same picture, and a landed
 ## block keeps it. The layer's own tiles are hidden (self_modulate). A block never
 ## leans on other ground in its picture (crust all round): it's a loose piece.
+##
+## FALLING ICE (FallingIceLayer, scenes/objects/water/falling_ice_layer.gd) is this
+## layer with another look and slippery: it overrides the hooks under "Kinds" below
+## (node name, palette, grain, colors), nothing else.
 
 const WATER_TUNING: WaterTuning = preload("res://resources/water_tuning.tres")
 ## The contour running round a block about to drop: pale blue, not crumbling's white.
@@ -85,13 +89,15 @@ func _ready() -> void:
 ## none: a block falling into a room from the one above is handed to it
 ## (FallingBlock._hand_over), and lands as ITS tiles, so they stay solid while you're
 ## in that room. A layer made here is solid ground for the room's water too.
-static func ensure_in(room: Room) -> FallingBlockLayer:
-	var found: FallingBlockLayer = room.get_node_or_null(NodePath(NODE_NAME)) as FallingBlockLayer
+## The layer is of the same kind as this one (falling ice goes to falling ice):
+## get_script().new() makes a node with this node's script, a subclass's too.
+func ensure_twin_in(room: Room) -> FallingBlockLayer:
+	var found: FallingBlockLayer = room.get_node_or_null(NodePath(get_layer_name())) as FallingBlockLayer
 	if found != null:
 		return found
-	var made: FallingBlockLayer = FallingBlockLayer.new()
-	made.name = NODE_NAME
-	made.tile_set = TILESET  # before _ready: _rebuild reads the tile size
+	var made: FallingBlockLayer = get_script().new() as FallingBlockLayer
+	made.name = get_layer_name()
+	made.tile_set = tile_set  # before _ready: _rebuild reads the tile size
 	var last_layer_index: int = 0
 	for child: Node in room.get_children():
 		if child is TileMapLayer:
@@ -120,7 +126,7 @@ func _rebuild() -> void:
 	crumble.rebuild(cells, func(_cells: Array[Vector2i]) -> bool: return true, _trace)
 	crumble.apply_custom_times(patch_crumble_times)
 	patch_textures = PatchPainter.paint_patches(crumble.patches, patch_textures, tile_set.tile_size,
-		func(_cell: Vector2i) -> bool: return false, PatchPainter.BASALT_PALETTE, PatchPainter.Grain.COLUMNS)
+		func(_cell: Vector2i) -> bool: return false, get_palette(), get_grain())
 	look_node.queue_redraw()
 
 
@@ -170,7 +176,7 @@ func _let_go(cells: Array, was_painted: bool, picture: Array) -> void:
 			erase_cell(cell)
 		update_internals()
 		CrumblePatches.take_away(self, [], {})  # tells the water the ground went
-	CrumblePatches.burst_over(self, cells, DUST_COLOR, DUST_PER_TILE)
+	CrumblePatches.burst_over(self, cells, get_dust_color(), DUST_PER_TILE)
 	var block_cells: Array[Vector2i] = []
 	block_cells.assign(cells)
 	FallingBlock.spawn(self, block_cells, picture, props)
@@ -270,7 +276,7 @@ func _draw_look() -> void:
 	for patch: Dictionary in crumble.patches:
 		look_node.draw_set_transform(crumble.get_shake(patch))
 		draw_picture(look_node, patch[&"picture"])
-		crumble.draw_contour(look_node, patch, WATER_TUNING.falling_block_time, CONTOUR_COLOR)
+		crumble.draw_contour(look_node, patch, WATER_TUNING.falling_block_time, get_contour_color())
 	look_node.draw_set_transform(Vector2.ZERO)
 	for picture: Array in landed_pictures:
 		draw_picture(look_node, picture)
@@ -280,3 +286,29 @@ func _draw_look() -> void:
 ## (also what a falling FallingBlock draws, in its own coordinates).
 static func draw_picture(canvas: CanvasItem, picture: Array) -> void:
 	canvas.draw_texture(picture[0], picture[1])
+
+
+# --- Kinds (FallingIceLayer overrides these) ------------------------------------------
+
+## The node name this kind of layer has in a room ("FallingBlock").
+func get_layer_name() -> StringName:
+	return NODE_NAME
+
+
+## The colors and texture of the blocks' pictures (PatchPainter).
+func get_palette() -> Array[Color]:
+	return PatchPainter.BASALT_PALETTE
+
+
+func get_grain() -> PatchPainter.Grain:
+	return PatchPainter.Grain.COLUMNS
+
+
+## The dust when a block lets go and when it lands.
+func get_dust_color() -> Color:
+	return DUST_COLOR
+
+
+## The contour running round a block about to drop.
+func get_contour_color() -> Color:
+	return CONTOUR_COLOR

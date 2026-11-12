@@ -144,6 +144,14 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 4, 6, 2, 2, WHITE)
 			_rect(image, 3, 8, 4, 1, WHITE)
 			_rect(image, 4, 9, 2, 1, WHITE)
+		&"falling_ice":
+			# Dark ice with a pale top and a joint, a down arrow under it.
+			_rect(image, 1, 0, 8, 5, Color(0.22, 0.38, 0.55))
+			_rect(image, 1, 0, 8, 1, Color(0.52, 0.72, 0.87))
+			_rect(image, 4, 1, 1, 3, Color(0.08, 0.15, 0.25))
+			_rect(image, 4, 6, 2, 2, WHITE)
+			_rect(image, 3, 8, 4, 1, WHITE)
+			_rect(image, 4, 9, 2, 1, WHITE)
 		&"storm_cloud":
 			# A dark cloud with a lit top and a bolt out of it.
 			_rect(image, 1, 2, 8, 5, Color8(62, 56, 86))

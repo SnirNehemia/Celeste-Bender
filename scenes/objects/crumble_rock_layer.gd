@@ -10,8 +10,8 @@ extends TileMapLayer
 ## Each connected patch (8 neighbours) crumbles as one, exactly like brittle player
 ## ice (Stage I4), with the same helper (CrumblePatches, scenes/objects/crumble_patches.gd):
 ## the first touch by you or a crate starts WaterTuning.crumble_time (2 s); the patch
-## shakes (harder near the end) and drips grit while a bright contour runs round it
-## and closes; then it breaks off and its tiles are gone (CrumblePatches.take_away)
+## shakes (harder near the end) and drips grit (CrumbleDrips) while a bright
+## contour runs round it and closes; then it breaks off and its tiles are gone (CrumblePatches.take_away)
 ## until the room resets (reset(), Room.RESETTABLE_GROUP), while it breaks into
 ## PEBBLES of the room's PebbleField (after the falling-block play-test): they fall,
 ## land, get kicked by you and crates, and fall again if the ground under them goes.
@@ -63,10 +63,8 @@ var crumble: CrumblePatches = CrumblePatches.new()
 var removed_cells: Dictionary = {}
 var look_node: Node2D
 var is_rebuild_queued: bool = false
-## Grit specks in the air: layer px, speed, and seconds left (drawn by look_node).
-var grit_positions: PackedVector2Array = PackedVector2Array()
-var grit_velocities: PackedVector2Array = PackedVector2Array()
-var grit_lives: PackedFloat32Array = PackedFloat32Array()
+## Grit specks in the air under crumbling patches (drawn by look_node).
+var grit: CrumbleDrips = CrumbleDrips.new(GRIT_COLOR, GRIT_PER_SECOND, GRIT_GRAVITY, GRIT_LIFETIME)
 ## Painted patch pictures, by the patch's cells (str of the sorted list) -> the
 ## painter's [texture, origin]: a patch that's still there isn't painted again.
 var patch_textures: Dictionary = {}
@@ -108,14 +106,19 @@ func rebuild_look() -> void:
 	_queue_rebuild()
 
 
-## Is there a tile of another solid layer of the room at `cell` (the crust doesn't
-## run along rock the patch leans on)? Water, hidden chambers and storm clouds aren't solid.
 func _is_other_ground(cell: Vector2i) -> bool:
-	for sibling: Node in get_parent().get_children():
-		var layer: TileMapLayer = sibling as TileMapLayer
-		if layer != null and layer != self and not layer is WaterLayer and not layer is HiddenLayer \
-				and not layer is StormCloudLayer \
-				and layer.get_cell_source_id(cell) != -1:
+	return has_other_ground(self, cell)
+
+
+## Is there a tile of another solid layer of `layer`'s room at `cell` (the crust doesn't
+## run along rock the patch leans on)? Water, hidden chambers and storm clouds aren't
+## solid. Static: CrumbleIceLayer asks it too.
+static func has_other_ground(layer: TileMapLayer, cell: Vector2i) -> bool:
+	for sibling: Node in layer.get_parent().get_children():
+		var other: TileMapLayer = sibling as TileMapLayer
+		if other != null and other != layer and not other is WaterLayer and not other is HiddenLayer \
+				and not other is StormCloudLayer \
+				and other.get_cell_source_id(cell) != -1:
 			return true
 	return false
 
@@ -132,8 +135,8 @@ func _physics_process(delta: float) -> void:
 	if crumble.patches.is_empty() or GameState.current_room != get_parent():
 		return
 	var done: Array[Array] = crumble.advance(self, delta, WATER_TUNING.crumble_time, &"crumble_crack")
-	_advance_grit(delta)
-	if crumble.has_crumbling() or not done.is_empty() or not grit_lives.is_empty():
+	grit.advance(self, crumble, delta)
+	if crumble.has_crumbling() or not done.is_empty() or not grit.is_empty():
 		look_node.queue_redraw()  # the shake, the contour and the grit move every frame
 	for cells: Array in done:
 		_leave_pebbles(cells)
@@ -155,31 +158,6 @@ func _leave_pebbles(cells: Array) -> void:
 	PebbleField.leave_falling_pebbles(get_tree(), spots, PEBBLE_COLORS)
 
 
-## Grit: crumbling patches drop specks from random cells with open air below them;
-## the specks fall and fade.
-func _advance_grit(delta: float) -> void:
-	var tile_px: Vector2 = Vector2(tile_set.tile_size)
-	for patch: Dictionary in crumble.patches:
-		if float(patch[&"crack_left"]) < 0.0 or randf() > GRIT_PER_SECOND * delta:
-			continue
-		var cells: Array[Vector2i] = patch[&"cells"]
-		var cell: Vector2i = cells[randi() % cells.size()]
-		if get_cell_source_id(cell + Vector2i.DOWN) != -1:
-			continue  # more rock under it: no grit from here this time
-		grit_positions.append(Vector2(cell) * tile_px + Vector2(randf_range(1.0, tile_px.x - 1.0), tile_px.y))
-		grit_velocities.append(Vector2(0.0, randf_range(5.0, 20.0)))
-		grit_lives.append(GRIT_LIFETIME)
-	for index: int in range(grit_lives.size() - 1, -1, -1):
-		grit_lives[index] -= delta
-		if grit_lives[index] <= 0.0:
-			grit_positions.remove_at(index)
-			grit_velocities.remove_at(index)
-			grit_lives.remove_at(index)
-			continue
-		grit_velocities[index] += Vector2(0.0, GRIT_GRAVITY * delta)
-		grit_positions[index] += grit_velocities[index] * delta
-
-
 ## A falling block landed on the global `world_point`: the patch there starts
 ## crumbling (a direct hit, whatever was resting on it before).
 func touch_at_world(world_point: Vector2) -> void:
@@ -194,9 +172,7 @@ func get_default_crumble_time() -> float:
 
 ## Room reset (death or R): every crumbled patch is back, whole and still.
 func reset() -> void:
-	grit_positions.clear()
-	grit_velocities.clear()
-	grit_lives.clear()
+	grit.reset()
 	if crumble.reset_painted(self, removed_cells):
 		_rebuild()
 	else:
@@ -211,10 +187,7 @@ func _draw_look() -> void:
 		_draw_patch(look_node, patch)
 		crumble.draw_contour(look_node, patch, WATER_TUNING.crumble_time)
 	look_node.draw_set_transform(Vector2.ZERO)
-	for index: int in grit_positions.size():
-		var speck_color: Color = GRIT_COLOR
-		speck_color.a = clampf(grit_lives[index] / GRIT_LIFETIME * 2.0, 0.0, 1.0)
-		look_node.draw_rect(Rect2(grit_positions[index].floor(), Vector2.ONE), speck_color)
+	grit.draw(look_node)
 
 
 ## One patch's picture (its cracks are painted in) on `canvas`, in this layer's local px.

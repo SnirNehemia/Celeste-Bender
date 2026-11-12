@@ -631,7 +631,7 @@ The stage prompts get written into `PROMPTS.md` (a W0 planning stage) once Fire 
   - Melting gives each column its old ceiling and its water back.
 - **Ice ground:**
   - accel ×0.15 and friction ×0.08, as specced;
-  - **Claude's addition:** a top speed of ×1.4 run speed (`ice_max_run_scale`) that only a long run on ice reaches. Without it a frozen pool was no runway: with no jet or launch around, nothing gave you speed for the "long jump off a frozen pool". 1.0 turns it off;
+  - **Claude's addition:** a top speed of ×1.4 run speed (`ice_max_run_scale`; ×2.0 since the crumbling-ice play-test) that only a long run on ice reaches. Without it a frozen pool was no runway: with no jet or launch around, nothing gave you speed for the "long jump off a frozen pool". 1.0 turns it off;
   - leaving ice above run speed, the extra speed fades at `ice_air_overspeed_fade` (60 px/s²) in the air;
   - ice walls slide ×2 (there's no wall cling in the game to remove).
   - Measured in Water E: a run from standing reaches 126 px/s and long-jumps a 64 px spike pit (a run-speed jump covers about 55 px).

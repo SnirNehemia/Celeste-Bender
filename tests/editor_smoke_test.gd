@@ -64,6 +64,7 @@ func _ready() -> void:
 	await _check_hazards_and_rails()
 	await _check_falling_blocks()
 	await _check_falling_block_between_rooms()
+	await _check_falling_ice()
 	await _check_d1_depths()
 	await _check_d2_d3_depth_gates()
 	await _check_hub_keys()
@@ -2841,7 +2842,7 @@ func _check_hazards_and_rails() -> void:
 func _check_falling_blocks() -> void:
 	var block_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"falling_block")
 	_check(block_entry != null and block_entry.family == "Terrain" and block_entry.kind == PaletteCatalog.Kind.TERRAIN
-		and block_entry.menu_group == "", "the falling block has its own Terrain entry")
+		and block_entry.menu_group == "Falling block", "the falling block has its own Terrain button (with falling ice)")
 	var path: String = LevelStorage.create_level("Falling Level")
 	LevelEditor.path_to_open = path
 	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
@@ -2944,6 +2945,61 @@ func _check_falling_blocks() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("Falling blocks")
+
+
+## Falling ice (FallingIceLayer, after the crumbling-ice play-test): a falling block
+## of darker ice. It's ice to stand on, drops when touched like a falling block, is
+## ice while it falls, and lands as tiles of its own layer.
+func _check_falling_ice() -> void:
+	var ice_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"falling_ice")
+	_check(ice_entry != null and ice_entry.family == "Terrain" and ice_entry.menu_group == "Falling block",
+		"falling ice shares the falling block's Terrain button")
+	if ice_entry == null:
+		return
+	var path: String = LevelStorage.create_level("Falling Ice Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var ledge: Array[Vector2i] = [Vector2i(4, 15), Vector2i(5, 15), Vector2i(6, 15), Vector2i(7, 15), Vector2i(8, 15), Vector2i(9, 15)]
+	editor.paint_cells(room, ledge, true, ice_entry)
+	await get_tree().process_frame
+	var edit_layer: FallingIceLayer = room.get_node_or_null("FallingIce") as FallingIceLayer
+	_check(edit_layer != null and edit_layer.crumble.patches.size() == 1 and edit_layer.is_in_group(IceLayer.ICE_GROUP),
+		"painted falling ice is one patch, and ice")
+	editor._select_at(room.to_global(Vector2(6.5, 15.5) * LevelEditor.TILE))
+	_check(editor.selected_patch != null and editor.selected_patch.get_title().begins_with("Falling ice"),
+		"the Select tool picks a falling ice patch")
+
+	_check(editor.start_playtest(), "the falling ice level play-tests")
+	var play_root: RoomManager = editor.play_root
+	var player: Player = play_root.player
+	var play_room: Room = play_root.get_node("Room1") as Room
+	var ice: FallingIceLayer = play_room.get_node("FallingIce") as FallingIceLayer
+	await get_tree().create_timer(0.3).timeout
+	player.respawn_at(Vector2(60, 119))
+	for frame: int in 10:
+		await get_tree().physics_frame
+	_check(player.is_on_ice and ice.crumble.is_crumbling(Vector2i(4, 15)), "standing on falling ice: on ice, and it starts")
+	var saw_falling_ice: bool = false
+	for frame: int in 60:
+		await get_tree().physics_frame
+		for child: Node in ice.get_children():
+			if child is FallingBlock and child.is_in_group(IceLayer.ICE_GROUP):
+				saw_falling_ice = true
+	_check(saw_falling_ice, "the dropping block is ice too")
+	await get_tree().create_timer(1.0).timeout
+	_check(ice.get_cell_source_id(Vector2i(4, 20)) != -1 and ice.get_cell_source_id(Vector2i(4, 15)) == -1,
+		"it fell and landed as falling-ice tiles")
+	play_room.reset_objects()
+	await get_tree().physics_frame
+	_check(ice.get_cell_source_id(Vector2i(4, 15)) != -1 and ice.get_cell_source_id(Vector2i(4, 20)) == -1,
+		"R puts the ice block back")
+	editor.stop_playtest()
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Falling ice")
 
 
 ## Play-test: a block falling out of the bottom of its room into the room below froze
