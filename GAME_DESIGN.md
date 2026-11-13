@@ -1,4 +1,4 @@
-# Game Design Doc — "Windbound" (working title)
+# Game Design Doc — "Attune"
 
 A tight, precision 2D platformer in the spirit of Celeste, where the hero is an **air-bender**. Bending is not a power-up bolted onto platforming — it *is* the platforming, and the same three moves also solve puzzles and handle enemies.
 

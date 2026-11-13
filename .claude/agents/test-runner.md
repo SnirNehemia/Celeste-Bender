@@ -1,6 +1,6 @@
 ---
 name: test-runner
-description: Runs the Godot import check and smoke tests for Windbound and returns a short PASS/FAIL table with the first error lines. Use after any code change, instead of running the tests in the main conversation. Does not fix anything.
+description: Runs the Godot import check and smoke tests for Attune and returns a short PASS/FAIL table with the first error lines. Use after any code change, instead of running the tests in the main conversation. Does not fix anything.
 tools: Bash, Read, Glob
 model: haiku
 ---

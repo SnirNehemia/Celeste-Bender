@@ -1,4 +1,4 @@
-# Windbound
+# Attune
 
 A Celeste-style precision platformer where the hero is an air-bender, built in **Godot 4.4 (GDScript)**.
 Current goal: **Milestone 1 — Air vertical slice** (5 rooms, placeholder shapes).

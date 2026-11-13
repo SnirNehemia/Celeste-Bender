@@ -1,4 +1,4 @@
-# Windbound: game summary so far
+# Attune: game summary so far
 
 *Snapshot of 21 Oct 2026, written to bring a fresh conversation up to speed before designing the next element. The full specs are `GAME_DESIGN.md` (core game, Air chapter) and `Earth_bending.md` (Earth chapter, with every play-test decision in its §11). Next elements: `Fire_bending.md` (spec v1) and `Water_bending.md` (draft).*
 
@@ -6,7 +6,7 @@
 
 ## 1. The game in one paragraph
 
-**Windbound** is a Celeste-style precision 2D platformer where the hero is a bender. Bending isn't a power-up bolted onto platforming: it *is* the platforming, and every move also solves puzzles and fights enemies. The game is built in **chapters, one element each**. **Air** (7 rooms) is finished and **Earth** (10 rooms) is built and waiting for its play-test. The next step is to design a third element (Water and Fire are the candidates from the original pitch).
+**Attune** is a Celeste-style precision 2D platformer where the hero is a bender. Bending isn't a power-up bolted onto platforming: it *is* the platforming, and every move also solves puzzles and fights enemies. The game is built in **chapters, one element each**. **Air** (7 rooms) is finished and **Earth** (10 rooms) is built and waiting for its play-test. The next step is to design a third element (Water and Fire are the candidates from the original pitch).
 
 ## 2. Status
 

@@ -1,6 +1,6 @@
 ---
 name: room-inspector
-description: Takes screenshots of a Windbound chapter's rooms and checks them visually (spawn on a hazard, unreachable goal, overlapping objects, things off-screen, wrong placeholder colors). Returns a short per-room list of problems and the PNG paths. Does not edit anything.
+description: Takes screenshots of a Attune chapter's rooms and checks them visually (spawn on a hazard, unreachable goal, overlapping objects, things off-screen, wrong placeholder colors). Returns a short per-room list of problems and the PNG paths. Does not edit anything.
 tools: Bash, Read, Glob, Grep
 model: sonnet
 ---

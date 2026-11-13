@@ -84,7 +84,7 @@ func _build_ui() -> void:
 	column.add_theme_constant_override("separation", 8)
 	center.add_child(column)
 
-	column.add_child(_make_label("Windbound - slice complete", 16, TITLE_COLOR))
+	column.add_child(_make_label("Attune - slice complete", 16, TITLE_COLOR))
 	stats_label = _make_label("", 8, TEXT_COLOR)
 	column.add_child(stats_label)
 	column.add_child(_make_label("Press Jump (C) to play again", 8, HINT_COLOR))

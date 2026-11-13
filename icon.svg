@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 200 200">
+  <!-- Attune icon, option 1: the hero and his pack, pixel by pixel from scenes/player/body_look.gd -->
+  <rect width="200" height="200" rx="36" fill="#221a33"/>
+  <circle cx="100" cy="100" r="80" fill="#2d2444"/>
+  <!-- the four element specks: air, fire, earth, water -->
+  <rect x="22" y="22" width="10" height="10" fill="#D9F2FF"/>
+  <rect x="168" y="22" width="10" height="10" fill="#E8431A"/>
+  <rect x="22" y="168" width="10" height="10" fill="#B07A3E"/>
+  <rect x="168" y="168" width="10" height="10" fill="#3FA0F0"/>
+  <rect x="40" y="172" width="120" height="10" fill="#3a3050"/>
+  <g transform="translate(67,40) scale(11)" shape-rendering="crispEdges">
+    <rect x="-3" y="2" width="4" height="7" fill="#1a1424"/>
+    <rect x="-1" y="-1" width="10" height="13" fill="#1a1424"/>
+    <rect x="-2" y="3" width="2" height="5" fill="#9a6a3c"/>
+    <rect x="-2" y="3" width="2" height="1" fill="#6a4524"/>
+    <rect x="0" y="0" width="8" height="11" fill="#ffffff"/>
+    <rect x="4" y="3" width="1" height="2" fill="#1a1424"/>
+    <rect x="6" y="3" width="1" height="2" fill="#1a1424"/>
+  </g>
+</svg>

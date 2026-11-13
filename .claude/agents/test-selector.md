@@ -1,6 +1,6 @@
 ---
 name: test-selector
-description: Looks at what changed (git diff, or a list of files the caller gives) and returns the smallest set of Windbound tests worth running, with exact commands and Water section names. Use before test-runner so we don't run every smoke test for every change. Read-only; does not run tests.
+description: Looks at what changed (git diff, or a list of files the caller gives) and returns the smallest set of Attune tests worth running, with exact commands and Water section names. Use before test-runner so we don't run every smoke test for every change. Read-only; does not run tests.
 tools: Bash, Read, Grep, Glob
 model: haiku
 ---

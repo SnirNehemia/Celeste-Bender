@@ -1,6 +1,6 @@
 ---
 name: style-checker
-description: Checks changed GDScript against Windbound's house style (header comments, static typing, explicit names, no feel magic numbers outside the *_tuning resources, signals over get_node chains, one responsibility per script) and lists violations as file:line with a one-line fix. Read-only. Use after a change or in /wrapup.
+description: Checks changed GDScript against Attune's house style (header comments, static typing, explicit names, no feel magic numbers outside the *_tuning resources, signals over get_node chains, one responsibility per script) and lists violations as file:line with a one-line fix. Read-only. Use after a change or in /wrapup.
 tools: Bash, Read, Grep, Glob
 model: haiku
 ---

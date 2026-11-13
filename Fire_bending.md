@@ -1,4 +1,4 @@
-# Windbound: Fire bending (Chapter 3)
+# Attune: Fire bending (Chapter 3)
 
 *Spec v1, 21 Oct 2026. Companion to `GAME_DESIGN.md` (core + Air) and `Earth_bending.md` (Earth). Every number marked* **(tune)** *lives in `FireTuning` and is exposed in the live tuning menu (the in-game tuning panel, F5, built in Stage F2). Play-test decisions go in §13. The build stages are planned in §11 and written out as prompts in `PROMPTS.md` (Stages F0–F15); the rules agreed while planning are in §13 "Decided in Stage F0" and override older text above them.*
 

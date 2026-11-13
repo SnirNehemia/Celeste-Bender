@@ -32,7 +32,7 @@ extends Control
 ## [button text, scene path] per chapter, in menu order. New chapters and test
 ## worlds (Fire chapter, mixed Fire rooms...) are appended here.
 const CHAPTERS: Array = [
-	["Air  -  Windbound (rooms 1-7)", "res://scenes/world.tscn"],
+	["Air  -  the Air chapter (rooms 1-7)", "res://scenes/world.tscn"],
 	["Earth  -  the Earth chapter (rooms 1-10)", "res://scenes/earth_world.tscn"],
 	["Earth  -  test rooms (F2 to switch)", "res://tests/earth_test_world.tscn"],
 	["Air + Earth  -  mixed test rooms (F2 to switch)", "res://tests/mixed_test_world.tscn"],

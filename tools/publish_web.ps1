@@ -1,4 +1,4 @@
-# publish_web.ps1 — export Windbound for the browser and publish it to GitHub Pages.
+# publish_web.ps1 — export Attune for the browser and publish it to GitHub Pages.
 #
 # What it does:
 #   1. Runs Godot headless with the "Web" preset (export_presets.cfg) -> build/web/

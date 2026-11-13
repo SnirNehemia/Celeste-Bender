@@ -1,4 +1,4 @@
-# CLAUDE.md — Windbound (Godot 4 platformer)
+# CLAUDE.md — Attune (Godot 4 platformer)
 
 Instructions for Claude Code working on this project. Read this and `GAME_DESIGN.md` at the start of every session.
 

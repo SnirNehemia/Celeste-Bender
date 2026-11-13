@@ -1,4 +1,4 @@
-# Windbound: Water bending (Chapter 4)
+# Attune: Water bending (Chapter 4)
 
 *Spec v2, 26 Oct 2026. Replaces spec v1 (the scoop / pull / carry / frost-dart model), rewritten from the developer's prompt of 26 Oct 2026, which takes priority over v1 wherever they differ. Companion to `GAME_DESIGN.md` (core + Air), `Earth_bending.md` (Earth) and `Fire_bending.md` (Fire). Water is built **after** Fire: several combinations in §9 need Fire's grid, `Flammable` and hot updrafts. Every number marked* **(tune)** *lives in `WaterTuning` and is exposed in the live tuning menu (F5). Play-test decisions go in §16.*
 

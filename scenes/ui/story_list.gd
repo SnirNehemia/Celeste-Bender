@@ -10,7 +10,7 @@ extends Resource
 
 ## The first story when there's no file yet: the two chapters, Air then Earth.
 const DEFAULT_ENTRIES: Array = [
-	["Air - Windbound", "res://scenes/world.tscn"],
+	["Air - the Air chapter", "res://scenes/world.tscn"],
 	["Earth - the Earth chapter", "res://scenes/earth_world.tscn"],
 ]
 
