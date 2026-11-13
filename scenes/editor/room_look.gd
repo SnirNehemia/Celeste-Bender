@@ -130,10 +130,14 @@ static func show_tiles_while_painting(room: Room, layer: TileMapLayer) -> void:
 
 ## Wall objects (a CrackedWall or StoneWall placed straight in the room, from before
 ## walls were terrain, or in an imported room) become tiles of the room's wall layer.
+## A SwitchWall is left alone: it extends CrackedWall but is a placed object of its
+## own (with links), and turning it into tiles would lose it and its links.
 static func _convert_wall_objects(room: Room) -> void:
 	for child: Node in room.get_children():
 		var entry_id: StringName = &""
-		if child is CrackedWall:
+		if child is SwitchWall:
+			continue
+		elif child is CrackedWall:
 			entry_id = &"cracked_wall"
 		elif child is StoneWall:
 			entry_id = &"stone_wall"

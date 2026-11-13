@@ -29,6 +29,9 @@ extends RefCounted
 ##     the W8c play-test): a crate resting on a patch when the room starts (or after
 ##     a reset) never starts it, it rides or falls with it; one that lands or is blown
 ##     onto it later does. You always count. (`contacts` remembers last frame's.)
+##     An object may give several boxes instead (get_touch_boxes(): a FallingBlock,
+##     one per cell): one box round an L-shaped block would cover patches tucked in
+##     its corner that none of its cells touch (play-test, chapter 0 room 23).
 ##   - PROPS: when a painted patch breaks, braziers and fire diamonds standing on it
 ##     fall (GroundProps, GroundPropFall) and leaf piles on it settle again.
 ##   - THE COUNTDOWN: advance() runs it down and returns the patches that are done.
@@ -180,26 +183,31 @@ func _start_where_touched(layer: TileMapLayer, crumble_time: float, crack_sound:
 	for member: Node in layer.get_tree().get_nodes_in_group(WaterWorld.SOLID_GROUP):
 		if not member.has_method(&"get_water_box"):
 			continue
-		var box: Rect2 = member.call(&"get_water_box")
-		if box.size.x <= 0.0:
-			continue
+		var boxes: Array[Rect2] = []
+		if member.has_method(&"get_touch_boxes"):
+			boxes.assign(member.call(&"get_touch_boxes"))
+		else:
+			boxes.append(member.call(&"get_water_box"))
 		var is_player: bool = member.is_in_group(Player.GROUP)
 		var old_keys: Array = contacts.get(member.get_instance_id(), [])
 		var touched_keys: Array = []
-		box = Rect2(layer.to_local(box.position), box.size).grow(1.0)
-		var first: Vector2i = layer.local_to_map(box.position)
-		# Just inside the far edge: a box ending exactly on a tile line doesn't reach the next tile.
-		var last: Vector2i = layer.local_to_map(box.end - Vector2(0.01, 0.01))
-		for y: int in range(first.y, last.y + 1):
-			for x: int in range(first.x, last.x + 1):
-				var index: int = get_patch_index(Vector2i(x, y))
-				if index < 0 or touched_keys.has(patches[index][&"key"]):
-					continue
-				var key: Vector2i = patches[index][&"key"]
-				touched_keys.append(key)
-				var is_new_contact: bool = has_contact_baseline and not old_keys.has(key)
-				if is_player or is_new_contact:
-					start_patch(index, crumble_time, crack_sound)
+		for global_box: Rect2 in boxes:
+			if global_box.size.x <= 0.0:
+				continue
+			var box: Rect2 = Rect2(layer.to_local(global_box.position), global_box.size).grow(1.0)
+			var first: Vector2i = layer.local_to_map(box.position)
+			# Just inside the far edge: a box ending exactly on a tile line doesn't reach the next tile.
+			var last: Vector2i = layer.local_to_map(box.end - Vector2(0.01, 0.01))
+			for y: int in range(first.y, last.y + 1):
+				for x: int in range(first.x, last.x + 1):
+					var index: int = get_patch_index(Vector2i(x, y))
+					if index < 0 or touched_keys.has(patches[index][&"key"]):
+						continue
+					var key: Vector2i = patches[index][&"key"]
+					touched_keys.append(key)
+					var is_new_contact: bool = has_contact_baseline and not old_keys.has(key)
+					if is_player or is_new_contact:
+						start_patch(index, crumble_time, crack_sound)
 		if not touched_keys.is_empty():
 			new_contacts[member.get_instance_id()] = touched_keys
 	contacts = new_contacts

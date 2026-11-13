@@ -2036,12 +2036,15 @@ func _check_grid_ice(world: RoomManager, player: Player) -> void:
 	water.apply_ice_plan(runway, Vector2(340.0, 120.0), 12.0 * unit)
 	await _stand_at(player, origin + Vector2(300.0, 120.0))
 	var ice_top_speed: float = player.tuning.max_run_speed * tuning.ice_max_run_scale
-	player.velocity.x = ice_top_speed * 1.6
-	for frame: int in 15:
+	# Just above the ice's top speed, for 5 frames: it must stay on the 12-tile runway
+	# whatever the tuning (at 1.6x a 4x top speed it ran into the wall in 0.25 s).
+	var start_speed: float = ice_top_speed + 30.0
+	player.velocity.x = start_speed
+	for frame: int in 5:
 		await get_tree().physics_frame
-	_check(player.is_on_floor() and player.velocity.x > ice_top_speed * 1.6 - 1.0,
-		"on ice, speed above run speed isn't braked (%.0f px/s after 0.25 s, started at %.0f)"
-			% [player.velocity.x, ice_top_speed * 1.6])
+	_check(player.is_on_floor() and player.velocity.x > start_speed - 1.0,
+		"on ice, speed above run speed isn't braked (%.0f px/s after 5 frames, started at %.0f)"
+			% [player.velocity.x, start_speed])
 
 	room.reset_objects()
 	for frame: int in 3:

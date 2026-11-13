@@ -19,6 +19,10 @@ extends StaticBody2D
 ## Communication is by SIGNAL: in _ready() the door connects to each switch's
 ## `switched` signal. Switches don't know doors exist.
 ##
+## Progress (TriggerLamps): an ALL door with 2+ switches shows a lamp per switch,
+## lit while that switch is where the door wants it; any door shudders when one more
+## switch is done, so you see the switch you just flipped counting toward it.
+##
 ## Fairness: a closing door pauses while the player or a crate is in the doorway,
 ## instead of crushing them or pushing them into a wall.
 ##
@@ -69,6 +73,8 @@ var wants_open: bool = false
 var snap_frames_remaining: int = 0
 
 var collision_shape_node: CollisionShape2D
+## The lamps and the pulse when a switch is done (TriggerLamps).
+var trigger_lamps: TriggerLamps = TriggerLamps.new()
 
 
 func _ready() -> void:
@@ -90,12 +96,15 @@ func _ready() -> void:
 		linked_switch.switched.connect(_on_switch_changed)
 	wants_open = _compute_wants_open()
 	open_amount = 1.0 if wants_open else 0.0  # start in the right state, no animation
+	trigger_lamps.quiet()
+	_update_trigger_lamps()
 	_apply_open_amount()
 
 
-func _process(_delta: float) -> void:
-	# Editor only: keep the link lines following the switches as you drag them around.
-	if Engine.is_editor_hint():
+func _process(delta: float) -> void:
+	# Editor: keep the link lines following the switches as you drag them around.
+	# In play: redraw while the lamps flash or the door shudders.
+	if Engine.is_editor_hint() or trigger_lamps.advance(delta):
 		queue_redraw()
 
 
@@ -125,10 +134,20 @@ func _physics_process(delta: float) -> void:
 func reset() -> void:
 	snap_frames_remaining = 3
 	wants_open = _compute_wants_open()
+	trigger_lamps.quiet()  # switches flicking back after the reset aren't progress
+	_update_trigger_lamps()
 
 
 func _on_switch_changed(_is_now_on: bool) -> void:
 	wants_open = _compute_wants_open()
+	_update_trigger_lamps()
+
+
+## Tells the lamps each switch's progress: done = in the state that opens the door
+## (on, or off when open_when_off).
+func _update_trigger_lamps() -> void:
+	trigger_lamps.update(TriggerLamps.progress_of(switches, not open_when_off), link_mode == LinkMode.ALL)
+	queue_redraw()
 
 
 ## ANY / ALL over the linked switches, then flipped if open_when_off.
@@ -199,14 +218,26 @@ func _apply_open_amount() -> void:
 
 
 func _draw() -> void:
+	if Engine.is_editor_hint():
+		_update_trigger_lamps_for_editor()
 	var closed_rect: Rect2 = _get_closed_rect()
 	if open_amount > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, door_size).grow(-0.5), FRAME_COLOR, false, 1.0)
 	if closed_rect.size.x >= 0.5 and closed_rect.size.y >= 0.5:
+		# The slab (not its frame) shudders when a switch is done.
+		draw_set_transform(trigger_lamps.get_shake_offset())
 		draw_rect(closed_rect, DOOR_COLOR)
 		draw_rect(closed_rect.grow(-0.5), EDGE_COLOR, false, 1.0)
+		trigger_lamps.draw(self, Rect2(Vector2.ZERO, door_size), closed_rect)
+		draw_set_transform(Vector2.ZERO)
 	if Engine.is_editor_hint():
 		for linked_switch: Switch in switches:
 			if linked_switch != null:
 				draw_dashed_line(door_size / 2.0, to_local(linked_switch.global_position),
 					LINK_LINE_COLOR, 1.0, 3.0)
+
+
+## In the editor nothing runs _ready's wiring: the lamps are counted from the links
+## as they are now, so a designer sees one socket per linked switch.
+func _update_trigger_lamps_for_editor() -> void:
+	trigger_lamps.update(TriggerLamps.progress_of(switches, not open_when_off), link_mode == LinkMode.ALL)

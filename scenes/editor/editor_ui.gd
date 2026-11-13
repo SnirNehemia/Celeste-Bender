@@ -50,10 +50,28 @@ const DIRTY_COLOR: Color = Color(1.0, 0.65, 0.2)
 const ERROR_COLOR: Color = Color(1.0, 0.45, 0.4)
 const HINT_ALPHA: float = 0.55
 const BAR_HEIGHT: float = 14.0
-const PALETTE_WIDTH: float = 92.0
+## 120 since the Terrain tab went to two columns (was 92): room for a short name
+## beside each icon.
+const PALETTE_WIDTH: float = 120.0
 const PROPERTY_PANEL_WIDTH: float = 124.0
 ## Family tabs per row at the top of the palette.
 const TAB_COLUMNS: int = 2
+## Tabs whose buttons are laid out in two columns, not one (after the play-test: the
+## Terrain tab is used all the time and was a long list to scroll). Their buttons
+## clip long names; the full name is the first line of the tooltip.
+const TWO_COLUMN_TABS: Array[String] = ["Terrain"]
+const TWO_COLUMN_COUNT: int = 2
+## The gap between a two-column button's icon and its name, px.
+const TWO_COLUMN_ICON_GAP: int = 1
+## Shorter names for buttons in a two-column tab (button text -> label); the full
+## name stays in the tooltip. Names not listed are shown as they are.
+const SHORT_LABELS: Dictionary[String, String] = {
+	"Hidden chamber": "Hidden",
+	"Ice slope ▾": "Slope ▾",
+	"Crumbling block ▾": "Crumble",
+	"Falling block ▾": "Falling",
+	"Storm cloud": "Storm",
+}
 const DIRTY_DOT_SIZE: Vector2 = Vector2(5, 5)
 ## Palette tooltips are broken into lines of at most this many characters.
 const TOOLTIP_LINE_LENGTH: int = 48
@@ -447,7 +465,15 @@ func _build_palette(column: VBoxContainer) -> void:
 		tab.pressed.connect(show_family.bind(family))
 		tab_grid.add_child(tab)
 		family_tabs[family] = tab
-		var entry_list: VBoxContainer = VBoxContainer.new()
+		# A GridContainer lays its children out in rows of `columns`, left to right.
+		var entry_list: Container
+		if TWO_COLUMN_TABS.has(family):
+			var grid: GridContainer = GridContainer.new()
+			grid.columns = TWO_COLUMN_COUNT
+			entry_list = grid
+		else:
+			entry_list = VBoxContainer.new()
+		entry_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lists.add_child(entry_list)
 		family_lists[family] = entry_list
 
@@ -457,14 +483,14 @@ func _build_palette(column: VBoxContainer) -> void:
 			if entry.menu_group != "":
 				_add_to_menu_group(entry)
 			else:
-				(family_lists[entry.family] as VBoxContainer).add_child(_make_entry_button(entry, entry_group))
+				_add_to_list(entry.family, _make_entry_button(entry, entry_group))
 			# Its other tabs get a plain button of their own (made after the main one,
 			# so palette_buttons keeps the main one or its group's).
 			var main_button: Button = palette_buttons[entry.id]
 			var extra_buttons: Array[Button] = []
 			for tab: String in entry.extra_tabs:
 				var extra_button: Button = _make_entry_button(entry, entry_group)
-				(family_lists[tab] as VBoxContainer).add_child(extra_button)
+				_add_to_list(tab, extra_button)
 				extra_buttons.append(extra_button)
 			palette_buttons[entry.id] = main_button
 			if not extra_buttons.is_empty():
@@ -489,7 +515,24 @@ func _add_to_menu_group(entry: PaletteCatalog.Entry) -> void:
 		button.pressed.disconnect(connection["callable"])
 	button.pressed.connect(_open_menu_group.bind(entry.menu_group, button))
 	menu_group_buttons[entry.menu_group] = button
-	(family_lists[entry.family] as VBoxContainer).add_child(button)
+	_add_to_list(entry.family, button)
+
+
+## Adds a palette button to `family`'s list. In a two-column tab the button takes
+## half the width (EXPAND_FILL shares a grid row's width between its cells), clips
+## its name, and says the full name first in its tooltip.
+func _add_to_list(family: String, button: Button) -> void:
+	if TWO_COLUMN_TABS.has(family):
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.clip_text = true
+		button.custom_minimum_size.x = 0.0
+		if not button.tooltip_text.begins_with(button.text):
+			button.tooltip_text = button.text + "
+" + button.tooltip_text
+		button.text = SHORT_LABELS.get(button.text, button.text)
+		# A tighter gap between the icon and the name (the theme's is 4 px).
+		button.add_theme_constant_override(&"h_separation", TWO_COLUMN_ICON_GAP)
+	(family_lists[family] as Container).add_child(button)
 
 
 func _open_menu_group(group_name: String, button: Button) -> void:

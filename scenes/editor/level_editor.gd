@@ -249,6 +249,9 @@ var link_mode_buttons: Array[Button] = []
 ## A handle being dragged ({} = none), and its property's value when the drag began.
 var dragged_handle: Dictionary = {}
 var dragged_handle_start_value: Variant = null
+## Where the object was when an end handle's drag began (EditorHandles.is_edge_handle):
+## moving one end of a plate moves its origin too, and undo puts both back.
+var dragged_handle_start_position: Vector2 = Vector2.ZERO
 ## The room and tile (room-local cell) under the mouse; null when outside rooms.
 var hover_room: Room = null
 var hover_cell: Vector2i = Vector2i.ZERO
@@ -1472,6 +1475,21 @@ func set_property(target: Object, property: StringName, value: Variant, old_valu
 		UndoRedo.MERGE_ENDS if merge else UndoRedo.MERGE_DISABLE)
 	undo_redo.add_do_method(_apply_property.bind(target, property, value))
 	undo_redo.add_undo_method(_apply_property.bind(target, property, from))
+	undo_redo.commit_action()
+
+
+## A width changed from one end (an end handle, EditorHandles.edge_drag): the width and
+## the position as ONE undo step, from `old_width` at `old_position`. The drag already
+## set them live; committing sets them again (the same values).
+func resize_from_edge(node: Node2D, property: StringName, width: Variant, new_position: Vector2,
+		old_width: Variant, old_position: Vector2) -> void:
+	if width == old_width and new_position == old_position:
+		return
+	undo_redo.create_action("Resize %s" % _target_name(node))
+	undo_redo.add_do_method(_apply_property.bind(node, property, width))
+	undo_redo.add_do_method(_set_object_position.bind(node, new_position))
+	undo_redo.add_undo_method(_apply_property.bind(node, property, old_width))
+	undo_redo.add_undo_method(_set_object_position.bind(node, old_position))
 	undo_redo.commit_action()
 
 
@@ -2815,9 +2833,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif stroke_room != null:
 			_continue_stroke(mouse_world)
 		elif not dragged_handle.is_empty():
-			var value: Variant = EditorHandles.value_for_drag(selected_object, dragged_handle, mouse_world,
-				Input.is_action_pressed("editor_free_place"))
-			_apply_property(selected_object, dragged_handle["property"], value)
+			var free: bool = Input.is_action_pressed("editor_free_place")
+			if EditorHandles.is_edge_handle(dragged_handle):
+				# One end of a plate: the width AND the position change (the other end stays).
+				var width_and_position: Array = EditorHandles.edge_drag(selected_object, dragged_handle, mouse_world, free)
+				_apply_property(selected_object, dragged_handle["property"], width_and_position[0])
+				_set_object_position(selected_object, width_and_position[1])
+			else:
+				var value: Variant = EditorHandles.value_for_drag(selected_object, dragged_handle, mouse_world, free)
+				_apply_property(selected_object, dragged_handle["property"], value)
 			ui.property_panel.refresh()
 		elif dragged_object != null:
 			# Moves by whole tiles, so a grid-aligned object stays on the grid;
@@ -2969,6 +2993,7 @@ func _on_left_pressed(mouse_world: Vector2) -> void:
 		if not handle.is_empty():
 			dragged_handle = handle
 			dragged_handle_start_value = selected_object.get(handle["property"])
+			dragged_handle_start_position = selected_object.position
 			return
 	if current_entry.kind == PaletteCatalog.Kind.TERRAIN:
 		if room != null:
@@ -3057,8 +3082,13 @@ func _on_mouse_released(mouse_world: Vector2) -> void:
 	elif not dragged_handle.is_empty():
 		# The drag already changed it live; record the whole drag as one step.
 		var property: StringName = dragged_handle["property"]
+		var was_edge: bool = EditorHandles.is_edge_handle(dragged_handle)
 		dragged_handle = {}
-		set_property(selected_object, property, selected_object.get(property), dragged_handle_start_value)
+		if was_edge:
+			resize_from_edge(selected_object, property, selected_object.get(property), selected_object.position,
+				dragged_handle_start_value, dragged_handle_start_position)
+		else:
+			set_property(selected_object, property, selected_object.get(property), dragged_handle_start_value)
 	elif rectangle_active:
 		rectangle_active = false
 		if rectangle_is_spikes:

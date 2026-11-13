@@ -359,6 +359,17 @@ func _land(passed: Array[RID]) -> void:
 	queue_free()
 
 
+## What it touches, for crumbling and falling patches (CrumblePatches): one global box
+## per cell. Not get_water_box()'s one box round them all: a block shaped like an L
+## would "touch" a patch sitting in its corner as it moved, and start it.
+func get_touch_boxes() -> Array[Rect2]:
+	var tile_px: Vector2 = Vector2(layer.tile_set.tile_size)
+	var boxes: Array[Rect2] = []
+	for cell: Vector2i in cells:
+		boxes.append(Rect2(_to_world(Vector2(cell) * tile_px), tile_px))
+	return boxes
+
+
 ## The box loose water bumps into (WaterWorld.SOLID_GROUP), global: round all its cells.
 func get_water_box() -> Rect2:
 	var tile_px: Vector2 = Vector2(layer.tile_set.tile_size)

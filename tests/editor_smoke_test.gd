@@ -585,7 +585,44 @@ func _check_l4_air_objects() -> void:
 	_check(PaletteCatalog.get_bounds(placed[&"crate"]) == Rect2(80, 152, 16, 16), "so its outline covers exactly two tiles")
 	_check((placed[&"wind_zone"] as Node2D).position == Vector2(40, 40), "a wind zone starts at the clicked tile's corner")
 	_check((placed[&"wind_crystal"] as Node2D).position == Vector2(164, 84), "a crystal sits in the middle of its tile")
-	_check((placed[&"pressure_plate"] as Node2D).position == Vector2(204, 168), "a 3-tile plate lies on the floor centered on its tile")
+	var placed_plate: PressurePlate = placed[&"pressure_plate"] as PressurePlate
+	_check(placed_plate.plate_width == 16.0 and placed_plate.position == Vector2(208, 168),
+		"a new plate is 2 tiles wide, on the floor with its ends on tile lines, got %s wide at %s" % [placed_plate.plate_width, placed_plate.position])
+	# Its two end handles: each moves only its own end, onto the tile grid.
+	var plate_handles: Array[Dictionary] = EditorHandles.get_handles(placed_plate)
+	_check(plate_handles.size() == 2 and plate_handles[0]["kind"] == EditorHandles.Kind.WIDTH_LEFT
+		and plate_handles[1]["kind"] == EditorHandles.Kind.WIDTH_RIGHT, "a plate has a handle on each end")
+	var plate_parent: Node2D = placed_plate.get_parent() as Node2D
+	var right_drag: Array = EditorHandles.edge_drag(placed_plate, plate_handles[1], plate_parent.to_global(Vector2(229, 160)), false)
+	_check(right_drag[0] == 32.0 and right_drag[1] == Vector2(216, 168), "dragging the right end to x 229 snaps it to 232, the left end stays at 200, got %s" % [right_drag])
+	var left_drag: Array = EditorHandles.edge_drag(placed_plate, plate_handles[0], plate_parent.to_global(Vector2(190, 160)), false)
+	_check(left_drag[0] == 24.0 and left_drag[1] == Vector2(204, 168), "dragging the left end to x 190 snaps it to 192, the right end stays at 216, got %s" % [left_drag])
+	var squeezed: Array = EditorHandles.edge_drag(placed_plate, plate_handles[0], plate_parent.to_global(Vector2(240, 160)), false)
+	_check(squeezed[0] == 8.0 and squeezed[1] == Vector2(212, 168), "the left end stops a tile short of the right end, got %s" % [squeezed])
+	# Trigger lamps (doors, switch walls): a lamp per switch in ALL mode with 2+,
+	# a pulse when one more is done, none while quiet (start-up, reset).
+	var lamps: TriggerLamps = TriggerLamps.new()
+	lamps.update([false, false, false] as Array[bool], true)
+	_check(lamps.shows_lamps and lamps.pulse_remaining == 0.0, "an ALL door with three switches shows lamps, no pulse at start")
+	lamps.update([false, true, false] as Array[bool], true)
+	_check(lamps.pulse_remaining > 0.0 and lamps.lamp_flash[1] > 0.0 and lamps.get_shake_offset() != Vector2.ZERO,
+		"one more switch done: its lamp flashes and the door shudders")
+	lamps.advance(1.0)
+	_check(lamps.get_shake_offset() == Vector2.ZERO and lamps.lamp_flash[1] == 0.0, "and it settles")
+	lamps.update([false, false, false] as Array[bool], true)
+	_check(lamps.pulse_remaining == 0.0, "a switch going back off doesn't pulse")
+	lamps.quiet()
+	lamps.update([true, false, false] as Array[bool], true)
+	_check(lamps.pulse_remaining == 0.0, "no pulse while quiet (a reset putting a crate back)")
+	lamps.update([true, false] as Array[bool], false)
+	_check(not lamps.shows_lamps, "an ANY door shows no lamps")
+	# Reopening a level turns old CrackedWall OBJECTS into wall tiles (RoomLook); a
+	# switch wall extends CrackedWall but must stay an object, still selectable.
+	var placed_switch_wall: SwitchWall = placed[&"switch_wall"] as SwitchWall
+	RoomLook.prepare_for_editing(room)
+	_check(placed_switch_wall.get_parent() == room
+		and editor.objects_at(PaletteCatalog.get_bounds(placed_switch_wall).get_center()).has(placed_switch_wall),
+		"a switch wall stays a selectable object when the room is made ready for editing (it isn't turned into cracked-wall tiles)")
 	_check((placed[&"leaf_platform"] as Node2D).position == Vector2(128, 96), "a leaf hangs from the tile's top, its 4-tile width on tile lines")
 	_check((placed[&"door"] as Node2D).position == Vector2(240, 80), "a door starts at the clicked tile's corner")
 	_check(PaletteCatalog.get_entry(&"wind_zone").editor_color.a > 0.0, "wind zones get a stand-in (they're only particles)")
@@ -2855,6 +2892,8 @@ func _check_falling_blocks() -> void:
 	var crate_on: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(4, 14)) as Crate
 	var brazier_on: Brazier = editor.place_object(PaletteCatalog.get_entry(&"brazier"), room, Vector2i(8, 14)) as Brazier
 	var crate_under: Crate = editor.place_object(PaletteCatalog.get_entry(&"crate"), room, Vector2i(6, 20)) as Crate
+	# A pressure plate on the floor under A's right end (cells 8-9), beside the crate.
+	var plate_under: PressurePlate = editor.place_object(PaletteCatalog.get_entry(&"pressure_plate"), room, Vector2i(8, 20)) as PressurePlate
 	_check(crate_on.position.y == 120.0 and brazier_on.position.y == 120.0 and crate_under.position.y == 168.0,
 		"a crate and a brazier stand on block A, a crate on the floor under it (%s, %s)" % [crate_on.position, brazier_on.position])
 	# B over a pool; D over crumbling rock C.
@@ -2870,10 +2909,18 @@ func _check_falling_blocks() -> void:
 	editor.paint_cells(room, [Vector2i(32, 6), Vector2i(33, 6), Vector2i(34, 6)] as Array[Vector2i], true, block_entry)
 	var rock_c: Array[Vector2i] = [Vector2i(31, 12), Vector2i(32, 12), Vector2i(33, 12), Vector2i(34, 12), Vector2i(35, 12)]
 	editor.paint_cells(room, rock_c, true, PaletteCatalog.get_entry(&"crumble_rock"))
+	# E over F: E landing on F drops F too (a chain).
+	editor.paint_cells(room, [Vector2i(14, 3)] as Array[Vector2i], true, block_entry)
+	editor.paint_cells(room, [Vector2i(13, 8), Vector2i(14, 8), Vector2i(15, 8)] as Array[Vector2i], true, block_entry)
+	# L with G in its corner, not touching it (play-test, chapter 0 room 23: an L-shaped
+	# block dropping started the block in its corner, touched by its bounding box only).
+	var block_l: Array[Vector2i] = [Vector2i(2, 5), Vector2i(3, 5), Vector2i(4, 5), Vector2i(5, 5), Vector2i(5, 4), Vector2i(5, 3), Vector2i(5, 2)]
+	editor.paint_cells(room, block_l, true, block_entry)
+	editor.paint_cells(room, [Vector2i(3, 3)] as Array[Vector2i], true, block_entry)
 	await get_tree().process_frame
 	var block_layer: FallingBlockLayer = room.get_node_or_null("FallingBlock") as FallingBlockLayer
-	_check(block_layer != null and block_layer.crumble.patches.size() == 3 and block_layer.self_modulate.a == 0.0,
-		"three falling-block patches, drawn as basalt")
+	_check(block_layer != null and block_layer.crumble.patches.size() == 7 and block_layer.self_modulate.a == 0.0,
+		"seven falling-block patches, drawn as basalt")
 	editor._select_at(room.to_global(Vector2(33.5, 6.5) * LevelEditor.TILE))
 	_check(editor.selected_patch != null and editor.selected_patch.get_title().begins_with("Falling block")
 		and is_equal_approx(editor.selected_patch.crumble_time, CrumblePatchSettings.WATER_TUNING.falling_block_time),
@@ -2888,9 +2935,11 @@ func _check_falling_blocks() -> void:
 	var play_crate_on: Crate = play_room.get_node(NodePath(crate_on.name)) as Crate
 	var play_crate_under: Crate = play_room.get_node(NodePath(crate_under.name)) as Crate
 	var play_brazier: Brazier = play_room.get_node(NodePath(brazier_on.name)) as Brazier
+	var play_plate: PressurePlate = play_room.get_node(NodePath(plate_under.name)) as PressurePlate
 	var water: WaterWorld = play_room.get_node(NodePath(WaterWorld.NODE_NAME)) as WaterWorld
 	await get_tree().create_timer(0.5).timeout
 	_check(not blocks.crumble.is_crumbling(Vector2i(4, 15)), "the crate and brazier resting on A from the start don't start it")
+	_check(not play_plate.is_on(), "the plate under A is off while A hangs above it")
 
 	# You stand on A: it drops, carrying you, the crate and the brazier; the crate under breaks.
 	player.respawn_at(Vector2(60, 119))
@@ -2901,6 +2950,7 @@ func _check_falling_blocks() -> void:
 	_check(blocks.get_cell_source_id(Vector2i(4, 20)) != -1 and blocks.get_cell_source_id(Vector2i(4, 15)) == -1,
 		"A fell straight down and landed on the floor as tiles")
 	_check(play_crate_under.burn_state == Crate.BurnState.GONE, "the crate under it broke")
+	_check(play_plate.is_on(), "A landed on the plate (as tiles) and presses it")
 	_check(not player.is_dead() and absf(player.global_position.y - 160.0) < 1.5, "you rode it down (feet at %.1f)" % player.global_position.y)
 	_check(absf(play_brazier.global_position.y - 160.0) < 0.5 and absf(play_crate_on.global_position.y - 160.0) < 1.5,
 		"the brazier and the crate on it came down with it (%.1f, %.1f)" % [play_brazier.global_position.y, play_crate_on.global_position.y])
@@ -2911,6 +2961,8 @@ func _check_falling_blocks() -> void:
 	_check(blocks.get_cell_source_id(Vector2i(4, 15)) != -1 and blocks.get_cell_source_id(Vector2i(4, 20)) == -1
 		and play_brazier.global_position.y == 120.0 and play_crate_under.burn_state == Crate.BurnState.SOLID,
 		"death or R puts the block, the brazier and the broken crate back")
+	await get_tree().physics_frame
+	_check(not play_plate.is_on(), "with A back up, the plate is off again")
 
 	# Under it, you die.
 	player.respawn_at(Vector2(74, 168))
@@ -2941,6 +2993,21 @@ func _check_falling_blocks() -> void:
 	await get_tree().create_timer(2.6).timeout
 	_check(rock.get_cell_source_id(Vector2i(33, 12)) == -1 and blocks.get_cell_source_id(Vector2i(33, 20)) != -1
 		and blocks.get_cell_source_id(Vector2i(33, 11)) == -1, "when the rock broke, D fell on to the floor")
+
+	# L drops; G, in its corner but touching none of its cells, stays.
+	blocks.touch_at_world(play_room.to_global(Vector2(5.5, 2.5) * LevelEditor.TILE))
+	await get_tree().create_timer(1.0).timeout
+	_check(blocks.get_cell_source_id(Vector2i(5, 2)) == -1, "the L-shaped block dropped")
+	_check(not blocks.crumble.is_crumbling(Vector2i(3, 3)) and blocks.get_cell_source_id(Vector2i(3, 3)) != -1,
+		"the block in the L's corner stays: only the L's own cells touch, not the box round them")
+
+	# E drops onto F: landing on it starts F too (a chain).
+	blocks.touch_at_world(play_room.to_global(Vector2(14.5, 3.5) * LevelEditor.TILE))
+	var f_started: bool = false
+	for frame: int in 90:
+		await get_tree().physics_frame
+		f_started = f_started or blocks.crumble.is_crumbling(Vector2i(14, 8)) or blocks.get_cell_source_id(Vector2i(13, 8)) == -1
+	_check(f_started, "a block landing on a block starts it")
 	editor.stop_playtest()
 	editor.queue_free()
 	await get_tree().process_frame
@@ -3229,6 +3296,31 @@ func _check_d1_depths() -> void:
 	# Alt (editor_free_place): half-tile steps, no snapping at all.
 	_check(map._half_tile_place(Rect2(Vector2(5, 7), MapView.MIN_ROOM_SIZE)).position == Vector2(4, 8),
 		"holding Alt moves a room in half-tile (4 px) steps with no snapping")
+	# Grid mismatches (the red marks; play-test: Room 26 between Room 17 and Room 14).
+	var marks: Array[Array] = []
+	MapView._add_grid_mismatch(Rect2(0, 0, 320, 180), Rect2(320, 0, 320, 180), marks)
+	_check(marks.is_empty(), "rooms side by side on the same grid get no red mark")
+	MapView._add_grid_mismatch(Rect2(0, 0, 320, 180), Rect2(320, 4, 320, 180), marks)
+	_check(marks.size() == 1 and (marks[0][0] as Vector2).x == 320.0, "rooms side by side with rows half a tile apart get a red mark on the shared edge")
+	marks.clear()
+	MapView._add_grid_mismatch(Rect2(0, 0, 320, 196), Rect2(0, 200, 320, 396), marks)
+	_check(marks.size() == 1 and is_equal_approx((marks[0][0] as Vector2).y, 198.0), "a half-tile gap between rooms gets a red mark in the gap")
+	marks.clear()
+	MapView._add_grid_mismatch(Rect2(0, 0, 320, 180), Rect2(0, 180, 320, 180), marks)
+	_check(marks.is_empty(), "a room right under another (y = 180) is fine: only columns must agree")
+	# Half-tile heights: a bottom edge may stop half a tile in between, on a neighbour's edge only.
+	_check(MapView.is_half_tile_height(184.0) and not MapView.is_half_tile_height(182.0) and not MapView.is_half_tile_height(176.0),
+		"heights 180 + half tiles are allowed for a bottom edge snapping to a neighbour (184 yes, 182 and 176 no)")
+	# A room whose top is 320 px above the start room's top (320 = 180 + 17.5 tiles):
+	# its bottom edge dragged near the start room's top now reaches it.
+	var above_top: float = start.position.y - 320.0
+	var stretched: Rect2 = map.snap_resized(Rect2(Vector2(start.position.x + 2000.0, above_top), MapView.MIN_ROOM_SIZE),
+		MapView.EDGE_BOTTOM, Vector2(start.position.x + 2010.0, start.position.y - 3.0), null, 8.0)
+	_check(is_equal_approx(stretched.size.y, 320.0),
+		"a bottom edge snaps to a neighbour's edge half a tile off the whole-tile heights (height %.1f, want 320)" % stretched.size.y)
+	var free_drag: Rect2 = map.snap_resized(Rect2(Vector2(start.position.x + 2000.0, above_top - 1000.0), MapView.MIN_ROOM_SIZE),
+		MapView.EDGE_BOTTOM, Vector2(start.position.x + 2010.0, above_top - 1000.0 + 185.0), null, 0.5)
+	_check(is_equal_approx(free_drag.size.y, 188.0), "away from neighbours a bottom edge still steps in whole tiles (got %.1f)" % free_drag.size.y)
 	map.delete_room(middle)
 	map.delete_room(off_grid)
 	_check(behind.get_backdrop_altitude(start) == Backdrop.Altitude.SURFACE, "AUTO altitude compares map heights: behind the start is on the surface")

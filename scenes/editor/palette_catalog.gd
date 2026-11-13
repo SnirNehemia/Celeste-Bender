@@ -106,6 +106,16 @@ class Entry:
 	## turn their own way, through `facing`).
 	var rotate_step_degrees: float = 0.0
 	var width_property: StringName = &""
+	## WIDTH_CENTERED only: a handle on BOTH ends, each moving only its own end (the
+	## other stays put, so the origin moves by half the change), the dragged end on
+	## the tile grid (EditorHandles Kind.WIDTH_LEFT / WIDTH_RIGHT). Off: the one
+	## right-end handle that grows the width around the middle (Kind.WIDTH), for
+	## things whose origin carries more (a rail platform's rail, a plank's vines).
+	var width_from_edges: bool = false
+	## Settings a NEW object gets when placed from the palette (property -> value),
+	## over its scene's defaults: a plate starts 2 tiles wide while plates already
+	## saved at the old default keep theirs. Copies (Ctrl+D) take the original's.
+	var placed_settings: Dictionary[StringName, Variant] = {}
 	var local_rect: Rect2 = Rect2(-4, -4, 8, 8)
 	var placement: Placement = Placement.TOP_LEFT
 	## A big see-through area (a wind or no-glide zone) that other things sit
@@ -391,9 +401,11 @@ static func _build() -> void:
 
 	# The origin is the middle of the plate's bottom, on the floor; it's 3 px tall.
 	var pressure_plate: Entry = _add_object(&"pressure_plate", "Pressure plate", "Air", preload("res://scenes/objects/pressure_plate.tscn"))
-	pressure_plate.hint = "A switch: on while something heavy (a crate) sits on it. The player is too light. Link it to a door from the door (L)."
+	pressure_plate.hint = "A switch: on while something heavy (a crate, a falling block) sits on it. The player is too light. Drag either end to resize it. Link it to a door from the door (L)."
 	pressure_plate.bounds = Bounds.WIDTH_CENTERED
 	pressure_plate.width_property = &"plate_width"
+	pressure_plate.width_from_edges = true
+	pressure_plate.placed_settings = {&"plate_width": 2.0 * TILE}
 	pressure_plate.local_rect = Rect2(0, -4, 0, 4)
 	pressure_plate.placement = Placement.ON_FLOOR
 	pressure_plate.editable_properties = [&"plate_width"]
@@ -937,7 +949,10 @@ static func get_bounds(node: Node2D) -> Rect2:
 
 ## Makes a new object of an OBJECT or STRIP entry (not yet in any room).
 static func instantiate(entry: Entry) -> Node2D:
-	return entry.scene.instantiate() as Node2D
+	var node: Node2D = entry.scene.instantiate() as Node2D
+	for property: StringName in entry.placed_settings:
+		node.set(property, entry.placed_settings[property])
+	return node
 
 
 ## Where `node` (an OBJECT entry's, not placed yet) goes, room-local, when clicked

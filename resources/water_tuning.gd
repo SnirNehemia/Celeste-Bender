@@ -333,14 +333,18 @@ enum SnakeTrigger { KEY, DOUBLE_TAP, GENTLE, REST }
 ## jump even with no other momentum; 1 = off). Faster than that (a jet, a launch),
 ## ice doesn't slow you to it. After the crumbling-ice play-test ("make the maximal
 ## speed on ice larger, so the slippery effect is more present"): 1.4 -> 2.0 (180 px/s).
-@export_range(1.0, 3.0) var ice_max_run_scale: float = 2.0
+## Then 3.0 in the tuning panel (its old top), and after the next play-test ("larger,
+## and kept after jumping"): 4.0 (360 px/s), with room up to 6 in the panel.
+@export_range(1.0, 6.0) var ice_max_run_scale: float = 4.0
 ## Speed ABOVE that on ice (a gust, a jet, a launch, a slide ending on flat ice) is
 ## braked this much, px/s² (0: not at all, you keep it until you jump or leave the
 ## ice), unless you steer against it (Stage I5: ice keeps any speed).
 @export var ice_overspeed_friction: float = 0.0
 ## Leaving ice above run speed (a long jump), the extra speed fades this gently in
 ## the air (px/s²) instead of air control's normal rate, unless you steer against it.
-@export var ice_air_overspeed_fade: float = 60.0
+## 0 (after the play-test "preserve it after jumping"; was 60): kept for the whole
+## jump, and landing back on ice keeps it too (ice keeps any speed).
+@export var ice_air_overspeed_fade: float = 0.0
 ## On an ice wall you slide down this many times faster (no grip).
 @export_range(1.0, 4.0) var ice_wall_slide_scale: float = 2.0
 
