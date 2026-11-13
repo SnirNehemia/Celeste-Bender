@@ -5,10 +5,10 @@ extends TileMapLayer
 ## pass through"). A TileMapLayer named "StormCloud", painted from the editor's Terrain
 ## tab with resources/tiles/storm_cloud_tileset.tres: one see-through slate tile with
 ## NO collision, so crates, rocks, fireballs, water, enemies and gusts all pass
-## through. Touching it kills YOU: lightning crackles inside it.
+## through. Touching it kills YOU.
 ##
 ## Why a cloud (and not poison gas)? It's the air bender's world: a thundercloud
-## reads as "soft, things go through it" and its lightning as "but it zaps you", and
+## reads as "soft, things go through it" and its dark slate as "but it hurts", and
 ## its slate-violet doesn't clash with the green of grass and thicket.
 ##
 ## The kill (_physics_process, only in the room you're in): the player's hitbox,
@@ -21,46 +21,65 @@ extends TileMapLayer
 ## `is StormCloudLayer`, like they skip WaterLayer and HiddenLayer); the editor map
 ## and RoomEdgeRim only count layers with collision, which it has none of.
 ##
-## THE LOOK: the tiles draw the cloud's body. A child node (CloudLook) adds the fluff
-## round its open edges (half-disc bumps, lit on top and shaded underneath), lighter
-## wisps drifting across, and every so often a bolt of lightning in a random cell.
-## It animates in the level editor too, so the hazard reads while you build.
+## THE LOOK: the tiles themselves are drawn invisible (self_modulate); a child node
+## (CloudLook) draws ONE picture of the whole layer in the ground's style (GroundPainter,
+## PatchPainter): a lit CRUST along the open edges (lightest on top), a dark EDGE LINE
+## where it ends, then a darker HATCHED inside, all see-through. The shape isn't the
+## tile grid: the painted cells are blurred and cut off at a noisy level, so edges
+## bulge and dip in soft puffs and corners round off (no bricks). The picture is
+## painted when the cells change, and the node's alpha breathes slowly. It shows in the
+## level editor too, so the hazard reads while you build.
 
 ## Shrinks the player's hitbox before the check, px per side: grazing is safe.
 const KILL_INSET: float = 1.5
-## The cloud's body color (the tile's), and the lit / shaded fluff on top and below.
-const BODY_COLOR: Color = Color8(62, 56, 86, 170)
-const TOP_FLUFF_COLOR: Color = Color8(96, 90, 128, 190)
-const BOTTOM_FLUFF_COLOR: Color = Color8(40, 36, 58, 190)
-## Wisps: lighter streaks drifting across each cell, px/s.
-const WISP_COLOR: Color = Color(0.75, 0.72, 0.9, 0.25)
-const WISP_SPEED: float = 3.0
-const WISP_LENGTH: float = 3.0
-## Fluff bumps: two half-discs per open tile edge, this radius, px.
-const FLUFF_RADIUS: float = 2.0
-const FLUFF_SEGMENTS: int = 6
-## Lightning: a bolt every FLASH_MIN_GAP..FLASH_MAX_GAP s, lit for FLASH_TIME s.
-const BOLT_COLOR: Color = Color(0.95, 0.92, 1.0, 1.0)
-const FLASH_GLOW_COLOR: Color = Color(0.85, 0.8, 1.0, 0.3)
-const FLASH_MIN_GAP: float = 0.3
-const FLASH_MAX_GAP: float = 0.9
-const FLASH_TIME: float = 0.09
+## Palette (all see-through, no outline): lit top rim, crust, underside, inside, inside hatch.
+const RIM_COLOR: Color = Color8(168, 84, 214, 150)
+const CRUST_COLOR: Color = Color8(128, 52, 178, 140)
+const UNDERSIDE_COLOR: Color = Color8(100, 34, 150, 140)
+const INSIDE_COLOR: Color = Color8(84, 22, 124, 150)
+const HATCH_COLOR: Color = Color8(98, 30, 142, 150)
+## The outermost pixels' share of full opacity: the fog thins out toward the air.
+const EDGE_ALPHA: float = 0.3
+## Margin round the cells for the puffs that bulge outward, px.
+const MARGIN: int = 8
+## The puff lobes' radius range, px (one per open tile side).
+const PUFF_MIN_RADIUS: float = 2.5
+const PUFF_MAX_RADIUS: float = 4.0
+## The blur radius (px, box blur run twice) that rounds the corners and softens the edge.
+const BLUR_RADIUS: int = 2
+## The cut level at a straight edge (below 0.5: the cloud bulges a little past its cells,
+## so thin strips keep their body) and how far the noise moves it either way.
+const CUT_LEVEL: float = 0.5
+const PUFF_STRENGTH: float = 0.18
+## The puff noise's grid spacing, px (bigger = broader puffs).
+const PUFF_SPACING: float = 7.0
+## Crust thickness, px, plus up to CRUST_WOBBLE where the noise is high.
+const CRUST_WIDTH: float = 3.0
+const CRUST_WOBBLE: float = 1.5
+## Diagonal hatch: a stripe HATCH_WIDTH px wide every HATCH_PERIOD px.
+const HATCH_PERIOD: int = 6
+const HATCH_WIDTH: int = 2
+## The inside darkens to this fraction over INSIDE_FADE_DEPTH px.
+const INSIDE_DEEPEST_BRIGHTNESS: float = 0.55
+const INSIDE_FADE_DEPTH: float = 8.0
+## Breathing: the look's alpha swings between 1 - BREATH_DEPTH and 1, one cycle per BREATH_PERIOD s.
+const BREATH_DEPTH: float = 0.12
+const BREATH_PERIOD: float = 4.0
+## Distance given to cloud pixels before the sweeps (bigger than any real distance).
+const FAR: float = 1000.0
 
 ## The painted cells, cached (rebuilt when the tiles change).
 var cells: Array[Vector2i] = []
-## The fluff's half-disc polygons, layer-local px: [polygon, color] pairs.
-var fluff: Array[Array] = []
 var look_node: Node2D
-var wisp_time: float = 0.0
-var flash_left: float = 0.0
-var next_flash_in: float = FLASH_MIN_GAP
-## The cell lit by the current bolt, and the bolt's zigzag (layer-local px).
-var bolt_cell: Vector2i = Vector2i.ZERO
-var bolt_points: PackedVector2Array = PackedVector2Array()
+var picture: ImageTexture
+var picture_origin: Vector2 = Vector2.ZERO
+var breath_time: float = 0.0
 var is_rebuild_queued: bool = false
 
 
 func _ready() -> void:
+	# The tile's own square is not drawn; CloudLook draws the cloud instead.
+	self_modulate = Color(1.0, 1.0, 1.0, 0.0)
 	look_node = Node2D.new()
 	look_node.name = "CloudLook"
 	look_node.draw.connect(_draw_look)
@@ -83,62 +102,20 @@ func _queue_rebuild() -> void:
 	_rebuild.call_deferred()
 
 
-## Caches the cells and works out the fluff round the open edges.
+## Caches the cells and paints the picture.
 func _rebuild() -> void:
 	is_rebuild_queued = false
 	cells = get_used_cells()
-	fluff.clear()
-	var tile_px: float = float(tile_set.tile_size.x)
-	for cell: Vector2i in cells:
-		var corner: Vector2 = Vector2(cell) * tile_px
-		# Each open side: [outward direction, the side's start corner, its color].
-		for side: Array in [[Vector2i.UP, corner, TOP_FLUFF_COLOR],
-				[Vector2i.DOWN, corner + Vector2(0.0, tile_px), BOTTOM_FLUFF_COLOR],
-				[Vector2i.LEFT, corner, BODY_COLOR],
-				[Vector2i.RIGHT, corner + Vector2(tile_px, 0.0), BODY_COLOR]]:
-			var outward: Vector2i = side[0]
-			if get_cell_source_id(cell + outward) != -1:
-				continue  # more cloud there: no edge
-			# Along the side: right for top/bottom, down for left/right.
-			var along: Vector2 = Vector2.RIGHT if outward.y != 0 else Vector2.DOWN
-			for bump_index: int in 2:
-				var center: Vector2 = (side[1] as Vector2) + along * (FLUFF_RADIUS + bump_index * 2.0 * FLUFF_RADIUS)
-				fluff.append([_half_disc(center, Vector2(outward)), side[2]])
+	_paint_picture()
 	look_node.queue_redraw()
-
-
-## A half-disc of FLUFF_RADIUS on `center`, bulging toward `outward`.
-static func _half_disc(center: Vector2, outward: Vector2) -> PackedVector2Array:
-	var points: PackedVector2Array = PackedVector2Array()
-	var start_angle: float = outward.angle() - PI / 2.0
-	for step: int in FLUFF_SEGMENTS + 1:
-		var angle: float = start_angle + PI * step / FLUFF_SEGMENTS
-		points.append(center + Vector2.from_angle(angle) * FLUFF_RADIUS)
-	return points
 
 
 func _process(delta: float) -> void:
 	if cells.is_empty():
 		return
-	wisp_time += delta
-	flash_left -= delta
-	next_flash_in -= delta
-	if next_flash_in <= 0.0:
-		next_flash_in = randf_range(FLASH_MIN_GAP, FLASH_MAX_GAP)
-		_start_bolt()
-	look_node.queue_redraw()  # the wisps drift every frame
-
-
-## Picks a random cell and draws a zigzag bolt down through it.
-func _start_bolt() -> void:
-	bolt_cell = cells[randi() % cells.size()]
-	var tile_px: float = float(tile_set.tile_size.x)
-	var top: Vector2 = Vector2(bolt_cell) * tile_px + Vector2(randf_range(2.0, tile_px - 2.0), 1.0)
-	bolt_points = PackedVector2Array([top])
-	for step: int in 3:
-		var last: Vector2 = bolt_points[bolt_points.size() - 1]
-		bolt_points.append(last + Vector2(randf_range(-2.0, 2.0), (tile_px - 2.0) / 3.0))
-	flash_left = FLASH_TIME
+	breath_time += delta
+	# A slow swell of the whole cloud's alpha.
+	look_node.modulate.a = 1.0 - BREATH_DEPTH * (0.5 + 0.5 * sin(TAU * breath_time / BREATH_PERIOD))
 
 
 func _physics_process(_delta: float) -> void:
@@ -168,18 +145,233 @@ func touches_cloud(global_box: Rect2) -> bool:
 # --- The look ------------------------------------------------------------------------
 
 func _draw_look() -> void:
-	for bump: Array in fluff:
-		look_node.draw_colored_polygon(bump[0], bump[1])
-	var tile_px: float = float(tile_set.tile_size.x)
+	if picture != null and not cells.is_empty():
+		look_node.draw_texture(picture, picture_origin)
+
+
+## Paints the whole layer as one picture (see THE LOOK): mask from the cells, blur,
+## noisy threshold, distance from the air, colors.
+func _paint_picture() -> void:
+	picture = null
+	if cells.is_empty():
+		return
+	var tile: int = tile_set.tile_size.x
+	var first: Vector2i = cells[0]
+	var last: Vector2i = cells[0]
 	for cell: Vector2i in cells:
-		# A streak per cell, its row and start from a hash of the cell (it never jumps),
-		# drifting right and wrapping inside the cell.
-		var hash_value: int = absi(cell.x * 73856093 ^ cell.y * 19349663)
-		var row: float = 1.0 + hash_value % 6
-		var start_x: float = fposmod(float(hash_value % 8) + wisp_time * WISP_SPEED, tile_px)
-		var end_x: float = minf(start_x + WISP_LENGTH, tile_px)
-		var corner: Vector2 = Vector2(cell) * tile_px
-		look_node.draw_line(corner + Vector2(start_x, row), corner + Vector2(end_x, row), WISP_COLOR, 1.0)
-	if flash_left > 0.0 and bolt_points.size() > 1:
-		look_node.draw_rect(Rect2(Vector2(bolt_cell) * tile_px, Vector2.ONE * tile_px).grow(1.0), FLASH_GLOW_COLOR)
-		look_node.draw_polyline(bolt_points, BOLT_COLOR, 1.0)
+		first = first.min(cell)
+		last = last.max(cell)
+	var origin: Vector2i = first * tile - Vector2i.ONE * MARGIN
+	var size: Vector2i = (last - first + Vector2i.ONE) * tile + Vector2i.ONE * MARGIN * 2
+	picture_origin = Vector2(origin)
+	# 1. The mask: 1.0 on every pixel of a painted cell.
+	var density: PackedFloat32Array = PackedFloat32Array()
+	density.resize(size.x * size.y)
+	for cell: Vector2i in cells:
+		var corner: Vector2i = cell * tile - origin
+		for y: int in tile:
+			for x: int in tile:
+				density[(corner.y + y) * size.x + corner.x + x] = 1.0
+	# 1b. PUFFS: a couple of round lobes of varying size on every open side of a cell,
+	# stamped into the mask, so the outline bulges like a cloud instead of following the grid.
+	var painted: Dictionary = {}
+	for cell: Vector2i in cells:
+		painted[cell] = true
+	for cell: Vector2i in cells:
+		for outward: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+			if painted.has(cell + outward):
+				continue  # more cloud there: no edge
+			var along: Vector2 = Vector2.RIGHT if outward.y != 0 else Vector2.DOWN
+			var side_middle: Vector2 = Vector2(cell * tile - origin) + Vector2.ONE * (tile * 0.5) + Vector2(outward) * (tile * 0.5)
+			# One lobe per side, about as wide as the side so neighbours leave a dip
+			# between them (smaller lobes close together would merge into a flat edge).
+			var roll: float = _hash01(cell * 4 + outward * 2 + Vector2i(1, 5))
+			var roll_size: float = _hash01(cell * 6 + outward * 3 + Vector2i(2, 9))
+			var radius: float = PUFF_MIN_RADIUS + roll_size * (PUFF_MAX_RADIUS - PUFF_MIN_RADIUS)
+			# Centered on the cell's edge (so it never reaches further out than its radius),
+			# nudged along the side.
+			_stamp_disc(density, size, side_middle + along * ((roll - 0.5) * 0.5 * tile), radius)
+	# 2. Blur twice (a soft, roundish falloff), then cut at a noisy level: the puffs.
+	density = _box_blur(density, size, BLUR_RADIUS)
+	density = _box_blur(density, size, BLUR_RADIUS)
+	var is_cloud: PackedByteArray = PackedByteArray()
+	is_cloud.resize(size.x * size.y)
+	var distances: PackedFloat32Array = PackedFloat32Array()
+	distances.resize(size.x * size.y)
+	for y: int in size.y:
+		for x: int in size.x:
+			var index: int = y * size.x + x
+			var level: float = CUT_LEVEL + (_puff_noise(origin + Vector2i(x, y)) - 0.5) * PUFF_STRENGTH * 2.0
+			if density[index] > level:
+				is_cloud[index] = 1
+				distances[index] = FAR
+	_fill_enclosed_air(is_cloud, distances, size)
+	# 3. Distance from the air (two sweeps: each pixel takes its neighbours' smallest + 1).
+	_sweep_forward(distances, size)
+	_sweep_backward(distances, size)
+	# 4. Colors.
+	var image: Image = Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	for y: int in size.y:
+		for x: int in size.x:
+			var index: int = y * size.x + x
+			if is_cloud[index] == 0:
+				continue
+			var pixel: Vector2i = origin + Vector2i(x, y)
+			var is_top: bool = y > 0 and is_cloud[index - size.x] == 0
+			var is_bottom: bool = y < size.y - 1 and is_cloud[index + size.x] == 0
+			image.set_pixel(x, y, _get_color(pixel, distances[index], is_top, is_bottom))
+	picture = ImageTexture.create_from_image(image)
+
+
+## The color of a cloud pixel `distance` px from the air.
+static func _get_color(pixel: Vector2i, distance: float, is_top: bool, is_bottom: bool) -> Color:
+	var depth: float = distance - 1.0  # 0 on the outermost pixel
+	var crust_end: float = CRUST_WIDTH + _noise(pixel) * CRUST_WOBBLE
+	# Fog, not rock: no edge line. The rim/crust tint blends into the inside, and the
+	# whole thing fades to transparent toward the open air.
+	var inside: Color = HATCH_COLOR if posmod(pixel.x + pixel.y, HATCH_PERIOD) < HATCH_WIDTH else INSIDE_COLOR
+	var depth_in: float = smoothstep(0.0, crust_end + 1.0, depth)
+	var rim: Color = RIM_COLOR if is_top else (UNDERSIDE_COLOR if is_bottom else CRUST_COLOR)
+	var result: Color = rim.lerp(inside, depth_in)
+	var deep: float = smoothstep(0.0, INSIDE_FADE_DEPTH, depth - crust_end)
+	# darkened(), not `color * factor`: multiplying a Color would scale its alpha too.
+	result = result.darkened(1.0 - lerpf(1.0, INSIDE_DEEPEST_BRIGHTNESS, deep))
+	result.a *= lerpf(EDGE_ALPHA, 1.0, depth_in)
+	return result
+
+
+## Air the puffs wall in (a pinhole in a notch) would show as a ring: finds the air
+## reachable from the picture's border and turns all other air into cloud.
+static func _fill_enclosed_air(is_cloud: PackedByteArray, distances: PackedFloat32Array, size: Vector2i) -> void:
+	var is_outside: PackedByteArray = PackedByteArray()
+	is_outside.resize(size.x * size.y)
+	var to_visit: Array[int] = []
+	for x: int in size.x:
+		to_visit.append(x)
+		to_visit.append((size.y - 1) * size.x + x)
+	for y: int in size.y:
+		to_visit.append(y * size.x)
+		to_visit.append(y * size.x + size.x - 1)
+	while not to_visit.is_empty():
+		var index: int = to_visit.pop_back()
+		if is_outside[index] == 1 or is_cloud[index] == 1:
+			continue
+		is_outside[index] = 1
+		var x: int = index % size.x
+		if x > 0:
+			to_visit.append(index - 1)
+		if x < size.x - 1:
+			to_visit.append(index + 1)
+		if index >= size.x:
+			to_visit.append(index - size.x)
+		if index < size.x * (size.y - 1):
+			to_visit.append(index + size.x)
+	for index: int in is_cloud.size():
+		if is_cloud[index] == 0 and is_outside[index] == 0:
+			is_cloud[index] = 1
+			distances[index] = FAR
+
+
+## Sets every pixel within `radius` of `center` (picture px) to 1.0.
+static func _stamp_disc(values: PackedFloat32Array, size: Vector2i, center: Vector2, radius: float) -> void:
+	var first_y: int = maxi(floori(center.y - radius), 0)
+	var last_y: int = mini(ceili(center.y + radius), size.y - 1)
+	var first_x: int = maxi(floori(center.x - radius), 0)
+	var last_x: int = mini(ceili(center.x + radius), size.x - 1)
+	for y: int in range(first_y, last_y + 1):
+		for x: int in range(first_x, last_x + 1):
+			if Vector2(x + 0.5, y + 0.5).distance_squared_to(center) <= radius * radius:
+				values[y * size.x + x] = 1.0
+
+
+## A box blur of `values` (a `size` picture) with the given radius: separable (rows,
+## then columns), each with a running sum, edges counted as empty.
+static func _box_blur(values: PackedFloat32Array, size: Vector2i, radius: int) -> PackedFloat32Array:
+	var width: float = float(radius * 2 + 1)
+	var across: PackedFloat32Array = PackedFloat32Array()
+	across.resize(values.size())
+	for y: int in size.y:
+		var running: float = 0.0
+		for x: int in range(0, radius):
+			running += values[y * size.x + x]
+		for x: int in size.x:
+			if x + radius < size.x:
+				running += values[y * size.x + x + radius]
+			if x - radius - 1 >= 0:
+				running -= values[y * size.x + x - radius - 1]
+			across[y * size.x + x] = running / width
+	var result: PackedFloat32Array = PackedFloat32Array()
+	result.resize(values.size())
+	for x: int in size.x:
+		var running: float = 0.0
+		for y: int in range(0, radius):
+			running += across[y * size.x + x]
+		for y: int in size.y:
+			if y + radius < size.y:
+				running += across[(y + radius) * size.x + x]
+			if y - radius - 1 >= 0:
+				running -= across[(y - radius - 1) * size.x + x]
+			result[y * size.x + x] = running / width
+	return result
+
+
+## Distance transform, forward sweep (top-left to bottom-right): each pixel takes its
+## already-passed neighbours' smallest distance + 1 (+ 1.41 diagonally).
+static func _sweep_forward(distances: PackedFloat32Array, size: Vector2i) -> void:
+	for y: int in size.y:
+		for x: int in size.x:
+			var index: int = y * size.x + x
+			var best: float = distances[index]
+			if best <= 0.0:
+				continue
+			if x > 0:
+				best = minf(best, distances[index - 1] + 1.0)
+			if y > 0:
+				best = minf(best, distances[index - size.x] + 1.0)
+				if x > 0:
+					best = minf(best, distances[index - size.x - 1] + 1.41)
+				if x < size.x - 1:
+					best = minf(best, distances[index - size.x + 1] + 1.41)
+			distances[index] = best
+
+
+## The backward sweep: the mirror of _sweep_forward.
+static func _sweep_backward(distances: PackedFloat32Array, size: Vector2i) -> void:
+	for y: int in range(size.y - 1, -1, -1):
+		for x: int in range(size.x - 1, -1, -1):
+			var index: int = y * size.x + x
+			var best: float = distances[index]
+			if best <= 0.0:
+				continue
+			if x < size.x - 1:
+				best = minf(best, distances[index + 1] + 1.0)
+			if y < size.y - 1:
+				best = minf(best, distances[index + size.x] + 1.0)
+				if x < size.x - 1:
+					best = minf(best, distances[index + size.x + 1] + 1.41)
+				if x > 0:
+					best = minf(best, distances[index + size.x - 1] + 1.41)
+			distances[index] = best
+
+
+## Smooth 0..1 "value noise" at `pixel`: random numbers on a coarse grid, blended
+## between its points (the same every run, so the cloud never jumps).
+static func _noise(pixel: Vector2i) -> float:
+	var grid_x: float = float(pixel.x) / PUFF_SPACING
+	var grid_y: float = float(pixel.y) / PUFF_SPACING
+	var corner: Vector2i = Vector2i(floori(grid_x), floori(grid_y))
+	var share_x: float = smoothstep(0.0, 1.0, grid_x - corner.x)
+	var share_y: float = smoothstep(0.0, 1.0, grid_y - corner.y)
+	var top: float = lerpf(_hash01(corner), _hash01(corner + Vector2i.RIGHT), share_x)
+	var bottom: float = lerpf(_hash01(corner + Vector2i.DOWN), _hash01(corner + Vector2i.ONE), share_x)
+	return lerpf(top, bottom, share_y)
+
+
+## The puffs' noise: two sizes blended, broad lobes with smaller bumps on them.
+static func _puff_noise(pixel: Vector2i) -> float:
+	return 0.65 * _noise(pixel) + 0.35 * _noise(pixel * 2 + Vector2i(31, 17))
+
+
+## A steady 0..1 number for a grid point (the same every run).
+static func _hash01(point: Vector2i) -> float:
+	return float(absi(point.x * 73856093 ^ point.y * 19349663) % 1000) / 999.0

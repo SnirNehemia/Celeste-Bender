@@ -153,13 +153,12 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 3, 8, 4, 1, WHITE)
 			_rect(image, 4, 9, 2, 1, WHITE)
 		&"storm_cloud":
-			# A dark cloud with a lit top and a bolt out of it.
-			_rect(image, 1, 2, 8, 5, Color8(62, 56, 86))
-			_rect(image, 2, 1, 3, 1, Color8(96, 90, 128))
-			_rect(image, 5, 2, 3, 1, Color8(96, 90, 128))
-			_rect(image, 5, 4, 1, 3, WHITE)
-			_rect(image, 4, 7, 1, 1, WHITE)
-			_rect(image, 4, 8, 2, 1, YELLOW)
+			# A puffy purple cloud with a lit top.
+			_rect(image, 1, 3, 8, 5, Color8(84, 22, 124))
+			_rect(image, 2, 2, 3, 1, Color8(168, 84, 214))
+			_rect(image, 5, 1, 3, 1, Color8(168, 84, 214))
+			_rect(image, 2, 3, 6, 1, Color8(128, 52, 178))
+			_rect(image, 3, 8, 4, 1, Color8(100, 34, 150))
 		&"crumble_ice":
 			# Ice with white cracks through it.
 			_rect(image, 0, 2, 10, 8, CYAN)
