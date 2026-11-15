@@ -14,6 +14,7 @@ extends Area2D
 ##   - reflected, hits an enemy -> a REFLECTED_ORB hit (EnemyHit, Stage F11): its
 ##                              table decides (a sentry or wisp is destroyed); an
 ##                              enemy that ignores orbs (the vine monkey) lets it by
+##   - hits a wisp (not yet reflected) -> destroys it too (same REFLECTED_ORB hit)
 ##   - hits anything solid   -> BOUNCES (Stage F12): walls, floors, crates, doors,
 ##                              rocks, mirrored off the surface (Ricochet), up to
 ##                              max_bounces times, then pops on the next one.
@@ -164,7 +165,9 @@ func _check_hits(previous_position: Vector2) -> void:
 				pop()
 			return
 		if enemy != null:
-			if is_reflected:
+			# A wisp dies to any orb, the sentry's own too: it gets the same REFLECTED_ORB
+			# hit (its table says KILL; a leaf wisp ignores it and the orb flies on).
+			if is_reflected or enemy is Wisp:
 				var response: ElementImmunity.Response = EnemyHit.send(enemy, EnemyHit.Type.REFLECTED_ORB,
 					velocity, self)
 				if response == ElementImmunity.Response.IGNORE:
