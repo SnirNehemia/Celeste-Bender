@@ -22,7 +22,8 @@ extends TileMapLayer
 ## and RoomEdgeRim only count layers with collision, which it has none of.
 ##
 ## THE LOOK: the tiles themselves are drawn invisible (self_modulate); a child node
-## (CloudLook) draws ONE picture of the whole layer in the ground's style (GroundPainter,
+## (CloudLook) draws the whole layer as a picture (one per cluster of cells, see
+## PERFORMANCE) in the ground's style (GroundPainter,
 ## PatchPainter): a lit CRUST along the open edges (lightest on top), a dark EDGE LINE
 ## where it ends, then a darker HATCHED inside, all see-through. The shape isn't the
 ## tile grid: the painted cells are blurred and cut off at a noisy level, so edges
@@ -67,12 +68,31 @@ const BREATH_DEPTH: float = 0.12
 const BREATH_PERIOD: float = 4.0
 ## Distance given to cloud pixels before the sweeps (bigger than any real distance).
 const FAR: float = 1000.0
+## Cells this many tiles apart (or closer) belong to the same CLUSTER (see PERFORMANCE):
+## a cell's puffs and blur reach MARGIN px past it, so cells with 2 empty tiles or more
+## between them never touch the same pixel.
+const CLUSTER_REACH: int = 3
+## How many cluster pictures the cache keeps (oldest dropped first). A big room's
+## picture is a few MB at most; most are tiny.
+const PICTURE_CACHE_SIZE: int = 256
+
+## PERFORMANCE (the editor got slow on a level with big storm rooms): painting is
+## per-pixel GDScript, ~5 µs a pixel, and one picture of the whole layer's bounding
+## box was mostly empty air (a tall room: 400 000 pixels for 600 cells, 4 s). So:
+##   - the cells are split into CLUSTERS that can't affect each other's pixels, each
+##     painted as its own small picture (the same pixels as one big picture);
+##   - each cluster's picture is CACHED by its exact cells (a static dictionary shared
+##     by every StormCloudLayer): a stroke elsewhere in the room, an undo back, and the
+##     play-test's copy of the level all reuse it instead of painting it again;
+##   - the slow noise is only worked out on the soft edge (see _paint_cluster).
+## Static = belongs to the class, not to one layer (like a Python class attribute).
+static var picture_cache: Dictionary = {}
 
 ## The painted cells, cached (rebuilt when the tiles change).
 var cells: Array[Vector2i] = []
 var look_node: Node2D
-var picture: ImageTexture
-var picture_origin: Vector2 = Vector2.ZERO
+## One [ImageTexture, origin (Vector2, layer-local px)] per cluster.
+var pictures: Array[Array] = []
 var breath_time: float = 0.0
 var is_rebuild_queued: bool = false
 
@@ -102,10 +122,15 @@ func _queue_rebuild() -> void:
 	_rebuild.call_deferred()
 
 
-## Caches the cells and paints the picture.
+## Caches the cells and paints the picture (unless the cells are what they were:
+## the editor asks after every stroke, most of which don't touch this layer).
 func _rebuild() -> void:
 	is_rebuild_queued = false
-	cells = get_used_cells()
+	var new_cells: Array[Vector2i] = get_used_cells()
+	new_cells.sort()  # the same cells in any order compare equal
+	if new_cells == cells and (cells.is_empty() or not pictures.is_empty()):
+		return
+	cells = new_cells
 	_paint_picture()
 	look_node.queue_redraw()
 
@@ -145,29 +170,102 @@ func touches_cloud(global_box: Rect2) -> bool:
 # --- The look ------------------------------------------------------------------------
 
 func _draw_look() -> void:
-	if picture != null and not cells.is_empty():
-		look_node.draw_texture(picture, picture_origin)
+	if cells.is_empty():
+		return
+	for picture: Array in pictures:
+		look_node.draw_texture(picture[0] as ImageTexture, picture[1] as Vector2)
 
 
-## Paints the whole layer as one picture (see THE LOOK): mask from the cells, blur,
-## noisy threshold, distance from the air, colors.
+## Paints the layer (see THE LOOK and PERFORMANCE): one picture per cluster, from
+## the cache when that cluster was painted before.
 func _paint_picture() -> void:
-	picture = null
+	pictures.clear()
 	if cells.is_empty():
 		return
 	var tile: int = tile_set.tile_size.x
-	var first: Vector2i = cells[0]
-	var last: Vector2i = cells[0]
-	for cell: Vector2i in cells:
+	for cluster: Array[Vector2i] in _find_clusters(cells, tile):
+		var key: int = cluster.hash()
+		var cached: Array = picture_cache.get(key, [])
+		# The cells are stored too: two different clusters could share a hash.
+		if cached.is_empty() or cached[0] != cluster or cached[3] != tile:
+			cached = [cluster] + _paint_cluster(cluster, tile) + [tile]
+			if picture_cache.size() >= PICTURE_CACHE_SIZE:
+				picture_cache.erase(picture_cache.keys()[0])  # dictionaries keep insertion order
+			picture_cache[key] = cached
+		pictures.append([cached[1], cached[2]])
+
+
+## Splits `all_cells` (sorted) into clusters whose pictures can't overlap: cells within
+## CLUSTER_REACH tiles of each other join one cluster (a flood fill), then clusters
+## whose pictures (bounding boxes plus MARGIN) would overlap are merged, so a cloud
+## ring and the air it walls in are always painted together. Each cluster comes back
+## sorted, so the same cells always give the same cache key.
+static func _find_clusters(all_cells: Array[Vector2i], tile: int) -> Array[Array]:
+	var remaining: Dictionary = {}
+	for cell: Vector2i in all_cells:
+		remaining[cell] = true
+	var groups: Array[Array] = []  # [cells, picture rect in px]
+	for start: Vector2i in all_cells:
+		if not remaining.has(start):
+			continue
+		remaining.erase(start)
+		var group: Array[Vector2i] = [start]
+		var to_visit: Array[Vector2i] = [start]
+		while not to_visit.is_empty():
+			var cell: Vector2i = to_visit.pop_back()
+			for dy: int in range(-CLUSTER_REACH, CLUSTER_REACH + 1):
+				for dx: int in range(-CLUSTER_REACH, CLUSTER_REACH + 1):
+					var neighbour: Vector2i = cell + Vector2i(dx, dy)
+					if remaining.has(neighbour):
+						remaining.erase(neighbour)
+						group.append(neighbour)
+						to_visit.append(neighbour)
+		groups.append([group, _picture_rect(group, tile)])
+	# Merge clusters whose pictures overlap, until none do.
+	var merged_any: bool = true
+	while merged_any:
+		merged_any = false
+		for a: int in groups.size():
+			for b: int in range(a + 1, groups.size()):
+				if (groups[a][1] as Rect2i).intersects(groups[b][1] as Rect2i):
+					var joined: Array[Vector2i] = []
+					joined.append_array(groups[a][0])
+					joined.append_array(groups[b][0])
+					groups[a] = [joined, _picture_rect(joined, tile)]
+					groups.remove_at(b)
+					merged_any = true
+					break
+			if merged_any:
+				break
+	var clusters: Array[Array] = []
+	for group: Array in groups:
+		var cluster: Array[Vector2i] = []
+		cluster.assign(group[0])
+		cluster.sort()
+		clusters.append(cluster)
+	return clusters
+
+
+## The picture a cluster paints, in layer px: its cells' bounding box plus MARGIN.
+static func _picture_rect(cluster: Array[Vector2i], tile: int) -> Rect2i:
+	var first: Vector2i = cluster[0]
+	var last: Vector2i = cluster[0]
+	for cell: Vector2i in cluster:
 		first = first.min(cell)
 		last = last.max(cell)
-	var origin: Vector2i = first * tile - Vector2i.ONE * MARGIN
-	var size: Vector2i = (last - first + Vector2i.ONE) * tile + Vector2i.ONE * MARGIN * 2
-	picture_origin = Vector2(origin)
+	return Rect2i(first * tile - Vector2i.ONE * MARGIN, (last - first + Vector2i.ONE) * tile + Vector2i.ONE * MARGIN * 2)
+
+
+## Paints one cluster as one picture (see THE LOOK): mask from the cells, blur,
+## noisy threshold, distance from the air, colors. Returns [ImageTexture, origin].
+static func _paint_cluster(cluster: Array[Vector2i], tile: int) -> Array:
+	var rect: Rect2i = _picture_rect(cluster, tile)
+	var origin: Vector2i = rect.position
+	var size: Vector2i = rect.size
 	# 1. The mask: 1.0 on every pixel of a painted cell.
 	var density: PackedFloat32Array = PackedFloat32Array()
 	density.resize(size.x * size.y)
-	for cell: Vector2i in cells:
+	for cell: Vector2i in cluster:
 		var corner: Vector2i = cell * tile - origin
 		for y: int in tile:
 			for x: int in tile:
@@ -175,9 +273,9 @@ func _paint_picture() -> void:
 	# 1b. PUFFS: a couple of round lobes of varying size on every open side of a cell,
 	# stamped into the mask, so the outline bulges like a cloud instead of following the grid.
 	var painted: Dictionary = {}
-	for cell: Vector2i in cells:
+	for cell: Vector2i in cluster:
 		painted[cell] = true
-	for cell: Vector2i in cells:
+	for cell: Vector2i in cluster:
 		for outward: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 			if painted.has(cell + outward):
 				continue  # more cloud there: no edge
@@ -198,13 +296,23 @@ func _paint_picture() -> void:
 	is_cloud.resize(size.x * size.y)
 	var distances: PackedFloat32Array = PackedFloat32Array()
 	distances.resize(size.x * size.y)
+	# The noisy cut level always lies between these two, so the noise (the slow part,
+	# eight hashes a pixel) is only worked out on the soft edge in between: far out in
+	# the air or deep inside, the answer is the same whatever the noise says.
+	var lowest_cut: float = CUT_LEVEL - PUFF_STRENGTH
+	var highest_cut: float = CUT_LEVEL + PUFF_STRENGTH
 	for y: int in size.y:
 		for x: int in size.x:
 			var index: int = y * size.x + x
-			var level: float = CUT_LEVEL + (_puff_noise(origin + Vector2i(x, y)) - 0.5) * PUFF_STRENGTH * 2.0
-			if density[index] > level:
-				is_cloud[index] = 1
-				distances[index] = FAR
+			var value: float = density[index]
+			if value <= lowest_cut:
+				continue  # air whatever the noise
+			if value <= highest_cut:
+				var level: float = CUT_LEVEL + (_puff_noise(origin + Vector2i(x, y)) - 0.5) * PUFF_STRENGTH * 2.0
+				if value <= level:
+					continue
+			is_cloud[index] = 1
+			distances[index] = FAR
 	_fill_enclosed_air(is_cloud, distances, size)
 	# 3. Distance from the air (two sweeps: each pixel takes its neighbours' smallest + 1).
 	_sweep_forward(distances, size)
@@ -220,7 +328,7 @@ func _paint_picture() -> void:
 			var is_top: bool = y > 0 and is_cloud[index - size.x] == 0
 			var is_bottom: bool = y < size.y - 1 and is_cloud[index + size.x] == 0
 			image.set_pixel(x, y, _get_color(pixel, distances[index], is_top, is_bottom))
-	picture = ImageTexture.create_from_image(image)
+	return [ImageTexture.create_from_image(image), Vector2(origin)]
 
 
 ## The color of a cloud pixel `distance` px from the air.

@@ -84,6 +84,13 @@ extends Node2D
 ##
 ## Updates: when only some cells changed (a tear, an opened chamber, a reset filling
 ## holes) only the pixels near them are recomputed; the first build does everything.
+##
+## THE PICTURE CACHE (the level editor got slow on a big level: every room painted at
+## ~3.5 us a pixel when the level opens, and all over again when a play-test copies
+## the level): a first build looks in `picture_cache` (static: shared by every
+## painter) for a room of the same size with exactly the same cells and kinds, and
+## copies that picture instead of painting it. The level editor's strokes keep the
+## room's painter and redraw only the changed cells (refresh_after_edit).
 
 enum Kind { AIR, GRAY, GRASS, EARTH, THICKET }
 
@@ -170,6 +177,16 @@ const FIRE_EDGE_RAGGEDNESS: float = 3.0
 ## Crack lines on used earth (overlay).
 const CRACK_COLOR: Color = Color(0.15, 0.09, 0.05)
 
+## The picture cache's limit, in pixels (each costs ~9 bytes: picture, kinds and
+## distances): ~70 MB. The oldest pictures are dropped first.
+const PICTURE_CACHE_MAX_PIXELS: int = 8_000_000
+
+## See THE PICTURE CACHE. Key: a hash of the size, kinds and covers; value: [width,
+## height, kinds, overgrown_cells, image, pixel_kinds, distances]. Static = one
+## dictionary for the class, like a Python class attribute.
+static var picture_cache: Dictionary = {}
+static var picture_cache_pixels: int = 0
+
 ## The room we draw (our parent) and its layers.
 var room: Room
 var earth_layer: EarthLayer
@@ -237,11 +254,7 @@ func _ready() -> void:
 	cell_bounds = Rect2i(Vector2i.ZERO, Vector2i((room.room_size / tile_size).ceil()))
 	width = cell_bounds.size.x * tile_size
 	height = cell_bounds.size.y * tile_size
-	# Hide the layers' own tiles (collision stays). self_modulate tints only the node
-	# itself, not its children, so the grass blades (a child of "Grass") still draw.
-	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer, hidden_layer, thicket_layer, overgrown_layer]:
-		if layer != null:
-			layer.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
+	_hide_layer_tiles()
 	_build_noise_grid()
 	overlay = Node2D.new()
 	overlay.name = "EarthStates"
@@ -277,6 +290,34 @@ func _ready() -> void:
 	if overgrown_layer != null:
 		overgrown_layer.shape_changed.connect(_queue_rebuild)
 	rebuild()
+
+
+## Hides the layers' own tiles (collision stays). self_modulate tints only the node
+## itself, not its children, so the grass blades (a child of "Grass") still draw.
+func _hide_layer_tiles() -> void:
+	for layer: TileMapLayer in [gray_layer, grass_layer, earth_layer, hidden_layer, thicket_layer, overgrown_layer]:
+		if layer != null:
+			layer.self_modulate = Color(1.0, 1.0, 1.0, 0.0)
+
+
+## The level editor, after a stroke or an undo (RoomLook.refresh): if this painter
+## still fits the room (the same layer nodes, the same size), redraws just the cells
+## that changed and returns true. False: the room needs a new painter (a layer was
+## made or removed, the room was resized).
+func refresh_after_edit() -> bool:
+	var same_layers: bool = earth_layer == room.get_node_or_null("Earth") \
+		and gray_layer == room.get_node_or_null("Tiles") \
+		and grass_layer == room.get_node_or_null("Grass") \
+		and hidden_layer == room.get_node_or_null("Hidden") \
+		and thicket_layer == room.get_node_or_null("Thicket") \
+		and overgrown_layer == room.get_node_or_null("Overgrown") \
+		and fire_grid == room.get_node_or_null("FireGrid")
+	var same_size: bool = cell_bounds.size == Vector2i((room.room_size / tile_size).ceil())
+	if not same_layers or not same_size or image == null:
+		return false
+	_hide_layer_tiles()  # the stroke showed the painted layer's tiles
+	rebuild(true)
+	return true
 
 
 # --- Questions (tests, debugging) ----------------------------------------------------
@@ -321,6 +362,7 @@ func get_pixel_color_in_palette(pixel: Vector2i, colors: Array) -> Color:
 func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RADIUS,
 		paint_later: bool = false) -> void:
 	var previous_kinds: Dictionary = kinds.duplicate()
+	var previous_overgrown: Dictionary = overgrown_cells.duplicate()
 	_find_kinds()
 	var region: Rect2i = Rect2i(0, 0, width, height)
 	if image != null:
@@ -331,6 +373,13 @@ func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RAD
 				changed.append(cell)
 		for cell: Vector2i in kinds:
 			if not previous_kinds.has(cell):
+				changed.append(cell)
+		# A cell turned into a cover of the same kind (or back) changes its tint.
+		for cell: Vector2i in previous_overgrown:
+			if not overgrown_cells.has(cell):
+				changed.append(cell)
+		for cell: Vector2i in overgrown_cells:
+			if not previous_overgrown.has(cell):
 				changed.append(cell)
 		if changed.is_empty() and only_if_changed:
 			return
@@ -343,10 +392,12 @@ func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RAD
 			region = Rect2i(changed_cells.position * tile_size, changed_cells.size * tile_size) \
 				.intersection(Rect2i(0, 0, width, height))
 	if region.size == Vector2i(width, height) or image == null:
-		_build_mask(Rect2i(Vector2i.ZERO, cell_bounds.size))
-		_compute_distances(Rect2i(0, 0, width, height))
-		image = Image.create(width, height, false, Image.FORMAT_RGBA8)
-		_paint(Rect2i(0, 0, width, height))
+		if not _take_cached_picture():
+			_build_mask(Rect2i(Vector2i.ZERO, cell_bounds.size))
+			_compute_distances(Rect2i(0, 0, width, height))
+			image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+			_paint(Rect2i(0, 0, width, height))
+			_store_cached_picture()
 		texture = ImageTexture.create_from_image(image)
 	else:
 		var cell_region: Rect2i = Rect2i(region.position / tile_size, region.size / tile_size)
@@ -361,6 +412,50 @@ func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RAD
 	overlay.queue_redraw()
 	if lid != null:
 		lid.queue_redraw()  # the covered cells changed, or the texture was remade
+
+
+## The cache key for the picture as it is now (see THE PICTURE CACHE), or 0 when it
+## mustn't be cached: burnt grass (a FireGrid with states) changes the colors.
+func _picture_cache_key() -> int:
+	if fire_grid != null and not fire_grid.cell_states.is_empty():
+		return 0
+	return [width, height, kinds, overgrown_cells].hash()
+
+
+## A full build: copies the cached picture of a room drawn exactly like this one, if
+## there is one. True if it did (pixel_kinds and distances too, for later updates).
+func _take_cached_picture() -> bool:
+	var key: int = _picture_cache_key()
+	if key == 0 or not picture_cache.has(key):
+		return false
+	var cached: Array = picture_cache[key]
+	# The inputs are compared too: two different rooms could share a hash.
+	if cached[0] != width or cached[1] != height or cached[2] != kinds or cached[3] != overgrown_cells:
+		return false
+	# The image is copied (we change ours in place later: tears, fire); packed arrays
+	# copy themselves when one side changes ("copy on write").
+	image = (cached[4] as Image).duplicate() as Image
+	pixel_kinds = cached[5]
+	distances = cached[6]
+	return true
+
+
+## A full build just painted: keeps a copy for the next room drawn the same way.
+func _store_cached_picture() -> void:
+	var key: int = _picture_cache_key()
+	if key == 0:
+		return
+	if picture_cache.has(key):
+		picture_cache_pixels -= int(picture_cache[key][0]) * int(picture_cache[key][1])
+		picture_cache.erase(key)
+	while picture_cache_pixels + width * height > PICTURE_CACHE_MAX_PIXELS and not picture_cache.is_empty():
+		var oldest: int = picture_cache.keys()[0]  # dictionaries keep insertion order
+		var dropped: Array = picture_cache[oldest]
+		picture_cache_pixels -= int(dropped[0]) * int(dropped[1])
+		picture_cache.erase(oldest)
+	picture_cache[key] = [width, height, kinds.duplicate(), overgrown_cells.duplicate(),
+		image.duplicate(), pixel_kinds, distances]
+	picture_cache_pixels += width * height
 
 
 ## Thicket burnt away or a cover collapsed or came back: redraw once at the end of

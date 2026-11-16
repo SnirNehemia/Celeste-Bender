@@ -121,6 +121,9 @@ func paste(editor: LevelEditor, grid_room: Room, top_left: Vector2i, mirrored: b
 		if room == null:
 			continue  # landed outside every room: dropped (and freed below)
 		copy.position = origin - room.global_position
+		# Onto the grid: a room placed half a tile off its neighbour (Alt on the
+		# map) would otherwise carry the copy half a tile off this room's tiles.
+		copy.position = PaletteCatalog.grid_snapped_position(copy)
 		new_objects.append([room, copy])
 	# Links between copies point at the new copies; links to anything else are gone.
 	for index: int in objects.size():

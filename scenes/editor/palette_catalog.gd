@@ -218,6 +218,7 @@ const TAB_OF: Dictionary = {
 	&"wind_zone": "Basics", &"no_glide_zone": "Basics",
 	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
 	&"door": "Activated", &"switch_wall": "Activated", &"step_pad": "Triggers",
+	&"timed_step_pad": "Triggers",
 	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
 	&"cracked_wall": "Breakable", &"stone_wall": "Breakable", &"thicket": "Breakable",
 	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
@@ -236,6 +237,8 @@ const ELEMENT_OF: Dictionary = {
 
 ## All entries, in palette order. Built once, on first use.
 static var _entries: Array[Entry] = []
+## Scene path -> the entry placing it (entry_for_node's lookup table), made on first use.
+static var _entry_by_scene_path: Dictionary = {}
 
 
 static func get_entries() -> Array[Entry]:
@@ -411,12 +414,24 @@ static func _build() -> void:
 	pressure_plate.editable_properties = [&"plate_width"]
 
 	var step_pad: Entry = _add_object(&"step_pad", "Step pad", "Air", preload("res://scenes/objects/step_pad.tscn"))
-	step_pad.hint = "A switch the player turns on by standing on it. Stays On (default): on until death or R; put several on different platforms and link a door to them all (door Link Mode: All) so the player must visit each. Off: on only while you stand on it (notched ends), so every landing switches it again. One tile wide; drag the handle to widen."
+	step_pad.hint = "A switch the player turns on by standing on it. Stays On (default): on until death or R; put several on different platforms and link a door to them all (door Link Mode: All) so the player must visit each. Off: on only while you stand on it (notched ends), so every landing switches it again. One tile wide; drag either end to resize it (whole tiles)."
 	step_pad.bounds = Bounds.WIDTH_CENTERED
 	step_pad.width_property = &"pad_width"
+	step_pad.width_from_edges = true  # a handle on each end, like the pressure plate
 	step_pad.local_rect = Rect2(0, -4, 0, 4)
 	step_pad.placement = Placement.ON_FLOOR
 	step_pad.editable_properties = [&"pad_width", &"stays_on"]
+
+	# The same script as the step pad, in a scene of its own with on_seconds set, so
+	# it has its own palette button (an object is matched to its entry by its scene).
+	var timed_step_pad: Entry = _add_object(&"timed_step_pad", "Timed step pad", "Air", preload("res://scenes/objects/timed_step_pad.tscn"))
+	timed_step_pad.hint = "A switch on a timer: on while the player stands on it and for On Seconds after they step off, then off again (a bar on the pad shrinks). Link a door to it for a race: step on, run, get through before it shuts. Stepping on it again refills the time. Off on death or R."
+	timed_step_pad.bounds = Bounds.WIDTH_CENTERED
+	timed_step_pad.width_property = &"pad_width"
+	timed_step_pad.width_from_edges = true
+	timed_step_pad.local_rect = Rect2(0, -4, 0, 4)
+	timed_step_pad.placement = Placement.ON_FLOOR
+	timed_step_pad.editable_properties = [&"pad_width", &"on_seconds"]
 
 	var switch_wall: Entry = _add_object(&"switch_wall", "Switch wall", "Air", preload("res://scenes/objects/earth/switch_wall.tscn"))
 	switch_wall.hint = "A cracked-looking wall that breaks open when its linked switches turn on (select it, then L, and click a step pad, plate or brazier). Link Mode All needs every switch. Rocks don't break it. Back whole on death or R."
@@ -448,6 +463,32 @@ static func _build() -> void:
 	golden_feather.hint = "The no-death challenge (one per level, usually in the first room). Can only be taken before any death; a death while carrying it breaks it. Carry it to the goal and the level is gold."
 	golden_feather.local_rect = Rect2(-8, -8, 16, 16)  # 2x2 tiles, like the shards
 	golden_feather.placement = Placement.CENTERED
+
+	var lantern: Entry = _add_object(&"lantern", "Lantern", "Crystals", preload("res://scenes/objects/lantern.tscn"))
+	lantern.hint = "A light to carry through dark rooms (room setting Is Dark): touch it and it follows the player, lighting a wide circle, from room to room. A death or R sends it back here. Needs no Fire."
+	lantern.local_rect = Rect2(-8, -8, 16, 16)  # 2x2 tiles, like the shards
+	lantern.placement = Placement.CENTERED
+
+	var signpost: Entry = _add_object(&"signpost", "Signpost", "Basics", preload("res://scenes/objects/signpost.tscn"))
+	signpost.hint = "A sign: shows its Text in a box above it while the player stands by it. For tutorials. Long text wraps."
+	signpost.local_rect = Rect2(-8, -16, 16, 16)  # 2x2 tiles, origin on a tile line
+	signpost.placement = Placement.ON_FLOOR
+	signpost.snaps_to_ground = true
+	signpost.editable_properties = [&"text"]
+
+	# One-way teleport doors: an entrance and an exit pair up by color. Two scenes of
+	# one script (the exit's has is_exit on), so each end has its own palette button.
+	var teleport_door: Entry = _add_object(&"teleport_door", "Teleport door", "Objects", preload("res://scenes/objects/teleport_door.tscn"))
+	teleport_door.hint = "A one-way door's ENTRANCE: Up while standing in it takes the player to the Teleport exit of the same Door Color, in any room of the level. No way back through. Give each pair its own color; several entrances may share one exit. Without an exit it's dim and does nothing."
+	teleport_door.local_rect = Rect2(Vector2.ZERO, TeleportDoor.DOOR_SIZE)
+	teleport_door.placement = Placement.ON_FLOOR
+	teleport_door.editable_properties = [&"door_color", &"is_exit"]
+
+	var teleport_exit: Entry = _add_object(&"teleport_exit", "Teleport exit", "Objects", preload("res://scenes/objects/teleport_exit.tscn"))
+	teleport_exit.hint = "A one-way door's EXIT: where the player comes out of the Teleport door of the same Door Color. Pressing Up in it does nothing. After a teleport the player respawns in this room."
+	teleport_exit.local_rect = Rect2(Vector2.ZERO, TeleportDoor.DOOR_SIZE)
+	teleport_exit.placement = Placement.ON_FLOOR
+	teleport_exit.editable_properties = [&"door_color", &"is_exit"]
 
 	var key_light: Entry = _add_object(&"key_light", "Key light", "Triggers", preload("res://scenes/objects/key_light.tscn"))
 	key_light.hint = "A switch: a glass ball on a pedestal that lights once the Key orb of its color is collected (anywhere in the level), and stays lit. It lights when the player next walks into its room. Link a Grand door to all of them (Link Mode: All)."
@@ -895,10 +936,15 @@ static func entry_for_node(node: Node) -> Entry:
 		return get_entry(&"spawn_point")
 	if node.scene_file_path == "":
 		return null
-	for entry: Entry in get_entries():
-		if entry.scene != null and entry.scene.resource_path == node.scene_file_path:
-			return entry
-	return null
+	# A lookup table, made on first use: the editor asks this for every node of every
+	# room several times a frame (outlines, links, hover), and walking ~100 entries
+	# comparing paths each time cost ~15 ms a frame on a big level.
+	if _entry_by_scene_path.is_empty():
+		for entry: Entry in get_entries():
+			# The first entry of a scene wins, as the walk through the list did.
+			if entry.scene != null and not _entry_by_scene_path.has(entry.scene.resource_path):
+				_entry_by_scene_path[entry.scene.resource_path] = entry
+	return _entry_by_scene_path.get(node.scene_file_path) as Entry
 
 
 ## The object's outline relative to its own origin.
@@ -1081,6 +1127,58 @@ static func copy_settings(source: Node, target: Node) -> void:
 			# the copy its own list.
 			var is_list: bool = value is Array or value is PackedVector2Array
 			target.set(property["name"], value.duplicate() if is_list else value)
+
+
+## Where `node` (already placed, room-local `position`) sits when pulled onto the
+## tile grid by the SAME rule a fresh click places it with (placement_position):
+## an outline a whole number of tiles long has its edges on tile lines; a shorter
+## or odd-sized one is centered in a tile; ON_FLOOR things keep their bottom on a
+## tile line, HANGING ones their top. Used after a drag or a resize, so objects
+## that were moved, widened or pasted stay on the grid ("everything snaps").
+## Things with their own rule return their position unchanged: sentries (bolted
+## to a wall, LevelEditor._snap_sentry_to_nearest_wall) and turned objects.
+static func grid_snapped_position(node: Node2D) -> Vector2:
+	var entry: Entry = entry_for_node(node)
+	if node is Sentry or entry == null or not is_zero_approx(node.rotation):
+		return node.position
+	if entry.kind == Kind.SPAWN_POINT:
+		# Feet on the bottom middle of a tile, as spawn_position puts them.
+		var cell: Vector2i = Vector2i(floori(node.position.x / TILE), roundi(node.position.y / TILE) - 1)
+		return spawn_position(cell)
+	var outline: Rect2 = get_local_bounds(node)
+	var start: Vector2 = node.position + outline.position  # the outline's top-left, room-local
+	var x_mode: AxisSnap = AxisSnap.START if entry.placement == Placement.TOP_LEFT else AxisSnap.CENTER
+	var y_mode: AxisSnap = AxisSnap.CENTER
+	match entry.placement:
+		Placement.TOP_LEFT, Placement.HANGING:
+			y_mode = AxisSnap.START
+		Placement.ON_FLOOR:
+			y_mode = AxisSnap.END
+	var snapped_start: Vector2 = Vector2(_snap_axis(start.x, outline.size.x, x_mode),
+		_snap_axis(start.y, outline.size.y, y_mode))
+	return node.position + snapped_start - start
+
+
+## How one axis of an outline is pulled onto the grid (grid_snapped_position).
+enum AxisSnap {
+	START,   ## its start (left / top) on the nearest tile line
+	END,     ## its end (bottom) on the nearest tile line
+	CENTER,  ## whole tiles long: edges on tile lines; otherwise centered in its tile
+}
+
+
+## One axis of grid_snapped_position: the snapped start of an outline that starts
+## at `start` and is `length` long.
+static func _snap_axis(start: float, length: float, mode: AxisSnap) -> float:
+	match mode:
+		AxisSnap.END:
+			return roundf((start + length) / TILE) * TILE - length
+		AxisSnap.CENTER:
+			if not is_zero_approx(fmod(length, TILE)):
+				# Not a whole number of tiles: its middle on the middle of its tile.
+				var center: float = start + length / 2.0
+				return floorf(center / TILE) * TILE + TILE / 2.0 - length / 2.0
+	return roundf(start / TILE) * TILE
 
 
 ## One axis of a snapped center: an even number of tiles long -> on the tile line

@@ -102,6 +102,11 @@ static func refresh(room: Room) -> void:
 	_open_hidden_chambers(room)
 	var has_earth: bool = room.get_node_or_null(NodePath(EARTH_LAYER_NAME)) is EarthLayer
 	var old_painter: Node = room.get_node_or_null(NodePath(PAINTER_NAME))
+	# Most strokes only change some cells: the painter there redraws just those (a
+	# new painter would paint the whole room again, ~0.3 s a screen, every stroke).
+	if old_painter is GroundPainter and (has_earth or room.painted_ground) \
+			and (old_painter as GroundPainter).refresh_after_edit():
+		return
 	if old_painter != null:
 		# Out of the room now (its name is free for the new one), freed at frame end.
 		room.remove_child(old_painter)

@@ -1471,11 +1471,48 @@ func set_property(target: Object, property: StringName, value: Variant, old_valu
 	var from: Variant = target.get(property) if old_value == null else old_value
 	if from == value:
 		return
+	if _resize_onto_grid(target, property, value, from):
+		return
 	undo_redo.create_action("Set %s %s" % [_target_name(target), property],
 		UndoRedo.MERGE_ENDS if merge else UndoRedo.MERGE_DISABLE)
 	undo_redo.add_do_method(_apply_property.bind(target, property, value))
 	undo_redo.add_undo_method(_apply_property.bind(target, property, from))
 	undo_redo.commit_action()
+
+
+## A setting that changes an object's outline (a platform's width, a door's size,
+## a spike strip's length or facing) can push an object that sat on the grid off
+## it: a platform grown by one tile around its middle has both ends half a tile
+## off. If so, the change is recorded together with the move back onto the grid
+## (one undo step) and this returns true. Objects that were already off the grid
+## (placed with Alt on purpose) are left where they are: false.
+func _resize_onto_grid(target: Object, property: StringName, value: Variant, from: Variant) -> bool:
+	var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(target as Node) if target is Node2D else null
+	# Things that settle on the ground (a key light, a brazier) find their own spot
+	# when flipped (_apply_property, get_grounded_position).
+	if entry == null or entry.snaps_to_ground or property == &"position":
+		return false
+	var node: Node2D = target as Node2D
+	var current: Variant = node.get(property)  # a handle drag may have set `value` live already
+	set_on_node(node, property, from)
+	var was_on_grid: bool = PaletteCatalog.grid_snapped_position(node) == node.position
+	set_on_node(node, property, value)
+	var snapped_position: Vector2 = PaletteCatalog.grid_snapped_position(node)
+	set_on_node(node, property, current)
+	if not was_on_grid or snapped_position == node.position:
+		return false
+	resize_from_edge(node, property, value, snapped_position, from, node.position)
+	return true
+
+
+## Where `node` would land on the grid if it were at `at_position` (room-local). Only
+## looks: the node is put back where it was (its tied vines aren't touched).
+func _grid_snapped_at(node: Node2D, at_position: Vector2) -> Vector2:
+	var current: Vector2 = node.position
+	set_on_node(node, &"position", at_position)
+	var snapped_position: Vector2 = PaletteCatalog.grid_snapped_position(node)
+	set_on_node(node, &"position", current)
+	return snapped_position
 
 
 ## A width changed from one end (an end handle, EditorHandles.edge_drag): the width and
@@ -2602,6 +2639,9 @@ func start_playtest(start_point: Variant = null) -> bool:
 	var pause_menu: PauseMenu = play_root.get_node_or_null("PauseMenu") as PauseMenu
 	if pause_menu != null:
 		pause_menu.back_to_editor = stop_playtest  # set before _ready builds its buttons
+		pause_menu.restart_level = restart_playtest
+	# The play copy has no file of its own: its ghosts go under the level's path.
+	play_root.ghost_level_key = level_path
 	if start_point != null:
 		play_root.player.position = start_point
 
@@ -2630,6 +2670,14 @@ func start_playtest(start_point: Variant = null) -> bool:
 	play_root.player.died.connect(_on_playtest_player_died)
 	is_playtesting = true
 	return true
+
+
+## The pause menu's "Restart level" in a play-test: ends this play-test and starts a
+## new one from the start room. Deferred: the old play copy (which holds the pause
+## menu that is calling us) is freed first.
+func restart_playtest() -> void:
+	stop_playtest()
+	start_playtest.call_deferred()
 
 
 ## Every physics frame of a play-test: the player's feet join the trail.
@@ -2847,9 +2895,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Moves by whole tiles, so a grid-aligned object stays on the grid;
 			# with Alt held, by the exact pixels the mouse moved.
 			var moved: Vector2 = mouse_world - drag_start_mouse
-			if not Input.is_action_pressed("editor_free_place"):
+			if Input.is_action_pressed("editor_free_place"):
+				_set_object_position(dragged_object, drag_start_position + moved)
+			else:
+				# Whole tiles, then onto the grid: an object that was off it (placed
+				# with Alt, or widened by a tile around its middle) lands back on it.
 				moved = (moved / TILE).round() * TILE
-			_set_object_position(dragged_object, drag_start_position + moved)
+				_set_object_position(dragged_object, _grid_snapped_at(dragged_object, drag_start_position + moved))
 		return
 
 	var quick_slot: int = _quick_slot_pressed(event)
