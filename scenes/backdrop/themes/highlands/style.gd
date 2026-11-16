@@ -85,9 +85,10 @@ const CRACK_COLOR: Color = Color(0.36, 0.35, 0.38)
 const LOG: Color = Color(0.58, 0.4, 0.25)
 const LOG_DARK: Color = Color(0.44, 0.29, 0.18)
 const LOG_LIT: Color = Color(0.7, 0.52, 0.34)
-const ROOF: Color = Color(0.55, 0.24, 0.2)
-const ROOF_LIT: Color = Color(0.74, 0.36, 0.27)
-const ROOF_EAVE: Color = Color(0.36, 0.16, 0.14)
+## Brown shingles, not red (art pass: red is kept for what kills you, BACKDROP_GUIDE.md §2).
+const ROOF: Color = Color(0.46, 0.31, 0.24)
+const ROOF_LIT: Color = Color(0.62, 0.44, 0.33)
+const ROOF_EAVE: Color = Color(0.3, 0.2, 0.16)
 const WINDOW: Color = Color(1.0, 0.88, 0.5)
 const DOOR: Color = Color(0.28, 0.18, 0.12)
 const CHIMNEY: Color = Color(0.5, 0.48, 0.48)
@@ -132,7 +133,7 @@ const CLIFF_MASSIFS: Array[Vector3] = [Vector3(90.0, 60.0, 58.0), Vector3(300.0,
 ## valley's haze toward their feet (sink_into_haze): from nothing at
 ## CLIFF_SINK_FROM_SKYLINE_ROW down to all of it at the horizon.
 const CLIFF_HAZE: float = 0.45
-const CLIFF_SINK: float = 0.78
+const CLIFF_SINK: float = 0.6
 const CLIFF_SINK_FROM_SKYLINE_ROW: int = 70
 ## The mist bank over the skyline/surface seam (paint_seam_mist): how far it
 ## reaches above and below the seam (px), and its dithered edge.
@@ -307,7 +308,14 @@ static func sink_into_haze(image: Image, from_row: int, to_row: int, amount: flo
 	var step_height: float = float(to_row - from_row) / HAZE_STEPS
 	for step: int in HAZE_STEPS:
 		var top: int = from_row + roundi(step * step_height)
-		overlay.fill_rect(Rect2i(0, top, image.get_width(), image.get_height() - top), Color(AIR, amount * (step + 1) / HAZE_STEPS))
+		var step_color: Color = Color(AIR, amount * (step + 1) / HAZE_STEPS)
+		overlay.fill_rect(Rect2i(0, top, image.get_width(), image.get_height() - top), step_color)
+		# One checker row above each step, like every band in a backdrop: without it
+		# the steps were ruler lines across the cliffs, and a hazed cliff read as a
+		# see-through box laid over the sky (art pass).
+		if top > 0:
+			for x: int in range(step % 2, image.get_width(), 2):
+				overlay.set_pixel(x, top - 1, step_color)
 	var mask: Image = image.duplicate() as Image
 	image.blend_rect_mask(overlay, mask, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i.ZERO)
 

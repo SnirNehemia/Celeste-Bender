@@ -44,7 +44,7 @@ const LONGEST_RUN: float = 300.0
 const GHOST_COLOR: Color = Color(1.0, 1.0, 1.0, 0.3)
 const GHOST_EDGE_COLOR: Color = Color(1.0, 1.0, 1.0, 0.55)
 ## The time texts ("Best 4.32", "New best!"): size, colors, seconds shown.
-const TEXT_FONT_SIZE: int = 8
+const TEXT_FONT_SIZE: int = PixelFont.FONT_SIZE
 const TEXT_COLOR: Color = Color(1.0, 1.0, 1.0, 0.8)
 const NEW_BEST_COLOR: Color = Color(0.4, 0.95, 0.5)
 const BEST_TEXT_TIME: float = 1.5
@@ -200,7 +200,7 @@ func _get_ghost_center(seconds: float) -> Vector2:
 
 
 func _draw() -> void:
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = PixelFont.get_font()  # drawn in the 320x180 world: whole pixels
 	if new_best_time_left > 0.0 and player != null:
 		# Over the player's head, in the room they just walked into.
 		var text_position: Vector2 = (player.get_center() + Vector2(-30.0, -14.0)).round()

@@ -34,6 +34,8 @@ extends TileMapLayer
 ## A cell that burnt away (an overgrown cover, Stage F6) has none either.
 
 ## Blade colors: two greens, alternating, so a field of blades doesn't look flat.
+## These are the DEFAULT ones (a room with no backdrop look, and the grass tileset's
+## picture); a room's blades are drawn in its look's greens (`blade_colors`).
 const BLADE_COLOR: Color = Color(0.48, 0.76, 0.3)
 const BLADE_DARK_COLOR: Color = Color(0.36, 0.62, 0.25)
 ## Blades are rooted this many px INTO the ground (Stage E4b): the ground's top edge
@@ -92,6 +94,9 @@ var blade_cells: Array[Vector2i] = []
 ## The room's FireGrid, found on the first draw (it's made after us), or null.
 var fire_grid: FireGrid
 var fire_grid_looked_up: bool = false
+## The two blade greens of the room's backdrop look, [lighter, darker]
+## (GroundPalettes.get_blade_colors), looked up with the FireGrid on the first draw.
+var blade_colors: Array[Color] = [BLADE_COLOR, BLADE_DARK_COLOR]
 ## True once blade_winds was filled (wind zones are found on the first update, when
 ## every zone in the room has run its _ready).
 var winds_found: bool = false
@@ -285,11 +290,14 @@ func _draw_blades() -> void:
 	if not fire_grid_looked_up:
 		fire_grid_looked_up = true
 		fire_grid = get_parent().get_node_or_null("FireGrid") as FireGrid
+		var blades_room: Room = get_parent() as Room
+		if blades_room != null:
+			blade_colors = GroundPalettes.get_blade_colors(blades_room.get_backdrop_theme())
 	for blade_index: int in blade_bases.size():
 		var base: Vector2 = blade_bases[blade_index]
 		var height: float = blade_heights[blade_index]
 		var bend: float = blade_bends[blade_index]
-		var color: Color = BLADE_COLOR if blade_index % 2 == 0 else BLADE_DARK_COLOR
+		var color: Color = blade_colors[blade_index % 2]
 		var lower_color: Color = color
 		var upper_color: Color = color
 		if fire_grid != null:

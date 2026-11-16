@@ -11,7 +11,8 @@ extends Node
 ## How: it jumps the player into each room (RoomManager.jump_to_room), then turns off
 ## the RoomCamera's own movement and points the camera at each screen-sized slice of
 ## the room in turn, grabbing the rendered frame after each move. The slices are
-## pasted side by side (Image.blit_rect) into one picture of the whole room.
+## pasted side by side, row under row (Image.blit_rect), into one picture of the
+## whole room, however wide or tall.
 
 ## Output scale: 320x180 frames are tiny on a modern screen.
 const SCALE: int = 3
@@ -39,20 +40,28 @@ func _ready() -> void:
 		camera.set_process(false)
 		var bounds: Rect2 = room.get_bounds()
 		var picture: Image = Image.create(int(bounds.size.x), int(bounds.size.y), false, Image.FORMAT_RGBA8)
-		var slice_x: float = 0.0
+		# Screen-sized slices, left to right in rows from the top (a tall room has
+		# several rows; before the art pass only the top row was shot).
+		var slice_y: float = 0.0
 		while true:
-			# The camera's position is the CENTER of the screen.
-			var left: float = minf(slice_x, bounds.size.x - screen_size.x)
-			camera.global_position = bounds.position + Vector2(left, 0.0) + screen_size / 2.0
-			await _wait_frames(3)
-			# Wait for the frame to be fully drawn before reading it back.
-			await RenderingServer.frame_post_draw
-			var frame: Image = get_viewport().get_texture().get_image()
-			frame.convert(Image.FORMAT_RGBA8)
-			picture.blit_rect(frame, Rect2i(Vector2i.ZERO, Vector2i(screen_size)), Vector2i(int(left), 0))
-			if left + screen_size.x >= bounds.size.x:
+			var top: float = maxf(minf(slice_y, bounds.size.y - screen_size.y), 0.0)
+			var slice_x: float = 0.0
+			while true:
+				# The camera's position is the CENTER of the screen.
+				var left: float = maxf(minf(slice_x, bounds.size.x - screen_size.x), 0.0)
+				camera.global_position = bounds.position + Vector2(left, top) + screen_size / 2.0
+				await _wait_frames(3)
+				# Wait for the frame to be fully drawn before reading it back.
+				await RenderingServer.frame_post_draw
+				var frame: Image = get_viewport().get_texture().get_image()
+				frame.convert(Image.FORMAT_RGBA8)
+				picture.blit_rect(frame, Rect2i(Vector2i.ZERO, Vector2i(screen_size)), Vector2i(int(left), int(top)))
+				if left + screen_size.x >= bounds.size.x:
+					break
+				slice_x += screen_size.x
+			if top + screen_size.y >= bounds.size.y:
 				break
-			slice_x += screen_size.x
+			slice_y += screen_size.y
 		camera.set_physics_process(true)
 		camera.set_process(true)
 		picture.resize(picture.get_width() * SCALE, picture.get_height() * SCALE, Image.INTERPOLATE_NEAREST)

@@ -36,7 +36,7 @@ const TEXT_BOX_WIDTH: float = 128.0
 const TEXT_BOX_GAP: float = 4.0
 const TEXT_COLOR: Color = Color(1.0, 1.0, 1.0)
 const TEXT_BACK_COLOR: Color = Color(0.08, 0.07, 0.12, 0.85)
-const TEXT_FONT_SIZE: int = 8
+const TEXT_FONT_SIZE: int = PixelFont.FONT_SIZE
 ## How fast the box fades in and out, per second.
 const FADE_SPEED: float = 6.0
 ## Above the darkness of dark rooms (DarkRoomOverlay.DRAW_Z_INDEX), like the HUD-like
@@ -73,6 +73,8 @@ func _build_label() -> void:
 	text_label.text = text
 	text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	text_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Whole pixels only (PixelFont): the box is part of the 320x180 world.
+	text_label.add_theme_font_override("font", PixelFont.get_font())
 	text_label.add_theme_font_size_override("font_size", TEXT_FONT_SIZE)
 	text_label.add_theme_color_override("font_color", TEXT_COLOR)
 	var back: StyleBoxFlat = StyleBoxFlat.new()

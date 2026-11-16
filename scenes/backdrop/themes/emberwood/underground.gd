@@ -19,7 +19,7 @@ extends BackdropTheme
 @warning_ignore_start("integer_division")
 
 const FAR_HAZE: float = 0.66
-const LEDGES_HAZE: float = 0.42
+const LEDGES_HAZE: float = 0.6
 const ROOTS_HAZE: float = 0.2
 ## The faint ledges: (left x, top screen row, width in tiles).
 const LEDGES: Array[Vector3i] = [Vector3i(40, 96, 6), Vector3i(190, 58, 5), Vector3i(330, 114, 7), Vector3i(500, 76, 5)]

@@ -154,6 +154,13 @@ const WIPE_SHADER: Shader = preload("res://scenes/backdrop/backdrop_wipe.gdshade
 const AT_REST_EDGE: float = 100000.0
 ## Draw order: below the rooms (layer 0) and every UI CanvasLayer.
 const CANVAS_LAYER_INDEX: int = -10
+## THE VEIL (art pass): over every look lies a thin sheet of that look's own main
+## color (get_main_color), this strong. It pulls the whole backdrop a little toward
+## one tone, so nothing in it can match the play layer's contrast, whatever a look's
+## own palette does: the rule "the play layer reads first" (BACKDROP_GUIDE.md §2.6)
+## kept in ONE place. 0 = off.
+const VEIL_STRENGTH: float = 0.12
+const VEIL_NAME: String = "Veil"
 ## get_main_color: every this many px of a layer's picture is read, and the color
 ## when there's no picture (the game's background color).
 const MAIN_COLOR_SAMPLE_STEP: int = 4
@@ -492,6 +499,15 @@ func _make_frame(look: Look, altitude: Altitude) -> Control:
 		group.add_child(theme)
 		if camera != null and _camera_start != Vector2.INF:
 			theme.follow_camera(Room.to_map_point(camera.get_screen_center_position()) - _camera_start, 0.0)
+		if VEIL_STRENGTH > 0.0:
+			# Inside the group, after the theme: drawn over it, and cut by the same
+			# wipe when the look changes.
+			var veil: ColorRect = ColorRect.new()
+			veil.name = VEIL_NAME
+			veil.color = Color(get_main_color(look, altitude), VEIL_STRENGTH)
+			veil.size = get_viewport().get_visible_rect().size
+			veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			group.add_child(veil)
 	return frame
 
 

@@ -1604,6 +1604,10 @@ func _apply_property(target: Object, property: StringName, value: Variant) -> vo
 		(target as CanvasItem).queue_redraw()
 	if target is Room and property == &"painted_ground":
 		RoomLook.refresh(target)  # the painter comes or goes
+	# The ground is painted in the backdrop look's colors (GroundPalettes), and AUTO
+	# picks the look from Fire / Water being allowed: repaint in the new look.
+	if target is Room and property in [&"backdrop_theme", &"fire_allowed", &"water_allowed"]:
+		RoomLook.refresh(target)
 	if target is Room and property == &"fire_allowed":
 		_show_selection_in_panel()  # Fire Start Pips shows only while Fire is on, Grass Burns only while off
 	# Pips alone do nothing: fire works only where it's allowed (off by default).

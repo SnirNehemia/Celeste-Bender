@@ -10,7 +10,8 @@ extends Node2D
 ## ground on). But a room seen from ANOTHER depth (the hazed layer behind, the
 ## editor's previews) shows it bare: a block with a ruler-straight side. The rim
 ## gives those sides the same look as every other surface: a dark edge line, the
-## crust, and on top a light rim (GroundPainter.PALETTE), with a 1 px wobble.
+## crust, and on top a light rim, with a 1 px wobble, in the colors of the room's
+## backdrop look (GroundPalettes; the painter's own when the room has one).
 ##
 ## Made by Room._ready() for every room. Drawn once; the level editor redraws it
 ## after its changes (RoomLook.refresh and LevelEditor's refresh after each edit).
@@ -37,6 +38,8 @@ func _draw() -> void:
 	var cells: Vector2i = Vector2i((room.room_size / tile).ceil())
 	for cell: Vector2i in solid:
 		var colors: Array = _palette_for(painter, cell)
+		if painter == null:
+			colors = GroundPalettes.get_palette(room.get_backdrop_theme(), GroundPainter.Kind.GRAY)
 		var cell_rect: Rect2 = Rect2(Vector2(cell * tile), Vector2.ONE * tile)
 		if cell.x == 0:
 			_draw_side(cell_rect, Vector2i.LEFT, colors)
@@ -111,4 +114,6 @@ static func _palette_for(painter: GroundPainter, cell: Vector2i) -> Array:
 	var kind: int = GroundPainter.Kind.GRAY
 	if painter != null and painter.kinds.has(cell):
 		kind = painter.kinds[cell]
-	return GroundPainter.PALETTE.get(kind, GroundPainter.PALETTE[GroundPainter.Kind.GRAY])
+	if painter != null:
+		return painter.get_palette(kind)  # the room's look (thicket: gray's)
+	return GroundPainter.PALETTE[GroundPainter.Kind.GRAY]

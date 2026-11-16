@@ -29,7 +29,12 @@ extends Node2D
 ##                  Top surfaces get a lighter rim (grass: 2 px).
 ##        edge line a 1 px darker line where the crust ends
 ##        inside    a dark saturated shade of the kind, with diagonal hatch stripes,
-##                  darkening to almost black a few px further in
+##                  fading to the palette's DEEP color a few px further in
+##      THE COLORS depend on the room's backdrop look (GroundPalettes, after the art
+##      pass): `look` is Room.get_backdrop_theme(), and `palettes` holds that look's
+##      six colors per kind. Burnt grass, thicket and mud keep their own crusts but
+##      take their inside and deep from the look too. refresh_look() repaints when
+##      the level editor changes the room's look.
 ##      (There used to be FLECKS, crumbs floating above top surfaces: removed after
 ##      play-testing, they read as stray pixels. E4d's pebbles do that job.)
 ## EARTH STATES (used: darker plus crack lines, hardened: grayer, shivering: flicker)
@@ -136,7 +141,9 @@ const BURN_REBUILD_INTERVAL: float = 0.1
 ## frame at 60 fps).
 const PAINT_BUDGET_USEC: int = 2500
 
-## Palette per kind (Celeste-like: bright crust, deep saturated inside).
+## The DEFAULT palette per kind (Celeste-like: bright crust, deep saturated inside):
+## what a room with no backdrop look gets, and what steel girders are made of
+## (MetalPlatform). Every look's own colors are in GroundPalettes.
 ## [crust, rim (top surfaces), edge line, inside, hatch stripe]
 const PALETTE: Dictionary = {
 	Kind.EARTH: [Color(0.74, 0.57, 0.27), Color(0.88, 0.72, 0.42), Color(0.42, 0.24, 0.12),
@@ -156,6 +163,9 @@ const THICKET_BURNING_PALETTE: Array[Color] = [Color(0.14, 0.09, 0.06), Color(0.
 ## shade): the cover's subtle tell. 0 = no difference.
 const OVERGROWN_TINT: Color = Color(0.55, 0.52, 0.2)
 const OVERGROWN_TINT_AMOUNT: float = 0.14
+## Deep inside, thicket's own dark green is pulled this far toward the look's deep
+## color under grass (GroundPalettes), so it sits in the same ground as the rest.
+const THICKET_DEEP_BLEND: float = 0.5
 ## Thorns: about one 2 px stretch of a thicket side in this many gets one.
 const THORN_EVERY: int = 3
 
@@ -202,6 +212,13 @@ var overgrown_cells: Dictionary = {}
 var is_rebuild_queued: bool = false
 ## The room's FireGrid (Stage F5), or null: burnt grass gets FIRE_PALETTES.
 var fire_grid: FireGrid
+## The backdrop look the colors below are for (Room.get_backdrop_theme()).
+var look: Backdrop.Look = Backdrop.Look.NONE
+## That look's colors (GroundPalettes), index = Kind: [crust, rim, edge line, inside,
+## hatch stripe, deep] for GRAY, GRASS and EARTH (AIR and THICKET: empty).
+var palettes: Array[Array] = []
+## Burnt grass in that look, per FireGrid.State (GroundPalettes.get_fire_palette).
+var fire_palettes: Dictionary = {}
 ## True while a repainted picture waits to be uploaded (see _on_fire_cells_changed).
 var is_upload_queued: bool = false
 ## While a fire burns: areas of the picture (px) still to repaint, oldest first.
@@ -256,6 +273,7 @@ func _ready() -> void:
 	height = cell_bounds.size.y * tile_size
 	_hide_layer_tiles()
 	_build_noise_grid()
+	_load_palettes()
 	overlay = Node2D.new()
 	overlay.name = "EarthStates"
 	add_child(overlay)
@@ -292,6 +310,45 @@ func _ready() -> void:
 	rebuild()
 
 
+## Looks up the room's backdrop look and that look's colors, once (a dictionary
+## lookup per pixel would slow the painting down).
+func _load_palettes() -> void:
+	look = room.get_backdrop_theme()
+	palettes = [[], [], [], [], []]
+	for kind: int in [Kind.GRAY, Kind.GRASS, Kind.EARTH]:
+		palettes[kind] = GroundPalettes.get_palette(look, kind)
+	fire_palettes.clear()
+	for state: FireGrid.State in FIRE_PALETTES:
+		fire_palettes[state] = GroundPalettes.get_fire_palette(look, state)
+
+
+## The room's backdrop look may have changed (the level editor: a new look, or Fire or
+## Water switched on, which changes what AUTO picks): if it did, repaints the whole
+## picture in the new look's colors and returns true. The shape is the same, so the
+## mask and distances are kept.
+func refresh_look() -> bool:
+	if room.get_backdrop_theme() == look or image == null:
+		return false
+	_load_palettes()
+	if not _take_cached_picture():
+		_paint(Rect2i(0, 0, width, height))
+		_store_cached_picture()
+	texture = ImageTexture.create_from_image(image)
+	queue_redraw()
+	overlay.queue_redraw()
+	if lid != null:
+		lid.queue_redraw()
+	return true
+
+
+## The six colors this room's ground of `kind` is painted in ([crust, rim, edge line,
+## inside, hatch stripe, deep]); GRAY's for a kind with none of its own (thicket).
+func get_palette(kind: int) -> Array:
+	if kind >= 0 and kind < palettes.size() and not palettes[kind].is_empty():
+		return palettes[kind]
+	return palettes[Kind.GRAY]
+
+
 ## Hides the layers' own tiles (collision stays). self_modulate tints only the node
 ## itself, not its children, so the grass blades (a child of "Grass") still draw.
 func _hide_layer_tiles() -> void:
@@ -316,6 +373,7 @@ func refresh_after_edit() -> bool:
 	if not same_layers or not same_size or image == null:
 		return false
 	_hide_layer_tiles()  # the stroke showed the painted layer's tiles
+	refresh_look()
 	rebuild(true)
 	return true
 
@@ -342,12 +400,16 @@ func get_pixel_distance(pixel: Vector2i) -> float:
 ## The color a room pixel would have if its ground were painted in `colors`, a
 ## palette like PALETTE's ([crust, rim, edge line, inside, hatch stripe]): the same
 ## crust width and wobble, rim, edge line and hatched inside. Transparent for air.
+## `deep`: the color the inside fades to; left out (transparent), it's the palette's
+## own inside at its darkest, as before the looks.
 ## MudLook paints wet earth with it (mud is the earth in a mud palette).
-func get_pixel_color_in_palette(pixel: Vector2i, colors: Array) -> Color:
+func get_pixel_color_in_palette(pixel: Vector2i, colors: Array, deep: Color = Color(0.0, 0.0, 0.0, 0.0)) -> Color:
 	var index: int = pixel.y * width + pixel.x
 	if pixel_kinds[index] == Kind.AIR:
 		return Color(0.0, 0.0, 0.0, 0.0)
-	return _get_layered_color(pixel.x, pixel.y, index, Kind.EARTH, colors, false)
+	if deep.a == 0.0:
+		deep = (colors[3] as Color).darkened(1.0 - INSIDE_DEEPEST_BRIGHTNESS)
+	return _get_layered_color(pixel.x, pixel.y, index, Kind.EARTH, colors, false, deep)
 
 
 # --- Rebuilding ----------------------------------------------------------------------
@@ -416,10 +478,11 @@ func rebuild(only_if_changed: bool = false, redraw_radius: int = TEAR_REDRAW_RAD
 
 ## The cache key for the picture as it is now (see THE PICTURE CACHE), or 0 when it
 ## mustn't be cached: burnt grass (a FireGrid with states) changes the colors.
+## The look is part of the key: the same room in another look has other colors.
 func _picture_cache_key() -> int:
 	if fire_grid != null and not fire_grid.cell_states.is_empty():
 		return 0
-	return [width, height, kinds, overgrown_cells].hash()
+	return [width, height, kinds, overgrown_cells, look].hash()
 
 
 ## A full build: copies the cached picture of a room drawn exactly like this one, if
@@ -842,19 +905,21 @@ func _get_pixel_color(x: int, y: int) -> Color:
 		return Color(0.0, 0.0, 0.0, 0.0)
 	if kind == Kind.THICKET:
 		return _get_thicket_pixel_color(x, y, index)
-	var colors: Array = PALETTE[kind]
+	var colors: Array = palettes[kind]
+	# Read before `colors` may become a burnt palette: burnt grass has the grass's deep.
+	var deep: Color = colors[GroundPalettes.DEEP]
 	var is_ash: bool = false
 	if kind == Kind.GRASS and fire_grid != null:
 		var fire_state: FireGrid.State = _get_fire_state_at(x, y)
-		if FIRE_PALETTES.has(fire_state):
-			colors = FIRE_PALETTES[fire_state]
+		if fire_palettes.has(fire_state):
+			colors = fire_palettes[fire_state]
 			is_ash = fire_state == FireGrid.State.ASH
-	return _tint_if_overgrown(x, y, index, _get_layered_color(x, y, index, kind, colors, is_ash))
+	return _tint_if_overgrown(x, y, index, _get_layered_color(x, y, index, kind, colors, is_ash, deep))
 
 
 ## A ground pixel's crust / edge line / hatched inside, in the palette `colors` (the
-## header's step 3).
-func _get_layered_color(x: int, y: int, index: int, kind: int, colors: Array, is_ash: bool) -> Color:
+## header's step 3). `deep`: the color the inside fades to far from any surface.
+func _get_layered_color(x: int, y: int, index: int, kind: int, colors: Array, is_ash: bool, deep: Color) -> Color:
 	var depth: float = distances[index] - 1.0  # 0 on the outermost ground pixel
 	var crust_end: float = CRUST_WIDTH + _get_noise(x, y) * CRUST_WOBBLE
 	if depth < crust_end - 1.0:
@@ -872,12 +937,21 @@ func _get_layered_color(x: int, y: int, index: int, kind: int, colors: Array, is
 		return colors[0]
 	if depth < crust_end:
 		return colors[2]  # the edge line where the crust ends
-	# Inside: dark, hatched, a little darker the deeper it goes.
-	var inside: Color = colors[4] if (x + y) % HATCH_PERIOD < HATCH_WIDTH else colors[3]
+	# Inside: dark, hatched, fading to the deep color the deeper it goes.
+	var is_hatch: bool = (x + y) % HATCH_PERIOD < HATCH_WIDTH
+	var inside: Color = colors[4] if is_hatch else colors[3]
 	var fade: float = smoothstep(0.0, INSIDE_FADE_DEPTH, depth - crust_end)
+	if is_hatch:
+		# The stripes stay faintly visible deep in: the deep color, plus what's left of
+		# the difference between stripe and inside at the inside's darkest.
+		var stripe: Color = colors[4]
+		var plain: Color = colors[3]
+		deep = Color(deep.r + (stripe.r - plain.r) * INSIDE_DEEPEST_BRIGHTNESS,
+			deep.g + (stripe.g - plain.g) * INSIDE_DEEPEST_BRIGHTNESS,
+			deep.b + (stripe.b - plain.b) * INSIDE_DEEPEST_BRIGHTNESS)
 	# darkened(), not `inside * factor`: multiplying a Color scales its alpha too, which
 	# made the deep inside see-through.
-	return inside.darkened(1.0 - lerpf(INSIDE_EDGE_BRIGHTNESS, INSIDE_DEEPEST_BRIGHTNESS, fade))
+	return inside.darkened(1.0 - INSIDE_EDGE_BRIGHTNESS).lerp(deep, fade)
 
 
 ## One thicket pixel (Stage F6): thorns (pixels poking into an open cell) in the
@@ -889,7 +963,11 @@ func _get_thicket_pixel_color(x: int, y: int, index: int) -> Color:
 		colors = THICKET_BURNING_PALETTE
 	if not kinds.has(Vector2i(x / tile_size, y / tile_size)):
 		return colors[6]  # a thorn, poking into an open cell
-	var color: Color = _get_layered_color(x, y, index, Kind.THICKET, colors, false)
+	# Thicket is plants all the way through: its own dark green inside, fading to a
+	# blend of that and the look's deep under grass.
+	var own_deep: Color = (colors[3] as Color).darkened(1.0 - INSIDE_DEEPEST_BRIGHTNESS)
+	var deep: Color = own_deep.lerp(palettes[Kind.GRASS][GroundPalettes.DEEP] as Color, THICKET_DEEP_BLEND)
+	var color: Color = _get_layered_color(x, y, index, Kind.THICKET, colors, false, deep)
 	if _is_bramble_branch(x, y):
 		var depth_past_crust: float = distances[index] - 1.0 - CRUST_WIDTH
 		color = (colors[5] as Color).darkened(clampf(depth_past_crust / INSIDE_FADE_DEPTH, 0.0, 0.8))

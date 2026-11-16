@@ -713,6 +713,25 @@ func _check_e4b_ground(world: RoomManager) -> void:
 	_check(painter.get_pixel_color(deep_pixel) != painter.get_pixel_color(deep_pixel + Vector2i(3, 0)),
 		"the inside is hatched (neighbouring stripes differ)")
 	_check(painter.get_pixel_color(Vector2i(100, 80)).a == 0.0, "open air is left transparent")
+	# Looks (GroundPalettes): the ground is painted in the colors of the room's backdrop
+	# look, and follows when the look changes (the level editor does this).
+	var surface_before_look: Color = painter.get_pixel_color(surface_pixel)
+	var look_before: Backdrop.Look = room.backdrop_theme
+	room.backdrop_theme = Backdrop.Look.HIGHLANDS
+	_check(painter.refresh_look() and painter.get_pixel_color(surface_pixel) != surface_before_look,
+		"another backdrop look repaints the ground in that look's colors")
+	_check(painter.get_pixel_color(deep_pixel).get_luminance() > deep_color.get_luminance() + 0.03,
+		"a daylight look's deep inside is lighter (luminance %.3f)" % painter.get_pixel_color(deep_pixel).get_luminance())
+	_check(not painter.refresh_look(), "the same look again repaints nothing")
+	room.backdrop_theme = look_before
+	_check(painter.refresh_look() and painter.get_pixel_color(surface_pixel) == surface_before_look
+		and painter.get_pixel_color(deep_pixel) == deep_color, "back in the old look, the old colors")
+	_check(GroundPalettes.get_palette(Backdrop.Look.NONE, GroundPainter.Kind.GRAY).slice(0, 5) == GroundPainter.PALETTE[GroundPainter.Kind.GRAY],
+		"a room with no look keeps the default colors")
+	for look_name: String in Backdrop.Look.keys():
+		var look_value: Backdrop.Look = Backdrop.Look[look_name]
+		if look_value != Backdrop.Look.AUTO and look_value != Backdrop.Look.NONE:
+			_check(GroundPalettes.LOOKS.has(look_value), "the look %s has ground colors" % look_name)
 	# Tearing a tile out redraws: the earth under the hole becomes bright crust.
 	var under_hole: Vector2i = Vector2i(9 * 8 + 4, 21 * 8 + 1)
 	var before_tear: float = painter.get_pixel_color(under_hole).get_luminance()

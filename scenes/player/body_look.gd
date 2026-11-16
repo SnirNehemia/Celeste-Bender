@@ -24,6 +24,13 @@ extends Node2D
 ##     and blink now and then.
 ## All the amounts are in PlayerTuning, group "Look".
 ##
+## THE ELEMENT BAND (art pass: the white body had no color of its own, so it was hard
+## to pick out in front of pale skies): a 2-row band across the pack in the color of
+## the element you bent LAST (ELEMENT_COLORS; plain brown until the first bend). We
+## listen to the abilities' own signals (a gust, a fireball or jet, a water ball let
+## go or frozen); the Earth moves have none, so for those we look at the state
+## machine's current state (EARTH_STATES). Nothing asks the band anything: a look.
+##
 ## How it's drawn: _draw() fills 1-pixel rects on the 320x180 grid, so the character
 ## stays pixel art at any squash (a scaled Node would smear the 1 px eyes). The
 ## outline isn't a separate pass: dark rects 1 px bigger go down FIRST, then the
@@ -42,6 +49,21 @@ const OUTLINE_COLOR: Color = Color("1a1424")
 const PACK_COLOR: Color = Color("9a6a3c")
 const LID_COLOR: Color = Color("6a4524")
 const PACK_INSIDE_COLOR: Color = Color("3a2416")
+## The elements, for the pack's band.
+enum Element { NONE, AIR, EARTH, FIRE, WATER }
+## The band's color per element: each element's own color in the game (cyan wind,
+## ochre earth, orange fire, blue water), bright enough to read on 4 pixels.
+const ELEMENT_COLORS: Dictionary = {
+	Element.AIR: Color("8fe6ff"),
+	Element.EARTH: Color("e8bf4a"),
+	Element.FIRE: Color("ff8a26"),
+	Element.WATER: Color("4f8dff"),
+}
+## The band: these rows of the pack, counted from its top row (the lid is row 0).
+const BAND_FIRST_ROW: int = 2
+const BAND_ROWS: int = 2
+## The player states that are an Earth move in progress.
+const EARTH_STATES: Array[StringName] = [&"EarthBend", &"BoulderHold", &"SnakeSteer"]
 
 ## The body the face is designed on: 8 wide, 11 tall (the hitbox).
 const BASE_WIDTH: int = 8
@@ -96,6 +118,9 @@ var blink_wait_remaining: float = 2.0
 var blink_remaining: float = 0.0
 var squint_remaining: float = 0.0
 
+## The element bent last: the color of the pack's band.
+var last_element: Element = Element.NONE
+
 ## Last frame's floor contact, facing, and the fall speed while airborne, to notice
 ## landings and turns ourselves (no signal from the Player needed).
 var was_on_floor: bool = true
@@ -110,6 +135,31 @@ func _ready() -> void:
 	last_facing = player.facing_direction
 	blink_wait_remaining = player.tuning.blink_interval
 	update_visibility()
+	_listen_to_abilities()
+
+
+## Connects the abilities' "I was just used" signals to the band's color. The
+## abilities are our siblings under the Player; one that's missing (a test player
+## without Water) is skipped. bind() fixes the element argument now; unbind(n) drops
+## the n arguments the signal itself sends, which we don't need.
+func _listen_to_abilities() -> void:
+	var sources: Array[Array] = [
+		[^"GustAbility", &"gusted", 2, Element.AIR],
+		[^"FireballAbility", &"thrown", 1, Element.FIRE],
+		[^"FlameJetAbility", &"burst_started", 1, Element.FIRE],
+		[^"WaterHandsAbility", &"released", 2, Element.WATER],
+		[^"FreezeAbility", &"froze", 1, Element.WATER],
+		[^"FreezeAbility", &"coated", 1, Element.WATER],
+	]
+	for source: Array in sources:
+		var ability: Node = player.get_node_or_null(source[0] as NodePath)
+		if ability != null and ability.has_signal(source[1] as StringName):
+			ability.connect(source[1] as StringName, set_last_element.bind(source[3]).unbind(source[2] as int))
+
+
+## The element the pack's band shows from now on.
+func set_last_element(element: Element) -> void:
+	last_element = element
 
 
 ## Shows this node or the plain Visual rectangle, from the tuning and from
@@ -126,6 +176,10 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	_update_motion(delta)
+	# Earth has no signal to listen to: an Earth move is a state of the player.
+	if player.state_machine != null and player.state_machine.current_state != null \
+			and EARTH_STATES.has(player.state_machine.current_state.name):
+		last_element = Element.EARTH
 	queue_redraw()
 
 
@@ -252,6 +306,10 @@ func _draw() -> void:
 	_fill(lid_row, LID_COLOR if lid_pixels.is_empty() else PACK_INSIDE_COLOR, snap)
 	for lid_pixel: Vector2i in lid_pixels:
 		_fill(Rect2i(lid_pixel, Vector2i.ONE), LID_COLOR, snap)
+	# The element band across the pack (see the header).
+	if ELEMENT_COLORS.has(last_element):
+		_fill(Rect2i(pack.position + Vector2i(0, BAND_FIRST_ROW), Vector2i(pack.size.x, BAND_ROWS)),
+			ELEMENT_COLORS[last_element], snap)
 	# 3. The body over the pack: a pack sliding into it tucks behind.
 	_fill(body, BODY_COLOR, snap)
 	# 4. The eyes.

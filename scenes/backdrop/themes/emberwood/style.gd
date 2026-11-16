@@ -76,10 +76,12 @@ const SMOKE: Color = Color(0.2, 0.11, 0.11, 0.5)
 const SMOKE_THIN: Color = Color(0.2, 0.11, 0.11, 0.25)
 
 ## Leaves, bark, turf and basalt in the ground's style: [crust, rim, edge, inside,
-## hatch, deep]. The rims are ember gold: lit by the lava, not the sun.
+## hatch, deep]. The rims are ember gold: lit by the lava, not the sun. A DULL gold
+## (art pass): saturated orange is the fireball's and the lava's color, and with it
+## on every rim the whole wood competed with them (BACKDROP_GUIDE.md §2).
 const LEAVES: Array[Color] = [Color(0.2, 0.36, 0.17), Color(0.64, 0.5, 0.22), Color(0.08, 0.18, 0.1),
 	Color(0.05, 0.12, 0.08), Color(0.08, 0.17, 0.1), Color(0.02, 0.05, 0.04)]
-const BARK: Array[Color] = [Color(0.3, 0.2, 0.16), Color(0.72, 0.38, 0.16), Color(0.16, 0.09, 0.08),
+const BARK: Array[Color] = [Color(0.3, 0.2, 0.16), Color(0.56, 0.36, 0.2), Color(0.16, 0.09, 0.08),
 	Color(0.1, 0.06, 0.06), Color(0.15, 0.09, 0.08), Color(0.04, 0.03, 0.03)]
 const TURF: Array[Color] = [Color(0.22, 0.38, 0.17), Color(0.64, 0.5, 0.22), Color(0.08, 0.19, 0.1),
 	Color(0.05, 0.12, 0.08), Color(0.08, 0.17, 0.1), Color(0.02, 0.05, 0.04)]
@@ -87,11 +89,11 @@ const TURF: Array[Color] = [Color(0.22, 0.38, 0.17), Color(0.64, 0.5, 0.22), Col
 const BASALT: Array[Color] = [Color(0.21, 0.35, 0.16), Color(0.62, 0.48, 0.22), Color(0.15, 0.08, 0.08),
 	Color(0.09, 0.05, 0.06), Color(0.14, 0.08, 0.08), Color(0.04, 0.03, 0.03)]
 ## Bare lava rock, no turf: the ground above the treeline and the root caves' walls.
-const ROCK: Array[Color] = [Color(0.28, 0.15, 0.13), Color(0.7, 0.32, 0.13), Color(0.15, 0.08, 0.08),
+const ROCK: Array[Color] = [Color(0.28, 0.15, 0.13), Color(0.54, 0.31, 0.17), Color(0.15, 0.08, 0.08),
 	Color(0.09, 0.05, 0.06), Color(0.14, 0.08, 0.08), Color(0.04, 0.03, 0.03)]
 const BLADES: Array[Color] = [Color(0.5, 0.48, 0.22), Color(0.3, 0.44, 0.2), Color(0.66, 0.5, 0.22)]
 ## Roots, in the ground's style, and the fine rootlets hanging off them.
-const ROOT: Array[Color] = [Color(0.36, 0.24, 0.18), Color(0.7, 0.36, 0.15), Color(0.2, 0.12, 0.1),
+const ROOT: Array[Color] = [Color(0.36, 0.24, 0.18), Color(0.55, 0.34, 0.19), Color(0.2, 0.12, 0.1),
 	Color(0.13, 0.08, 0.07), Color(0.18, 0.11, 0.09), Color(0.05, 0.035, 0.035)]
 const ROOTLET: Color = Color(0.26, 0.16, 0.13)
 const MOSS: Color = Color(0.22, 0.34, 0.16)

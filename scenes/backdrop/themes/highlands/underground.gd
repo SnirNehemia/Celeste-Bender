@@ -42,7 +42,7 @@ const FENCE_POST_EVERY: int = 14
 const FENCE_SIZE: float = 1.2
 
 ## Wildflowers in front: Vector3(strip x of the foot, height, head radius).
-const FRONT_FLOWERS: Array[Vector3] = [Vector3(118.0, 64.0, 4.0), Vector3(140.0, 48.0, 3.0), Vector3(452.0, 70.0, 4.0)]
+const FRONT_FLOWERS: Array[Vector3] = [Vector3(118.0, 42.0, 4.0), Vector3(140.0, 32.0, 3.0), Vector3(452.0, 46.0, 4.0)]
 
 
 func _build_layers() -> void:
@@ -135,8 +135,9 @@ static func _paint_hedges(image: Image, tops: PackedFloat32Array, haze: float, s
 static func _paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var bottom: float = BackdropPaint.row(200)
-	HighlandsStyle.paint_grass_tuft(image, Vector2(40.0, bottom), 90.0, 8441)
-	HighlandsStyle.paint_grass_tuft(image, Vector2(330.0, bottom), 70.0, 8442)
+	# Short: the strip scrolls, so anything tall crosses the middle of the screen.
+	HighlandsStyle.paint_grass_tuft(image, Vector2(40.0, bottom), 46.0, 8441)
+	HighlandsStyle.paint_grass_tuft(image, Vector2(330.0, bottom), 38.0, 8442)
 	BackdropPaint.paint_leaf_clump(image, Vector2(540.0, bottom + 4.0), 4, -PI * 0.5, 1.4, Vector2(30.0, 44.0), 0.6,
 		HighlandsStyle.FRONT_BODY, HighlandsStyle.FRONT_LIT, HighlandsStyle.FRONT_RIB, 8443)
 	for flower: Vector3 in FRONT_FLOWERS:

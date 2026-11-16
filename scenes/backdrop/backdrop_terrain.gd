@@ -36,6 +36,8 @@ const INSIDE: int = 3
 const HATCH: int = 4
 const DEEP: int = 5
 
+## hazed(): a shape this hazed or more has no hatch stripes left.
+const HATCH_GONE_HAZE: float = 0.3
 ## Diagonal hatch: one stripe every HATCH_PERIOD px, HATCH_WIDTH px wide (as the ground's).
 const HATCH_PERIOD: int = 6
 const HATCH_WIDTH: int = 2
@@ -152,10 +154,16 @@ static func new_band(from_row: int, to_row: int) -> Mask:
 
 
 ## A palette whose colors are all pulled `amount` (0-1) toward `haze`: further away.
+## The HATCH stripes also melt into the inside with distance, gone by
+## HATCH_GONE_HAZE (art pass): the hatch is the play layer's own texture, a cue for
+## "near and solid", and on far hills and cliffs it flattened the depth. Only for a
+## full ground palette (six colors); a list of blade greens has no hatch.
 static func hazed(palette: Array[Color], haze: Color, amount: float) -> Array[Color]:
 	var result: Array[Color] = []
 	for color: Color in palette:
 		result.append(color.lerp(haze, amount))
+	if result.size() > DEEP:
+		result[HATCH] = result[HATCH].lerp(result[INSIDE], clampf(amount / HATCH_GONE_HAZE, 0.0, 1.0))
 	return result
 
 

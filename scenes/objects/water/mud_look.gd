@@ -20,7 +20,9 @@ extends RefCounted
 
 ## The mud palettes, in GroundPainter.PALETTE's order: [crust, rim, edge line, inside,
 ## hatch stripe]. The crust is the lumps' brown; the inside is the earth's own (wet
-## earth is dark inside either way). Ash mud the same in grey-black.
+## earth is dark inside either way): in a painted room it's replaced by the earth
+## inside of the room's backdrop look (make_tile_texture). Ash mud the same in
+## grey-black, fading to the look's deep color.
 const MUD_PALETTE: Array = [Color("#4A2E1A"), Color("#5C3C24"), Color("#24150C"),
 	Color(0.26, 0.12, 0.09), Color(0.33, 0.17, 0.11)]
 const ASH_MUD_PALETTE: Array = [Color("#34302F"), Color("#45403E"), Color("#161414"),
@@ -58,14 +60,24 @@ static func get_crust_color(is_ash: bool) -> Color:
 ## One mud tile's picture. `is_open(cell) -> bool`: is that tile open air?
 static func make_tile_texture(cell: Vector2i, is_ash: bool, painter: GroundPainter, is_open: Callable) -> ImageTexture:
 	var image: Image = Image.create(TILE, TILE, false, Image.FORMAT_RGBA8)
-	var palette: Array = ASH_MUD_PALETTE if is_ash else MUD_PALETTE
+	var palette: Array = (ASH_MUD_PALETTE if is_ash else MUD_PALETTE).duplicate()
 	var has_painter: bool = painter != null and not painter.distances.is_empty()
+	# Transparent = "the palette's own inside at its darkest" (no painter, no look).
+	var deep: Color = Color(0.0, 0.0, 0.0, 0.0)
+	if has_painter:
+		# The room's look (GroundPalettes): the mud's inside is the look's earth inside
+		# (wet earth is the same earth under its crust), and both fade to its deep.
+		var earth_colors: Array = painter.get_palette(GroundPainter.Kind.EARTH)
+		deep = earth_colors[GroundPalettes.DEEP]
+		if not is_ash:
+			palette[GroundPalettes.INSIDE] = earth_colors[GroundPalettes.INSIDE]
+			palette[GroundPalettes.HATCH] = earth_colors[GroundPalettes.HATCH]
 	for y: int in TILE:
 		for x: int in TILE:
 			var pixel: Vector2i = cell * TILE + Vector2i(x, y)
 			if has_painter and pixel.x >= 0 and pixel.y >= 0 and pixel.x < painter.width and pixel.y < painter.height:
 				# The ground's own pixel in the mud palette (air in its dents stays air).
-				image.set_pixel(x, y, painter.get_pixel_color_in_palette(pixel, palette))
+				image.set_pixel(x, y, painter.get_pixel_color_in_palette(pixel, palette, deep))
 			else:
 				image.set_pixel(x, y, _get_plain_color(cell, x, y, palette, is_open))
 	return ImageTexture.create_from_image(image)

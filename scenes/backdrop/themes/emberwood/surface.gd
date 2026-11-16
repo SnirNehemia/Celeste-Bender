@@ -15,7 +15,9 @@ extends BackdropTheme
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
 
-const LEDGES_HAZE: float = 0.34
+## Well into the haze (art pass): nearer, the turf-topped ledges looked like
+## platforms you could land on (BACKDROP_GUIDE.md §2.6).
+const LEDGES_HAZE: float = 0.58
 ## The giant near trunks: strip x of each one's left edge and its width.
 const GIANTS: Array[Vector2i] = [Vector2i(250, 30), Vector2i(560, 36)]
 const NEAR_FLOOR_ROW: int = 174

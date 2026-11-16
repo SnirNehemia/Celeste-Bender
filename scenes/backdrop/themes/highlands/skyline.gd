@@ -31,7 +31,8 @@ const PEAKS_SINK: float = 0.55
 const CABIN_OFFSET: float = 0.3
 const PEAK_TREE_RADIUS: float = 6.0
 
-const ISLANDS_HAZE: float = 0.3
+## Well into the haze, so they don't read as platforms (see the surface's).
+const ISLANDS_HAZE: float = 0.52
 ## The floating islands: Vector3i(left strip x, top screen row, width in tiles).
 const ISLANDS: Array[Vector3i] = [Vector3i(186, 44, 5), Vector3i(330, 124, 4), Vector3i(500, 30, 6), Vector3i(10, 140, 3)]
 

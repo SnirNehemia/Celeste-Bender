@@ -5,8 +5,13 @@ extends Area2D
 ## push the player sideways; updrafts (direction up) lift a gliding player.
 ##
 ## The node's position is the zone's TOP-LEFT corner (same convention as a room's
-## solid_rects), and `zone_size` sets its size. Everything else (hitbox, translucent
-## cyan fill, drifting particles) is built in code, so wind_zone.tscn is one node.
+## solid_rects), and `zone_size` sets its size. Everything else (hitbox, drifting
+## particles) is built in code, so wind_zone.tscn is one node.
+##
+## THE LOOK (art pass): no box. A faint cyan patch that fades out toward its edge in
+## steps (ZoneFill), specks drifting with the wind, and a few longer STREAKS racing
+## the same way (_draw), so the zone is read by what moves in it. The patch still
+## ends exactly at the zone's edge: that's where the wind stops.
 ##
 ## How it pushes: this zone does NOT change the player's velocity itself. It only
 ## tells the player "you're inside me" (enter_wind_zone / exit_wind_zone). The
@@ -30,13 +35,28 @@ extends Area2D
 ## A Bonfire makes one above its flame; one can also be placed by hand.
 
 ## Translucent cyan (GAME_DESIGN.md §2) and the brighter particle color.
-const FILL_COLOR: Color = Color(0.4, 0.9, 1.0, 0.15)
+const FILL_COLOR: Color = Color(0.4, 0.9, 1.0, 0.1)
 const PARTICLE_COLOR: Color = Color(0.7, 0.95, 1.0, 0.6)
 ## Hot air (heat on): a barely-there warm tint and ember-orange specks (§9.1 body).
 const HEAT_FILL_COLOR: Color = Color(1.0, 0.55, 0.15, 0.06)
 const HEAT_PARTICLE_COLOR: Color = Color(1.0, 0.6, 0.2, 0.7)
 ## Upper limit on drifting specks per zone, for performance.
 const MAX_SPECKS: int = 400
+## Streaks: thin lines racing with the wind. About one per this much zone, px²,
+## between STREAK_MIN_COUNT and STREAK_MAX_COUNT...
+const STREAK_AREA: float = 700.0
+const STREAK_MIN_COUNT: int = 2
+const STREAK_MAX_COUNT: int = 28
+## ...each STREAK_MIN_LENGTH..STREAK_MAX_LENGTH px long, moving this many times the
+## wind's speed (faster than the specks: they're what the eye follows)...
+const STREAK_MIN_LENGTH: float = 5.0
+const STREAK_MAX_LENGTH: float = 11.0
+const STREAK_SPEED_FACTOR: float = 1.6
+## ...in this color (hot updrafts: HEAT_STREAK_COLOR), fading in and out over this
+## fraction of the zone's length at each end.
+const STREAK_COLOR: Color = Color(0.82, 0.97, 1.0, 0.5)
+const HEAT_STREAK_COLOR: Color = Color(1.0, 0.7, 0.3, 0.45)
+const STREAK_FADE_FRACTION: float = 0.25
 ## Every wind zone joins this group, so non-player objects can find them.
 const GROUP: StringName = &"wind_zones"
 
@@ -66,8 +86,9 @@ const GROUP: StringName = &"wind_zones"
 		_rebuild()
 
 var collision_shape: CollisionShape2D
-var fill_rect: ColorRect
 var drift_particles: CPUParticles2D
+## Seconds since the zone appeared: moves the streaks.
+var streak_clock: float = 0.0
 
 
 func _ready() -> void:
@@ -86,6 +107,51 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if heat and not Engine.is_editor_hint():
 		Heat.heat_receivers(get_tree(), self, delta)
+
+
+## Moves the streaks (a look only, so _process: once per drawn frame).
+func _process(delta: float) -> void:
+	streak_clock += delta
+	queue_redraw()
+
+
+## The patch of air and its streaks (see THE LOOK). Each streak's lane, length and
+## head start come from a hash of its number, so they're the same every run; its
+## place along the wind is the clock, wrapped round the zone's length.
+func _draw() -> void:
+	ZoneFill.draw_soft_rect(self, Rect2(Vector2.ZERO, zone_size), HEAT_FILL_COLOR if heat else FILL_COLOR)
+	var direction: Vector2 = wind_direction.normalized()
+	if direction == Vector2.ZERO:
+		return
+	# The wind runs along x or along y (whichever is bigger); the lanes are spread
+	# over the other one.
+	var is_vertical: bool = absf(direction.y) > absf(direction.x)
+	var length_along: float = zone_size.y if is_vertical else zone_size.x
+	var width_across: float = zone_size.x if is_vertical else zone_size.y
+	var heading: float = signf(direction.y) if is_vertical else signf(direction.x)
+	var speed: float = maxf(wind_strength, 10.0) * STREAK_SPEED_FACTOR
+	var count: int = clampi(int(zone_size.x * zone_size.y / STREAK_AREA), STREAK_MIN_COUNT, STREAK_MAX_COUNT)
+	var base_color: Color = HEAT_STREAK_COLOR if heat else STREAK_COLOR
+	for streak_index: int in count:
+		# & 0x7FFFFFFF keeps the hash positive, so % never goes negative.
+		var roll: int = hash(Vector2i(streak_index * 31 + 7, 53)) & 0x7FFFFFFF
+		var lane: float = 2.0 + float(roll % 1000) / 1000.0 * maxf(width_across - 4.0, 0.0)
+		var streak_length: float = minf(lerpf(STREAK_MIN_LENGTH, STREAK_MAX_LENGTH, float((roll >> 10) % 100) / 100.0), length_along)
+		var travel: float = length_along + streak_length
+		var along: float = fposmod(streak_clock * speed * (0.8 + float((roll >> 17) % 40) / 100.0) + float((roll >> 5) % 997), travel) - streak_length
+		# Faint near both ends of the zone, so a streak never pops in or out.
+		var middle: float = (along + streak_length / 2.0) / length_along
+		var fade: float = clampf(minf(middle, 1.0 - middle) / STREAK_FADE_FRACTION, 0.0, 1.0)
+		if fade <= 0.0:
+			continue
+		var from_along: float = clampf(along, 0.0, length_along)
+		var to_along: float = clampf(along + streak_length, 0.0, length_along)
+		if heading < 0.0:
+			from_along = length_along - from_along
+			to_along = length_along - to_along
+		var from: Vector2 = Vector2(lane, from_along) if is_vertical else Vector2(from_along, lane)
+		var to: Vector2 = Vector2(lane, to_along) if is_vertical else Vector2(to_along, lane)
+		draw_line(from.round() + Vector2(0.5, 0.5), to.round() + Vector2(0.5, 0.5), Color(base_color, base_color.a * fade), 1.0)
 
 
 ## The wind this zone applies, px/s. Hot air is not wind: zero.
@@ -137,10 +203,6 @@ func _rebuild() -> void:
 	if collision_shape == null:
 		collision_shape = CollisionShape2D.new()
 		add_child(collision_shape)
-		fill_rect = ColorRect.new()
-		# The fill is decoration: don't let it swallow mouse input.
-		fill_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(fill_rect)
 		drift_particles = CPUParticles2D.new()
 		add_child(drift_particles)
 
@@ -149,9 +211,7 @@ func _rebuild() -> void:
 	collision_shape.shape = rectangle
 	collision_shape.position = zone_size / 2.0  # shapes are positioned by their center
 
-	fill_rect.size = zone_size
-	fill_rect.color = HEAT_FILL_COLOR if heat else FILL_COLOR
-
+	queue_redraw()  # the patch and the streaks follow the new size
 	_setup_particles()
 
 

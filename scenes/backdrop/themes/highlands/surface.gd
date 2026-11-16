@@ -14,7 +14,9 @@ extends BackdropTheme
 # Pixel math: whole-pixel divisions (e.g. width / 2) are meant to drop the fraction.
 @warning_ignore_start("integer_division")
 
-const ISLANDS_HAZE: float = 0.42
+## Well into the haze (art pass): nearer the ground's own colors, the islands looked
+## like platforms you could land on (BACKDROP_GUIDE.md §2.6).
+const ISLANDS_HAZE: float = 0.62
 ## The floating islands: Vector3i(left strip x, top screen row, width in tiles).
 const ISLANDS: Array[Vector3i] = [Vector3i(30, 66, 6), Vector3i(170, 36, 4), Vector3i(290, 92, 8), Vector3i(450, 52, 5),
 	Vector3i(560, 100, 4)]
@@ -102,8 +104,10 @@ static func paint_near() -> Image:
 static func paint_front() -> Image:
 	var image: Image = BackdropPaint.new_strip()
 	var bottom: float = BackdropPaint.row(200)
-	HighlandsStyle.paint_grass_tuft(image, Vector2(34.0, bottom), 84.0, 8241)
-	HighlandsStyle.paint_grass_tuft(image, Vector2(388.0, bottom), 60.0, 8242)
+	# Short (art pass, BACKDROP_GUIDE.md §2.5): the strip scrolls, so a tall tuft
+	# ends up in the middle of the screen sooner or later.
+	HighlandsStyle.paint_grass_tuft(image, Vector2(34.0, bottom), 44.0, 8241)
+	HighlandsStyle.paint_grass_tuft(image, Vector2(388.0, bottom), 36.0, 8242)
 	BackdropPaint.paint_leaf_clump(image, Vector2(586.0, bottom + 4.0), 5, -PI * 0.5, 1.5, Vector2(30.0, 46.0), 0.6,
 		HighlandsStyle.FRONT_BODY, HighlandsStyle.FRONT_LIT, HighlandsStyle.FRONT_RIB, 8243)
 	return image
