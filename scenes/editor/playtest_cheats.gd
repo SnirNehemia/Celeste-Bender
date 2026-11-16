@@ -71,7 +71,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	# The game's own slow motion (FX) times the cheat's.
-	Engine.time_scale = FX.slow_motion_scale * SPEEDS[speed_index]
+	Engine.time_scale = FX.slow_motion_scale * FX.assist_speed * SPEEDS[speed_index]
 	if is_flying and not is_paused and is_instance_valid(player):
 		var direction: Vector2 = Vector2(Input.get_axis("move_left", "move_right"), Input.get_axis("move_up", "move_down"))
 		# delta is scaled by the slow motion, so flying slows down with it.

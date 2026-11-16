@@ -498,6 +498,17 @@ func _check_l3_playtest() -> void:
 	editor.stop_playtest()
 	_check(not editor.start_playtest(Vector2(-500, -500)) and not editor.is_playtesting, "Shift+Tab outside every room doesn't start")
 
+	# The pause menu's "Restart level" in a play-test: a new play copy, a fresh run.
+	_check(editor.start_playtest(), "play, to restart the level")
+	var first_copy: RoomManager = editor.play_root
+	GameState.register_death()
+	(first_copy.get_node("PauseMenu") as PauseMenu)._on_restart_level_pressed()
+	await get_tree().create_timer(0.3).timeout
+	_check(editor.is_playtesting and editor.play_root != first_copy and not is_instance_valid(first_copy),
+		"Restart level starts a new play-test copy")
+	_check(GameState.death_count == 0, "and the run starts over (deaths back to 0)")
+	editor.stop_playtest()
+
 	# Reaching the goal: back in the editor with the time and deaths.
 	_check(editor.start_playtest(), "play again")
 	editor.play_root.player.respawn_at(goal.global_position + Vector2(12, 32))

@@ -1,7 +1,11 @@
 class_name PauseMenu
 extends CanvasLayer
 ## Pause menu (GAME_DESIGN.md §9 / PROMPTS.md Stage 10): Esc (`pause`) stops the
-## game and shows Resume / Restart room / Main menu / Quit. Esc again resumes.
+## game and shows Resume / Restart room / Restart level / Options / Main menu /
+## Quit. Esc again resumes.
+## "Options" swaps the buttons for a second page: the assist options (game speed,
+## extra coyote time; AssistOptions) and the Ghost switch (GhostRuns). Each of those
+## buttons steps to its next value when pressed and shows the current one.
 ##
 ## Keyboard only: arrows move between buttons, Enter or Jump (C) presses one.
 ##
@@ -9,6 +13,9 @@ extends CanvasLayer
 ##   - Pausing goes through FX.set_menu_pause(), which also knows about freeze
 ##     frames, so a freeze ending can't unpause the menu (see autoload/fx.gd).
 ##   - "Restart room" calls RoomManager.restart_room(), the same path as R.
+##   - "Restart level" starts the whole level over with a fresh run (deaths, time,
+##     keys, shards and the golden feather back to the start): it reloads the
+##     running scene, or calls `restart_level` when the level editor set it.
 ##   - "Rooms" (only in worlds with an F2 room picker) closes this menu and opens
 ##     the picker, found through RoomPicker.GROUP. Phones have no F2.
 ##   - The level's relic (RelicView, Collectibles.md §2.2) sits beside the buttons:
@@ -36,6 +43,17 @@ const HINT_COLOR: Color = Color(0.7, 0.7, 0.75)
 ## editor's unsaved work away. Empty (not valid) in normal play.
 var back_to_editor: Callable = Callable()
 
+## Set by the level editor before a play-test: how to start the level over there
+## (its play copy isn't the running scene, so it can't simply be reloaded).
+var restart_level: Callable = Callable()
+
+## The two pages that share the menu's left side: the main buttons and the options.
+var main_page: VBoxContainer
+var options_page: VBoxContainer
+var options_button: Button
+var speed_button: Button
+var coyote_button: Button
+var ghost_button: Button
 var resume_button: Button
 ## "Rooms": opens the world's F2 room picker. Shown only when the world has one.
 var rooms_button: Button
@@ -68,7 +86,10 @@ func _input(event: InputEvent) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
-		if menu_root.visible:
+		if menu_root.visible and options_page.visible:
+			_show_options(false)  # Esc on the options page: back to the main page
+			get_viewport().set_input_as_handled()
+		elif menu_root.visible:
 			_set_open(false)
 			get_viewport().set_input_as_handled()
 		elif not FX.is_menu_open and not GameState.is_run_finished:
@@ -95,7 +116,7 @@ func _set_open(open: bool) -> void:
 		rooms_button.visible = _get_room_picker() != null
 		# The running level's root: our RoomManager, or our parent if it isn't set.
 		relic_view.refresh(room_manager if room_manager != null else get_parent())
-		resume_button.grab_focus()
+		_show_options(false)
 
 
 func _on_resume_pressed() -> void:
@@ -118,6 +139,50 @@ func _on_restart_pressed() -> void:
 	# Unpause first: the death and respawn run on (pausable) game time.
 	_set_open(false)
 	room_manager.restart_room()
+
+
+## A fresh run of the whole level. reset_run() clears deaths, time, keys, shards and
+## the feather; reloading the scene puts every room back as it was saved.
+func _on_restart_level_pressed() -> void:
+	_set_open(false)
+	FX.clear_slow_motion()
+	if restart_level.is_valid():
+		restart_level.call()
+		return
+	GameState.reset_run()
+	get_tree().reload_current_scene()
+
+
+## Shows the options page (true) or the main page, and focuses its first button.
+func _show_options(show_options: bool) -> void:
+	main_page.visible = not show_options
+	options_page.visible = show_options
+	if show_options:
+		_refresh_option_texts()
+		speed_button.grab_focus()
+	else:
+		resume_button.grab_focus()
+
+
+func _refresh_option_texts() -> void:
+	speed_button.text = "Game speed: %d%%" % roundi(AssistOptions.game_speed * 100.0)
+	coyote_button.text = "Extra coyote time: +%.2f s" % AssistOptions.extra_coyote_time
+	ghost_button.text = "Ghost of best run: %s" % ("on" if AssistOptions.show_ghost else "off")
+
+
+func _on_speed_pressed() -> void:
+	AssistOptions.cycle_game_speed()
+	_refresh_option_texts()
+
+
+func _on_coyote_pressed() -> void:
+	AssistOptions.cycle_extra_coyote_time()
+	_refresh_option_texts()
+
+
+func _on_ghost_pressed() -> void:
+	AssistOptions.toggle_ghost()
+	_refresh_option_texts()
 
 
 ## Back to the chapter picker (scenes/ui/main_menu.tscn). The pause and any slow
@@ -160,18 +225,27 @@ func _build_ui() -> void:
 	row.add_theme_constant_override("separation", 16)
 	center.add_child(row)
 	var column: VBoxContainer = VBoxContainer.new()
-	column.add_theme_constant_override("separation", 2)
+	# 1 px apart and a smaller title: seven buttons must fit the 180 px screen.
+	column.add_theme_constant_override("separation", 1)
 	row.add_child(column)
+	main_page = column
+	options_page = VBoxContainer.new()
+	options_page.add_theme_constant_override("separation", 2)
+	options_page.visible = false
+	row.add_child(options_page)
 	relic_view = RelicView.new()
 	relic_view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(relic_view)
 
-	column.add_child(_make_label("Paused", 16, TITLE_COLOR))
+	column.add_child(_make_label("Paused", 12, TITLE_COLOR))
 	resume_button = _make_button("Resume", _on_resume_pressed)
 	column.add_child(resume_button)
 	column.add_child(_make_button("Restart room", _on_restart_pressed))
+	column.add_child(_make_button("Restart level", _on_restart_level_pressed))
 	rooms_button = _make_button("Rooms", _on_rooms_pressed)
 	column.add_child(rooms_button)
+	options_button = _make_button("Options", _show_options.bind(true))
+	column.add_child(options_button)
 	if back_to_editor.is_valid():
 		column.add_child(_make_button("Back to editor", _on_back_to_editor_pressed))
 	else:
@@ -180,6 +254,17 @@ func _build_ui() -> void:
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit game", _on_quit_pressed))
 	column.add_child(_make_label("Arrows + Enter/C  ·  Esc to resume", 8, HINT_COLOR))
+
+	# The options page: each button shows its value and steps to the next on a press.
+	options_page.add_child(_make_label("Options", 12, TITLE_COLOR))
+	speed_button = _make_button("", _on_speed_pressed)
+	options_page.add_child(speed_button)
+	coyote_button = _make_button("", _on_coyote_pressed)
+	options_page.add_child(coyote_button)
+	ghost_button = _make_button("", _on_ghost_pressed)
+	options_page.add_child(ghost_button)
+	options_page.add_child(_make_button("Back", _show_options.bind(false)))
+	options_page.add_child(_make_label("Enter/C changes a setting  ·  Esc: back", 8, HINT_COLOR))
 
 
 ## A Button whose `pressed` signal calls `on_pressed`. Callable = a reference to a

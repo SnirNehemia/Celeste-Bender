@@ -257,6 +257,33 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 0, 9, 10, 1, DARK_GRAY)
 			_rect(image, 4, 2, 2, 3, WHITE)  # a footstep arrow
 			_rect(image, 3, 4, 4, 1, WHITE)
+		&"timed_step_pad":
+			_rect(image, 1, 7, 8, 2, TAN)
+			_rect(image, 0, 9, 10, 1, DARK_GRAY)
+			_rect(image, 3, 1, 4, 4, WHITE)  # a clock face with a hand
+			_rect(image, 5, 2, 1, 2, DARK_GRAY)
+		&"lantern":
+			_rect(image, 4, 0, 2, 1, DARK_GRAY)
+			_rect(image, 3, 1, 4, 1, DARK_GRAY)
+			_rect(image, 2, 2, 6, 6, DARK_GRAY)
+			_rect(image, 3, 2, 4, 6, YELLOW)
+			_rect(image, 2, 8, 6, 2, DARK_GRAY)
+		&"signpost":
+			_rect(image, 4, 6, 2, 4, CRATE_BROWN)
+			_rect(image, 1, 1, 8, 5, TAN)
+			_rect(image, 2, 2, 5, 1, CRATE_BROWN)
+			_rect(image, 2, 4, 3, 1, CRATE_BROWN)
+		&"teleport_door":
+			# An open doorway in a colored frame, an arrow going in.
+			_rect(image, 1, 0, 8, 10, CYAN)
+			_rect(image, 2, 1, 6, 9, DARK_GRAY.darkened(0.5))
+			_rect(image, 4, 3, 2, 1, WHITE)
+			_rect(image, 3, 4, 4, 1, WHITE)
+			_rect(image, 4, 5, 2, 3, WHITE)
+		&"teleport_exit":
+			# The same frame, shut.
+			_rect(image, 1, 0, 8, 10, CYAN)
+			_rect(image, 2, 1, 6, 9, CYAN.darkened(0.5))
 		&"switch_wall":
 			_rect(image, 1, 0, 8, 10, GRAY)
 			_rect(image, 4, 0, 1, 10, BLUE_GRAY)

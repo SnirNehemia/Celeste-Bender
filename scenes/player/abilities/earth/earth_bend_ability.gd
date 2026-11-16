@@ -300,7 +300,7 @@ func _process(delta: float) -> void:
 			queue_redraw()  # F3: keep the last path drawing fresh (it clears when off)
 		return
 	var tuning: EarthTuning = player.earth_tuning
-	var real_delta: float = delta / maxf(Engine.time_scale, 0.001)
+	var real_delta: float = delta / maxf(FX.slow_motion_scale, 0.001)
 	var was_waiting: bool = bend_real_time < tuning.shadow_start_delay
 	bend_real_time += real_delta
 

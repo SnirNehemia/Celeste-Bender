@@ -254,7 +254,7 @@ func _update_timers(delta: float) -> void:
 	mud.update_contact()
 	# is_on_floor() reports the result of LAST frame's move_and_slide().
 	if is_on_floor():
-		coyote_time_remaining = tuning.coyote_time
+		coyote_time_remaining = tuning.coyote_time + AssistOptions.extra_coyote_time  # the assist option (pause menu)
 	else:
 		coyote_time_remaining = maxf(coyote_time_remaining - delta, 0.0)
 	# Ice: what we stand on, and whether a long jump off it is still carrying us.
@@ -344,8 +344,8 @@ func respawn_at(spawn_position: Vector2) -> void:
 
 
 ## Hides (or shows again) the body, whichever look is on (PlayerTuning.body_style).
-func set_body_hidden(hidden: bool) -> void:
-	is_body_hidden = hidden
+func set_body_hidden(is_hidden: bool) -> void:
+	is_body_hidden = is_hidden
 	body_look.update_visibility()
 
 

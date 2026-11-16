@@ -328,7 +328,7 @@ func _rain_pebbles(cells: Array[Vector2i]) -> void:
 ## Runs only while a cover crumbles. REAL time, like EarthLayer's fades: a reveal
 ## happens right after a tear, while the world is still in the rock's slow motion.
 func _process(delta: float) -> void:
-	var real_delta: float = delta / maxf(Engine.time_scale, 0.001)
+	var real_delta: float = delta / maxf(FX.slow_motion_scale, 0.001)
 	var finished_cells: Array[Vector2i] = []
 	for cell: Vector2i in crumble_clocks:
 		var previous_clock: float = crumble_clocks[cell]

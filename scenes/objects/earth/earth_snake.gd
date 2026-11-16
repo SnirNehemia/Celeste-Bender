@@ -189,11 +189,11 @@ func harden(reason: String) -> void:
 ## _process runs every rendered frame: the head moves in real time (see the header).
 func _process(delta: float) -> void:
 	if phase == Phase.CRUMBLING:
-		_update_crumble(delta / maxf(Engine.time_scale, 0.001))
+		_update_crumble(delta / maxf(FX.slow_motion_scale, 0.001))
 		return
 	if phase != Phase.MOVING:
 		return
-	var real_delta: float = delta / maxf(Engine.time_scale, 0.001)
+	var real_delta: float = delta / maxf(FX.slow_motion_scale, 0.001)
 	moving_real_time += real_delta
 	if moving_real_time >= earth_tuning.snake_max_time:
 		harden("time")

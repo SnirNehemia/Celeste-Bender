@@ -218,7 +218,6 @@ const TAB_OF: Dictionary = {
 	&"wind_zone": "Basics", &"no_glide_zone": "Basics",
 	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
 	&"door": "Activated", &"switch_wall": "Activated", &"step_pad": "Triggers",
-	&"timed_step_pad": "Triggers",
 	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
 	&"cracked_wall": "Breakable", &"stone_wall": "Breakable", &"thicket": "Breakable",
 	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
@@ -424,7 +423,7 @@ static func _build() -> void:
 
 	# The same script as the step pad, in a scene of its own with on_seconds set, so
 	# it has its own palette button (an object is matched to its entry by its scene).
-	var timed_step_pad: Entry = _add_object(&"timed_step_pad", "Timed step pad", "Air", preload("res://scenes/objects/timed_step_pad.tscn"))
+	var timed_step_pad: Entry = _add_object(&"timed_step_pad", "Timed step pad", "Triggers", preload("res://scenes/objects/timed_step_pad.tscn"))
 	timed_step_pad.hint = "A switch on a timer: on while the player stands on it and for On Seconds after they step off, then off again (a bar on the pad shrinks). Link a door to it for a race: step on, run, get through before it shuts. Stepping on it again refills the time. Off on death or R."
 	timed_step_pad.bounds = Bounds.WIDTH_CENTERED
 	timed_step_pad.width_property = &"pad_width"

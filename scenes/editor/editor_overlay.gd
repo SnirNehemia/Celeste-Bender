@@ -496,6 +496,10 @@ func _draw_map(map: MapView) -> void:
 		_draw_edges(MapView.room_rect(map.hovered_room), map.hovered_edges, MAP_OUTLINE_SCREEN_WIDTH * 2.0 * pixel)
 	for opening: Array in map.get_openings():
 		draw_line(opening[0], opening[1], OPENING_COLOR, OPENING_SCREEN_WIDTH * pixel)
+	# Rooms on different half-tile grids (MapView.get_grid_mismatches): red, so a
+	# 4 px gap or rows that can't meet show before a play-test does.
+	for mismatch: Array in map.get_grid_mismatches():
+		draw_line(mismatch[0], mismatch[1], REFUSED_COLOR, OPENING_SCREEN_WIDTH * pixel)
 	if map.drag == MapView.Drag.SELECT:
 		draw_rect(map.preview_rect, Color(SELECTED_COLOR, 0.12))
 		draw_rect(map.preview_rect, SELECTED_COLOR, false, MAP_OUTLINE_SCREEN_WIDTH * pixel)

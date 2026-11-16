@@ -59,15 +59,15 @@ func is_bend_start() -> bool:
 ## bool, so each user decides what counts as ground. Callers decide what may be
 ## stepped ONTO (the shadow stops at gray rock, fire at anything that isn't grass).
 ## Static: EarthFace.step_along_surface(layer.is_solid, ...), no face object needed.
-static func step_along_surface(is_solid: Callable, cell: Vector2i, normal: Vector2i,
+static func step_along_surface(is_solid: Callable, from_cell: Vector2i, from_normal: Vector2i,
 		tangent: Vector2i) -> Array:
-	var inner_corner_cell: Vector2i = cell + normal + tangent
+	var inner_corner_cell: Vector2i = from_cell + from_normal + tangent
 	if is_solid.call(inner_corner_cell):
-		return [inner_corner_cell, -tangent, normal]
-	var straight_cell: Vector2i = cell + tangent
+		return [inner_corner_cell, -tangent, from_normal]
+	var straight_cell: Vector2i = from_cell + tangent
 	if is_solid.call(straight_cell):
-		return [straight_cell, normal, tangent]
-	return [cell, tangent, -normal]
+		return [straight_cell, from_normal, tangent]
+	return [from_cell, tangent, -from_normal]
 
 
 func is_same_as(other: EarthFace) -> bool:

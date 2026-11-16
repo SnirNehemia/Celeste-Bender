@@ -304,11 +304,11 @@ func get_burn_progress(cell: Vector2i) -> float:
 ## px): the distance from where it came in, at one tile per spread delay (grass's or
 ## thicket's). A flashing cover has no creep: its front is the flash-over itself.
 func get_creep_delay(cell: Vector2i, point: Vector2) -> float:
-	var material: Fuel = get_fuel(cell)
-	if material == Fuel.OVERGROWN:
+	var fuel: Fuel = get_fuel(cell)
+	if fuel == Fuel.OVERGROWN:
 		return 0.0
 	var origin: Vector2 = ignite_origin.get(cell, get_cell_rect(cell).get_center())
-	return minf(point.distance_to(origin) / tile_size, 1.2) * _get_spread_delay_from(material)
+	return minf(point.distance_to(origin) / tile_size, 1.2) * _get_spread_delay_from(fuel)
 
 
 ## Like get_burn_progress, but for one spot of the cell (local px): 0 until the creep
@@ -393,8 +393,8 @@ func get_spread_neighbours(cell: Vector2i) -> Array[Vector2i]:
 ## burnable material.
 func get_spread_targets(cell: Vector2i) -> Array:
 	var targets: Array = []
-	var material: Fuel = get_fuel(cell)
-	if material == Fuel.GRASS:
+	var fuel: Fuel = get_fuel(cell)
+	if fuel == Fuel.GRASS:
 		for neighbour: Vector2i in get_spread_neighbours(cell):
 			targets.append([neighbour, fire_tuning.spread_delay])
 	for normal: Vector2i in EarthLayer.FACE_NORMALS:
@@ -402,16 +402,16 @@ func get_spread_targets(cell: Vector2i) -> Array:
 		var neighbour_material: Fuel = get_fuel(neighbour)
 		if neighbour_material == Fuel.NONE:
 			continue
-		if material == Fuel.GRASS and neighbour_material == Fuel.GRASS:
+		if fuel == Fuel.GRASS and neighbour_material == Fuel.GRASS:
 			continue  # grass to grass goes along the surface (above)
-		targets.append([neighbour, _get_spread_delay_from(material)])
+		targets.append([neighbour, _get_spread_delay_from(fuel)])
 	return targets
 
 
 ## Grass is the slow fuel: what it lights catches spread_delay later. What burning
 ## brambles (or a cover) light catches thicket_spread_delay later.
-func _get_spread_delay_from(material: Fuel) -> float:
-	return fire_tuning.spread_delay if material == Fuel.GRASS else fire_tuning.thicket_spread_delay
+func _get_spread_delay_from(fuel: Fuel) -> float:
+	return fire_tuning.spread_delay if fuel == Fuel.GRASS else fire_tuning.thicket_spread_delay
 
 
 ## The cell's rectangle in our (= the room's) local coordinates.
@@ -679,19 +679,19 @@ func _process_pending() -> void:
 
 
 func _start_burning(cell: Vector2i, origin: Vector2) -> void:
-	var material: Fuel = get_fuel(cell)
-	if material == Fuel.OVERGROWN:
+	var fuel: Fuel = get_fuel(cell)
+	if fuel == Fuel.OVERGROWN:
 		_start_flashover(cell, origin)
 		return
 	cell_states[cell] = State.BURNING
-	var duration: float = _jitter(fire_tuning.thicket_burn_time if material == Fuel.THICKET else fire_tuning.burn_time)
+	var duration: float = _jitter(fire_tuning.thicket_burn_time if fuel == Fuel.THICKET else fire_tuning.burn_time)
 	time_left[cell] = duration
 	state_duration[cell] = duration
 	ignite_clock[cell] = fire_clock
 	ignite_origin[cell] = origin
 	burning_count += 1
 	peak_burning_count = maxi(peak_burning_count, burning_count)
-	if material == Fuel.THICKET:
+	if fuel == Fuel.THICKET:
 		branches[cell] = _make_branches(cell)
 	_add_flames(cell)
 	# The next cells catch a little later, each with its own jitter, their fire

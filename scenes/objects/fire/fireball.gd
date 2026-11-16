@@ -112,12 +112,12 @@ var trail: EmberEmitter
 ## `fall_gravity`: the gravity on it, px/s^2 (FireballAbility passes the player's
 ## gravity x fireball_gravity_scale).
 static func launch(parent: Node, world_position: Vector2, throw_direction: Vector2,
-		fire_tuning: FireTuning, thrower: Node, fall_gravity: float = 0.0) -> Fireball:
+		fire_tuning: FireTuning, thrower: Node, gravity_pull: float = 0.0) -> Fireball:
 	var fireball: Fireball = Fireball.new()
 	fireball.tuning = fire_tuning
 	fireball.direction = throw_direction.normalized()
-	fireball.fall_gravity = fall_gravity
-	fireball.velocity = get_launch_velocity(fireball.direction, fire_tuning, fall_gravity)
+	fireball.fall_gravity = gravity_pull
+	fireball.velocity = get_launch_velocity(fireball.direction, fire_tuning, gravity_pull)
 	fireball.source = thrower
 	parent.add_child(fireball)
 	fireball.global_position = world_position
@@ -130,11 +130,11 @@ static func launch(parent: Node, world_position: Vector2, throw_direction: Vecto
 ## so L = g*T/2 brings it back to hand height at max range. Scaled by how sideways
 ## the throw is. Shared with the aim preview, so the dotted arc shows exactly where
 ## the fireball will go.
-static func get_launch_velocity(throw_direction: Vector2, fire_tuning: FireTuning, fall_gravity: float) -> Vector2:
+static func get_launch_velocity(throw_direction: Vector2, fire_tuning: FireTuning, gravity_pull: float) -> Vector2:
 	var launch_velocity: Vector2 = throw_direction * fire_tuning.fireball_speed
 	if fire_tuning.fireball_arc_lift and fire_tuning.fireball_speed > 0.0:
-		var flight_time: float = fire_tuning.fireball_max_range / fire_tuning.fireball_speed
-		launch_velocity.y -= 0.5 * fall_gravity * flight_time * absf(throw_direction.x)
+		var time_to_max_range: float = fire_tuning.fireball_max_range / fire_tuning.fireball_speed
+		launch_velocity.y -= 0.5 * gravity_pull * time_to_max_range * absf(throw_direction.x)
 	return launch_velocity
 
 

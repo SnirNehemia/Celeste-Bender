@@ -1,0 +1,907 @@
+{
+ "frame_size": [
+  18,
+  19
+ ],
+ "palette": {
+  "O": "#1c1419",
+  "W": "#f6f2ea",
+  "w": "#c9c4cc",
+  "K": "#1c1419",
+  "b": "#58c6ea",
+  "h": "#efe2bf",
+  "j": "#c2b08a",
+  "C": "#b8743a",
+  "c": "#7c4a25",
+  "t": "#3f6f78",
+  "T": "#5a9aa2",
+  "B": "#3a2723",
+  "S": "#d2a777",
+  "D": "#4b3a32",
+  "F": "#c4553c",
+  "f": "#8a3427",
+  "y": "#f2c35e"
+ },
+ "masks": {
+  "frill": {
+   "frames": {
+    "idle_0": [
+     "...OOOOO..........",
+     "..OhhhhhO......O..",
+     ".OhFFyFFhO....OhO.",
+     "OhFyFFFFFhO..OhjO.",
+     "OhFFFFyFFFhOOhjO..",
+     "OhfFyFFWWWWWhjO...",
+     "OhfFFFWWWWWWWWhO..",
+     ".OhfFWWKWWKWWWWO..",
+     ".OhfFWWKWWKWWWwO..",
+     "..OhfwWWWWWWWwO...",
+     "...OhcwwwwwwwO....",
+     "....OOcCwwwwO.....",
+     ".....OcCCCCCCO....",
+     "....OcCCtTTCCSO...",
+     "....OcCCBBBBCSO...",
+     "....OcCCtTTCCO....",
+     "....OcccCCCCCO....",
+     ".....OODDODDDO....",
+     ".......OO.OOO....."
+    ],
+    "idle_1": [
+     "..................",
+     "...OOOOO..........",
+     "..OhhhhhO......O..",
+     ".OhFFyFFhO....OhO.",
+     "OhFyFFFFFhO..OhjO.",
+     "OhFFFFyFFFhOOhjO..",
+     "OhfFyFFWWWWWhjO...",
+     "OhfFFFWWWWWWWWhO..",
+     ".OhfFWWKWWKWWWWO..",
+     ".OhfFWWKWWKWWWwO..",
+     "..OhfwWWWWWWWwO...",
+     "...OhcwwwwwwwO....",
+     "....OOcCwwwwCO....",
+     "....OcCCtTTCCSO...",
+     "....OcCCBBBBCSO...",
+     "....OcCCtTTCCO....",
+     "....OcccCCCCCO....",
+     ".....OODDODDDO....",
+     ".......OO.OOO....."
+    ],
+    "run_0": [
+     "..................",
+     "....OOOOO.........",
+     "...OhhhhhO......O.",
+     "..OhFFyFFhO....OhO",
+     ".OhFyFFFFFhO..OhjO",
+     ".OhFFFFyFFFhOOhjO.",
+     ".OhfFyFFWWWWWhjO..",
+     ".OhfFFFWWWWWWWWhO.",
+     "..OhfFWWKWWKWWWWO.",
+     "..OhfFWWKWWKWWWwO.",
+     "...OhfwWWWWWWWwO..",
+     "....OhcwwwwwwwO...",
+     ".....OccCwwwwOO...",
+     "....OcCCtTTCCCSO..",
+     "...OScCCBBBBCCO...",
+     "....OcCCtTTCCCO...",
+     "...OcccCCCCCCO....",
+     "...ODDOOOOOODDO...",
+     "....OO......OO...."
+    ],
+    "run_1": [
+     "..................",
+     "....OOOOO.........",
+     "...OhhhhhO......O.",
+     "..OhFFyFFhO....OhO",
+     ".OhFyFFFFFhO..OhjO",
+     ".OhFFFFyFFFhOOhjO.",
+     ".OhfFyFFWWWWWhjO..",
+     ".OhfFFFWWWWWWWWhO.",
+     "..OhfFWWKWWKWWWWO.",
+     "..OhfFWWKWWKWWWwO.",
+     "...OhfwWWWWWWWwO..",
+     "....OhcwwwwwwwO...",
+     ".....OccCwwwwO....",
+     "....OcCCtTTCCSO...",
+     "....OSCCBBBBCO....",
+     "....OcCCtTTCCCO...",
+     "....OccCCCCCCO....",
+     "....ODDOOODDDO....",
+     ".....OO...OOO....."
+    ],
+    "run_2": [
+     "....OOOOO.........",
+     "...OhhhhhO......O.",
+     "..OhFFyFFhO....OhO",
+     ".OhFyFFFFFhO..OhjO",
+     ".OhFFFFyFFFhOOhjO.",
+     ".OhfFyFFWWWWWhjO..",
+     ".OhfFFFWWWWWWWWhO.",
+     "..OhfFWWKWWKWWWWO.",
+     "..OhfFWWKWWKWWWwO.",
+     "...OhfwWWWWWWWwO..",
+     "....OhcwwwwwwwO...",
+     ".....OOcCwwwwO....",
+     ".....OcCCCCCCO....",
+     "....OcCCtTTCCO....",
+     "....OcCSBBBBCO....",
+     "....OcCCtTTCCO....",
+     ".....OcCCCCCO.....",
+     "......ODDDOO......",
+     ".......OOO........"
+    ],
+    "run_3": [
+     "..................",
+     "....OOOOO.........",
+     "...OhhhhhO......O.",
+     "..OhFFyFFhO....OhO",
+     ".OhFyFFFFFhO..OhjO",
+     ".OhFFFFyFFFhOOhjO.",
+     ".OhfFyFFWWWWWhjO..",
+     ".OhfFFFWWWWWWWWhO.",
+     "..OhfFWWKWWKWWWWO.",
+     "..OhfFWWKWWKWWWwO.",
+     "...OhfwWWWWWWWwO..",
+     "....OhcwwwwwwwO...",
+     "....OOccCwwwwO....",
+     "...OScCCtTTCCOO...",
+     "....OcCCBBBBCCSO..",
+     "....OcCCtTTCCCO...",
+     "...OcccCCCCCCO....",
+     "...ODDDOOOOODDO...",
+     "....OOO.....OO...."
+    ],
+    "run_4": [
+     "..................",
+     "....OOOOO.........",
+     "...OhhhhhO......O.",
+     "..OhFFyFFhO....OhO",
+     ".OhFyFFFFFhO..OhjO",
+     ".OhFFFFyFFFhOOhjO.",
+     ".OhfFyFFWWWWWhjO..",
+     ".OhfFFFWWWWWWWWhO.",
+     "..OhfFWWKWWKWWWWO.",
+     "..OhfFWWKWWKWWWwO.",
+     "...OhfwWWWWWWWwO..",
+     "....OhcwwwwwwwO...",
+     ".....OccCwwwwO....",
+     "....OcCCtTTCCO....",
+     "....OcCCBBBBCSO...",
+     "....OcCCtTTCCCO...",
+     "....OccCCCCCCO....",
+     ".....ODDOODDO.....",
+     "......OO..OO......"
+    ],
+    "run_5": [
+     "....OOOOO.........",
+     "...OhhhhhO......O.",
+     "..OhFFyFFhO....OhO",
+     ".OhFyFFFFFhO..OhjO",
+     ".OhFFFFyFFFhOOhjO.",
+     ".OhfFyFFWWWWWhjO..",
+     ".OhfFFFWWWWWWWWhO.",
+     "..OhfFWWKWWKWWWWO.",
+     "..OhfFWWKWWKWWWwO.",
+     "...OhfwWWWWWWWwO..",
+     "....OhcwwwwwwwO...",
+     ".....OOcCwwwwO....",
+     ".....OcCCCCCCO....",
+     "....OcCCtTTCCO....",
+     "....OcCCBBBSCO....",
+     "....OcCCtTTCCO....",
+     ".....OcCCCCCO.....",
+     "......OODDOO......",
+     "........OO........"
+    ],
+    "rise": [
+     "...OOOOO..........",
+     "..OhhhhhO......O..",
+     ".OhFFyFFhO....OhO.",
+     "OhFyFFFFFhO..OhjO.",
+     "OhFFFFyFFFhOOhjO..",
+     "OhfFyFFWWWWWhjO...",
+     "OhfFFFWWWWWWWWhO..",
+     ".OhfFWWKWWKWWWWO..",
+     ".OhfFWWKWWKWWWwO..",
+     "..OhfwWWWWWWWwO...",
+     "...OhcwwwwwwwO....",
+     "....OOcCwwwwOO....",
+     "....OScCCCCCCSO...",
+     "....OcCCtTTCCO....",
+     "....OcCCBBBBCO....",
+     "....OcCCtTTCCO....",
+     ".....OcCCCCCO.....",
+     "......ODDODDO.....",
+     ".......OO.OO......"
+    ],
+    "fall": [
+     "...OOOOO..........",
+     "..OhhhhhO......O..",
+     ".OhFFyFFhO....OhO.",
+     "OhFyFFFFFhO..OhjO.",
+     "OhFFFFyFFFhOOhjO..",
+     "OhfFyFFWWWWWhjO...",
+     "OhfFFFWWWWWWWWhO..",
+     ".OhfFWWKWWKWWWWO..",
+     ".OhfFWWKWWKWWWwO..",
+     "..OhfwWWWWWWWwO...",
+     "...OhcwwwwwwwO....",
+     "....OOcCwwwwO.O...",
+     "...OSOcCCCCCCOSO..",
+     "....OcCCtTTCCOO...",
+     "....OcCCBBBBCO....",
+     "...OcCCCtTTCCCO...",
+     "..OccCCCCCCCCCcO..",
+     "...OODDOOOODDOO...",
+     ".....OO....OO....."
+    ],
+    "glide_0": [
+     "...OOOOO..........",
+     "..OhhhhhO......O..",
+     ".OhFFyFFhO....OhO.",
+     "OhFyFFFFFhO..OhjO.",
+     "OhFFFFyFFFhOOhjO..",
+     "OhfFyFFWWWWWhjO...",
+     "OhfFFFWWWWWWWWhO..",
+     ".OhfFWWKWWKWWWWO..",
+     ".OhfFWWKWWKWWWwO..",
+     "..OhfwWWWWWWWwO...",
+     "...OhcwwwwwwwO....",
+     "...OOOcCwwwwOO....",
+     "..OSScCCCCCCSSO...",
+     "...OOcCCtTTCCO....",
+     "....OcCCBBBBCO....",
+     "....OcCCtTTCCO....",
+     "....OccCCCCCCO....",
+     ".....ODOOOODO.....",
+     "......O....O......"
+    ],
+    "glide_1": [
+     "...OOOOO..........",
+     "..OhhhhhO......O..",
+     ".OhFFyFFhO....OhO.",
+     "OhFyFFFFFhO..OhjO.",
+     "OhFFFFyFFFhOOhjO..",
+     "OhfFyFFWWWWWhjO...",
+     "OhfFFFWWWWWWWWhO..",
+     ".OhfFWWKWWKWWWWO..",
+     ".OhfFWWKWWKWWWwO..",
+     "..OhfwWWWWWWWwO...",
+     "...OhcwwwwwwwO....",
+     "....OOcCwwwwO.....",
+     "...OOOcCCCCCCOO...",
+     "..OSScCCtTTCCSSO..",
+     "...OOcCCBBBBCOO...",
+     "....OcCCtTTCCO....",
+     "....OccCCCCCCO....",
+     ".....ODOOOODO.....",
+     "......O....O......"
+    ]
+   },
+   "anchors": {
+    "idle_0": {
+     "head_back": [
+      2,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "idle_1": {
+     "head_back": [
+      2,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_0": {
+     "head_back": [
+      3,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_1": {
+     "head_back": [
+      3,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_2": {
+     "head_back": [
+      3,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_3": {
+     "head_back": [
+      3,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_4": {
+     "head_back": [
+      3,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_5": {
+     "head_back": [
+      3,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "rise": {
+     "head_back": [
+      2,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "fall": {
+     "head_back": [
+      2,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "glide_0": {
+     "head_back": [
+      2,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "glide_1": {
+     "head_back": [
+      2,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    }
+   },
+   "order": [
+    "idle_0",
+    "idle_1",
+    "run_0",
+    "run_1",
+    "run_2",
+    "run_3",
+    "run_4",
+    "run_5",
+    "rise",
+    "fall",
+    "glide_0",
+    "glide_1"
+   ]
+  },
+  "cowl": {
+   "frames": {
+    "idle_0": [
+     "...........O...O..",
+     "..........OhO.OhO.",
+     ".....OO..OhjOOhjO.",
+     "....OcCOOhjOOhjO..",
+     "...OcCCOhjOOhjO...",
+     "...OcCwWWWWWWWWO..",
+     "...OcCWWWWWWWWWhO.",
+     "...OcCWWKWWKWWWWO.",
+     "...OcCWWKWWKWWWwO.",
+     "...OccwWWWWWWWwO..",
+     "....OcCwwwwwwwO...",
+     ".....OcCwwwwOO....",
+     ".....OcCCCCCCO....",
+     "....OcCCtTTCCSO...",
+     "....OcCCBBBBCSO...",
+     "....OcCCtTTCCO....",
+     "....OcccCCCCCO....",
+     ".....OODDODDDO....",
+     ".......OO.OOO....."
+    ],
+    "idle_1": [
+     "..................",
+     "...........O...O..",
+     "..........OhO.OhO.",
+     ".....OO..OhjOOhjO.",
+     "....OcCOOhjOOhjO..",
+     "...OcCCOhjOOhjO...",
+     "...OcCwWWWWWWWWO..",
+     "...OcCWWWWWWWWWhO.",
+     "...OcCWWKWWKWWWWO.",
+     "...OcCWWKWWKWWWwO.",
+     "...OccwWWWWWWWwO..",
+     "....OcCwwwwwwwO...",
+     ".....OcCwwwwCO....",
+     "....OcCCtTTCCSO...",
+     "....OcCCBBBBCSO...",
+     "....OcCCtTTCCO....",
+     "....OcccCCCCCO....",
+     ".....OODDODDDO....",
+     ".......OO.OOO....."
+    ],
+    "run_0": [
+     "..................",
+     "............O...O.",
+     "...........OhO.OhO",
+     "......OO..OhjOOhjO",
+     ".....OcCOOhjOOhjO.",
+     "....OcCCOhjOOhjO..",
+     "....OcCwWWWWWWWWO.",
+     "....OcCWWWWWWWWWhO",
+     "....OcCWWKWWKWWWWO",
+     "....OcCWWKWWKWWWwO",
+     "....OccwWWWWWWWwO.",
+     ".....OcCwwwwwwwO..",
+     ".....OccCwwwwOO...",
+     "....OcCCtTTCCCSO..",
+     "...OScCCBBBBCCO...",
+     "....OcCCtTTCCCO...",
+     "...OcccCCCCCCO....",
+     "...ODDOOOOOODDO...",
+     "....OO......OO...."
+    ],
+    "run_1": [
+     "..................",
+     "............O...O.",
+     "...........OhO.OhO",
+     "......OO..OhjOOhjO",
+     ".....OcCOOhjOOhjO.",
+     "....OcCCOhjOOhjO..",
+     "....OcCwWWWWWWWWO.",
+     "....OcCWWWWWWWWWhO",
+     "....OcCWWKWWKWWWWO",
+     "....OcCWWKWWKWWWwO",
+     "....OccwWWWWWWWwO.",
+     ".....OcCwwwwwwwO..",
+     ".....OccCwwwwOO...",
+     "....OcCCtTTCCSO...",
+     "....OSCCBBBBCO....",
+     "....OcCCtTTCCCO...",
+     "....OccCCCCCCO....",
+     "....ODDOOODDDO....",
+     ".....OO...OOO....."
+    ],
+    "run_2": [
+     "............O...O.",
+     "...........OhO.OhO",
+     "......OO..OhjOOhjO",
+     ".....OcCOOhjOOhjO.",
+     "....OcCCOhjOOhjO..",
+     "....OcCwWWWWWWWWO.",
+     "....OcCWWWWWWWWWhO",
+     "....OcCWWKWWKWWWWO",
+     "....OcCWWKWWKWWWwO",
+     "....OccwWWWWWWWwO.",
+     ".....OcCwwwwwwwO..",
+     "......OcCwwwwOO...",
+     ".....OcCCCCCCO....",
+     "....OcCCtTTCCO....",
+     "....OcCSBBBBCO....",
+     "....OcCCtTTCCO....",
+     ".....OcCCCCCO.....",
+     "......ODDDOO......",
+     ".......OOO........"
+    ],
+    "run_3": [
+     "..................",
+     "............O...O.",
+     "...........OhO.OhO",
+     "......OO..OhjOOhjO",
+     ".....OcCOOhjOOhjO.",
+     "....OcCCOhjOOhjO..",
+     "....OcCwWWWWWWWWO.",
+     "....OcCWWWWWWWWWhO",
+     "....OcCWWKWWKWWWWO",
+     "....OcCWWKWWKWWWwO",
+     "....OccwWWWWWWWwO.",
+     ".....OcCwwwwwwwO..",
+     "....OOccCwwwwOO...",
+     "...OScCCtTTCCOO...",
+     "....OcCCBBBBCCSO..",
+     "....OcCCtTTCCCO...",
+     "...OcccCCCCCCO....",
+     "...ODDDOOOOODDO...",
+     "....OOO.....OO...."
+    ],
+    "run_4": [
+     "..................",
+     "............O...O.",
+     "...........OhO.OhO",
+     "......OO..OhjOOhjO",
+     ".....OcCOOhjOOhjO.",
+     "....OcCCOhjOOhjO..",
+     "....OcCwWWWWWWWWO.",
+     "....OcCWWWWWWWWWhO",
+     "....OcCWWKWWKWWWWO",
+     "....OcCWWKWWKWWWwO",
+     "....OccwWWWWWWWwO.",
+     ".....OcCwwwwwwwO..",
+     ".....OccCwwwwOO...",
+     "....OcCCtTTCCO....",
+     "....OcCCBBBBCSO...",
+     "....OcCCtTTCCCO...",
+     "....OccCCCCCCO....",
+     ".....ODDOODDO.....",
+     "......OO..OO......"
+    ],
+    "run_5": [
+     "............O...O.",
+     "...........OhO.OhO",
+     "......OO..OhjOOhjO",
+     ".....OcCOOhjOOhjO.",
+     "....OcCCOhjOOhjO..",
+     "....OcCwWWWWWWWWO.",
+     "....OcCWWWWWWWWWhO",
+     "....OcCWWKWWKWWWWO",
+     "....OcCWWKWWKWWWwO",
+     "....OccwWWWWWWWwO.",
+     ".....OcCwwwwwwwO..",
+     "......OcCwwwwOO...",
+     ".....OcCCCCCCO....",
+     "....OcCCtTTCCO....",
+     "....OcCCBBBSCO....",
+     "....OcCCtTTCCO....",
+     ".....OcCCCCCO.....",
+     "......OODDOO......",
+     "........OO........"
+    ],
+    "rise": [
+     "...........O...O..",
+     "..........OhO.OhO.",
+     ".....OO..OhjOOhjO.",
+     "....OcCOOhjOOhjO..",
+     "...OcCCOhjOOhjO...",
+     "...OcCwWWWWWWWWO..",
+     "...OcCWWWWWWWWWhO.",
+     "...OcCWWKWWKWWWWO.",
+     "...OcCWWKWWKWWWwO.",
+     "...OccwWWWWWWWwO..",
+     "....OcCwwwwwwwO...",
+     ".....OcCwwwwOO....",
+     "....OScCCCCCCSO...",
+     "....OcCCtTTCCO....",
+     "....OcCCBBBBCO....",
+     "....OcCCtTTCCO....",
+     ".....OcCCCCCO.....",
+     "......ODDODDO.....",
+     ".......OO.OO......"
+    ],
+    "fall": [
+     "...........O...O..",
+     "..........OhO.OhO.",
+     ".....OO..OhjOOhjO.",
+     "....OcCOOhjOOhjO..",
+     "...OcCCOhjOOhjO...",
+     "...OcCwWWWWWWWWO..",
+     "...OcCWWWWWWWWWhO.",
+     "...OcCWWKWWKWWWWO.",
+     "...OcCWWKWWKWWWwO.",
+     "...OccwWWWWWWWwO..",
+     "....OcCwwwwwwwO...",
+     "....OOcCwwwwOOO...",
+     "...OSOcCCCCCCOSO..",
+     "....OcCCtTTCCOO...",
+     "....OcCCBBBBCO....",
+     "...OcCCCtTTCCCO...",
+     "..OccCCCCCCCCCcO..",
+     "...OODDOOOODDOO...",
+     ".....OO....OO....."
+    ],
+    "glide_0": [
+     "...........O...O..",
+     "..........OhO.OhO.",
+     ".....OO..OhjOOhjO.",
+     "....OcCOOhjOOhjO..",
+     "...OcCCOhjOOhjO...",
+     "...OcCwWWWWWWWWO..",
+     "...OcCWWWWWWWWWhO.",
+     "...OcCWWKWWKWWWWO.",
+     "...OcCWWKWWKWWWwO.",
+     "...OccwWWWWWWWwO..",
+     "....OcCwwwwwwwO...",
+     "...OOOcCwwwwOO....",
+     "..OSScCCCCCCSSO...",
+     "...OOcCCtTTCCO....",
+     "....OcCCBBBBCO....",
+     "....OcCCtTTCCO....",
+     "....OccCCCCCCO....",
+     ".....ODOOOODO.....",
+     "......O....O......"
+    ],
+    "glide_1": [
+     "...........O...O..",
+     "..........OhO.OhO.",
+     ".....OO..OhjOOhjO.",
+     "....OcCOOhjOOhjO..",
+     "...OcCCOhjOOhjO...",
+     "...OcCwWWWWWWWWO..",
+     "...OcCWWWWWWWWWhO.",
+     "...OcCWWKWWKWWWWO.",
+     "...OcCWWKWWKWWWwO.",
+     "...OccwWWWWWWWwO..",
+     "....OcCwwwwwwwO...",
+     ".....OcCwwwwOO....",
+     "...OOOcCCCCCCOO...",
+     "..OSScCCtTTCCSSO..",
+     "...OOcCCBBBBCOO...",
+     "....OcCCtTTCCO....",
+     "....OccCCCCCCO....",
+     ".....ODOOOODO.....",
+     "......O....O......"
+    ]
+   },
+   "anchors": {
+    "idle_0": {
+     "head_back": [
+      5,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "idle_1": {
+     "head_back": [
+      5,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_0": {
+     "head_back": [
+      6,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_1": {
+     "head_back": [
+      6,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_2": {
+     "head_back": [
+      6,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_3": {
+     "head_back": [
+      6,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_4": {
+     "head_back": [
+      6,
+      9
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "run_5": {
+     "head_back": [
+      6,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "rise": {
+     "head_back": [
+      5,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "fall": {
+     "head_back": [
+      5,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "glide_0": {
+     "head_back": [
+      5,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    },
+    "glide_1": {
+     "head_back": [
+      5,
+      8
+     ],
+     "shoulder": [
+      6,
+      13
+     ],
+     "hip": [
+      6,
+      16
+     ]
+    }
+   },
+   "order": [
+    "idle_0",
+    "idle_1",
+    "run_0",
+    "run_1",
+    "run_2",
+    "run_3",
+    "run_4",
+    "run_5",
+    "rise",
+    "fall",
+    "glide_0",
+    "glide_1"
+   ]
+  }
+ }
+}

@@ -34,6 +34,9 @@ extends Node2D
 ##     DepthGate's use_requested is connected to go_through_gate: Up in a gate
 ##     steps into its twin's room, one depth deeper or shallower. The step's
 ##     animation is GateStep's; this script only checks the gate and swaps rooms.
+##   - Teleport doors: every TeleportDoor's use_requested is connected to
+##     go_through_teleport: Up in an entrance puts the player at the exit of its color.
+##   - Ghosts: makes the GhostRuns node, which records the fastest run of each room.
 
 ## How far around the player's hitbox a room counts as "near" and stays awake, in
 ## pixels. A room wakes up a little BEFORE the player reaches it, so its doors,
@@ -59,6 +62,12 @@ var backdrop: Backdrop = null
 var back_room_view: BackRoomView = null
 ## Plays a depth gate's step (go_through_gate), made with the view behind.
 var gate_step: GateStep = null
+## Records each room's fastest run and shows its ghost (made in _add_backdrop).
+var ghost_runs: GhostRuns = null
+## The name the ghosts of this level are saved under. Empty: the level's own file
+## (scene_file_path). The level editor sets it before a play-test, whose copy of the
+## level has no file of its own.
+var ghost_level_key: String = ""
 
 
 func _ready() -> void:
@@ -73,6 +82,9 @@ func _ready() -> void:
 	for member: Node in get_tree().get_nodes_in_group(DepthGate.GROUP):
 		if is_ancestor_of(member):
 			(member as DepthGate).use_requested.connect(go_through_gate)
+	for member: Node in get_tree().get_nodes_in_group(TeleportDoor.GROUP):
+		if is_ancestor_of(member):
+			(member as TeleportDoor).use_requested.connect(go_through_teleport)
 
 	camera.follow_target = player
 	current_room = _find_room_containing(_get_player_center())
@@ -145,6 +157,13 @@ func _add_backdrop() -> void:
 	dark_overlay.player = player
 	dark_overlay.rooms = rooms
 	add_child(dark_overlay)
+	# The fastest run of each room, and its ghost (the pause menu's Ghost option).
+	ghost_runs = GhostRuns.new()
+	ghost_runs.name = "GhostRuns"
+	ghost_runs.manager = self
+	ghost_runs.player = player
+	ghost_runs.level_key = ghost_level_key if ghost_level_key != "" else scene_file_path
+	add_child(ghost_runs)
 
 
 ## _unhandled_input receives key presses not already used by UI.
@@ -214,11 +233,38 @@ func _enter_through_gate(twin_room: Room) -> void:
 	_update_awake_rooms()
 
 
+## Through a teleport door (TeleportDoor.use_requested: Up while standing in an
+## entrance) to the exit of its color, which may be in any room of the level. One
+## way: exits never ask. No slide: a flash in the door's color hides the cut, and the
+## camera snaps to the exit's room. Nothing is reset and no death is counted; from
+## now on the player respawns in the exit's room.
+func go_through_teleport(door: TeleportDoor) -> void:
+	var exit_door: TeleportDoor = door.find_exit() if is_instance_valid(door) else null
+	if exit_door == null or is_transitioning or player.is_dead() or GameState.is_run_finished:
+		return
+	var exit_room: Room = Room.find_room_of(exit_door)
+	if exit_room == null:
+		return
+	_set_room_awake(exit_room, true)
+	if exit_room != current_room:
+		exit_room.reset_enemies()
+		current_room = exit_room
+		GameState.current_room = exit_room
+	player.global_position = exit_door.get_feet_position()
+	player.velocity = Vector2.ZERO
+	camera.snap_to_room(exit_room.get_bounds())
+	_update_awake_rooms()
+	FX.play_sfx(&"teleport")
+	FX.flash_screen(Color(KeyColors.get_color(door.door_color), 0.5), player.tuning.respawn_flash_time)
+
+
 ## Teleports the player to `target_room`'s spawn and snaps the camera there, with no
 ## slide and without counting a death. Used by the debug room picker (F2).
 func jump_to_room(target_room: Room) -> void:
 	if is_transitioning:
 		return
+	if ghost_runs != null:
+		ghost_runs.cancel_run()  # a jump is not a run through the room
 	current_room = target_room
 	GameState.current_room = target_room
 	target_room.reset_objects()
@@ -236,12 +282,26 @@ func _on_player_died() -> void:
 	await get_tree().create_timer(player.tuning.death_respawn_delay).timeout
 	# Reset at respawn time, not at death: during the death effect the room still
 	# shows what happened.
-	for room: Room in rooms:
-		room.reset_objects()
+	_reset_all_rooms()
 	player.respawn_at(current_room.get_spawn_position())
 	_update_awake_rooms()
 	# A soft white flash (alpha 0.35, not a full white-out) hides the teleport.
 	FX.flash_screen(Color(1.0, 1.0, 1.0, 0.35), player.tuning.respawn_flash_time)
+
+
+## Puts every room's resettable objects back, in ONE pass over the group (in tree
+## order, so room by room as before). Calling Room.reset_objects() on each room did
+## the same but walked the whole group once PER ROOM: in a level of 40 rooms and a
+## few hundred objects that was tens of thousands of ancestor checks on every
+## respawn. Only objects inside one of this level's rooms are reset, as before.
+func _reset_all_rooms() -> void:
+	for member: Node in get_tree().get_nodes_in_group(Room.RESETTABLE_GROUP):
+		# One object's reset may free another (a block's landed tiles, a creation).
+		if not is_instance_valid(member):
+			continue
+		var member_room: Room = Room.find_room_of(member)
+		if member_room != null and member_room.get_parent() == self:
+			member.call(&"reset")
 
 
 ## Wakes the current room and every room within AWAKE_MARGIN of the player's

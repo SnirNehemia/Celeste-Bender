@@ -264,7 +264,7 @@ func _update_held_flame() -> void:
 	# The tongues live on game time: speed them up by 1 / time_scale so they still
 	# dance at full speed while the world is slowed.
 	for tongue: FlameTongue in held_tongues:
-		tongue.flicker_speed = 2.5 / maxf(Engine.time_scale, 0.05)
+		tongue.flicker_speed = 2.5 / maxf(FX.slow_motion_scale, 0.05)
 	held_flame.get_node("Core").queue_redraw()
 
 

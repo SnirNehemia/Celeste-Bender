@@ -94,7 +94,7 @@ front of the player. Code: `key_colors.gd`, `key_orb.gd`, `key_light.gd`,
 - Palette: Crystals tab, "Relic shard" and "Golden feather".
 
 ## 5. Ideas parking lot
+(Built since: the pause menu's "Restart level", a fresh run of the whole level, for golden attempts.)
 - A HUD line that flashes "2/4" for a moment when a shard is secured.
-- A "Restart level" button in the pause menu, handy for golden attempts.
 - A relic gallery page in the main menu: every relic found across all levels.
 - Per-level relic names and a line of lore when one is completed.

@@ -303,11 +303,11 @@ func _start_animating() -> void:
 # --- Animation -------------------------------------------------------------------
 
 ## Runs only while something fades or shivers (set_process toggles it).
-## Uses REAL time (delta undone by Engine.time_scale): the bend's slow motion
+## Uses REAL time (delta undone by FX.slow_motion_scale; the assist game speed still slows it): the bend's slow motion
 ## shouldn't slow the earth's own feedback, so the shiver keeps pace with the
 ## real-time shadow.
 func _process(delta: float) -> void:
-	var real_delta: float = delta / maxf(Engine.time_scale, 0.001)
+	var real_delta: float = delta / maxf(FX.slow_motion_scale, 0.001)
 	var is_animating: bool = false
 
 	var fade_time: float = maxf(earth_tuning.used_fade_time, 0.001)

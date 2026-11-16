@@ -43,6 +43,10 @@ var is_menu_open: bool = false
 var is_step_paused: bool = false
 ## The game speed when not frozen: 1.0 normally, lower during slow motion.
 var slow_motion_scale: float = 1.0
+## The player's assist game speed (AssistOptions.game_speed, the pause menu):
+## 1.0 normally. Multiplied into Engine.time_scale next to the slow motion, so the
+## two never overwrite each other.
+var assist_speed: float = 1.0
 ## Bumped on every set/clear, so an old safety timer can tell it's out of date.
 var slow_motion_id: int = 0
 ## Debug: print every play_sfx() call as "[SFX] name", to check the hooks fire.
@@ -63,6 +67,10 @@ var gravel_fade_gradient: Gradient
 func _ready() -> void:
 	# A CanvasLayer draws its children fixed on screen, above the game world.
 	# Layer 10: above the game, below the end screen (15) and room picker (20).
+	# The player's saved options (game speed...). Not in headless runs: those are the
+	# smoke tests, whose timing checks must not depend on what the player chose.
+	if DisplayServer.get_name() != "headless":
+		AssistOptions.load_options()
 	var flash_layer: CanvasLayer = CanvasLayer.new()
 	flash_layer.layer = 10
 	add_child(flash_layer)
@@ -198,7 +206,7 @@ func set_slow_motion(time_scale: float, max_real_seconds: float) -> void:
 	slow_motion_scale = time_scale
 	slow_motion_id += 1
 	var my_id: int = slow_motion_id
-	Engine.time_scale = slow_motion_scale
+	Engine.time_scale = slow_motion_scale * assist_speed
 	# Real-time timer (last argument): it isn't slowed down by the slow motion itself.
 	await get_tree().create_timer(max_real_seconds, true, false, true).timeout
 	# Only clear if no newer set/clear happened in the meantime.
@@ -210,7 +218,14 @@ func set_slow_motion(time_scale: float, max_real_seconds: float) -> void:
 func clear_slow_motion() -> void:
 	slow_motion_scale = 1.0
 	slow_motion_id += 1
-	Engine.time_scale = 1.0
+	Engine.time_scale = assist_speed
+
+
+## Sets the assist game speed (AssistOptions) and applies it at once, keeping any
+## slow motion that is running.
+func set_assist_speed(speed: float) -> void:
+	assist_speed = speed
+	Engine.time_scale = slow_motion_scale * assist_speed
 
 
 ## _process runs every rendered frame. During a freeze this node is paused too

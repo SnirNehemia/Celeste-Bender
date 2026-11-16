@@ -245,8 +245,6 @@ static func _slugify(title: String) -> String:
 	return slug if slug != "" else "level"
 
 
-## Builds the level's nodes from its file, outside the scene tree (nothing runs
-## _ready). The caller frees the result.
 # --- Auto-save backups and the last level opened ---
 
 ## Where LevelEditor's auto-save keeps backups of levels with unsaved changes, one
@@ -302,6 +300,8 @@ static func get_last_opened() -> String:
 	return path if FileAccess.file_exists(path) else ""
 
 
+## Builds the level's nodes from its file, outside the scene tree (nothing runs
+## _ready). The caller frees the result.
 static func _instantiate(path: String) -> Node:
 	var packed: PackedScene = load_level(path)
 	if packed == null:

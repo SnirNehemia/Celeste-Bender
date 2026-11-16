@@ -34,8 +34,13 @@ extends RefCounted
 ##
 ## Snapping ("180 + whole tiles", decided in Stage L7):
 ##   - widths are whole tiles, at least one screen (320)
-##   - heights are 180 + whole tiles (180, 188, 196...): like every existing room,
-##     the last tile row always hangs half below the room's bottom edge
+##   - heights are 180 + whole tiles (180, 188, 196...) while dragging freely: like
+##     every existing room, the last tile row hangs half below the room's bottom edge.
+##     A BOTTOM edge snapping to a neighbour's edge may also stop half a tile in
+##     between (184, 192...: the last row then sits fully inside), so a room can
+##     close a gap between rooms on different half-tile grids (play-test: two
+##     180 px rooms stacked beside one tall room can't both line up with it
+##     otherwise). Every cell count rounds up (ceil), so nothing needs the half row.
 ##   - positions are on the 8 px grid, or on a neighbour's edge when close to it
 ##     (a room under a 180 px room starts at y = 180, half a tile off the grid);
 ##     a room beside another then lines its tile rows up with that neighbour's
@@ -453,6 +458,12 @@ static func snap_height(height: float) -> float:
 	return MIN_ROOM_SIZE.y + maxf(0.0, roundf((height - MIN_ROOM_SIZE.y) / TILE)) * TILE
 
 
+## True if `height` is a height a bottom edge may snap to: at least one screen and
+## a whole number of HALF tiles past it (180, 184, 188...; see the header).
+static func is_half_tile_height(height: float) -> bool:
+	return height >= MIN_ROOM_SIZE.y and is_zero_approx(fposmod(height - MIN_ROOM_SIZE.y, HALF_TILE))
+
+
 ## The rectangle of a new room dragged from `start` to `end`: snapped sizes,
 ## growing from `start` toward the mouse, placed like a moved room.
 func snap_new_room(start: Vector2, end: Vector2, snap_distance: float) -> Rect2:
@@ -578,6 +589,7 @@ func snap_resized(start_rect: Rect2, edges: int, mouse: Vector2, ignore: Room, s
 		if room != ignore:
 			neighbour_edges_x.append_array([room_rect(room).position.x, room_rect(room).end.x])
 			neighbour_edges_y.append_array([room_rect(room).position.y, room_rect(room).end.y])
+	_warn_if_edge_out_of_reach(start_rect, edges, mouse, neighbour_edges_x, neighbour_edges_y, snap_distance)
 	if edges & EDGE_RIGHT:
 		var width: float = snap_width(mouse.x - rect.position.x)
 		rect.size.x = _snap_to_neighbour(rect.position.x + width, neighbour_edges_x, snap_distance,
@@ -590,8 +602,11 @@ func snap_resized(start_rect: Rect2, edges: int, mouse: Vector2, ignore: Room, s
 		rect = Rect2(left, rect.position.y, right - left, rect.size.y)
 	if edges & EDGE_BOTTOM:
 		var height: float = snap_height(mouse.y - rect.position.y)
+		# A neighbour's edge may also be half a tile off the free-drag heights (see
+		# is_half_tile_height): that's how a room closes a gap between two rooms
+		# on different half-tile grids.
 		rect.size.y = _snap_to_neighbour(rect.position.y + height, neighbour_edges_y, snap_distance,
-			func(edge: float) -> bool: return snap_height(edge - rect.position.y) == edge - rect.position.y) - rect.position.y
+			func(edge: float) -> bool: return is_half_tile_height(edge - rect.position.y)) - rect.position.y
 	elif edges & EDGE_TOP:
 		var bottom: float = start_rect.end.y
 		var top: float = _grow_in_tiles(start_rect.position.y, mouse.y, bottom - MIN_ROOM_SIZE.y)
@@ -599,6 +614,41 @@ func snap_resized(start_rect: Rect2, edges: int, mouse: Vector2, ignore: Room, s
 			func(edge: float) -> bool: return bottom - edge >= MIN_ROOM_SIZE.y and is_zero_approx(fmod(edge - start_rect.position.y, TILE)))
 		rect = Rect2(rect.position.x, top, rect.size.x, bottom - top)
 	return rect
+
+
+## HALF-TILE TRAPS (play-test: Room 26 couldn't join Room 17 and Room 14). Sizes
+## are whole tiles, and heights 180 + whole tiles, so the distance from a room's
+## fixed edge to a neighbour's edge can be HALF a tile off any size it may have:
+## the snap then silently refuses that edge and the room stops 4 px short. A
+## bottom edge may now stop half a tile in between (is_half_tile_height), so this
+## is left for the left, right and top edges: it says so while the dragged edge is
+## near such a neighbour edge, and what to do.
+func _warn_if_edge_out_of_reach(start_rect: Rect2, edges: int, mouse: Vector2,
+		neighbour_edges_x: Array[float], neighbour_edges_y: Array[float], snap_distance: float) -> void:
+	var dragged_edge: float = 0.0
+	var fixed_edge: float = 0.0
+	var neighbour_edges: Array[float] = []
+	if edges & (EDGE_LEFT | EDGE_RIGHT):
+		dragged_edge = mouse.x
+		fixed_edge = start_rect.position.x if edges & EDGE_RIGHT else start_rect.end.x
+		neighbour_edges = neighbour_edges_x
+	elif edges & EDGE_TOP:
+		# Only the top: a bottom edge may snap half a tile in between (is_half_tile_height),
+		# but a top edge moves in whole tiles so the contents stay on their cells.
+		dragged_edge = mouse.y
+		fixed_edge = start_rect.end.y
+		neighbour_edges = neighbour_edges_y
+	else:
+		return
+	for neighbour_edge: float in neighbour_edges:
+		# Every allowed size is a whole number of tiles from the fixed edge (180 is
+		# 22.5 tiles, hence the extra half for heights): a half-tile remainder means
+		# no allowed size reaches that edge.
+		var phase_shift: float = MIN_ROOM_SIZE.y if edges & (EDGE_TOP | EDGE_BOTTOM) else 0.0
+		var remainder: float = absf(fposmod(neighbour_edge - fixed_edge - phase_shift, TILE))
+		if absf(neighbour_edge - dragged_edge) <= snap_distance and is_equal_approx(remainder, HALF_TILE):
+			editor.ui.show_message("That edge is half a tile off this room's grid, so this side can't reach it. Drag the room's BOTTOM edge instead (it can stop half a tile in between), or move a room half a tile: hold %s while dragging (the red marks show where grids disagree)." % EditorHelp.key_text("editor_free_place"), true)
+			return
 
 
 ## A left or top edge moved from `start` toward `mouse` in whole tiles, never
@@ -632,6 +682,60 @@ func is_free(rect: Rect2, ignore: Room = null) -> bool:
 		if room != ignore and not drag_group.has(room) and rect.intersects(room_rect(room)):
 			return false
 	return true
+
+
+# --- Grid mismatches (the red marks) ---
+
+## Where two rooms of the same depth sit on DIFFERENT half-tile grids, as
+## [[from, to], ...] segments in level coordinates. Each room's tiles start at its
+## top-left corner, and since heights are 180 + whole tiles (22.5 + n tiles), a
+## room's grid can be half a tile off its neighbour's. Two cases:
+##   - rooms sharing a side whose tile rows (or, above/below, columns) are 4 px
+##     apart: walls and exits can't meet across that edge;
+##   - rooms 4 px apart (a half-tile gap): no room size can close it.
+## Snapping avoids both for the room being moved, but moving a neighbour later,
+## or a loop of rooms coming back round, can still make them. The map draws these
+## in red so they're seen before play-testing.
+func get_grid_mismatches() -> Array[Array]:
+	var mismatches: Array[Array] = []
+	var rooms: Array[Room] = editor.get_rooms()
+	for a_index: int in rooms.size():
+		for b_index: int in range(a_index + 1, rooms.size()):
+			var first: Room = rooms[a_index]
+			var second: Room = rooms[b_index]
+			if first.get_depth() == second.get_depth():
+				_add_grid_mismatch(room_rect(first), room_rect(second), mismatches)
+	return mismatches
+
+
+## Adds the mismatch between rooms `a` and `b` (if any) to `mismatches`.
+static func _add_grid_mismatch(a: Rect2, b: Rect2, mismatches: Array[Array]) -> void:
+	var overlap_top: float = maxf(a.position.y, b.position.y)
+	var overlap_bottom: float = minf(a.end.y, b.end.y)
+	var overlap_left: float = maxf(a.position.x, b.position.x)
+	var overlap_right: float = minf(a.end.x, b.end.x)
+	var rows_differ: bool = not _same_phase(a.position.y, b.position.y)
+	var columns_differ: bool = not _same_phase(a.position.x, b.position.x)
+	if overlap_bottom > overlap_top:
+		# Side by side: a shared edge with rows off, or a half-tile gap.
+		for pair: Array in [[a.end.x, b.position.x], [b.end.x, a.position.x]]:
+			var gap: float = (pair[1] as float) - (pair[0] as float)
+			if (is_zero_approx(gap) and rows_differ) or is_equal_approx(gap, HALF_TILE):
+				var x: float = ((pair[0] as float) + (pair[1] as float)) / 2.0
+				mismatches.append([Vector2(x, overlap_top), Vector2(x, overlap_bottom)])
+	if overlap_right > overlap_left:
+		# Above and below: a shared edge with columns off, or a half-tile gap.
+		for pair: Array in [[a.end.y, b.position.y], [b.end.y, a.position.y]]:
+			var gap: float = (pair[1] as float) - (pair[0] as float)
+			if (is_zero_approx(gap) and columns_differ) or is_equal_approx(gap, HALF_TILE):
+				var y: float = ((pair[0] as float) + (pair[1] as float)) / 2.0
+				mismatches.append([Vector2(overlap_left, y), Vector2(overlap_right, y)])
+
+
+## True if `first` and `second` are a whole number of tiles apart (same grid).
+static func _same_phase(first: float, second: float) -> bool:
+	var remainder: float = fposmod(first - second, TILE)
+	return is_zero_approx(remainder) or is_equal_approx(remainder, TILE)
 
 
 # --- Openings (the green exits) ---

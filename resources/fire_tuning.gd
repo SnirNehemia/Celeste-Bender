@@ -474,6 +474,9 @@ extends Resource
 ## The faint, small glow the player always carries in the dark: radius px, strength.
 @export var dark_player_light_radius: float = 22.0
 @export_range(0.0, 1.0) var dark_player_light_strength: float = 0.5
+## A lantern's light (scenes/objects/lantern.gd), carried or waiting: radius px, strength.
+@export var dark_lantern_light_radius: float = 52.0
+@export_range(0.0, 1.0) var dark_lantern_light_strength: float = 1.0
 ## A fire's light: this many times its heat glow's radius (a fireball's glimpse ahead).
 @export var dark_fire_light_scale: float = 3.0
 ## Steady fires light a larger area: a brazier's and a bonfire's light, times this.
