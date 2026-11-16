@@ -73,6 +73,8 @@ var held_source_tangent: Vector2i = Vector2i.ZERO
 var is_charging: bool = false
 ## HOVER AIM: the way the held rock will be thrown (a unit vector).
 var hover_aim: Vector2 = Vector2.RIGHT
+## Turns hover_aim toward the arrows (configured from EarthTuning in _set_hover_mode).
+var hover_sweep: AimSweep = AimSweep.new()
 ## A loose rock beside the player whose S press hasn't been decided yet: a tap
 ## shatters it, a hold lifts it. Null when nothing is pending.
 var pending_lift_rock: Boulder = null
@@ -263,21 +265,18 @@ func is_hover_aiming() -> bool:
 
 ## HOVER AIM: the arrows `held` (unit vector, or ZERO) aim the hovering rock. Called
 ## every physics tick by BoulderHold. CONTINUOUS AIM: the aim TURNS toward the arrows
-## (EarthTuning.boulder_aim_sweep_speed, abilities/aim_sweep.gd; 0 = it snaps to them)
-## and ZERO keeps it where it is, so letting go mid-turn throws at any angle.
+## (hover_sweep: faster the longer they're held; EarthTuning
+## boulder_aim_*, abilities/aim_sweep.gd; speeds 0 = it snaps to them) and ZERO keeps
+## it where it is, so letting go mid-turn throws at any angle.
 ## Never into the wall you're on: the target is mirrored away from it
 ## (get_throw_direction), and a half turn (Up <-> Down) goes round the open side.
 func update_hover_aim(held: Vector2) -> void:
 	if held != Vector2.ZERO:
-		var target: Vector2 = get_throw_direction(held)
-		var sweep_speed: float = player.earth_tuning.boulder_aim_sweep_speed
-		if sweep_speed > 0.0:
-			var open_side: float = -held_wall_direction if held_wall_direction != 0.0 \
-				else player.facing_direction
-			hover_aim = AimSweep.step(hover_aim, target, sweep_speed,
-				AimSweep.get_real_tick_seconds(), open_side)
-		else:
-			hover_aim = target
+		var open_side: float = -held_wall_direction if held_wall_direction != 0.0 \
+			else player.facing_direction
+		hover_aim = hover_sweep.step(hover_aim, get_throw_direction(held), open_side)
+	else:
+		hover_sweep.release()  # the ramp starts over for the next press
 	if is_instance_valid(held_boulder):
 		held_boulder.aim_direction = hover_aim
 
@@ -296,7 +295,13 @@ func _set_hover_mode(rock: Boulder, side: float) -> void:
 	var enabled: bool = player.earth_tuning.boulder_hover_aim
 	rock.set_hover_mode(enabled, player.get_center(), side, player.get_hitbox_rect().size / 2.0)
 	hover_aim = Vector2(side, 0.0)
-
+	# A new aim: configure its sweep from the tuning (both speeds 0 = it snaps).
+	var tuning: EarthTuning = player.earth_tuning
+	hover_sweep.start_aim()
+	hover_sweep.enabled = tuning.boulder_aim_sweep_speed > 0.0 or tuning.boulder_aim_sweep_max_speed > 0.0
+	hover_sweep.start_speed = tuning.boulder_aim_sweep_speed
+	hover_sweep.max_speed = tuning.boulder_aim_sweep_max_speed
+	hover_sweep.ramp_time = tuning.boulder_aim_sweep_ramp_time
 
 ## Throws the held rock toward `direction` (a unit vector, 8 directions; see
 ## get_throw_direction). Called by BoulderHold when S is pressed again.

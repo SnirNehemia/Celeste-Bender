@@ -25,9 +25,10 @@ extends PlayerState
 ## is allowed.
 ##
 ## CONTINUOUS AIM: the gust snaps to the 8 arrow directions. The fireball's aim
-## SWEEPS toward them instead (get_aim_sweep_speed() > 0, see _get_swept_aim and
-## abilities/aim_sweep.gd): arrows held on the press still set it at once, after that
-## it turns, and letting go of the arrows stops it at whatever angle it reached.
+## SWEEPS toward them instead (the source enables aim_sweep in configure_aim_sweep(),
+## see abilities/aim_sweep.gd): arrows held on the press still set it at once, after
+## that it turns faster the longer they're held, and letting go of the arrows stops it
+## at whatever angle it reached.
 ##
 ## Entered from Idle/Run/Jump/Fall/WallSlide/Glide/Launched. No jump while
 ## aiming: the moment is short, and it keeps the state simple.
@@ -40,10 +41,15 @@ var aim_direction: Vector2 = Vector2.ZERO
 var aim_start_msec: int = 0
 ## The ability doing the aiming (GustAbility or FireballAbility).
 var aim_source: Node
+## Turns the aim toward the arrows (CONTINUOUS AIM, see below); configured by the aim
+## source at the start of every aim (a gust leaves it disabled: it snaps).
+var aim_sweep: AimSweep = AimSweep.new()
 
 
 func enter() -> void:
 	aim_source = player.aim_source if player.aim_source != null else player.gust
+	aim_sweep.start_aim()
+	aim_source.call(&"configure_aim_sweep", aim_sweep)
 	aim_direction = aim_source.call(&"get_initial_aim")
 	aim_start_msec = Time.get_ticks_msec()
 	aim_source.call(&"begin_aim", aim_direction)
@@ -79,12 +85,19 @@ func physics_update(delta: float) -> void:
 	# (So once you've aimed, you can't go back to neutral in this same press.)
 	# get_forgiving_aim_input() keeps a diagonal for a moment when one of its two keys
 	# comes up first (the diagonal grace window), so diagonals don't turn sideways.
-	# CONTINUOUS AIM: a source with a sweep speed (the fireball) doesn't snap to the
-	# arrows: the aim turns toward them, and stops where it is when they're let go.
+	# CONTINUOUS AIM: a source with a sweep (the fireball) doesn't snap to the arrows:
+	# the aim turns toward them, faster the longer they're held, and stops where it is
+	# when they're let go.
 	var held: Vector2 = player.get_forgiving_aim_input()
 	if held != Vector2.ZERO:
-		aim_direction = _get_swept_aim(held)
+		# An aim not chosen yet (ZERO) starts from the facing direction, which is where
+		# the fireball's preview already points.
+		var current: Vector2 = aim_direction if aim_direction != Vector2.ZERO \
+			else Vector2(player.facing_direction, 0.0)
+		aim_direction = aim_sweep.step(current, held, player.facing_direction)
 		aim_source.call(&"update_aim", aim_direction)
+	else:
+		aim_sweep.release()  # the ramp starts over for the next press
 
 	# Fire on release, or when the real-time limit runs out. is_action_pressed (not
 	# just_released) on purpose: in slow motion physics ticks are rarer, and checking
@@ -94,20 +107,6 @@ func physics_update(delta: float) -> void:
 	if not Input.is_action_pressed(aim_action) \
 			or held_real_seconds >= float(aim_source.call(&"get_aim_max_real_time")):
 		transition_requested.emit(aim_source.call(&"finish_aim", aim_direction))
-
-
-## The aim after this physics tick, with the arrows asking for `target`: `target`
-## itself for a source that snaps (sweep speed 0: the gust), else the aim turned
-## toward it (AimSweep). An aim not chosen yet (ZERO) starts from the facing
-## direction, which is where the fireball's preview already points.
-func _get_swept_aim(target: Vector2) -> Vector2:
-	var sweep_speed: float = aim_source.call(&"get_aim_sweep_speed")
-	if sweep_speed <= 0.0:
-		return target
-	var current: Vector2 = aim_direction if aim_direction != Vector2.ZERO \
-		else Vector2(player.facing_direction, 0.0)
-	return AimSweep.step(current, target, sweep_speed, AimSweep.get_real_tick_seconds(),
-		player.facing_direction)
 
 
 ## Where to go after a cancel: on the ground Idle/Run, in the air Fall.

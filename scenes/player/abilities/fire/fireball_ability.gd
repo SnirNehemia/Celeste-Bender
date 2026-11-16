@@ -19,8 +19,8 @@ extends Node2D
 ##   get_aim_time_scale() -> float        world speed while aiming
 ##   get_aim_max_real_time() -> float     real seconds before it fires by itself
 ##   get_initial_aim() -> Vector2         the aim at the press
-##   get_aim_sweep_speed() -> float       how fast the aim turns toward the arrows,
-##                                        degrees per real second; 0 = it snaps
+##   configure_aim_sweep(sweep: AimSweep) how the aim turns toward the arrows (the
+##                                        gust disables it: its aim snaps)
 ##   begin_aim(dir), update_aim(dir), end_aim()   the preview
 ##   can_cancel_aim() -> bool             Jump cancels? (yes for the fireball)
 ##   cancel_aim()                         Jump was pressed
@@ -28,9 +28,10 @@ extends Node2D
 ## GustAbility implements the same methods.
 ##
 ## Direction: the facing direction when no arrow was pressed. Arrows held on the
-## press set it at once (8 ways); arrows pressed while aiming TURN it toward them
-## (FireTuning.fireball_aim_sweep_speed, abilities/aim_sweep.gd) and letting go stops
-## it there, so any angle can be thrown.
+## press set it at once (8 ways); arrows pressed while aiming TURN it toward them,
+## faster the longer they're held (FireTuning
+## fireball_aim_sweep_*, abilities/aim_sweep.gd); letting go stops it there, so any
+## angle can be thrown.
 ## top_level = true: this node ignores the player's transform, so it draws the aim
 ## preview in world coordinates.
 ##
@@ -142,9 +143,13 @@ func get_initial_aim() -> Vector2:
 	return player.get_forgiving_aim_input()
 
 
-func get_aim_sweep_speed() -> float:
-	return player.fire_tuning.fireball_aim_sweep_speed
-
+## Fills in the aim's sweep from FireTuning. Both speeds 0 = no sweep (the old snap).
+func configure_aim_sweep(sweep: AimSweep) -> void:
+	var tuning: FireTuning = player.fire_tuning
+	sweep.enabled = tuning.fireball_aim_sweep_speed > 0.0 or tuning.fireball_aim_sweep_max_speed > 0.0
+	sweep.start_speed = tuning.fireball_aim_sweep_speed
+	sweep.max_speed = tuning.fireball_aim_sweep_max_speed
+	sweep.ramp_time = tuning.fireball_aim_sweep_ramp_time
 
 func begin_aim(direction: Vector2) -> void:
 	is_aiming = true

@@ -179,10 +179,15 @@ extends Resource
 ## far apart (px, center to center: the rock's size plus this gap).
 @export var boulder_hover_ghost_count: int = 3
 @export var boulder_hover_ghost_gap: float = 3.0
-## CONTINUOUS AIM: the hovering rock's aim turns toward the held arrows at this speed,
-## degrees per REAL second (360 = a diagonal step in 1/8 s), and stops where it is
-## when the arrows are let go. 0 = the old aim, snapping to the 8 directions.
-@export var boulder_aim_sweep_speed: float = 360.0
+## CONTINUOUS AIM (abilities/aim_sweep.gd): the hovering rock's aim moves toward the
+## held arrows and stops where it is when they're let go (any angle can be thrown).
+## It turns at this speed, degrees per REAL second, just after the press...
+@export var boulder_aim_sweep_speed: float = 120.0
+## ...growing to this speed...
+@export var boulder_aim_sweep_max_speed: float = 720.0
+## ...over this many real seconds of holding (let go and the ramp starts over).
+## Both speeds 0 = the old aim, snapping to the 8 directions.
+@export var boulder_aim_sweep_ramp_time: float = 0.3
 
 @export_group("Loose rocks")
 ## A rock that comes down without being thrown lies there as a LOOSE rock (Stage

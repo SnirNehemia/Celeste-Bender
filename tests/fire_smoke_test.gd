@@ -383,16 +383,15 @@ func _check_f4_fireball(world: RoomManager, player: Player) -> void:
 		"holding Q aims in GustAim with the fireball as its aim source")
 	_check(is_equal_approx(Engine.time_scale, tuning.fireball_aim_time_scale),
 		"the world slows to fireball_aim_time_scale (%.2f), got %.2f" % [tuning.fireball_aim_time_scale, Engine.time_scale])
-	# Continuous aim: Up pressed while aiming TURNS the aim up from the facing side;
-	# let go after 3 ticks (18 degrees at 360 per second) and it stays part-way.
-	tuning.fireball_aim_sweep_speed = 360.0
+	# Continuous aim: Up (90 degrees from the facing side) TURNS the aim up; let go after
+	# 3 ticks and it stays part-way (a few degrees at the slow start of the ramp).
 	Input.action_press(&"move_up")
 	await _physics_frames(3)
 	Input.action_release(&"move_up")
 	await _physics_frames(2)
 	var swept_aim: Vector2 = player.fireball.aim_preview_direction
 	var swept_degrees: float = rad_to_deg(absf(Vector2(player.facing_direction, 0.0).angle_to(swept_aim)))
-	_check(swept_aim.y < 0.0 and swept_degrees > 5.0 and swept_degrees < 40.0,
+	_check(swept_aim.y < 0.0 and swept_degrees > 2.0 and swept_degrees < 40.0,
 		"the aim sweeps toward the arrows and stops part-way when they're let go (%.1f degrees)" % swept_degrees)
 	Input.action_press(&"jump")
 	await _physics_frames(2)
