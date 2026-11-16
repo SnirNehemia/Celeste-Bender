@@ -51,8 +51,8 @@ extends Node
 ##
 ## HOVER AIM (the default since E7, EarthTuning.boulder_hover_aim): the rock hovers beside the
 ## player instead of hopping (Boulder.set_hover_mode). While it hovers BoulderHold
-## feeds the arrows to update_hover_aim(): the aim sticks like the gust's (letting go
-## of the arrows keeps it), starts at straight ahead, and get_chosen_throw_direction()
+## feeds the arrows to update_hover_aim(): the aim turns toward them and stays where
+## it is when they're let go (any angle, not only 8), starts at straight ahead, and get_chosen_throw_direction()
 ## throws that way. The timing is the same perfect window, at the contour's close.
 ##
 ## The rock itself (tear, hop, flight, sticking, shattering) is
@@ -261,11 +261,23 @@ func is_hover_aiming() -> bool:
 	return is_holding() and held_boulder.is_hover_mode
 
 
-## HOVER AIM: the arrows `held` (unit vector, or ZERO) aim the hovering rock. ZERO
-## keeps the last aim, like the gust. Never into the wall you're on (get_throw_direction).
+## HOVER AIM: the arrows `held` (unit vector, or ZERO) aim the hovering rock. Called
+## every physics tick by BoulderHold. CONTINUOUS AIM: the aim TURNS toward the arrows
+## (EarthTuning.boulder_aim_sweep_speed, abilities/aim_sweep.gd; 0 = it snaps to them)
+## and ZERO keeps it where it is, so letting go mid-turn throws at any angle.
+## Never into the wall you're on: the target is mirrored away from it
+## (get_throw_direction), and a half turn (Up <-> Down) goes round the open side.
 func update_hover_aim(held: Vector2) -> void:
 	if held != Vector2.ZERO:
-		hover_aim = get_throw_direction(held)
+		var target: Vector2 = get_throw_direction(held)
+		var sweep_speed: float = player.earth_tuning.boulder_aim_sweep_speed
+		if sweep_speed > 0.0:
+			var open_side: float = -held_wall_direction if held_wall_direction != 0.0 \
+				else player.facing_direction
+			hover_aim = AimSweep.step(hover_aim, target, sweep_speed,
+				AimSweep.get_real_tick_seconds(), open_side)
+		else:
+			hover_aim = target
 	if is_instance_valid(held_boulder):
 		held_boulder.aim_direction = hover_aim
 

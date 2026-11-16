@@ -214,6 +214,12 @@ func get_initial_aim() -> Vector2:
 	return player.get_forgiving_aim_input()
 
 
+## 0 = the gust's aim snaps to the arrows (8 directions): its recoil is built around
+## them. The fireball's sweeps (FireballAbility.get_aim_sweep_speed).
+func get_aim_sweep_speed() -> float:
+	return 0.0
+
+
 ## The gust aim can't be cancelled with Jump (unchanged from before Stage F4).
 func can_cancel_aim() -> bool:
 	return false

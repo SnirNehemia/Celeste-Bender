@@ -86,6 +86,11 @@ extends Resource
 ## world's speed while aiming, and the real seconds before it throws by itself.
 @export_range(0.05, 1.0) var fireball_aim_time_scale: float = 0.3
 @export var fireball_aim_max_real_time: float = 0.8
+## CONTINUOUS AIM: while aiming, the aim turns toward the held arrows at this speed,
+## degrees per REAL second (360 = a diagonal step in 1/8 s), and stops where it is
+## when the arrows are let go. Arrows already held on the press still set it at once.
+## 0 = the old aim, snapping to the 8 directions.
+@export var fireball_aim_sweep_speed: float = 360.0
 ## Ricochets (Stage F12): a fireball BOUNCES off anything that doesn't burn (bare
 ## earth, stone, crates that won't catch, the Shell) and flies on until its range is
 ## used up. It keeps this share of its speed per bounce. A bounce that would leave it

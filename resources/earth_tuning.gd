@@ -151,8 +151,8 @@ extends Resource
 @export_group("Boulder: hover aim")
 ## The DEFAULT since the E7 play-test: instead of hopping over your head, the rock
 ## rises out of its hole and HOVERS beside you at chest height, in slow motion
-## (boulder_hover_time_scale). While it hovers the arrows AIM (8 directions, like the
-## gust's aim: letting go keeps the last aim), shown by faint GHOSTS of the rock in
+## (boulder_hover_time_scale). While it hovers the arrows AIM (the aim turns toward
+## them, boulder_aim_sweep_speed below; letting go keeps it where it is), shown by faint GHOSTS of the rock in
 ## the throw direction. A faint CONTOUR of the rock starts wide and closes in on it:
 ## press S again just as it fits the rock (the rock turns white) for the perfect
 ## throw, faster and further. Untick for the old hop (boulder_time_scale then).
@@ -179,6 +179,10 @@ extends Resource
 ## far apart (px, center to center: the rock's size plus this gap).
 @export var boulder_hover_ghost_count: int = 3
 @export var boulder_hover_ghost_gap: float = 3.0
+## CONTINUOUS AIM: the hovering rock's aim turns toward the held arrows at this speed,
+## degrees per REAL second (360 = a diagonal step in 1/8 s), and stops where it is
+## when the arrows are let go. 0 = the old aim, snapping to the 8 directions.
+@export var boulder_aim_sweep_speed: float = 360.0
 
 @export_group("Loose rocks")
 ## A rock that comes down without being thrown lies there as a LOOSE rock (Stage

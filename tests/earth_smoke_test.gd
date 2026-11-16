@@ -1818,15 +1818,27 @@ func _check_hover_aim(world: RoomManager, player: Player) -> void:
 	var offset: Vector2 = rock.global_position - player.get_center()
 	_check(rock.is_hovering and offset.x > 0.0 and absf(offset.y) < 1.0,
 		"hover aim: it hovers beside the player at chest height (offset %s)" % offset)
-	# Up+Right aims diagonally; letting go keeps the aim (like the gust).
+	# Continuous aim: Up+Right TURNS the aim toward the diagonal. Let go after 3 ticks
+	# (18 degrees at 360 per second) and it stays there, between Right and the diagonal.
+	tuning.boulder_aim_sweep_speed = 360.0
 	Input.action_press(&"move_right")
 	Input.action_press(&"move_up")
 	await _wait_physics_frames(3)
 	Input.action_release(&"move_right")
 	Input.action_release(&"move_up")
 	await _wait_physics_frames(6)
-	_check(player.boulder.hover_aim.x > 0.5 and player.boulder.hover_aim.y < -0.5,
-		"hover aim: the arrows aim it, and the aim sticks after letting go (%s)" % player.boulder.hover_aim)
+	var part_way_degrees: float = rad_to_deg(-player.boulder.hover_aim.angle())
+	_check(part_way_degrees > 5.0 and part_way_degrees < 40.0,
+		"hover aim: the aim sweeps, and stops part-way when the arrows are let go (%.1f degrees up)" % part_way_degrees)
+	# Held until it arrives: exactly the diagonal, and it sticks after letting go.
+	Input.action_press(&"move_right")
+	Input.action_press(&"move_up")
+	await _wait_physics_frames(8)
+	Input.action_release(&"move_right")
+	Input.action_release(&"move_up")
+	await _wait_physics_frames(2)
+	_check(player.boulder.hover_aim.is_equal_approx(Vector2(1.0, -1.0).normalized()),
+		"hover aim: held, the sweep ends exactly on the diagonal and sticks (%s)" % player.boulder.hover_aim)
 	_check(not rock.is_in_perfect_window() and rock.get_hover_ring_progress() < 1.0,
 		"hover aim: the contour is still closing in (%.2f)" % rock.get_hover_ring_progress())
 	await _wait_until(func() -> bool: return rock.is_in_perfect_window(), 1.0)
