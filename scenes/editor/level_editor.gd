@@ -149,7 +149,7 @@ const STRIP_PREVIEW_COLOR: Color = Color(0.9, 0.2, 0.2, 0.4)
 ## the room's switch changed nothing) and Room.painted_ground (always on in editor
 ## levels: RoomLook.prepare_for_editing).
 const ROOM_SETTINGS: Array[StringName] = [&"display_title", &"air_allowed", &"earth_allowed",
-	&"fire_allowed", &"water_allowed", &"fire_start_pips", &"backdrop_theme",
+	&"fire_allowed", &"water_allowed", &"fire_start_pips", &"grass_burns", &"backdrop_theme",
 	&"backdrop_altitude", &"is_dark"]
 ## The four element switches, shown as one small table (PropertyPanel toggle_grids).
 const ROOM_ELEMENT_GRID: Dictionary = {"Elements": {&"air_allowed": "Air", &"earth_allowed": "Earth",
@@ -1605,7 +1605,7 @@ func _apply_property(target: Object, property: StringName, value: Variant) -> vo
 	if target is Room and property == &"painted_ground":
 		RoomLook.refresh(target)  # the painter comes or goes
 	if target is Room and property == &"fire_allowed":
-		_show_selection_in_panel()  # Fire Start Pips shows only while Fire is on
+		_show_selection_in_panel()  # Fire Start Pips shows only while Fire is on, Grass Burns only while off
 	# Pips alone do nothing: fire works only where it's allowed (off by default).
 	if target is Room and property == &"fire_start_pips" and int(value) > 0 and not (target as Room).fire_allowed:
 		ui.show_message("Fire Allowed is off in this room: tick it, or the pips can't be used.", true)
@@ -1703,10 +1703,13 @@ func remove_path_point(node: Node2D, property: StringName) -> void:
 
 ## The room settings the panel shows for `room`: ROOM_SETTINGS, without Fire
 ## Start Pips while Fire is off (pips do nothing there; ticking Fire brings the
-## field back, see _apply_property).
+## field back, see _apply_property), and without Grass Burns while Fire is on
+## (the plants burn anyway there).
 func get_room_settings(room: Room) -> Array[StringName]:
 	var settings: Array[StringName] = ROOM_SETTINGS.duplicate()
-	if not room.fire_allowed:
+	if room.fire_allowed:
+		settings.erase(&"grass_burns")
+	else:
 		settings.erase(&"fire_start_pips")
 	return settings
 

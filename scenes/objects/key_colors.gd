@@ -11,7 +11,8 @@ extends RefCounted
 ## Static functions only: KeyColors.get_color(KeyColors.Name.RED).
 
 ## The key colors. Saved in levels as their number, so only ever ADD at the end.
-enum Name { RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE, WHITE }
+## OCHRE, RUST, MOSS and SLATE are the earth tones of "Earth - Bedrock" (its four wings).
+enum Name { RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE, WHITE, OCHRE, RUST, MOSS, SLATE }
 
 ## Bright, saturated "lit" colors, far apart in hue so six of them read side by side.
 const LIT_COLORS: Array[Color] = [
@@ -22,6 +23,10 @@ const LIT_COLORS: Array[Color] = [
 	Color("4aa8ff"),  # BLUE
 	Color("c065ff"),  # PURPLE
 	Color("f4f4ff"),  # WHITE
+	Color("e0aa3c"),  # OCHRE: yellow-brown
+	Color("d2603a"),  # RUST: red-brown
+	Color("93ad4c"),  # MOSS: dull green
+	Color("8fa9bf"),  # SLATE: blue-gray
 ]
 ## An unlit ball is its color this dark: you can still tell WHICH key it waits for.
 const UNLIT_DARKEN: float = 0.6

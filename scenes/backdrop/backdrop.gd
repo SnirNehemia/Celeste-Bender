@@ -4,7 +4,9 @@ extends CanvasLayer
 ## A room's backdrop has two parts, both Room settings:
 ##   LOOK      where the level is set: mountains, a temple, a forest, a desert, the
 ##             sea, a jungle, a shore, a volcano, a light temple (sanctum), a
-##             very dense forest (deepwood), a cavern inside a mountain range (cavern)
+##             very dense forest (deepwood), a cavern inside a mountain range (cavern),
+##             a forest on a live volcano's flank (emberwood), a green valley of
+##             hills and cliffs at midday (highlands)
 ##             (Room.backdrop_theme; AUTO picks from what's in the room)
 ##   ALTITUDE  where in that setting the room is: UNDERGROUND (caves, crypts, roots),
 ##             SURFACE, or SKYLINE (high up: above the clouds, the treetops, the roofs)
@@ -47,7 +49,7 @@ extends CanvasLayer
 ## Where a level is set. AUTO: picked from the room's contents. NONE: just the
 ## plain background color (project setting default_clear_color).
 ## New looks go at the END: rooms save the number, not the name.
-enum Look { AUTO, NONE, MOUNTAIN, TEMPLE, FOREST, DESERT, UNDERWATER, JUNGLE, SHORE, VOLCANO, SANCTUM, DEEPWOOD, CAVERN }
+enum Look { AUTO, NONE, MOUNTAIN, TEMPLE, FOREST, DESERT, UNDERWATER, JUNGLE, SHORE, VOLCANO, SANCTUM, DEEPWOOD, CAVERN, EMBERWOOD, HIGHLANDS }
 ## Where in that setting a room is. AUTO: from the room's height (Room).
 enum Altitude { AUTO, UNDERGROUND, SURFACE, SKYLINE }
 
@@ -108,14 +110,27 @@ const THEME_SCRIPTS: Dictionary = {
 		Altitude.SURFACE: preload("res://scenes/backdrop/themes/cavern/surface.gd"),
 		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/cavern/skyline.gd"),
 	},
+	Look.EMBERWOOD: {
+		Altitude.UNDERGROUND: preload("res://scenes/backdrop/themes/emberwood/underground.gd"),
+		Altitude.SURFACE: preload("res://scenes/backdrop/themes/emberwood/surface.gd"),
+		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/emberwood/skyline.gd"),
+	},
+	Look.HIGHLANDS: {
+		Altitude.UNDERGROUND: preload("res://scenes/backdrop/themes/highlands/underground.gd"),
+		Altitude.SURFACE: preload("res://scenes/backdrop/themes/highlands/surface.gd"),
+		Altitude.SKYLINE: preload("res://scenes/backdrop/themes/highlands/skyline.gd"),
+	},
 }
 ## How a change from one look to another is shown (see the header).
 enum Transition { SOFT, BREAK }
 
 ## Looks whose underground changes SOFTLY too: under water there's no ground to
-## break through, only darker water. (The cavern's does too, for another reason:
+## break through, only darker water. The highlands' "underground" is a valley's
+## floor under the open sky: nothing to break through either. The emberwood's
+## caves are drawn as a cut-away under the forest floor, one picture with the wood,
+## so going down scrolls on through the floor. (The cavern's does too, for another reason:
 ## its surface is still in the ground, BREAK_SKYLINE_LOOKS.)
-const SOFT_UNDERGROUND_LOOKS: Array[Look] = [Look.UNDERWATER]
+const SOFT_UNDERGROUND_LOOKS: Array[Look] = [Look.UNDERWATER, Look.HIGHLANDS, Look.EMBERWOOD]
 ## Looks whose SURFACE is still inside the ground: their underground <-> surface
 ## change is SOFT (one cave), and the BREAK is out to the skyline (the cavern's
 ## upper cave opens onto the mountain ridge).

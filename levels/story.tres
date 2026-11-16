@@ -13,6 +13,36 @@ script = ExtResource("1_ryadu")
 title = "Chapter 1 - Air"
 scene_path = "res://levels/chapter_1_air.tscn"
 
+[sub_resource type="Resource" id="Resource_5cd4p"]
+script = ExtResource("1_ryadu")
+title = "Chapter 0 - Basics (finished)"
+scene_path = "res://levels/chapter_0_basics_finished.tscn"
+
+[sub_resource type="Resource" id="Resource_kf44o"]
+script = ExtResource("1_ryadu")
+title = "Air - The High Road"
+scene_path = "res://levels/air_the_high_road.tscn"
+
+[sub_resource type="Resource" id="Resource_a1d30"]
+script = ExtResource("1_ryadu")
+title = "Earth - The Deep Dig"
+scene_path = "res://levels/earth_the_deep_dig.tscn"
+
+[sub_resource type="Resource" id="Resource_lmuum"]
+script = ExtResource("1_ryadu")
+title = "Water - The Thaw"
+scene_path = "res://levels/water_the_thaw.tscn"
+
+[sub_resource type="Resource" id="Resource_5i1lm"]
+script = ExtResource("1_ryadu")
+title = "Fire - The Ember Wood"
+scene_path = "res://levels/fire_the_ember_wood.tscn"
+
+[sub_resource type="Resource" id="Resource_bedrk"]
+script = ExtResource("1_ryadu")
+title = "Chapter 2 - Earth: Bedrock"
+scene_path = "res://levels/earth_bedrock.tscn"
+
 [resource]
 script = ExtResource("2_whaoq")
-entries = Array[ExtResource("1_ryadu")]([SubResource("Resource_whaoq"), SubResource("Resource_ryadu")])
+entries = Array[ExtResource("1_ryadu")]([SubResource("Resource_whaoq"), SubResource("Resource_ryadu"), SubResource("Resource_bedrk"), SubResource("Resource_5cd4p"), SubResource("Resource_kf44o"), SubResource("Resource_a1d30"), SubResource("Resource_lmuum"), SubResource("Resource_5i1lm")])

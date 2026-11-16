@@ -2,13 +2,15 @@ extends Node
 ## Headless smoke test for the small features added after the level tools: the
 ## signpost, the timed step pad, the lantern, the one-way teleport doors, the pause
 ## menu's "Restart level" and options page (AssistOptions: game speed, extra coyote
-## time), and the ghost of each room's fastest run (GhostRuns). Not part of the game.
+## time), the ghost of each room's fastest run (GhostRuns), and Room.grass_burns
+## (grass that burns with Fire off). Not part of the game.
 ##
 ## It builds a two-room level in memory with LevelKit (tools/level_kit.gd), packs it
 ## the way the editor does for a play-test, and plays it:
 ##   Room1: a floor, the signpost, the timed pad, the lantern, a blue teleport
 ##          entrance and a red one (red has no exit).
-##   Room2: to the right, DARK, the blue teleport exit.
+##   Room2: to the right, DARK, the blue teleport exit, a strip of grass that can't burn.
+##   Room3: apart, a grass floor with Grass Burns on and Fire off.
 ## The options and the ghosts are written to throwaway files in user://, never the
 ## player's real ones.
 ## Prints PASS/FAIL lines and quits. Run it with:
@@ -39,6 +41,7 @@ func _ready() -> void:
 	await _check_pause_menu()
 	await _check_ghost()
 	await _check_teleport()
+	await _check_grass_burns()
 	# Leave the global switches as we found them.
 	AssistOptions.game_speed = 1.0
 	AssistOptions.extra_coyote_time = 0.0
@@ -71,6 +74,13 @@ func _open_level() -> void:
 	kit.place(first, &"teleport_door", "BlueDoor", Vector2(200, FLOOR_Y - 24))
 	kit.place(first, &"teleport_door", "RedDoor", Vector2(240, FLOOR_Y - 24), {&"door_color": KeyColors.Name.RED})
 	kit.place(second, &"teleport_exit", "BlueExit", Vector2(200, FLOOR_Y - 24))
+	# Room3, apart from the others: a grass floor that burns with Fire off.
+	var third: Room = kit.add_room("Room3", "Grass burns", Vector2(0, ROOM_SIZE.y * 3), ROOM_SIZE)
+	kit.fill(third, &"grass", 0, 21, 40, 2)
+	kit.set_spawn(third, 3, 20)
+	third.grass_burns = true
+	# Room2 gets grass too, but burns nothing (neither switch on).
+	kit.fill(second, &"grass", 30, 20, 4, 1)
 	kit.set_start_room(first)
 	# An object is matched to its palette entry by its scene: the two pads and the
 	# two door ends must not be mixed up.
@@ -249,6 +259,26 @@ func _check_teleport() -> void:
 	await _press_up()
 	_check(level.current_room == second and player.global_position.distance_to(blue_exit.get_feet_position()) < 4.0,
 		"teleport: Up in the exit does nothing")
+
+
+## Room.grass_burns: with Fire off, Room3's grass still gets a FireGrid and catches
+## fire, while the player still can't bend fire there. Room2's grass (neither
+## switch on) gets no grid.
+func _check_grass_burns() -> void:
+	var second: Room = level.get_node("Room2") as Room
+	var third: Room = level.get_node("Room3") as Room
+	_check(second.get_node_or_null("FireGrid") == null, "grass burns: grass in a room with Fire off and no Grass Burns gets no FireGrid")
+	var grid: FireGrid = third.get_node_or_null("FireGrid") as FireGrid
+	_check(grid != null, "grass burns: Room3 (Grass Burns on, Fire off) has a FireGrid")
+	level.jump_to_room(third)
+	await _frames(2)
+	_check(not player.is_element_allowed(Player.ELEMENT_FIRE), "grass burns: the player still can't bend fire there")
+	if grid == null:
+		return
+	var floor_point: Vector2 = third.global_position + Vector2(200, FLOOR_Y + 4)
+	_check(grid.ignite_at(floor_point, 2.0, null), "grass burns: the grass catches fire")
+	await _wait(0.5)
+	_check(grid.is_burning(), "grass burns: and burns")
 
 
 # --- Helpers -----------------------------------------------------------------------

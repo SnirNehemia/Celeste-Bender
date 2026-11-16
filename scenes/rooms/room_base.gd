@@ -25,8 +25,8 @@ extends Node2D
 ## ground as lumpy, depth-shaded earth, turf and stone instead of tiles (Stage E4b),
 ## and a PebbleField (Stage E4d) for the pebbles earth bending leaves lying around.
 ## Rooms with `painted_ground` on (the level editor's) get the painter too.
-## Rooms where fire is allowed that have a "Grass" layer also get a FireGrid (Stage
-## F5): the grass there burns, spreads and turns to ash. So do rooms with a
+## Rooms where fire is allowed (or with `grass_burns` on) that have a "Grass" layer
+## also get a FireGrid (Stage F5): the grass there burns, spreads and turns to ash. So do rooms with a
 ## "Thicket" (ThicketLayer) or "Overgrown" (OvergrownLayer) layer (Stage F6): thicket
 ## burns away, covers flash over.
 ## Rooms with a "Water" layer (WaterLayer, Stage W1) get a WaterWorld: the painted
@@ -85,6 +85,12 @@ const RIM_NAME: StringName = &"EdgeRim"
 ## entering the room, dying or R sets the fire bar to this, and leftovers from the
 ## previous room are dropped. Clamped to FireTuning.max_pips.
 @export_range(0, 10) var fire_start_pips: int = 0
+## Grass, thicket and overgrown covers BURN here even with Fire off: the room gets
+## its FireGrid, so fire from a sentry's fireball, a burning leaf heap's embers or
+## a brazier spreads through the plants, and a gust snuffs it, while the player
+## still has no Fire bending (the Air chapter's Wildfire wing). Where Fire is
+## allowed the plants burn anyway.
+@export var grass_burns: bool = false
 ## Water: the water hands and the freeze (Water_bending.md, Stage W3+). Off by
 ## default like Fire. Painted water (the "Water" layer) is real water either way: it
 ## sloshes and flows even where the player can't bend it.
@@ -134,7 +140,7 @@ func _ready() -> void:
 	for rect: Rect2 in solid_rects:
 		_add_solid_block(rect)
 	# Before the painter, which finds the grid and paints burnt grass.
-	if fire_allowed and _has_burnable_layer():
+	if (fire_allowed or grass_burns) and _has_burnable_layer():
 		_add_fire_grid()
 	if get_node_or_null("Earth") is EarthLayer:
 		_add_ground_painter()
@@ -184,8 +190,8 @@ func _has_burnable_layer() -> bool:
 
 
 ## Adds the room's FireGrid (Stage F5) at the room's origin: the fire states of its
-## grass, thicket and covers, spread and flames. Only rooms where fire is allowed
-## can burn.
+## grass, thicket and covers, spread and flames. Only rooms where fire is allowed,
+## or that have grass_burns on, can burn.
 func _add_fire_grid() -> void:
 	var grid: FireGrid = FireGrid.new()
 	grid.name = "FireGrid"
