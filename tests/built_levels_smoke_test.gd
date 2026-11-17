@@ -898,13 +898,49 @@ func _check_bedrock_burrows() -> void:
 	var peeking: Room = level.get_node("RoomB3") as Room
 	_check(level.player.global_position.x - peeking.global_position.x < 21 * 8,
 		"bedrock: Peeking's covered wall can be walked through")
-	# The Warren: from cave C's right part (column 23, row 32) walk left through it.
-	_stand("RoomB4", Vector2(188, 256))
-	await _hold(&"move_left", 1.2)
+	# The Warren, spike islands: on the ledge's earth at its edge (column 18, row 22)
+	# facing the pit, tear a small rock, aim down-left and throw it in the perfect
+	# window: it is caught on the spikes. (A perfect throw straight across flies over
+	# the whole pit into the far ledge's earth; a sloppy one droops onto the ledge.)
 	var warren: Room = level.get_node("RoomB4") as Room
-	_check(level.player.global_position.x - warren.global_position.x < 18 * 8,
-		"bedrock: the Warren's covered wall can be walked through")
-	await _take_shard("RoomB4", "RelicShard2", Vector2(92, 104))
+	_stand("RoomB4", Vector2(18 * 8 + 4, 22 * 8))
+	level.player.facing_direction = -1.0
+	await _frames(SETTLE_FRAMES)
+	await _press(&"earth_boulder")
+	Input.action_press(&"move_left")
+	Input.action_press(&"move_down")
+	var held: Boulder = null
+	for child: Node in warren.get_children():
+		if child is Boulder:
+			held = child as Boulder
+	for frame: int in 300:
+		if held == null or not is_instance_valid(held) or held.is_in_perfect_window():
+			break
+		await _frames(1)
+	await _press(&"earth_boulder")
+	Input.action_release(&"move_left")
+	Input.action_release(&"move_down")
+	await _wait(1.5)
+	var impaled: Boulder = null
+	for child: Node in warren.get_children():
+		var rock: Boulder = child as Boulder
+		if rock != null and rock.phase == Boulder.Phase.STUCK and rock.stuck_layer == null:
+			impaled = rock
+	_check(impaled != null, "bedrock: a rock thrown into the Warren's spike pit is caught on the spikes")
+	if impaled != null:
+		var rock_feet: Vector2 = impaled.global_position - warren.global_position + Vector2(0, -impaled.size / 2.0)
+		# Standing on it is safe: it covers the teeth under it.
+		_stand("RoomB4", rock_feet)
+		await _wait(0.5)
+		_check(not level.player.is_dead(), "bedrock: standing on a rock stuck in spikes is safe")
+	# The guarded door: shut while the wisps live, open once both are beaten.
+	var guarded_door: Door = warren.get_node("GuardedDoor") as Door
+	_check(not guarded_door.wants_open, "bedrock: the Warren's guarded door starts shut")
+	for wisp_name: String in ["Wisp1", "Wisp2"]:
+		EnemyHit.send(warren.get_node(wisp_name), EnemyHit.Type.BIG_ROCK, Vector2.ZERO)
+	await _wait(1.0)
+	_check(guarded_door.wants_open, "bedrock: beating both wisps opens the Warren's guarded door")
+	await _take_shard("RoomB4", "RelicShard2", Vector2(244, 104))
 	await _take_key("RoomB4", "KeyOrb")
 	# Home: Up in the teleport door comes out by the hub's first shaft.
 	var door: TeleportDoor = warren.get_node("WayHome") as TeleportDoor

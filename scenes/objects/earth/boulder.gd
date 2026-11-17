@@ -37,6 +37,9 @@ extends CharacterBody2D
 ##                back and defeated, a sentry destroyed), and shatters. Since E7 that
 ##                takes a BIG rock or a PERFECT throw; a sloppy small rock only shoves
 ##                a wisp (stunned) and clonks off a sentry
+##              - SPIKES (checked first: they're not solid): IMPALED, it stays on
+##                their teeth as a STUCK block, a safe step over them
+##                (_try_impale_on_spikes)
 ##              - anything else (gray rock, grass, a crate, a stuck boulder): shatters
 ##   STUCK    snapped onto the tile grid against the earth face it hit (and that
 ##            tile hardens, so it can't be torn out from under it): a solid
@@ -124,6 +127,8 @@ const PERFECT_FLASH_TIME: float = 0.12
 ## Physics layers checked when looking for a free spot to stick into: world (1),
 ## player (2) and enemies (5), so a boulder never sticks inside someone.
 const STICK_BLOCKING_MASK: int = 1 | 2 | 16
+## Physics layer 3 ("hazards"), where Spikes live: a thrown rock is caught on them.
+const SPIKES_MASK: int = 4
 ## The free-spot check uses a box this much smaller on each side, px, so touching the
 ## earth face it sticks to doesn't count as overlapping it.
 const STICK_CHECK_INSET: float = 0.5
@@ -659,6 +664,10 @@ func _update_flight(delta: float) -> void:
 	else:
 		velocity.y = move_toward(velocity.y, earth_tuning.boulder_max_fall_speed, earth_tuning.boulder_gravity * delta)
 	var collision: KinematicCollision2D = move_and_collide(velocity * delta)
+	# Spikes first: they are Areas (not solid), so the rock flies into them and is
+	# stopped by the ground they grow out of. Without this it would shatter on that ground.
+	if _try_impale_on_spikes():
+		return
 	if collision != null:
 		_on_impact(collision)
 	elif flight_time >= earth_tuning.boulder_max_flight_time:
@@ -714,17 +723,7 @@ func _stick_into(earth_layer: EarthLayer, surface_normal: Vector2, contact_point
 	var spot: Vector2 = _find_stick_spot(earth_layer, surface_normal)
 	if spot == Vector2.INF:
 		return false
-	phase = Phase.STUCK
-	# Back to rock color: once stuck, _physics_process stops, so a perfect throw's
-	# white flash would never count down and the rock would stay white.
-	perfect_flash_remaining = 0.0
-	velocity = Vector2.ZERO
-	global_position = spot
-	# Snap the tumble square at once: _physics_process (which eases it) stops below.
-	visual_angle = _get_nearest_square_angle()
-	collision_layer = 1  # solid "world" now: standable, wall-jumpable
-	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * size
-	set_physics_process(false)
+	_become_solid_at(spot)
 	stuck_layer = earth_layer
 	earth_layer.register_column(self, _get_covered_cells(earth_layer))
 	# Harden the earth it's stuck into, so a rock can't tear it out from under this one
@@ -745,6 +744,100 @@ func _stick_into(earth_layer: EarthLayer, surface_normal: Vector2, contact_point
 	FX.play_sfx(&"boulder_stick")
 	queue_redraw()
 	return true
+
+
+## STUCK at `spot` (a grid-aligned center): still, square, solid "world".
+func _become_solid_at(spot: Vector2) -> void:
+	phase = Phase.STUCK
+	# Back to rock color: once stuck, _physics_process stops, so a perfect throw's
+	# white flash would never count down and the rock would stay white.
+	perfect_flash_remaining = 0.0
+	velocity = Vector2.ZERO
+	global_position = spot
+	# Snap the tumble square at once: _physics_process (which eases it) stops below.
+	visual_angle = _get_nearest_square_angle()
+	collision_layer = 1  # solid "world" now: standable, wall-jumpable
+	(hitbox.shape as RectangleShape2D).size = Vector2.ONE * size
+	set_physics_process(false)
+
+
+## IMPALED: a thrown rock that flies into spikes is caught on their teeth and stays
+## there as a STUCK rock: a safe block to stand on over the spikes (and it covers
+## the teeth under it). Any rock, small or big; any facing (floor, ceiling, wall
+## spikes). It sits in the spikes' own tile cells, its back flush with the surface
+## they grow out of. Not part of the earth: the bend shadow doesn't cross it.
+## Returns true if it was caught.
+func _try_impale_on_spikes() -> bool:
+	var spikes: Spikes = _find_touching_spikes()
+	if spikes == null:
+		return false
+	var spot: Vector2 = _find_spike_spot(spikes)
+	if spot == Vector2.INF:
+		return false  # no room on the teeth here: let the normal impact rules decide
+	_become_solid_at(spot)
+	var tip_direction: Vector2 = spikes.get_tip_direction()
+	FX.spawn_gravel(global_position - tip_direction * size / 2.0, earth_tuning.boulder_stick_gravel_count, tip_direction)
+	FX.shake(earth_tuning.boulder_impact_shake_strength, earth_tuning.boulder_impact_shake_time)
+	FX.play_sfx(&"boulder_stick")
+	queue_redraw()
+	return true
+
+
+## The Spikes whose deadly strip the rock overlaps now, or null.
+func _find_touching_spikes() -> Spikes:
+	var check_shape: RectangleShape2D = RectangleShape2D.new()
+	check_shape.size = Vector2.ONE * size
+	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
+	query.shape = check_shape
+	query.transform = Transform2D(0.0, global_position)
+	query.collision_mask = SPIKES_MASK
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	for hit: Dictionary in get_world_2d().direct_space_state.intersect_shape(query, 8):
+		var spikes: Spikes = hit.collider as Spikes
+		if spikes != null:
+			return spikes
+	return null
+
+
+## Where an impaled rock sits on `spikes` (its center), or Vector2.INF if no spot is
+## free. Along the tips: the rock's back edge on the surface line (the hitbox's edge
+## away from the tips). Across: the spikes' tile grid, the nearest cell first.
+func _find_spike_spot(spikes: Spikes) -> Vector2:
+	var tip_direction: Vector2 = spikes.get_tip_direction()
+	var deadly: Rect2 = spikes.get_hitbox_global_rect()
+	var half_size: float = size / 2.0
+	var tile_size: float = Spikes.TILE_SIZE
+	var is_floor_or_ceiling: bool = tip_direction.x == 0.0
+	# The surface line the teeth grow from, and the center's coordinate along the tips.
+	var surface: float
+	if is_floor_or_ceiling:
+		surface = deadly.end.y if tip_direction.y < 0.0 else deadly.position.y
+	else:
+		surface = deadly.end.x if tip_direction.x < 0.0 else deadly.position.x
+	var tip_axis_value: float = tip_direction.y if is_floor_or_ceiling else tip_direction.x
+	var center_along: float = surface + tip_axis_value * half_size
+	# Across: grid lines are the strip's origin plus whole tiles.
+	var grid_origin: float = spikes.global_position.x if is_floor_or_ceiling else spikes.global_position.y
+	var corner_across: float = (global_position.x if is_floor_or_ceiling else global_position.y) - half_size - grid_origin
+	# Only cells along the strip itself count: a rock clipping a side spike's end must
+	# not snap into the cell past it. (A rock longer than the strip overhangs it.)
+	var strip_length: float = spikes.tile_count * tile_size
+	var lowest_corner: float = minf(0.0, strip_length - size)
+	var highest_corner: float = maxf(0.0, strip_length - size)
+	var across_options: Array[float] = []
+	for candidate: float in [roundf(corner_across / tile_size) * tile_size,
+			floorf(corner_across / tile_size) * tile_size, ceilf(corner_across / tile_size) * tile_size]:
+		var clamped: float = clampf(candidate, lowest_corner, highest_corner)
+		if not across_options.has(clamped):
+			across_options.append(clamped)
+	for snapped_corner: float in across_options:
+		var center_across: float = grid_origin + snapped_corner + half_size
+		var center: Vector2 = Vector2(center_across, center_along) if is_floor_or_ceiling \
+			else Vector2(center_along, center_across)
+		if _is_spot_free(center):
+			return center
+	return Vector2.INF
 
 
 ## A grid-aligned center for the stuck boulder, or Vector2.INF if none is free.

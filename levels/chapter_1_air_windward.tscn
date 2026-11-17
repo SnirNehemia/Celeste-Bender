@@ -87,7 +87,7 @@ position = Vector2(20, 120)
 [node name="SignGlide" type="Node2D" parent="Room1" unique_id=587724576 instance=ExtResource("22_22fos")]
 position = Vector2(72, 120)
 script = ExtResource("8_i3kn0")
-text = "Jump, then press Jump again in the air and hold it: you glide."
+text = "Jump, then press and hold Jump again: you glide."
 
 [node name="GoldenFeather" type="Area2D" parent="Room1" unique_id=1353136527 instance=ExtResource("23_x8x6v")]
 position = Vector2(152, 88)
@@ -142,7 +142,7 @@ script = ExtResource("14_odwbu")
 [node name="SignBreath" type="Node2D" parent="Room2" unique_id=827112375 instance=ExtResource("22_22fos")]
 position = Vector2(24, 144)
 script = ExtResource("8_i3kn0")
-text = "Gliding uses your breath: the bar over your head. A wind crystal fills it again."
+text = "Gliding uses breath (the bar). Crystals refill it."
 
 [node name="Room3" type="Node2D" parent="." unique_id=1745701907]
 position = Vector2(800, -208)
@@ -267,7 +267,7 @@ script = ExtResource("24_1imo4")
 [node name="SignDownGust" type="Node2D" parent="Room4" unique_id=293697887 instance=ExtResource("22_22fos")]
 position = Vector2(32, 224)
 script = ExtResource("8_i3kn0")
-text = "In the air, hold Down and press Z: a gust under you is a second jump. One gust per jump."
+text = "In the air: Down + Z. A gust under you, once per jump."
 
 [node name="SignDeadAir" type="Node2D" parent="Room4" unique_id=1645576303 instance=ExtResource("22_22fos")]
 position = Vector2(120, 160)
@@ -312,7 +312,7 @@ script = ExtResource("26_4odoi")
 [node name="SignRecoil" type="Node2D" parent="Room5" unique_id=1395698705 instance=ExtResource("22_22fos")]
 position = Vector2(32, 192)
 script = ExtResource("8_i3kn0")
-text = "A gust pushes you the other way. Jump, gust LEFT to fly right, then glide."
+text = "A gust pushes you away. Gust LEFT to fly right."
 
 [node name="SignDiamond" type="Node2D" parent="Room5" unique_id=1018869949 instance=ExtResource("22_22fos")]
 position = Vector2(264, 192)
@@ -357,7 +357,7 @@ zone_size = Vector2(304, 272)
 [node name="SignBrake" type="Node2D" parent="Room6" unique_id=1577760880 instance=ExtResource("22_22fos")]
 position = Vector2(32, 48)
 script = ExtResource("8_i3kn0")
-text = "Z with no arrow held: a blast all around that stops you in the air. Drop, then brake."
+text = "Z with no arrow: a blast that stops you in the air."
 
 [node name="Room7" type="Node2D" parent="." unique_id=580062669]
 position = Vector2(2240, -464)

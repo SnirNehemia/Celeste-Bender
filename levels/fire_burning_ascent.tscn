@@ -115,7 +115,7 @@ switches = [NodePath("../Brazier")]
 
 [node name="SignFireball" parent="Room1" unique_id=1131807044 instance=ExtResource("22_yd5yl")]
 position = Vector2(40, 144)
-text = "Q throws a fireball, the way the arrows point. Hold Q to aim. Light the brazier."
+text = "Q: a fireball (arrows aim). Light the brazier."
 
 [node name="GoldenFeather" parent="Room1" unique_id=280705156 instance=ExtResource("23_ttgaj")]
 position = Vector2(88, 96)
@@ -155,7 +155,7 @@ position = Vector2(68, 136)
 
 [node name="SignPips" parent="Room2" unique_id=610924554 instance=ExtResource("22_yd5yl")]
 position = Vector2(32, 144)
-text = "Every fireball burns one of the pips over your head. They don't come back on their own."
+text = "Each fireball burns a pip. They don't come back."
 
 [node name="SignDiamond" parent="Room2" unique_id=633072865 instance=ExtResource("22_yd5yl")]
 position = Vector2(80, 144)
@@ -195,7 +195,7 @@ switches = [NodePath("../Brazier")]
 
 [node name="SignGrass" parent="Room3" unique_id=979459660 instance=ExtResource("22_yd5yl")]
 position = Vector2(24, 144)
-text = "Grass burns, and burning grass kills. Light it, then wait here. Ash never burns again."
+text = "Burning grass kills. Light it and wait; ash won't burn."
 
 [node name="Room4" type="Node2D" parent="." unique_id=1307623600]
 position = Vector2(1120, 0)
@@ -218,7 +218,7 @@ position = Vector2(20, 144)
 
 [node name="SignJet" parent="Room4" unique_id=872985508 instance=ExtResource("22_yd5yl")]
 position = Vector2(40, 144)
-text = "W: a burst of flame carries you, steered by the arrows. Jump, then W with Right held."
+text = "W: a burst of flame. Jump, then W holding Right."
 
 [node name="SignUp" parent="Room4" unique_id=586538708 instance=ExtResource("22_yd5yl")]
 position = Vector2(208, 144)
@@ -281,7 +281,7 @@ position = Vector2(20, 144)
 
 [node name="SignScorch" parent="Room6" unique_id=1228391688 instance=ExtResource("22_yd5yl")]
 position = Vector2(48, 144)
-text = "The jet's flame lights the grass under you. Up, and don't look back."
+text = "The jet lights the grass under you. Keep going up."
 
 [node name="Room7" type="Node2D" parent="." unique_id=502495135]
 position = Vector2(2080, -480)
@@ -368,7 +368,7 @@ text = "The Wild Things wing, down in the roots. Not open yet."
 
 [node name="SignHall" parent="Room7" unique_id=1655320268 instance=ExtResource("22_yd5yl")]
 position = Vector2(32, 368)
-text = "Four lights for four keys. Behind the gate, the way to the crater."
+text = "Four keys, four lights. The gate leads to the crater."
 
 [node name="KeyLight1" parent="Room7" unique_id=305640774 instance=ExtResource("30_yycd2")]
 position = Vector2(112, 368)
@@ -459,7 +459,7 @@ switches = [NodePath("../Brazier")]
 
 [node name="SignClimb" parent="WildRoom1" unique_id=1800785556 instance=ExtResource("22_yd5yl")]
 position = Vector2(264, 144)
-text = "Fire runs along grass: up its walls and over its tops. Light the floor, then let it climb."
+text = "Fire climbs grass. Light the floor and let it climb."
 
 [node name="WildRoom2" type="Node2D" parent="." unique_id=36206231]
 position = Vector2(1440, -360)
@@ -487,7 +487,7 @@ position = Vector2(300, 104)
 
 [node name="SignThicket" parent="WildRoom2" unique_id=1516542318 instance=ExtResource("22_yd5yl")]
 position = Vector2(248, 104)
-text = "Thicket burns right through and crumbles away. Burn it from beside it, not on top."
+text = "Thicket burns away. Light it from the side, not on top."
 
 [node name="WildRoom3" type="Node2D" parent="." unique_id=858693271]
 position = Vector2(1120, -336)
@@ -525,7 +525,7 @@ element = 2
 
 [node name="SignCover" parent="WildRoom3" unique_id=1705956330 instance=ExtResource("22_yd5yl")]
 position = Vector2(264, 144)
-text = "Roots hang from what only looks solid. Fire takes it all at once."
+text = "That ground is only roots. Fire takes it all at once."
 
 [node name="WildRoom4" type="Node2D" parent="." unique_id=778651880]
 position = Vector2(480, -296)
@@ -611,7 +611,7 @@ end_point = Vector2(-28, 16)
 
 [node name="SignDrawbridge" parent="RopeRoom1" unique_id=604443596 instance=ExtResource("22_yd5yl")]
 position = Vector2(40, 104)
-text = "One pip. A vine holds the plank up: burn the vine and it falls across."
+text = "Burn the vine: the plank falls across."
 
 [node name="RopeRoom2" type="Node2D" parent="." unique_id=94666063]
 position = Vector2(2720, -384)
@@ -692,7 +692,7 @@ end_point = Vector2(0, 48)
 
 [node name="SignLowered" parent="RopeRoom3" unique_id=1452006264 instance=ExtResource("22_yd5yl")]
 position = Vector2(32, 104)
-text = "Vines grown over the plank: set the plank itself alight and they all let go at once."
+text = "Burn the plank itself: all its vines let go."
 
 [node name="RopeRoom4" type="Node2D" parent="." unique_id=1562513204]
 position = Vector2(3360, -384)

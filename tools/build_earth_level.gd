@@ -76,6 +76,10 @@ const SHAFT_WIDTH: int = 4
 const WING_ENTRY_COLUMN: int = 4
 ## A teleport door's frame: TeleportDoor.DOOR_SIZE, px (its node is its top-left).
 const DOOR_FRAME_HEIGHT: int = 24
+## The Warren's spike islands: their left columns and their grass row.
+const WARREN_ISLAND_1: int = 13
+const WARREN_ISLAND_2: int = 8
+const WARREN_ISLAND_ROW: int = 24
 
 var kit: LevelKit = null
 ## Where the next room of the chain goes: its left edge on the map (px), and the
@@ -198,7 +202,7 @@ func _build_topsoil() -> Room:
 	_hidden(room, 27, 21, 5, 3)         # the chamber inside it, open on the right
 	kit.set_spawn(room, 2, 23)
 	_sign(room, "SignSuperJump", 13, 24,
-		"Brown-yellow ground is earth. The ridge is too high to jump: stand on the earth at its foot and TAP A. A pillar throws you up. Steer onto the ridge.")
+		"Stand on earth (yellow-brown) and TAP A to leap high.")
 	kit.place(room, &"golden_feather", "GoldenFeather", LevelKit.corner(10, 19))
 	_shard(room, 1, 28, 21)
 	_exit_right(room, 24)
@@ -219,7 +223,7 @@ func _build_sinkhole() -> void:
 	_grass(room, 24, 16, 15, 22)        # tower B: its top on row 16, out to the exit
 	kit.set_spawn(room, 2, 5)
 	_sign(room, "SignSpend", 3, 6,
-		"Each earth tile bends once, then it's spent (dark) until you die or press R. Down there: one tile, one super jump, per tower.")
+		"Earth bends once, then goes dark until you die or press R.")
 	_exit_right(room, 16)
 
 
@@ -237,7 +241,7 @@ func _build_stone_throw() -> void:
 	_earth(room, 30, 13, 1, 7)          # its earth face
 	kit.set_spawn(room, 2, 5)
 	_sign(room, "SignRock", 1, 6,
-		"S tears a rock out of the earth; S again throws it (arrows aim). Throw it at the tower's earth face: it sticks as a step. A white rock is a perfect throw.")
+		"S: lift a rock. S again: throw it. It sticks to earth.")
 	_exit_right(room, 13)
 
 
@@ -257,7 +261,7 @@ func _build_breakthrough() -> void:
 	_hidden(room, 39, 16, 1, 4)         # its way out through the wall
 	kit.set_spawn(room, 2, 12)
 	_sign(room, "SignBigRock", 1, 13,
-		"HOLD S: the rock grows into a big rock. Throw it at the cracked wall. Past the wall the earth sounds hollow: tear a big rock out of it and drop into the hole.")
+		"HOLD S: a big rock. Smash the wall, then dig a hole.")
 	_exit_right(room, 20, false)
 
 
@@ -274,7 +278,7 @@ func _build_first_snake() -> void:
 	_grass(room, 18, 17, 21, 6)         # the far ledge
 	kit.set_spawn(room, 2, 16)
 	_sign(room, "SignSnake", 1, 17,
-		"Stand on the earth, face the pit and HOLD A until the shadow has crawled away from your feet, then let go: a snake of earth comes out. Steer it with the arrows; A again hardens it into a bridge.")
+		"HOLD A till the shadow leaves you: a snake. A sets it.")
 	_exit_right(room, 17)
 
 
@@ -401,7 +405,7 @@ func _build_dig_here(map_px: Vector2) -> Room:
 	_hidden(room, 22, 19, 4, 4)                   # its way down, out through the bottom
 	kit.set_spawn(room, 5, 11)
 	_sign(room, "SignHollow", 9, 12,
-		"This earth is thick, and the ground under it is hollow. HOLD S for a big rock, throw it away, and drop into the hole.")
+		"Hollow under here. HOLD S, throw the big rock, drop in.")
 	return room
 
 
@@ -450,40 +454,81 @@ func _build_peeking(map_px: Vector2) -> Room:
 	return room
 
 
-## RoomB4 "The Warren" (two screens tall, the exam): three floors, each with two
-## or three patches of thick earth. Only some are hollow, and nothing says which
-## but the look of what's under them. Cave C is split by a covered wall to walk
-## through. The Key orb and the teleport door home are at the bottom.
-## Relic shard 2 (the secret): the third patch of the top floor is hollow too,
-## but its chamber is a closed pocket with the shard. Its floor is thick earth
-## again: dig through it to cave B, the same way on.
+## RoomB4 "The Warren" (two screens tall, the exam). Four tiers, top to bottom:
+##   A  a floor of three thick-earth patches, only some hollow (the wing's idea, as
+##      before): solid on the left, the way on in the middle, the shard pocket right.
+##   B  SPIKE ISLANDS: you land on a ledge with a strip of earth. Beyond it a pit of
+##      spikes, and over it two islands covered in spikes on every side. Throw rocks
+##      onto them: a rock is caught on spikes and stays as a one-tile step. Two steps,
+##      then the far ledge, whose thick earth is hollow: dig down.
+##   C  THE GUARDED DOOR: two wisps patrol the corridor in front of a door, and an
+##      enemy gate opens the door once both are beaten. A wisp only falls to a big
+##      rock or a perfect one (the earth here is 2 deep: big rocks fit). Notches in
+##      the floor keep each wisp in its stretch. Past the door, hollow earth again.
+##   D  the Key orb and the teleport door home.
+## Relic shard 2 (the secret): the RIGHT patch of floor A is hollow too, but its
+## chamber is a closed pocket with the shard. Its floor is thick earth: dig through
+## it onto ledge B, the same way on.
 ## Every cave over earth is at least 5 rows high: a stray tap of A (a pillar 3
 ## tall under you) crushes you under 4.
 func _build_warren(map_px: Vector2) -> Room:
-	var room: Room = _make_room("RoomB4", "The Warren", map_px, 40, 46, false)
+	var room: Room = _make_room("RoomB4", "The Warren", map_px, 40, 48, false)
 	var key_color: KeyColors.Name = WINGS[0][1]
-	_grass(room, 0, 0, 40, 46)
-	kit.clear(room, 9, 3, 31, 5)                  # cave A, rows 3-7, in through the right wall
-	_earth(room, 28, 8, 6, 2)                     # floor A: solid
-	_earth(room, 18, 8, 6, 2)                     # floor A: hollow, the way on
+	_grass(room, 0, 0, 40, 48)
+	# Tier A: cave A, rows 3-7, in through the right wall; its floor on row 8.
+	kit.clear(room, 9, 3, 31, 5)
+	_earth(room, 9, 8, 6, 2)                      # solid: grass under it
+	_earth(room, 18, 8, 6, 2)                     # hollow: the way on
 	_hidden(room, 18, 10, 6, 5)
-	_earth(room, 9, 8, 6, 2)                      # floor A: hollow, the shard pocket
-	_hidden(room, 9, 10, 6, 3)
-	_earth(room, 9, 13, 6, 2)                     # the pocket's floor: dig through it
-	_shard(room, 2, 11, 11)
-	kit.clear(room, 1, 15, 38, 5)                 # cave B, rows 15-19
-	_earth(room, 31, 20, 6, 2)                    # floor B: solid
-	_earth(room, 4, 20, 6, 2)                     # floor B: hollow
-	_hidden(room, 4, 22, 6, 4)
-	kit.clear(room, 1, 26, 17, 6)                 # cave C, rows 26-31, left part
-	_hidden(room, 18, 26, 4, 6)                   # the wall to walk through
-	kit.clear(room, 22, 26, 17, 6)                # cave C, right part
-	_earth(room, 6, 32, 6, 2)                     # floor C: solid
-	_earth(room, 26, 32, 6, 2)                    # floor C: hollow
-	_hidden(room, 26, 34, 6, 4)
-	kit.clear(room, 9, 38, 30, 4)                 # cave D, rows 38-41
-	kit.place(room, &"key_orb", "KeyOrb", LevelKit.corner(14, 41), {&"key_color": key_color})
-	kit.place(room, &"teleport_door", "WayHome", Vector2(10 * TILE, 42 * TILE - DOOR_FRAME_HEIGHT),
+	_earth(room, 28, 8, 6, 2)                     # hollow: the shard pocket
+	_hidden(room, 28, 10, 6, 3)
+	_earth(room, 28, 13, 6, 2)                    # the pocket's floor: dig on through it
+	_shard(room, 2, 30, 11)
+	# Tier B: cave B, rows 15-21. The ledge you land on (columns 17-38, floor row 22)
+	# with a strip of earth 1 deep: small rocks only, one per tile.
+	kit.clear(room, 1, 15, 38, 7)
+	_earth(room, 17, 22, 8, 1)
+	# The pit, columns 6-16, spikes along its bottom.
+	kit.clear(room, 6, 22, 11, 6)
+	kit.spikes(room, 6, 27, 11)
+	# Two islands, 2 tiles of grass with spikes all round, their tops 2 rows under
+	# the ledge: a rock caught on top is a step 1 row under the ledge.
+	for island_column: int in [WARREN_ISLAND_1, WARREN_ISLAND_2]:
+		_spiked_island(room, island_column, WARREN_ISLAND_ROW)
+	# The far ledge (columns 1-5): thick earth, hollow under it, down to tier C.
+	_earth(room, 1, 22, 4, 2)
+	_hidden(room, 1, 24, 4, 5)
+	_sign(room, "SignSpikeSteps", 27, 22, "Thrown rocks stick in spikes.")
+	# Tier C: cave C, rows 29-35, floor row 36.
+	kit.clear(room, 1, 29, 38, 7)
+	_earth(room, 6, 36, 5, 2)                     # where you land: rocks, big ones too
+	kit.clear(room, 12, 36, 1, 1)                 # notch: wisp 1 turns here
+	kit.clear(room, 22, 36, 1, 1)                 # notch: between the two wisps
+	_earth(room, 23, 36, 3, 2)                    # more earth, once wisp 1 is gone
+	var wisp_1: Node2D = kit.place(room, &"wisp", "Wisp1", LevelKit.corner(17, 36), {&"start_direction": -1})
+	var wisp_2: Node2D = kit.place(room, &"wisp", "Wisp2", LevelKit.corner(27, 36), {&"start_direction": 1})
+	var gate: Node2D = kit.place(room, &"enemy_gate", "EnemyGate", LevelKit.corner(28, 30))
+	kit.link(gate, &"enemies", [wisp_1, wisp_2])
+	var door: Node2D = kit.place(room, &"door", "GuardedDoor", LevelKit.corner(30, 29),
+		{&"door_size": Vector2(2 * TILE, 7 * TILE)})
+	kit.link(door, &"switches", [gate])
+	_sign(room, "SignWisps", 3, 36, "Big or perfect rocks beat wisps.")
+	_earth(room, 33, 36, 5, 2)                    # past the door: hollow, down to D
+	_hidden(room, 33, 38, 5, 4)
+	# Tier D: cave D, rows 42-45.
+	kit.clear(room, 9, 42, 30, 4)
+	kit.place(room, &"key_orb", "KeyOrb", LevelKit.corner(14, 45), {&"key_color": key_color})
+	kit.place(room, &"teleport_door", "WayHome", Vector2(10 * TILE, 46 * TILE - DOOR_FRAME_HEIGHT),
 		{&"door_color": key_color})
 	kit.set_spawn(room, 37, 7)
 	return room
+
+
+## A 2x1 block of grass at (column, row) with spikes on all four sides (the top
+## strip on row - 1, the bottom on row + 1, one each side).
+func _spiked_island(room: Room, column: int, row: int) -> void:
+	_grass(room, column, row, 2, 1)
+	kit.spikes(room, column, row - 1, 2, Spikes.Facing.UP)
+	kit.spikes(room, column, row + 1, 2, Spikes.Facing.DOWN)
+	kit.spikes(room, column - 1, row, 1, Spikes.Facing.LEFT)
+	kit.spikes(room, column + 2, row, 1, Spikes.Facing.RIGHT)

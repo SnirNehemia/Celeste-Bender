@@ -234,7 +234,7 @@ func _build_kindling() -> Room:
 	var brazier: Node2D = _brazier(room, "Brazier", 25, 9)
 	_door(room, "Door", 32, 14, [brazier])
 	kit.set_spawn(room, 3, 17)
-	_sign(room, "SignFireball", 5, 18, "Q throws a fireball, the way the arrows point. Hold Q to aim. Light the brazier.")
+	_sign(room, "SignFireball", 5, 18, "Q: a fireball (arrows aim). Light the brazier.")
 	kit.place(room, &"golden_feather", "GoldenFeather", LevelKit.corner(11, 12))
 	_exit_right(room, 18)
 	return room
@@ -254,7 +254,7 @@ func _build_spent() -> void:
 	_door(room, "Door", 32, 14, [low, high], true)
 	_diamond(room, "FireDiamond", 8, 18)
 	kit.set_spawn(room, 2, 17)
-	_sign(room, "SignPips", 4, 18, "Every fireball burns one of the pips over your head. They don't come back on their own.")
+	_sign(room, "SignPips", 4, 18, "Each fireball burns a pip. They don't come back.")
 	_sign(room, "SignDiamond", 10, 18, "An orange diamond: one more pip.")
 	_exit_right(room, 18)
 
@@ -273,7 +273,7 @@ func _build_fuse() -> void:
 	var brazier: Node2D = _brazier(room, "Brazier", 48, 18)
 	_door(room, "Door", 50, 14, [brazier])
 	kit.set_spawn(room, 2, 17)
-	_sign(room, "SignGrass", 3, 18, "Grass burns, and burning grass kills. Light it, then wait here. Ash never burns again.")
+	_sign(room, "SignGrass", 3, 18, "Burning grass kills. Light it and wait; ash won't burn.")
 	_exit_right(room, 18)
 
 
@@ -288,7 +288,7 @@ func _build_first_burst() -> void:
 	_ground(room, 13, 20, 2, 2)                   # the step out: 2 up, then 2 more to the floor
 	_ground(room, 31, 10, 8, 8)                   # the ledge: its top on row 10
 	kit.set_spawn(room, 2, 17)
-	_sign(room, "SignJet", 5, 18, "W: a burst of flame carries you, steered by the arrows. Jump, then W with Right held.")
+	_sign(room, "SignJet", 5, 18, "W: a burst of flame. Jump, then W holding Right.")
 	_sign(room, "SignUp", 26, 18, "W with no arrow held: straight up.")
 	_exit_right(room, 10)
 
@@ -320,7 +320,7 @@ func _build_ash_walk() -> void:
 	kit.fill(room, &"grass", 4, 18, 27, 1)
 	_ground(room, 31, 10, 8, 8)                   # the ledge: its top on row 10
 	kit.set_spawn(room, 2, 17)
-	_sign(room, "SignScorch", 6, 18, "The jet's flame lights the grass under you. Up, and don't look back.")
+	_sign(room, "SignScorch", 6, 18, "The jet lights the grass under you. Keep going up.")
 	_exit_right(room, 10)
 
 
@@ -366,7 +366,7 @@ func _build_hub() -> Room:
 	kit.place(hub, &"teleport_exit", "RopesExit", Vector2(10 * TILE, 46 * TILE - TeleportDoor.DOOR_SIZE.y),
 		{&"door_color": KEY_COLORS[1], &"is_exit": true})
 	_sign(hub, "SignWildThings", 34, 46, "The Wild Things wing, down in the roots. Not open yet.")
-	_sign(hub, "SignHall", 4, 46, "Four lights for four keys. Behind the gate, the way to the crater.")
+	_sign(hub, "SignHall", 4, 46, "Four keys, four lights. The gate leads to the crater.")
 	var lights: Array = []
 	var light_columns: Array[int] = [14, 16, 24, 26]
 	for index: int in KEY_COLORS.size():
@@ -424,7 +424,7 @@ func _build_dry_grass() -> void:
 	_exit_left(room, 18)
 	_door(room, "Door", 0, 14, [brazier])
 	kit.set_spawn(room, 37, 17)
-	_sign(room, "SignClimb", 33, 18, "Fire runs along grass: up its walls and over its tops. Light the floor, then let it climb.")
+	_sign(room, "SignClimb", 33, 18, "Fire climbs grass. Light the floor and let it climb.")
 
 
 ## WildRoom2 "Undergrowth", 3 pips: thicket burns right through and crumbles to
@@ -440,7 +440,7 @@ func _build_undergrowth() -> void:
 	_ground(room, 1, 21, 38, 2)                   # the lower corridor's floor
 	_exit_left(room, 21)
 	kit.set_spawn(room, 37, 12)
-	_sign(room, "SignThicket", 31, 13, "Thicket burns right through and crumbles away. Burn it from beside it, not on top.")
+	_sign(room, "SignThicket", 31, 13, "Thicket burns away. Light it from the side, not on top.")
 
 
 ## WildRoom3 "Overgrown", 2 pips: covers. The room looks closed: its left wall is a
@@ -458,7 +458,7 @@ func _build_overgrown() -> void:
 	_shard(room, 2, 21, 19)
 	_exit_left(room, 18)
 	kit.set_spawn(room, 37, 17)
-	_sign(room, "SignCover", 33, 18, "Roots hang from what only looks solid. Fire takes it all at once.")
+	_sign(room, "SignCover", 33, 18, "That ground is only roots. Fire takes it all at once.")
 
 
 ## WildRoom4 "Wildfire", the wing's exam (80 tiles), 4 pips and a fire diamond.
@@ -584,7 +584,7 @@ func _build_drawbridge() -> void:
 	_notch(room, 12)                              # it falls with its near end on columns 12-13
 	_exit_right(room, CANOPY_FLOOR)
 	kit.set_spawn(room, 2, CANOPY_FLOOR - 1)
-	_sign(room, "SignDrawbridge", 5, CANOPY_FLOOR, "One pip. A vine holds the plank up: burn the vine and it falls across.")
+	_sign(room, "SignDrawbridge", 5, CANOPY_FLOOR, "Burn the vine: the plank falls across.")
 
 
 ## RopeRoom2 "Dead Weight", 2 pips: a metal crate (metal never burns) hangs on a vine
@@ -619,7 +619,7 @@ func _build_lowered() -> void:
 	_notch(room, 13)                              # its near end lands on columns 13-14
 	_exit_right(room, CANOPY_FLOOR)
 	kit.set_spawn(room, 2, CANOPY_FLOOR - 1)
-	_sign(room, "SignLowered", 4, CANOPY_FLOOR, "Vines grown over the plank: set the plank itself alight and they all let go at once.")
+	_sign(room, "SignLowered", 4, CANOPY_FLOOR, "Burn the plank itself: all its vines let go.")
 
 
 ## RopeRoom4 "Counterweights", the wing's exam (60 tiles), 3 pips and a fire

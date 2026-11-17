@@ -184,7 +184,7 @@ func _build_open_air() -> Room:
 	kit.clear(room, 13, 15, 12, 5)      # the pit: columns 13-24, its floor on row 20
 	_grass(room, 13, 18, 3, 2)          # the step out: 2 tiles up from the pit, 3 more to the floor
 	kit.set_spawn(room, 2, 14)
-	_sign(room, "SignGlide", 9, 15, "Jump, then press Jump again in the air and hold it: you glide.")
+	_sign(room, "SignGlide", 9, 15, "Jump, then press and hold Jump again: you glide.")
 	kit.place(room, &"golden_feather", "GoldenFeather", LevelKit.corner(19, 11))
 	_exit_right(room, 15)
 	return room
@@ -206,7 +206,7 @@ func _build_long_drift() -> void:
 	kit.clear(room, 56, 18, 3, 2)       # the low landing: its floor on row 20
 	kit.place(room, &"wind_crystal", "WindCrystal", Vector2(30 * TILE + 100, 106))
 	kit.set_spawn(room, 1, 17)
-	_sign(room, "SignBreath", 3, 18, "Gliding uses your breath: the bar over your head. A wind crystal fills it again.")
+	_sign(room, "SignBreath", 3, 18, "Gliding uses breath (the bar). Crystals refill it.")
 	_exit_right(room, 20)
 
 
@@ -255,7 +255,7 @@ func _build_second_wind() -> void:
 	_dead_air(room, "DeadAir", 21, 1, 9, 30)
 	_leaves(room, "LeafPile", 7, 28)
 	kit.set_spawn(room, 2, 27)
-	_sign(room, "SignDownGust", 4, 28, "In the air, hold Down and press Z: a gust under you is a second jump. One gust per jump.")
+	_sign(room, "SignDownGust", 4, 28, "In the air: Down + Z. A gust under you, once per jump.")
 	_sign(room, "SignDeadAir", 15, 20, "Dead air: you can't glide in it. Gust across.")
 	_exit_right(room, 20)
 
@@ -273,7 +273,7 @@ func _build_kickback() -> void:
 	# In a standing jump's path, 20 px from the cliff's face.
 	kit.place(room, &"gust_diamond", "GustDiamond", Vector2(300, 166))
 	kit.set_spawn(room, 2, 23)
-	_sign(room, "SignRecoil", 4, 24, "A gust pushes you the other way. Jump, gust LEFT to fly right, then glide.")
+	_sign(room, "SignRecoil", 4, 24, "A gust pushes you away. Gust LEFT to fly right.")
 	_sign(room, "SignDiamond", 33, 24, "A gust diamond: two gusts in one jump.")
 	_exit_right(room, 12)
 
@@ -293,7 +293,7 @@ func _build_still_air() -> void:
 	_grass(room, 1, 42, 38, 4)
 	_dead_air(room, "DeadAir", 1, 8, 38, 34)
 	kit.set_spawn(room, 2, 5)
-	_sign(room, "SignBrake", 4, 6, "Z with no arrow held: a blast all around that stops you in the air. Drop, then brake.")
+	_sign(room, "SignBrake", 4, 6, "Z with no arrow: a blast that stops you in the air.")
 	_exit_right(room, 42)
 
 
