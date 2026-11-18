@@ -1,5 +1,5 @@
 class_name CrumblePatchSettings
-extends RefCounted
+extends PaintedPatchSettings
 ## CrumblePatchSettings: the property panel's stand-in for ONE patch of painted
 ## crumbling rock or ice (after the W8c play-test: "choose a platform and decide how
 ## long it takes for it to fall").
@@ -67,6 +67,14 @@ func get_default_time() -> float:
 	if not is_instance_valid(layer):
 		return WATER_TUNING.crumble_time
 	return float(layer.call(&"get_default_crumble_time"))
+
+
+func get_panel_properties() -> Array[StringName]:
+	return [&"crumble_time"]
+
+
+func get_panel_hint() -> String:
+	return "The seconds from the first touch until this whole patch falls (%.1f s unless you change it). Click another patch to set its own." 		% get_default_time()
 
 
 ## Still a patch there (an undo or an erase may have taken it away)?

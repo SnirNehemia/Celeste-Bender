@@ -304,7 +304,7 @@ func _ready() -> void:
 	grass_layer = room.get_node_or_null("Grass") as GrassLayer
 	for child: Node in room.get_children():
 		# Storm clouds are deadly but not solid: water runs through them.
-		if child is TileMapLayer and not child is HiddenLayer and not child is WaterLayer and not child is StormCloudLayer:
+		if child is TileMapLayer and not child is HiddenLayer and not child is WaterLayer and not child is NonSolidLayer:
 			solid_layers.append(child)
 	# Grid ice (Stage I1): the tiles the freeze makes, a solid layer of the room.
 	ice_layer = PlayerIceLayer.create(self)

@@ -160,6 +160,20 @@ func get_dark_lights() -> Array[Vector4]:
 	return lights
 
 
+## Where the fire stands: the middle of its visible tongues' bases, world px (its
+## own position when none shows). The DarkRoomOverlay checks it, not only the light's
+## center, which rises above the flames: a brazier in a low hidden chamber has its
+## glow in the rock above the chamber, its fire inside it.
+func get_base_point() -> Vector2:
+	var total: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for tongue: FlameTongue in tongues:
+		if is_instance_valid(tongue) and tongue.is_visible_in_tree():
+			total += tongue.global_position
+			count += 1
+	return total / count if count > 0 else global_position
+
+
 ## The glow under the visible tongues this frame: [center (our local px), radius,
 ## color], or [] when no tongue shows.
 func _get_glow_shape() -> Array:

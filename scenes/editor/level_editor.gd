@@ -226,8 +226,9 @@ var selected_object: Node2D = null:
 		selected_object = value
 		_show_selection_in_panel()
 ## A patch of painted crumbling rock or ice clicked with the Select tool (its own
-## crumble time shows in the panel), or null. Not an object: see CrumblePatchSettings.
-var selected_patch: CrumblePatchSettings = null
+## crumble time shows in the panel), or a hidden chamber (its cover look), or null.
+## Not an object: see PaintedPatchSettings.
+var selected_patch: PaintedPatchSettings = null
 ## The room last clicked in: its settings show in the panel when nothing is selected.
 var current_room: Room = null:
 	set(value):
@@ -1274,8 +1275,11 @@ func _select_at(mouse_world: Vector2) -> void:
 		return
 	if found.is_empty():
 		select(null)
-		# No object: a crumbling patch there can be picked for its crumble time.
+		# No object: a crumbling patch there can be picked for its crumble time, a
+		# hidden chamber for its cover look.
 		selected_patch = CrumblePatchSettings.find_at(room_at(mouse_world), mouse_world)
+		if selected_patch == null:
+			selected_patch = HiddenChamberSettings.find_at(room_at(mouse_world), mouse_world)
 		if selected_patch != null:
 			_show_selection_in_panel()
 		return
@@ -1608,11 +1612,26 @@ func _apply_property(target: Object, property: StringName, value: Variant) -> vo
 	# picks the look from Fire / Water being allowed: repaint in the new look.
 	if target is Room and property in [&"backdrop_theme", &"fire_allowed", &"water_allowed"]:
 		RoomLook.refresh(target)
+	# A bool other settings hang on (PaletteCatalog.Entry.shown_when): they come or
+	# go. Deferred: the panel's own checkbox is still inside its signal here.
+	if entry != null and entry.shown_when.values().has(property):
+		_show_selection_in_panel.call_deferred()
 	if target is Room and property == &"fire_allowed":
 		_show_selection_in_panel()  # Fire Start Pips shows only while Fire is on, Grass Burns only while off
 	# Pips alone do nothing: fire works only where it's allowed (off by default).
 	if target is Room and property == &"fire_start_pips" and int(value) > 0 and not (target as Room).fire_allowed:
 		ui.show_message("Fire Allowed is off in this room: tick it, or the pips can't be used.", true)
+
+
+## The entry's settings the panel shows for `node` right now: those in
+## `shown_when` only while their bool is on (a sentry's Fire Direction once
+## Automatic is ticked).
+func _get_shown_properties(entry: PaletteCatalog.Entry, node: Node) -> Array[StringName]:
+	var shown: Array[StringName] = []
+	for property: StringName in entry.editable_properties:
+		if not entry.shown_when.has(property) or bool(node.get(entry.shown_when[property])):
+			shown.append(property)
+	return shown
 
 
 ## Shows the selected object's settings in the panel, or the current room's.
@@ -1622,11 +1641,11 @@ func _show_selection_in_panel() -> void:
 	var selected: Node2D = selected_object
 	if selected != null and is_instance_valid(selected):
 		var entry: PaletteCatalog.Entry = PaletteCatalog.entry_for_node(selected)
-		var direction_properties: Array[StringName] = []
+		var direction_properties: Array[StringName] = entry.direction_properties.duplicate()
 		if entry.arrow_property != &"":
 			direction_properties.append(entry.arrow_property)
 		ui.property_panel.show_target(selected, "%s\n%s" % [entry.display_name, selected.name],
-			entry.editable_properties, direction_properties, entry.hint)
+			_get_shown_properties(entry, selected), direction_properties, entry.hint)
 		link_mode_buttons.clear()
 		if entry.back_link_property != &"":
 			# Two lists (a rail platform): one button per kind of link mode, side by
@@ -1649,9 +1668,8 @@ func _show_selection_in_panel() -> void:
 				ui.property_panel.add_button("Remove last corner", func() -> void: remove_path_point(path_object, path_property))
 		_update_link_footer()
 	elif selected_patch != null and selected_patch.is_valid():
-		ui.property_panel.show_target(selected_patch, selected_patch.get_title(), [&"crumble_time"], [],
-			"The seconds from the first touch until this whole patch falls (%.1f s unless you change it). Click another patch to set its own." \
-			% selected_patch.get_default_time())
+		ui.property_panel.show_target(selected_patch, selected_patch.get_title(), selected_patch.get_panel_properties(), [],
+			selected_patch.get_panel_hint())
 	elif current_room != null and is_instance_valid(current_room):
 		var title: String = "Room\n%s" % room_title(current_room)
 		var room_count: int = _get_panel_rooms().size()
@@ -2301,8 +2319,8 @@ func _is_body_free(room: Room, body: Rect2, room_size: Vector2i) -> bool:
 func is_solid_cell(room: Room, cell: Vector2i) -> bool:
 	for child: Node in room.get_children():
 		var layer: TileMapLayer = child as TileMapLayer
-		if layer is HiddenLayer or layer is StormCloudLayer:
-			continue  # a hidden chamber is open space (a gap in the wall); a storm cloud isn't solid
+		if layer is HiddenLayer or layer is NonSolidLayer:
+			continue  # a hidden chamber is open space (a gap in the wall); storm clouds and clues aren't solid
 		if layer != null and layer.get_cell_source_id(cell) != -1:
 			return true
 	return false

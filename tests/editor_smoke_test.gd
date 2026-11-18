@@ -70,6 +70,7 @@ func _ready() -> void:
 	await _check_hub_keys()
 	await _check_collectibles()
 	await _check_rail_links_and_passengers()
+	await _check_player_aid_and_chamber_looks()
 
 	_delete_test_folder()
 	LevelStorage.levels_dir = LevelStorage.DEFAULT_LEVELS_DIR
@@ -79,7 +80,7 @@ func _ready() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_RECENT_PATH))
 	LevelStorage.autosave_dir = LevelStorage.DEFAULT_AUTOSAVE_DIR
 	LevelStorage.recent_path = LevelStorage.DEFAULT_RECENT_PATH
-	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax", "Hub keys", "Collectibles", "Rail links and passengers"]:
+	for section_name: String in ["L1 storage", "L1 play", "L1 menus", "L2 prompt", "L2 editor", "L3 objects", "L3 play-test", "L4 Air objects", "L5 properties", "L6 links", "L6b zones, eraser, help", "L7 map", "L7 import", "L8 Earth", "L8b follow-ups", "L9 Fire", "L9b follow-ups", "L10 enemies", "L10b follow-ups", "L10c follow-ups", "L10d plank on a block", "L11 story", "L12 palette tools", "L13 hidden chambers", "L14 walls and peeks", "L15 cross-room strokes", "L16 designer tools", "L17 backdrops", "Hazards and rails", "Falling blocks", "Falling between rooms", "D1 depths", "D2 depth gates", "D3 pinned parallax", "Hub keys", "Collectibles", "Rail links and passengers", "Player aid and chamber looks"]:
 		_check(finished_sections.has(section_name), "section %s ran to its end" % section_name)
 	print("[EditorSmokeTest] %s" % ("ALL PASSED" if failures == 0 else "%d FAILED" % failures))
 	get_tree().quit(1 if failures > 0 else 0)
@@ -342,12 +343,14 @@ func _check_l3_objects() -> void:
 	add_child(editor)
 	await get_tree().process_frame
 	_check(editor.ui.palette_buttons.size() == PaletteCatalog.get_entries().size(), "the palette has a button per catalog entry")
-	editor.choose_entry(PaletteCatalog.get_entry(&"spikes"))
+	# The goal: a button of its own (spikes share theirs with the storm cloud, a dropdown).
+	editor.choose_entry(PaletteCatalog.get_entry(&"goal"))
 	var pressed_ids: Array[StringName] = []
 	for id: StringName in editor.ui.palette_buttons:
 		if (editor.ui.palette_buttons[id] as Button).button_pressed:
 			pressed_ids.append(id)
-	_check(pressed_ids == [&"spikes"], "only the chosen palette button looks pressed, got %s" % [pressed_ids])
+	_check(pressed_ids == [&"goal"], "only the chosen palette button looks pressed, got %s" % [pressed_ids])
+	editor.choose_entry(PaletteCatalog.get_entry(&"spikes"))
 	var room: Room = editor.get_rooms()[0]
 	var goal_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"goal")
 	var spikes_entry: PaletteCatalog.Entry = PaletteCatalog.get_entry(&"spikes")
@@ -566,7 +569,7 @@ func _check_l4_air_objects() -> void:
 	# Tabs: choosing an entry opens its family's tab.
 	editor.choose_entry(PaletteCatalog.get_entry(&"crate"))
 	_check(editor.ui.open_family == "Objects" and (editor.ui.family_lists["Objects"] as Control).visible
-		and not (editor.ui.family_lists["Basics"] as Control).visible, "choosing the crate opens the Objects tab and hides the others")
+		and not (editor.ui.family_lists["Terrain"] as Control).visible, "choosing the crate opens the Objects tab and hides the others")
 	editor.ui.show_family("Terrain")
 	_check((editor.ui.family_lists["Terrain"] as Control).visible and not (editor.ui.family_lists["Objects"] as Control).visible, "clicking a tab shows its entries")
 
@@ -2934,7 +2937,7 @@ func _check_falling_blocks() -> void:
 		"seven falling-block patches, drawn as basalt")
 	editor._select_at(room.to_global(Vector2(33.5, 6.5) * LevelEditor.TILE))
 	_check(editor.selected_patch != null and editor.selected_patch.get_title().begins_with("Falling block")
-		and is_equal_approx(editor.selected_patch.crumble_time, CrumblePatchSettings.WATER_TUNING.falling_block_time),
+		and is_equal_approx((editor.selected_patch as CrumblePatchSettings).crumble_time, CrumblePatchSettings.WATER_TUNING.falling_block_time),
 		"the Select tool picks a falling block, at its own default time")
 
 	_check(editor.start_playtest(), "the falling level play-tests")
@@ -3770,6 +3773,140 @@ func _check_rail_links_and_passengers() -> void:
 	editor.queue_free()
 	await get_tree().process_frame
 	finished_sections.append("Rail links and passengers")
+
+
+## After the dark-room play-test: the PLAYER AID tab (spawn, goal, signs and the
+## painted CLUES, one dropdown of brushes) replaced Basics; air zones, the metal platform and
+## spikes went to Terrain in dropdowns; the burnable terrain shares one Breakable
+## dropdown. A hidden chamber's COVER LOOK is picked with the Select tool. In a dark
+## room the chamber lid stays under the darkness and a lit brazier in a covered
+## chamber gives no light until it's opened; a brazier's FIRE SIZE widens its light.
+func _check_player_aid_and_chamber_looks() -> void:
+	# The tabs and dropdowns.
+	_check(not PaletteCatalog.get_families().has("Basics") and PaletteCatalog.get_families()[1] == "Player aid",
+		"no Basics tab; Player aid comes right after Terrain")
+	for id: StringName in [&"spawn_point", &"goal", &"signpost", &"clue_leaves", &"clue_vines", &"clue_claw_marks"]:
+		_check(PaletteCatalog.get_entry(id) != null and PaletteCatalog.get_entry(id).family == "Player aid", "%s is in Player aid" % id)
+	for id: StringName in [&"wind_zone", &"no_glide_zone", &"metal_platform", &"spikes", &"storm_cloud"]:
+		_check(PaletteCatalog.get_entry(id).family == "Terrain", "%s is in Terrain" % id)
+	_check(PaletteCatalog.get_entry(&"wind_zone").menu_group == PaletteCatalog.get_entry(&"no_glide_zone").menu_group
+		and PaletteCatalog.get_entry(&"spikes").menu_group == PaletteCatalog.get_entry(&"storm_cloud").menu_group
+		and PaletteCatalog.get_entry(&"thicket").menu_group == PaletteCatalog.get_entry(&"overgrown_grass").menu_group,
+		"air zones, spikes + storm and the burnables each share a dropdown")
+	_check(PaletteCatalog.get_entry(&"crumble_rock").extra_tabs.is_empty() and PaletteCatalog.get_entry(&"crumble_ice").extra_tabs.is_empty(),
+		"crumbling rock and ice are only in Terrain")
+
+	var path: String = LevelStorage.create_level("Aid Level")
+	LevelEditor.path_to_open = path
+	var editor: LevelEditor = LEVEL_EDITOR_SCENE.instantiate() as LevelEditor
+	add_child(editor)
+	await get_tree().process_frame
+	var room: Room = editor.get_rooms()[0]
+	var clue_button: Button = editor.ui.menu_group_buttons.get("Clue")
+	_check(clue_button != null and clue_button.get_parent() == editor.ui.family_lists["Player aid"], "one Clue dropdown button in Player aid")
+
+	# A chamber in grey rock (no earth): its cover look is picked with Select.
+	var wall_cells: Array[Vector2i] = []
+	for y: int in range(10, 17):
+		for x: int in range(10, 21):
+			wall_cells.append(Vector2i(x, y))
+	editor.paint_cells(room, wall_cells, true, PaletteCatalog.get_entry(&"ground"))
+	var chamber_cells: Array[Vector2i] = []
+	for y: int in range(12, 14):
+		for x: int in range(12, 17):
+			chamber_cells.append(Vector2i(x, y))
+	editor.paint_cells(room, chamber_cells, true, PaletteCatalog.get_entry(&"hidden_chamber"))
+	# Clues painted on the chamber's entrance wall and over the ground beside it: they
+	# erase nothing, and later ground painted there leaves them.
+	var vine_cells: Array[Vector2i] = [Vector2i(11, 12), Vector2i(11, 13), Vector2i(12, 12)]
+	editor.paint_cells(room, vine_cells, true, PaletteCatalog.get_entry(&"clue_vines"))
+	var clue_layer: ClueLayer = room.get_node_or_null("Clues") as ClueLayer
+	var hidden_cells: HiddenLayer = room.get_node("Hidden") as HiddenLayer
+	_check(clue_layer != null and clue_layer.get_used_cells().size() == 3 and clue_layer.get_kind(Vector2i(11, 12)) == ClueLayer.Kind.VINES,
+		"vine clues are painted on their own Clues layer")
+	_check((room.get_node("Tiles") as TileMapLayer).get_cell_source_id(Vector2i(11, 12)) != -1
+		and hidden_cells.get_cell_source_id(Vector2i(12, 12)) != -1, "painting clues erases neither the ground nor the chamber")
+	var chamber_clue_cell: Vector2i = Vector2i(13, 12)  # inside the chamber
+	editor.paint_cells(room, [chamber_clue_cell] as Array[Vector2i], true, PaletteCatalog.get_entry(&"clue_moss"))
+	_check(clue_layer.get_clue_alpha(chamber_clue_cell) == 1.0, "a clue on a chamber tile shows while editing (the chamber is open)")
+	editor.paint_cells(room, [Vector2i(11, 13)] as Array[Vector2i], true, PaletteCatalog.get_entry(&"ground"))
+	editor.paint_cells(room, [Vector2i(11, 13)] as Array[Vector2i], true, PaletteCatalog.get_entry(&"clue_claw_marks"))
+	_check(clue_layer.get_kind(Vector2i(11, 13)) == ClueLayer.Kind.CLAW_MARKS and clue_layer.get_used_cells().size() == 4,
+		"another clue kind replaces the one in that tile, and ground painted there left it")
+	_check(clue_layer.tile_set.get_physics_layers_count() == 0, "clues have no collision")
+	editor.paint_cells(room, [Vector2i(5, 5)] as Array[Vector2i], true, PaletteCatalog.get_entry(&"clue_leaves"))
+	_check(clue_layer.get_kind(Vector2i(5, 5)) == ClueLayer.Kind.LEAVES and not editor.is_solid_cell(room, Vector2i(5, 5)),
+		"a clue painted in open air isn't solid")
+	editor.paint_cells(room, [Vector2i(5, 5)] as Array[Vector2i], false, PaletteCatalog.get_entry(&"clue_leaves"))
+	_check(clue_layer.get_cell_source_id(Vector2i(5, 5)) == -1, "right-dragging a clue brush erases the clue")
+	var brazier: Brazier = editor.place_object(PaletteCatalog.get_entry(&"brazier"), room, Vector2i(15, 13)) as Brazier
+	brazier.starts_lit = true
+	room.is_dark = true
+	editor.choose_entry(PaletteCatalog.get_entry(&"select"))
+	editor._select_at(room.to_global(Vector2(12.5, 12.5) * LevelEditor.TILE))
+	var chamber_settings: HiddenChamberSettings = editor.selected_patch as HiddenChamberSettings
+	_check(chamber_settings != null and chamber_settings.get_title().ends_with("10 tiles")
+		and chamber_settings.cover_look == HiddenLayer.CoverLook.AUTO, "Select picks the hidden chamber, its cover look Auto")
+	editor.set_property(chamber_settings, &"cover_look", HiddenLayer.CoverLook.ROCK)
+	var hidden: HiddenLayer = room.get_node("Hidden") as HiddenLayer
+	_check(hidden.get_cover_look(hidden.get_chamber_cells_at(Vector2i(16, 13))) == HiddenLayer.CoverLook.ROCK, "set to Rock, for the whole chamber")
+	editor.undo()
+	_check(chamber_settings.cover_look == HiddenLayer.CoverLook.AUTO, "undo: Auto again")
+	editor.redo()
+	_check(chamber_settings.cover_look == HiddenLayer.CoverLook.ROCK, "redo: Rock")
+
+	# In play: drawn as rock, the lid under the dark, the brazier's light hidden.
+	_check(editor.start_playtest(), "play")
+	await get_tree().create_timer(0.3).timeout
+	var play_room: Room = editor.play_root.get_node("Room1") as Room
+	var play_hidden: HiddenLayer = play_room.get_node("Hidden") as HiddenLayer
+	var play_painter: GroundPainter = play_room.get_node("GroundPainter") as GroundPainter
+	_check(play_hidden.is_covered(Vector2i(13, 12)) and play_painter.kinds.get(Vector2i(13, 12)) == GroundPainter.Kind.GRAY,
+		"the covered chamber is drawn as grey rock")
+	_check(play_painter.lid != null and not play_painter.lid.z_as_relative
+		and play_painter.lid.z_index < DarkRoomOverlay.DRAW_Z_INDEX, "the chamber lid is under the darkness")
+	var play_clues: ClueLayer = play_room.get_node("Clues") as ClueLayer
+	_check(play_clues.look.z_index > play_painter.lid.z_index and play_clues.look.z_index < DarkRoomOverlay.DRAW_Z_INDEX
+		and not play_clues.look.z_as_relative, "the clues draw over the chamber lid, under the darkness")
+	var overlay: DarkRoomOverlay = editor.play_root.get_node("DarkRoomOverlay") as DarkRoomOverlay
+	var play_brazier: Brazier = null
+	for child: Node in play_room.get_children():
+		if child is Brazier:
+			play_brazier = child
+	var brazier_merge: FlameMerge = play_brazier.find_children("*", "FlameMerge", true, false)[0] as FlameMerge if play_brazier != null else null
+	_check(play_brazier != null and play_brazier.is_on() and brazier_merge != null and not brazier_merge.get_dark_lights().is_empty(),
+		"the brazier in the chamber starts lit")
+	overlay.view_rect = play_room.get_bounds()
+	var brazier_point: Vector2 = play_brazier.global_position + Vector2(0.0, -16.0)
+	_check(not _has_light_near(overlay._gather_lights(0.0), brazier_point), "covered: its light doesn't reach the dark room")
+	_check(play_clues.get_clue_alpha(Vector2i(13, 12)) == 1.0 and play_clues.get_clue_alpha(Vector2i(11, 12)) == 1.0,
+		"in play a clue on a covered chamber tile (and one beside it) shows")
+	play_hidden.reveal_chamber(Vector2i(13, 12))
+	await get_tree().create_timer(0.3).timeout
+	_check(play_clues.get_clue_alpha(Vector2i(13, 12)) < 1.0, "while the wall crumbles, the clue on it fades with it")
+	await get_tree().create_timer(1.2).timeout
+	_check(play_clues.get_clue_alpha(Vector2i(13, 12)) == 0.0 and play_clues.get_clue_alpha(Vector2i(11, 12)) == 1.0,
+		"once opened the clue on the chamber is gone, the one on the ground stays")
+	_check(_has_light_near(overlay._gather_lights(0.0), brazier_point), "opened: it lights the room")
+	var normal_radius: float = brazier_merge.get_dark_lights()[0].z
+	play_brazier.fire_size = 2.0
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(brazier_merge.get_dark_lights()[0].z > normal_radius * 1.4, "a bigger fire lights a wider circle")
+	editor.stop_playtest()
+	await get_tree().process_frame
+
+	editor.queue_free()
+	await get_tree().process_frame
+	finished_sections.append("Player aid and chamber looks")
+
+
+## True if one of `lights` (x, y, radius, strength) is centered within 16 px of `point`.
+func _has_light_near(lights: Array[Vector4], point: Vector2) -> bool:
+	for light: Vector4 in lights:
+		if Vector2(light.x, light.y).distance_to(point) < 16.0:
+			return true
+	return false
 
 
 func _press_action(action: StringName) -> void:

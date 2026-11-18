@@ -43,7 +43,7 @@ const LEFT_SECTIONS: Array = [
 		["editor_paste", "paste at the mouse"],
 		["editor_paste_mirrored", "paste mirrored left-right"],
 	]],
-	["Objects (Basics, Air tabs)", [
+	["Objects (Player aid, Objects... tabs)", [
 		["editor_paint", "place, or pick up and drag"],
 		["editor_free_place", "+ place / drag: free, to the pixel"],
 		["editor_erase", "delete the object under the mouse"],

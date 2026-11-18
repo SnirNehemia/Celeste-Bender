@@ -197,7 +197,45 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 2, 2, 2, 1, GRASS_GREEN)
 			_rect(image, 6, 6, 2, 1, GRASS_GREEN)
 			_rect(image, 4, 4, 1, 5, EARTH_BROWN)
-		# --- Basics ---
+		# --- Player aid: painted clues (ClueLayer.Kind) ---
+		&"clue_leaves":
+			_rect(image, 1, 7, 3, 2, ORANGE.darkened(0.3))
+			_rect(image, 4, 6, 3, 2, LEAF_GOLD)
+			_rect(image, 6, 8, 3, 1, OLIVE)
+			_rect(image, 3, 4, 2, 1, OLIVE)
+		&"clue_vines":
+			for x: int in [2, 5, 7]:
+				_rect(image, x, 0, 1, 6 + x % 3, GRASS_GREEN.darkened(0.4))
+			for leaf: Vector2i in [Vector2i(3, 2), Vector2i(6, 4), Vector2i(1, 5), Vector2i(8, 7)]:
+				_rect(image, leaf.x, leaf.y, 1, 1, GRASS_GREEN)
+		&"clue_moss":
+			_rect(image, 1, 7, 8, 2, GRASS_GREEN.darkened(0.3))
+			_rect(image, 2, 5, 3, 2, GRASS_GREEN.darkened(0.15))
+			_rect(image, 6, 4, 2, 3, GRASS_GREEN.darkened(0.15))
+		&"clue_flowers":
+			for flower: Vector2i in [Vector2i(2, 4), Vector2i(6, 3)]:
+				_rect(image, flower.x, flower.y + 1, 1, 9 - flower.y, GRASS_GREEN.darkened(0.2))
+				_rect(image, flower.x - 1, flower.y, 3, 1, YELLOW)
+				_rect(image, flower.x, flower.y - 1, 1, 3, YELLOW)
+		&"clue_roots":
+			for x: int in [2, 6]:
+				_rect(image, x, 0, 1, 8, CRATE_BROWN)
+			_rect(image, 3, 4, 1, 1, CRATE_BROWN)
+			_rect(image, 7, 6, 1, 1, CRATE_BROWN)
+		&"clue_cracks":
+			_rect(image, 1, 4, 3, 1, DARK_GRAY)
+			_rect(image, 4, 5, 3, 1, DARK_GRAY)
+			_rect(image, 7, 4, 2, 1, DARK_GRAY)
+			_rect(image, 4, 6, 1, 3, DARK_GRAY)
+			_rect(image, 6, 1, 1, 4, DARK_GRAY)
+		&"clue_claw_marks":
+			for mark: int in 3:
+				for row: int in 8:
+					_rect(image, 3 + mark * 2 - floori(row / 4.0), 1 + row, 1, 1, DARK_GRAY)
+		&"clue_footprints":
+			for step: int in 3:
+				_rect(image, 1 + step * 3, 8 - (step % 2) * 2, 2, 1, DARK_GRAY)
+		# --- Player aid (the old Basics tab) ---
 		&"spawn_point":
 			_rect(image, 3, 1, 4, 8, WHITE)
 		&"goal":
@@ -379,6 +417,15 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 2, 5, 6, 4, PURPLE)
 			_rect(image, 4, 2, 2, 3, PURPLE.darkened(0.3))
 			_rect(image, 4, 6, 2, 2, ORANGE)
+		&"wisp_generator":
+			_rect(image, 1, 1, 8, 8, PURPLE.darkened(0.4))
+			_rect(image, 1, 1, 8, 2, PURPLE)
+			_rect(image, 6, 4, 3, 5, PURPLE.lightened(0.4))
+		&"wall_spider":
+			_rect(image, 3, 3, 4, 3, PURPLE)
+			for leg: int in 4:
+				_rect(image, 1 + leg * 2, 6, 1, 3, PURPLE.darkened(0.4))
+			_rect(image, 5, 4, 1, 1, WHITE)
 		&"vine_monkey":
 			_rect(image, 2, 3, 6, 5, PURPLE)
 			_rect(image, 1, 1, 8, 2, GRASS_GREEN)

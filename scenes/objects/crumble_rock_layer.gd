@@ -117,7 +117,7 @@ static func has_other_ground(layer: TileMapLayer, cell: Vector2i) -> bool:
 	for sibling: Node in layer.get_parent().get_children():
 		var other: TileMapLayer = sibling as TileMapLayer
 		if other != null and other != layer and not other is WaterLayer and not other is HiddenLayer \
-				and not other is StormCloudLayer \
+				and not other is NonSolidLayer \
 				and other.get_cell_source_id(cell) != -1:
 			return true
 	return false

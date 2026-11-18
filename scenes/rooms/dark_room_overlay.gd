@@ -24,6 +24,13 @@ extends Node2D
 ## passes them to the shader. A light that stops being reported (a fireball that
 ## burst) fades out instead of vanishing: the afterglow of a glimpse.
 ##
+## HIDDEN CHAMBERS: a light inside a chamber that is still COVERED (and nobody is
+## peeking into it) is left out: a lit brazier behind a fake wall mustn't glow
+## through it and give the chamber away. Once the chamber is dug open, or while the
+## player stands inside it (a peek), its lights count again (_is_under_cover). A
+## fire is checked where it STANDS (FlameMerge.get_base_point) as well as where its
+## light's center is: the glow rises above the flames, into the rock over a low chamber.
+##
 ## Godot concepts used:
 ##   - ShaderMaterial on a CanvasItem: the shader runs for every pixel the node draws.
 ##     Uniforms (set_shader_parameter) are the values the script hands it each frame;
@@ -127,10 +134,16 @@ func _gather_lights(delta: float) -> Array[Vector4]:
 		var center: Vector2 = player.get_center()
 		lights.append(Vector4(center.x, center.y, fire_tuning.dark_player_light_radius, fire_tuning.dark_player_light_strength))
 	var reach_rect: Rect2 = view_rect.grow(VIEW_MARGIN)
+	var covers: Array[HiddenLayer] = _get_chamber_layers(reach_rect)
 	for source: Node in get_tree().get_nodes_in_group(LIGHT_GROUP):
+		# A fire standing in a covered chamber gives no light at all, wherever its
+		# glow's center is (FlameMerge.get_base_point).
+		if not covers.is_empty() and source.has_method(&"get_base_point") 				and _is_under_cover(source.call(&"get_base_point"), covers):
+			continue
 		var source_lights: Array[Vector4] = []
 		for light: Vector4 in source.call(&"get_dark_lights"):
-			if reach_rect.has_point(Vector2(light.x, light.y)) and light.w > 0.0:
+			var light_point: Vector2 = Vector2(light.x, light.y)
+			if reach_rect.has_point(light_point) and light.w > 0.0 and not _is_under_cover(light_point, covers):
 				source_lights.append(light)
 		if source_lights.is_empty():
 			continue
@@ -160,3 +173,26 @@ func _gather_lights(delta: float) -> Array[Vector4]:
 		lights.sort_custom(func(a: Vector4, b: Vector4) -> bool: return a.w * a.z > b.w * b.z)
 		lights.resize(MAX_LIGHTS)
 	return lights
+
+
+## The hidden-chamber layers of the rooms that reach into `area` that still have a
+## covered cell (see HIDDEN CHAMBERS in the header).
+func _get_chamber_layers(area: Rect2) -> Array[HiddenLayer]:
+	var layers: Array[HiddenLayer] = []
+	for room: Room in rooms:
+		if not is_instance_valid(room) or not room.get_bounds().intersects(area):
+			continue
+		var hidden_layer: HiddenLayer = room.get_node_or_null("Hidden") as HiddenLayer
+		if hidden_layer != null and not hidden_layer.covered_cells.is_empty():
+			layers.append(hidden_layer)
+	return layers
+
+
+## True if `world_point` is in a covered chamber cell nobody is peeking into: what's
+## there is behind the fake wall, so its light stays hidden.
+func _is_under_cover(world_point: Vector2, covers: Array[HiddenLayer]) -> bool:
+	for hidden_layer: HiddenLayer in covers:
+		var cell: Vector2i = hidden_layer.local_to_map(hidden_layer.to_local(world_point))
+		if hidden_layer.is_covered(cell) and not hidden_layer.is_peeked(cell):
+			return true
+	return false

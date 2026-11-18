@@ -100,9 +100,12 @@ extends Node2D
 enum Kind { AIR, GRAY, GRASS, EARTH, THICKET }
 
 ## The lid's z_index (see HIDDEN CHAMBERS): in front of every object, spark, gravel
-## and bend shadow, so what's in a covered chamber stays hidden. High: z_index adds up
-## down the tree (a fireball is 5 and its ember trail 5 more, so 10).
-const LID_Z_INDEX: int = 100
+## and bend shadow, so what's in a covered chamber stays hidden (z_index adds up down
+## the tree: a fireball is 5 and its ember trail 5 more, so 10). ABSOLUTE, and under
+## the darkness of dark rooms (DarkRoomOverlay.DRAW_Z_INDEX): over it, the covered
+## chamber was drawn lit in a pitch-black room. One step lower still, so painted clues
+## (ClueLayer.LOOK_Z_INDEX) show on the fake wall.
+const LID_Z_INDEX: int = DarkRoomOverlay.DRAW_Z_INDEX - 2
 ## Crust thickness, px (from open air to where the edge line starts)...
 const CRUST_WIDTH: float = 5.0
 ## ...wobbling by up to this much either way, px...
@@ -289,6 +292,7 @@ func _ready() -> void:
 		lid = Node2D.new()
 		lid.name = "ChamberLid"
 		lid.z_index = LID_Z_INDEX
+		lid.z_as_relative = false  # not added to the room's: always just under the dark
 		add_child(lid)
 		lid.draw.connect(_draw_lid)
 	if earth_layer != null:
@@ -621,9 +625,18 @@ func _is_drawn_covered(cell: Vector2i) -> bool:
 
 ## Covered hidden chambers behind an overgrown cover take the cover's kind (a flood
 ## fill from the cover through the covered cells), so a thicket cover doesn't have
-## earth behind it.
+## earth behind it. Then each chamber with a cover look of its own (HiddenLayer COVER
+## LOOK, picked in the editor) is drawn as that, over the rule above.
 func _give_chambers_their_cover_look() -> void:
-	if hidden_layer == null or overgrown_cells.is_empty():
+	if hidden_layer == null:
+		return
+	_give_chambers_overgrown_look()
+	_give_chambers_chosen_look()
+
+
+## The overgrown part of _give_chambers_their_cover_look (the AUTO rule).
+func _give_chambers_overgrown_look() -> void:
+	if overgrown_cells.is_empty():
 		return
 	var queue: Array[Vector2i] = []
 	var looks: Dictionary = {}
@@ -642,6 +655,50 @@ func _give_chambers_their_cover_look() -> void:
 				queue.append(neighbour)
 	for cell: Vector2i in looks:
 		kinds[cell] = looks[cell]
+
+
+## Each chamber whose cover look isn't AUTO: its drawn-covered cells become that
+## kind. SURROUNDINGS counts the ground right round the chamber (4-way, not other
+## covered cells) and takes the most common kind; earth if there's none.
+func _give_chambers_chosen_look() -> void:
+	if hidden_layer.chamber_cover_looks.is_empty():
+		return
+	for chamber: int in hidden_layer.chamber_cells:
+		var cells: Array = hidden_layer.chamber_cells[chamber]
+		var cover_look: HiddenLayer.CoverLook = hidden_layer.get_cover_look(cells)
+		var kind: Kind = Kind.EARTH
+		match cover_look:
+			HiddenLayer.CoverLook.AUTO:
+				continue
+			HiddenLayer.CoverLook.SURROUNDINGS:
+				kind = _get_surrounding_kind(cells)
+			HiddenLayer.CoverLook.ROCK:
+				kind = Kind.GRAY
+			HiddenLayer.CoverLook.GRASS:
+				kind = Kind.GRASS
+			HiddenLayer.CoverLook.THICKET:
+				kind = Kind.THICKET
+		for cell: Vector2i in cells:
+			if kinds.has(cell) and _is_drawn_covered(cell):
+				kinds[cell] = kind
+
+
+## The most common kind of ground touching `cells` from outside (see above).
+func _get_surrounding_kind(cells: Array) -> Kind:
+	var counts: Dictionary = {}  # Kind -> how many touching cells
+	for cell: Vector2i in cells:
+		for direction: Vector2i in EarthLayer.FACE_NORMALS:
+			var neighbour: Vector2i = cell + direction
+			if kinds.has(neighbour) and not hidden_layer.is_covered(neighbour):
+				var neighbour_kind: int = kinds[neighbour]
+				counts[neighbour_kind] = int(counts.get(neighbour_kind, 0)) + 1
+	var best_kind: Kind = Kind.EARTH
+	var best_count: int = 0
+	for counted_kind: int in counts:
+		if int(counts[counted_kind]) > best_count:
+			best_count = counts[counted_kind]
+			best_kind = counted_kind as Kind
+	return best_kind
 
 
 ## True for open cells inside the room. Outside the room counts as solid, so the

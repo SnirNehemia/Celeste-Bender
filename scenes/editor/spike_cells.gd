@@ -93,7 +93,7 @@ static func strip_key(strip: Spikes) -> String:
 static func is_ground(room: Room, cell: Vector2i) -> bool:
 	for child: Node in room.get_children():
 		var layer: TileMapLayer = child as TileMapLayer
-		if layer == null or layer is HiddenLayer or layer is StormCloudLayer or layer is WaterLayer:
+		if layer == null or layer is HiddenLayer or layer is NonSolidLayer or layer is WaterLayer:
 			continue
 		if layer.get_cell_source_id(cell) != -1:
 			return true

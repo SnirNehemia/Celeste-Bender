@@ -10,7 +10,7 @@ extends CanvasLayer
 ##                  Brush, Fill) in a row at the very top, the search box
 ##                  (PaletteSearch: its matches replace the tabs while it has
 ##                  text), then a tab per family
-##                  (Terrain, Basics, Triggers...), below it one button per
+##                  (Terrain, Player aid, Triggers...), below it one button per
 ##                  PaletteCatalog entry of the open tab (a scrolling list when it
 ##                  is taller than the screen); emits `entry_chosen` when an entry
 ##                  is clicked. Each button shows a small picture of its thing
@@ -67,11 +67,16 @@ const TWO_COLUMN_ICON_GAP: int = 1
 ## name stays in the tooltip. Names not listed are shown as they are.
 const SHORT_LABELS: Dictionary[String, String] = {
 	"Hidden chamber": "Hidden",
-	"Ice slope ▾": "Slope ▾",
-	"Crumbling block ▾": "Crumble",
-	"Falling block ▾": "Falling",
+	"Ice slope": "Slope",
+	"Crumbling block": "Crumble",
+	"Falling block": "Falling",
 	"Storm cloud": "Storm",
+	"Metal platform": "Metal",
 }
+## The little arrow drawn on a dropdown button's right edge (EditorUI._draw_dropdown_arrow):
+## its width and height, px, and its gap from the edge.
+const DROPDOWN_ARROW_SIZE: Vector2 = Vector2(5, 3)
+const DROPDOWN_ARROW_MARGIN: float = 3.0
 const DIRTY_DOT_SIZE: Vector2 = Vector2(5, 5)
 ## Palette tooltips are broken into lines of at most this many characters.
 const TOOLTIP_LINE_LENGTH: int = 48
@@ -508,7 +513,10 @@ func _add_to_menu_group(entry: PaletteCatalog.Entry) -> void:
 		return
 	menu_groups[entry.menu_group] = [entry]
 	var button: Button = _make_entry_button(entry, menu_group_button_group)
-	button.text = entry.menu_group + " ▾"  # the name and a little down arrow
+	button.text = entry.menu_group
+	# A little down arrow drawn on its right edge (not a "▾" in the text: a
+	# two-column button clips its text, and the arrow went with it).
+	button.draw.connect(_draw_dropdown_arrow.bind(button))
 	button.tooltip_text = "Click for a list of the %ss.\n" % entry.menu_group.to_lower() + button.tooltip_text
 	# The helper wired it to choose `entry`; open the list instead.
 	for connection: Dictionary in button.pressed.get_connections():
@@ -522,6 +530,17 @@ func _add_to_menu_group(entry: PaletteCatalog.Entry) -> void:
 ## half the width (EXPAND_FILL shares a grid row's width between its cells), clips
 ## its name, and says the full name first in its tooltip.
 func _add_to_list(family: String, button: Button) -> void:
+	# Room on the right for a dropdown button's arrow, so the name doesn't run under it.
+	# Each state's box (its own, or the theme's) is copied with a wider right margin.
+	if menu_group_buttons.values().has(button):
+		var right_margin: float = DROPDOWN_ARROW_SIZE.x + DROPDOWN_ARROW_MARGIN + 1.0
+		for state: StringName in [&"normal", &"hover", &"pressed", &"hover_pressed", &"disabled"]:
+			var style: StyleBox = button.get_theme_stylebox(state)
+			if style == null:
+				continue
+			var padded: StyleBox = style.duplicate()
+			padded.content_margin_right = right_margin
+			button.add_theme_stylebox_override(state, padded)
 	if TWO_COLUMN_TABS.has(family):
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.clip_text = true
@@ -533,6 +552,19 @@ func _add_to_list(family: String, button: Button) -> void:
 		# A tighter gap between the icon and the name (the theme's is 4 px).
 		button.add_theme_constant_override(&"h_separation", TWO_COLUMN_ICON_GAP)
 	(family_lists[family] as Container).add_child(button)
+
+
+## A dropdown button's arrow: a small down-pointing triangle at its right edge,
+## drawn by the button itself (its `draw` signal: drawn after the button's own
+## picture, in its coordinates).
+func _draw_dropdown_arrow(button: Button) -> void:
+	var tip: Vector2 = Vector2(button.size.x - DROPDOWN_ARROW_MARGIN - DROPDOWN_ARROW_SIZE.x / 2.0,
+		button.size.y / 2.0 + DROPDOWN_ARROW_SIZE.y / 2.0)
+	var color: Color = button.get_theme_color(&"font_color")
+	button.draw_colored_polygon(PackedVector2Array([
+		tip + Vector2(-DROPDOWN_ARROW_SIZE.x / 2.0, -DROPDOWN_ARROW_SIZE.y),
+		tip + Vector2(DROPDOWN_ARROW_SIZE.x / 2.0, -DROPDOWN_ARROW_SIZE.y),
+		tip]), color)
 
 
 func _open_menu_group(group_name: String, button: Button) -> void:

@@ -78,6 +78,16 @@ extends TileMapLayer
 ## is hidden, so you can see and place what's in there. The play-test copy and the
 ## saved level are fresh nodes, covered as usual.
 
+## COVER LOOK (asked for after the dark-room play-test: "hide it better, even if the
+## area terrain is not earth"): what a chamber's fake wall is drawn as. Each chamber
+## (connected patch of cells) may have its own, picked with the editor's Select tool
+## (HiddenChamberSettings) and kept in `chamber_cover_looks`; the GroundPainter reads
+## it (get_cover_look). AUTO is the old rule: earth, or the overgrown cover it touches.
+## SURROUNDINGS takes the most common ground right round the chamber.
+
+## How a chamber's fake wall looks (see COVER LOOK).
+enum CoverLook { AUTO, SURROUNDINGS, EARTH, ROCK, GRASS, THICKET }
+
 ## Peeking: how many cells round a chamber also cross-fade, so the ground's new edges
 ## (crust, outline) blend in instead of popping. The crust is under a tile deep.
 const PEEK_MARGIN: int = 1
@@ -91,6 +101,11 @@ signal crumble_changed
 ## A covered chamber's cover starts thinning (the player walked in): `cells` will be
 ## drawn from the cover copy from now on, so the painter copies the picture first.
 signal peek_started(cells: Array[Vector2i])
+
+## Each chamber's cover look, when it isn't AUTO: ONE of its cells -> a CoverLook.
+## Saved with the level (set in the editor, HiddenChamberSettings). Looked up by
+## chamber, so it stays right when the chamber is painted bigger or smaller.
+@export var chamber_cover_looks: Dictionary[Vector2i, int] = {}
 
 ## Every cell this layer has, -> true while still covered (a set).
 var covered_cells: Dictionary = {}
@@ -678,3 +693,46 @@ func _number_chambers() -> void:
 					cells.append(neighbour)
 		chamber_cells[next_chamber] = cells
 		next_chamber += 1
+
+
+# --- Cover look (see COVER LOOK in the header) -----------------------------------
+
+## The painted cells connected to `cell` (4-way), the chamber it's in; [] if `cell`
+## isn't painted. Works on the painted tiles, so also in the editor (nothing covered).
+func get_chamber_cells_at(cell: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	if get_cell_source_id(cell) == -1:
+		return cells
+	var seen: Dictionary = {cell: true}
+	cells.append(cell)
+	var index: int = 0
+	while index < cells.size():
+		var current: Vector2i = cells[index]
+		index += 1
+		for direction: Vector2i in EarthLayer.FACE_NORMALS:
+			var neighbour: Vector2i = current + direction
+			if not seen.has(neighbour) and get_cell_source_id(neighbour) != -1:
+				seen[neighbour] = true
+				cells.append(neighbour)
+	return cells
+
+
+## The cover look of the chamber made of `cells`: the first of its cells with a look
+## of its own, else AUTO.
+func get_cover_look(cells: Array) -> CoverLook:
+	for cell: Vector2i in cells:
+		if chamber_cover_looks.has(cell):
+			return chamber_cover_looks[cell] as CoverLook
+	return CoverLook.AUTO
+
+
+## Gives the chamber made of `cells` the cover look `look`: its old entries go, and
+## one of its cells keeps the new one (none for AUTO, the default).
+func set_cover_look(cells: Array, look: CoverLook) -> void:
+	var looks: Dictionary[Vector2i, int] = chamber_cover_looks.duplicate()
+	for cell: Vector2i in cells:
+		looks.erase(cell)
+	if look != CoverLook.AUTO and not cells.is_empty():
+		looks[cells[0]] = look
+	# A new dictionary, not an edit in place: the level saves what the property holds.
+	chamber_cover_looks = looks

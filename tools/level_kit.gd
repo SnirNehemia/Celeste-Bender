@@ -325,7 +325,7 @@ func find_problems() -> PackedStringArray:
 func _is_solid(room: Room, cell: Vector2i) -> bool:
 	for child: Node in room.get_children():
 		var layer: TileMapLayer = child as TileMapLayer
-		if layer == null or layer.name == WATER_LAYER or layer.name == HIDDEN_LAYER or layer is StormCloudLayer:
+		if layer == null or layer.name == WATER_LAYER or layer.name == HIDDEN_LAYER or layer is NonSolidLayer:
 			continue
 		if layer.get_cell_source_id(cell) != -1:
 			return true

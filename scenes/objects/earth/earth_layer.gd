@@ -103,7 +103,7 @@ func _ready() -> void:
 		var sibling_layer: TileMapLayer = sibling as TileMapLayer
 		if sibling_layer is HiddenLayer:
 			hidden_layer = sibling_layer  # solid only while covered: see is_solid
-		elif sibling_layer != null and sibling_layer != self and not sibling_layer is WaterLayer and not sibling_layer is StormCloudLayer:
+		elif sibling_layer != null and sibling_layer != self and not sibling_layer is WaterLayer and not sibling_layer is NonSolidLayer:
 			neighbour_solid_layers.append(sibling_layer)
 	# Nothing animates until a tile is used or shivers (see _process).
 	set_process(false)

@@ -1,5 +1,5 @@
 class_name StormCloudLayer
-extends TileMapLayer
+extends NonSolidLayer
 ## StormCloudLayer: STORM CLOUD painted into a level, a deadly area that only stops
 ## the player (asked for after the W8c play-test: "a deadly obstacle that objects can
 ## pass through"). A TileMapLayer named "StormCloud", painted from the editor's Terrain
@@ -18,7 +18,7 @@ extends TileMapLayer
 ##
 ## Not solid ANYWHERE: the room's WaterWorld, FireGrid, earth, grass, ice and crumbling
 ## layers skip it when they collect the room's solid tiles (they check
-## `is StormCloudLayer`, like they skip WaterLayer and HiddenLayer); the editor map
+## `is NonSolidLayer`, its base class, like they skip WaterLayer and HiddenLayer); the editor map
 ## and RoomEdgeRim only count layers with collision, which it has none of.
 ##
 ## THE LOOK: the tiles themselves are drawn invisible (self_modulate); a child node

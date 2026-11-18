@@ -6,7 +6,8 @@ extends RefCounted
 ## so the editor itself holds no per-object code.
 ##
 ## Tabs (`family`, the palette's tabs, TAB_ORDER; reorganized after the L11
-## play-test): Terrain (and spikes), Basics (spawn, goal, zones), Triggers (switches),
+## play-test): Terrain (and spikes, storms, zones, the metal platform), Player aid
+## (spawn, goal, signs, painted clues; it replaced the Basics tab), Triggers (switches),
 ## Activated (what switches work: doors), Crystals (pick-ups), Breakable (walls and
 ## plant terrain that rocks, elephants or fire open), Objects (crates, platforms,
 ## rocks, vines, leaves), Enemies. Entries are written below in the order their
@@ -130,6 +131,13 @@ class Entry:
 	var arrow_property: StringName = &""
 	## Design settings the property panel shows (Stage L5): never tuning numbers.
 	var editable_properties: Array[StringName] = []
+	## Settings shown only while a bool setting is on ({setting: the bool}): a
+	## sentry's Fire Direction appears once Automatic is ticked. Ticking or
+	## unticking the bool rebuilds the panel (LevelEditor._apply_property).
+	var shown_when: Dictionary[StringName, StringName] = {}
+	## Vector2 settings edited with the 8-way DirectionPicker (besides
+	## `arrow_property`, which also gets the overlay's arrow).
+	var direction_properties: Array[StringName] = []
 	## Vector2 properties that are points relative to the object, given drag
 	## handles in Stage L5 (a leaf's travel, a sail's rail ends).
 	var point_properties: Array[StringName] = []
@@ -200,6 +208,8 @@ const TILE: int = 8
 ## Terrain layers the carving rule (_assign_carving) treats specially.
 const WATER_LAYER_NAME: StringName = &"Water"
 const HIDDEN_LAYER_NAME: StringName = &"Hidden"
+## The painted clues (ClueLayer): decorations ON the terrain, so no carving either way.
+const CLUE_LAYER_NAME: StringName = &"Clues"
 const SPAWN_POINT_NAME: StringName = &"SpawnPoint"
 ## Same as EditorOverlay's spawn marker: 6x12 standing on the feet point.
 const SPAWN_MARKER_SIZE: Vector2 = Vector2(6, 12)
@@ -211,11 +221,13 @@ const CURRENT_STAND_IN_COLOR: Color = Color(0.18, 0.5, 0.82, 0.22)
 const LINE_THICKNESS: float = 4.0
 
 ## The palette's tabs, in order (see the header).
-const TAB_ORDER: Array[String] = ["Terrain", "Basics", "Triggers", "Activated", "Crystals", "Breakable", "Objects", "Enemies"]
+const TAB_ORDER: Array[String] = ["Terrain", "Player aid", "Triggers", "Activated", "Crystals", "Breakable", "Objects", "Enemies"]
 ## Each entry's tab, where it isn't the family it's written with (_assign_tabs).
 const TAB_OF: Dictionary = {
 	&"spikes": "Terrain",  # spikes sit on the ground like terrain (moved from Basics)
-	&"wind_zone": "Basics", &"no_glide_zone": "Basics",
+	# The air zones and the metal platform are part of the ground's layout (moved
+	# from the old Basics tab with spikes).
+	&"wind_zone": "Terrain", &"no_glide_zone": "Terrain", &"metal_platform": "Terrain",
 	&"pressure_plate": "Triggers", &"windmill": "Triggers", &"brazier": "Triggers", &"enemy_gate": "Triggers",
 	&"door": "Activated", &"switch_wall": "Activated", &"step_pad": "Triggers",
 	&"wind_crystal": "Crystals", &"gust_diamond": "Crystals", &"fire_diamond": "Crystals",
@@ -231,7 +243,7 @@ const ELEMENT_OF: Dictionary = {
 	&"earth": "Earth", &"hidden_chamber": "Earth", &"water": "Water", &"ice": "Water",
 	&"black_water": "Water", &"ice_slope_up_right": "Water", &"ice_slope_up_left": "Water",
 	&"gentle_ice_slope_up_right": "Water", &"gentle_ice_slope_up_left": "Water", &"thicket": "Fire", &"overgrown_grass": "Fire", &"overgrown_thicket": "Fire",
-	&"wisp": "Air", &"leaf_wisp": "Fire", &"sentry": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
+	&"wisp": "Air", &"leaf_wisp": "Fire", &"sentry": "Air", &"wisp_generator": "Air", &"wall_spider": "Air", &"vine_monkey": "Fire", &"thicket_elephant": "Fire", &"shell": "Earth",
 }
 
 ## All entries, in palette order. Built once, on first use.
@@ -285,26 +297,26 @@ static func _build() -> void:
 	ground.layer_name = &"Tiles"
 	ground.tile_set = preload("res://resources/tiles/placeholder_tileset.tres")
 
-	# --- Basics (Stage L3) ---
-	var spawn: Entry = _add(&"spawn_point", "Spawn point", "Basics", Kind.SPAWN_POINT)
+	# --- Basics (Stage L3; the Player aid tab since the clues came) ---
+	var spawn: Entry = _add(&"spawn_point", "Spawn point", "Player aid", Kind.SPAWN_POINT)
 	spawn.hint = "Where the player starts (in the start room) and comes back after dying in this room. One per room: move it, it can't be deleted."
 	spawn.bounds = Bounds.SPAWN_MARKER
 
-	var goal: Entry = _add_object(&"goal", "Goal", "Basics", preload("res://scenes/objects/goal.tscn"))
+	var goal: Entry = _add_object(&"goal", "Goal", "Player aid", preload("res://scenes/objects/goal.tscn"))
 	goal.hint = "Touching it finishes the level."
 	goal.bounds = Bounds.SIZE_TOP_LEFT
 	goal.size_property = &"goal_size"
 	goal.placement = Placement.ON_FLOOR
 	goal.editable_properties = [&"goal_size"]
 
-	var spikes: Entry = _add(&"spikes", "Spikes", "Basics", Kind.STRIP)
+	var spikes: Entry = _add(&"spikes", "Spikes", "Terrain", Kind.STRIP)
 	spikes.hint = "Kill on touch. Knocking an enemy into them defeats it. Paint them like terrain: drag, Shift+drag an area, right-drag (or the eraser) to remove single tiles. They point away from the ground next to them (click a strip, R turns it)."
 	spikes.scene = preload("res://scenes/objects/spikes.tscn")
 	spikes.bounds = Bounds.SPIKE_STRIP
 	spikes.editable_properties = [&"facing", &"tile_count"]
 
 	# The origin is the middle of the girder's top, like the leaf platform's.
-	var metal_platform: Entry = _add_object(&"metal_platform", "Metal platform", "Basics", preload("res://scenes/objects/metal_platform.tscn"))
+	var metal_platform: Entry = _add_object(&"metal_platform", "Metal platform", "Terrain", preload("res://scenes/objects/metal_platform.tscn"))
 	metal_platform.hint = "One-way steel girder: jump up through it from below and land on top. It never moves, and you can't drop back down through it."
 	metal_platform.bounds = Bounds.WIDTH_CENTERED
 	metal_platform.width_property = &"platform_width"
@@ -369,7 +381,7 @@ static func _build() -> void:
 	# The origin is the middle of the deck's top; the mast rises 16 px above it.
 	# Asked for after the W8c play-test: a platform that, once triggered, rides a
 	# bent rail at a constant speed (RailPlatform).
-	var rail_platform: Entry = _add_object(&"rail_platform", "Rail platform", "Basics", preload("res://scenes/objects/rail_platform.tscn"))
+	var rail_platform: Entry = _add_object(&"rail_platform", "Rail platform", "Activated", preload("res://scenes/objects/rail_platform.tscn"))
 	rail_platform.hint = "One-way platform on a rail of straight pieces. It waits (red lamp) until triggered: its FORWARD switches (L) send it along the rail, its BACKWARD switches (L twice) send it back toward the start; with none linked, landing on it starts it. Then it rides at Speed: stops at the end, goes back and forth, or loops. Step pads, plates and lights standing on it ride with it. Drag the corner handles; the panel adds or removes corners."
 	rail_platform.bounds = Bounds.WIDTH_CENTERED
 	rail_platform.width_property = &"platform_width"
@@ -468,7 +480,7 @@ static func _build() -> void:
 	lantern.local_rect = Rect2(-8, -8, 16, 16)  # 2x2 tiles, like the shards
 	lantern.placement = Placement.CENTERED
 
-	var signpost: Entry = _add_object(&"signpost", "Signpost", "Basics", preload("res://scenes/objects/signpost.tscn"))
+	var signpost: Entry = _add_object(&"signpost", "Signpost", "Player aid", preload("res://scenes/objects/signpost.tscn"))
 	signpost.hint = "A sign: shows its Text in a box above it while the player stands by it. For tutorials. Long text wraps."
 	signpost.local_rect = Rect2(-8, -16, 16, 16)  # 2x2 tiles, origin on a tile line
 	signpost.placement = Placement.ON_FLOOR
@@ -690,7 +702,6 @@ static func _build() -> void:
 	crumble_rock.layer_script = preload("res://scenes/objects/crumble_rock_layer.gd")
 	crumble_rock.tile_plain = TileBrush.TILE_PLAIN
 	crumble_rock.tile_top_edge = TileBrush.TILE_PLAIN
-	crumble_rock.extra_tabs = ["Breakable"]
 
 	var crumble_ice: Entry = _add(&"crumble_ice", "Crumbling ice", "Terrain", Kind.TERRAIN)
 	crumble_ice.hint = "Ice that crumbles: slippery like ice (you keep your speed on it), and 2 s after you or a crate first touch a patch, the whole connected patch trembles, drips water, a bright line runs round it, and it breaks into ice shards and a little water. Gone until the room resets. Never melts by fire. Select a patch to set its own time."
@@ -699,7 +710,6 @@ static func _build() -> void:
 	crumble_ice.layer_script = preload("res://scenes/objects/water/crumble_ice_layer.gd")
 	crumble_ice.tile_plain = IceLayer.ICE_TILE
 	crumble_ice.tile_top_edge = IceLayer.ICE_TILE
-	crumble_ice.extra_tabs = ["Breakable"]
 	# The two crumbling terrains share one Terrain button with a dropdown (each
 	# keeps its own button in Breakable: EditorUI gives extra tabs plain buttons).
 	crumble_rock.menu_group = "Crumbling block"
@@ -784,11 +794,11 @@ static func _build() -> void:
 
 	# The origin is where the post meets the floor; the bowl sits post_height above.
 	var brazier: Entry = _add_object(&"brazier", "Brazier", "Fire", preload("res://scenes/objects/fire/brazier.tscn"))
-	brazier.hint = "A switch: light it (fireball or flame jet) and the doors linked to it open. Burn Time 0: lit until death or R; else it goes out after that many seconds. Starts Lit: already burning (and its doors open) from the start and after every reset: a steady light for dark rooms. Gusts can't put it out."
+	brazier.hint = "A switch: light it (fireball or flame jet) and the doors linked to it open. Burn Time 0: lit until death or R; else it goes out after that many seconds. Starts Lit: already burning (and its doors open) from the start and after every reset: a steady light for dark rooms. Fire Size: how big the flames burn (and how far they light a dark room). Gusts can't put it out."
 	brazier.local_rect = Rect2(-8, -16, 16, 16)  # 2x2 tiles, origin on a tile line
 	brazier.placement = Placement.ON_FLOOR
 	brazier.snaps_to_ground = true
-	brazier.editable_properties = [&"burn_time", &"post_height", &"starts_lit"]
+	brazier.editable_properties = [&"burn_time", &"post_height", &"starts_lit", &"fire_size"]
 	brazier.room_settings_on_create = fire_room
 
 	# The origin is the anchor (click the tile under a ceiling); end_point the free end.
@@ -832,23 +842,42 @@ static func _build() -> void:
 	wisp.bounds = Bounds.SIZE_BOTTOM_CENTER
 	wisp.size_property = &"body_size"
 	wisp.placement = Placement.ON_FLOOR
-	wisp.editable_properties = [&"start_direction", &"patrol_speed"]
+	wisp.editable_properties = [&"start_direction", &"patrol_speed", &"at_edges"]
 
 	var leaf_wisp: Entry = _add_object(&"leaf_wisp", "Leaf wisp", "Enemies", preload("res://scenes/enemies/leaf_wisp.tscn"))
 	leaf_wisp.hint = "A wisp made of leaves: walks back and forth, turning at walls and ledges. Touch kills. Only fire beats it: gusts just ruffle its leaves, rocks and spikes do nothing."
 	leaf_wisp.bounds = Bounds.SIZE_BOTTOM_CENTER
 	leaf_wisp.size_property = &"body_size"
 	leaf_wisp.placement = Placement.ON_FLOOR
-	leaf_wisp.editable_properties = [&"start_direction", &"patrol_speed"]
+	leaf_wisp.editable_properties = [&"start_direction", &"patrol_speed", &"at_edges"]
 
 	var sentry: Entry = _add_object(&"sentry", "Sentry", "Enemies", preload("res://scenes/enemies/sentry.tscn"))
-	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It bolts itself to the nearest wall, ceiling or floor; select it to see its sight range. It can never fire (a target for an enemy gate), or throw fireballs like yours (Fire Orbs: painted orange)."
+	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It bolts itself to the nearest wall, ceiling or floor; select it to see its sight range. It can never fire (a target for an enemy gate), throw fireballs like yours (Fire Orbs: painted orange), fire on a clock in a fixed direction (Automatic: painted grey), or fire homing orbs that keep their momentum (Tracking Shots: yellow, heavier = wider overshoot)."
 	sentry.bounds = Bounds.SIZE_BOTTOM_CENTER
 	sentry.size_property = &"body_size"
 	sentry.hang_property = &"mounted_on_ceiling"
 	sentry.snaps_to_ground = true
 	sentry.placement = Placement.ON_FLOOR
-	sentry.editable_properties = [&"can_fire", &"fire_orbs", &"fire_interval", &"first_shot_delay", &"sight_range"]
+	sentry.editable_properties = [&"can_fire", &"fire_orbs", &"automatic", &"fire_direction", &"tracking_shots",
+		&"tracking_speed", &"tracking_mass", &"fire_interval", &"first_shot_delay", &"sight_range"]
+	sentry.direction_properties = [&"fire_direction"]
+	sentry.shown_when = {&"fire_direction": &"automatic",
+		&"tracking_speed": &"tracking_shots", &"tracking_mass": &"tracking_shots"}
+
+	# Spawns wisps (made after the Fire chapter, by request): a source, not an enemy.
+	var wisp_generator: Entry = _add_object(&"wisp_generator", "Wisp generator", "Enemies", preload("res://scenes/enemies/wisp_generator.tscn"))
+	wisp_generator.hint = "A machine that makes a wisp every Spawn Interval seconds while you're in its room, walking out the Direction side. At most Max Wisps alive (0 = no limit). Its wisps fall off ledges or turn at them (At Edges). It can't be hurt; wisps walk through it."
+	wisp_generator.bounds = Bounds.SIZE_BOTTOM_CENTER
+	wisp_generator.size_property = &"body_size"
+	wisp_generator.placement = Placement.ON_FLOOR
+	wisp_generator.editable_properties = [&"direction", &"spawn_interval", &"first_spawn_delay", &"max_wisps",
+		&"patrol_speed", &"at_edges"]
+
+	var wall_spider: Entry = _add_object(&"wall_spider", "Wall spider", "Enemies", preload("res://scenes/enemies/wall_spider.tscn"))
+	wall_spider.hint = "Crawls round whatever it touches (floor, walls, ceiling), wrapping round edges and corners, so it circles a platform forever. Walks over spikes. Touch kills. A gust knocks it off (it crawls on where it lands); fire, a big rock or a reflected orb beats it. Clockwise = walks right on a floor."
+	wall_spider.local_rect = Rect2(-4, -4, 8, 8)  # one tile around its middle
+	wall_spider.placement = Placement.ON_FLOOR
+	wall_spider.editable_properties = [&"crawl_direction", &"crawl_speed"]
 
 	var vine_monkey: Entry = _add_object(&"vine_monkey", "Vine monkey", "Enemies", preload("res://scenes/enemies/vine_monkey.tscn"))
 	vine_monkey.hint = "A leafy monkey that walks and hops gaps. Fire turns it into a running torch that lights what it touches. Gusts and rocks knock it about."
@@ -879,6 +908,42 @@ static func _build() -> void:
 	enemy_gate.link_target_group = EnemyHit.GROUP
 	enemy_gate.link_target_label = "enemy"
 
+	# --- Player aid: clues (painted decorations hinting at hidden chambers or a way) ---
+	# One "Clues" layer (ClueLayer), one brush per kind, each painting its own tile;
+	# all in one dropdown. They sit on the terrain: no carving either way.
+	var clue_tile_set: TileSet = preload("res://resources/tiles/clue_tileset.tres")
+	var clue_names: Dictionary = {
+		ClueLayer.Kind.LEAVES: ["Leaves", "Fallen leaves."],
+		ClueLayer.Kind.VINES: ["Vines", "Vines hanging down, as over an old doorway: paint a column and they run on down it."],
+		ClueLayer.Kind.MOSS: ["Moss", "Moss, as where air seeps through a wall."],
+		ClueLayer.Kind.FLOWERS: ["Flowers", "Little flowers standing at the bottom of the tile."],
+		ClueLayer.Kind.ROOTS: ["Roots", "Roots hanging down through the rock."],
+		ClueLayer.Kind.CRACKS: ["Cracks", "Cracks in the rock; neighbouring cracked tiles join up."],
+		ClueLayer.Kind.CLAW_MARKS: ["Claw marks", "Deep scratches: something dug or climbed here."],
+		ClueLayer.Kind.FOOTPRINTS: ["Footprints", "Footprints along the ground, left and right feet taking turns."],
+	}
+	for clue_kind: int in clue_names:
+		var clue_info: Array = clue_names[clue_kind]
+		var clue_id: StringName = StringName("clue_" + String(clue_info[0]).to_lower().replace(" ", "_"))
+		var clue: Entry = _add(clue_id, clue_info[0], "Player aid", Kind.TERRAIN)
+		clue.hint = "A clue, painted tile by tile ON the terrain: scenery only, it does nothing in play. %s Mark a hidden chamber's entrance (it shows on the fake wall too) or a path worth taking." % clue_info[1]
+		clue.layer_name = CLUE_LAYER_NAME
+		clue.tile_set = clue_tile_set
+		clue.layer_script = preload("res://scenes/objects/clue_layer.gd")
+		clue.tile_plain = Vector2i(clue_kind, 0)
+		clue.tile_top_edge = Vector2i(clue_kind, 0)
+		clue.menu_group = "Clue"
+
+	# --- Dropdown groups that gather entries from several stages ---
+	wind_zone.menu_group = "Air zone"
+	no_glide_zone.menu_group = "Air zone"
+	spikes.menu_group = "Hazard"
+	storm_cloud.menu_group = "Hazard"
+	# The fire-burnable terrain in the Breakable tab.
+	thicket.menu_group = "Burnable"
+	overgrown_grass.menu_group = "Burnable"
+	overgrown_thicket.menu_group = "Burnable"
+
 	_assign_tabs()
 	_assign_carving()
 
@@ -886,18 +951,19 @@ static func _build() -> void:
 ## One terrain per cell (after Stage W2): painting a terrain erases every other
 ## terrain layer in that cell. Water is the exception: it lies in or on nothing
 ## solid, so it erases nothing, and only the chamber keeps it (water can stand in a
-## hidden chamber). Two brushes sharing a layer (the covers) replace each other's
-## tiles through TileBrush.paint_cell.
+## hidden chamber). Clues (ClueLayer) are the other: decorations painted ON the
+## terrain, they erase nothing and nothing erases them. Two brushes sharing a layer
+## (the covers, the clues) replace each other's tiles through TileBrush.paint_cell.
 static func _assign_carving() -> void:
 	var layer_names: Array[StringName] = []
 	for entry: Entry in _entries:
 		if entry.kind == Kind.TERRAIN and not layer_names.has(entry.layer_name):
 			layer_names.append(entry.layer_name)
 	for entry: Entry in _entries:
-		if entry.kind != Kind.TERRAIN or entry.layer_name == WATER_LAYER_NAME:
+		if entry.kind != Kind.TERRAIN or entry.layer_name == WATER_LAYER_NAME or entry.layer_name == CLUE_LAYER_NAME:
 			continue
 		for layer_name: StringName in layer_names:
-			if layer_name == entry.layer_name:
+			if layer_name == entry.layer_name or layer_name == CLUE_LAYER_NAME:
 				continue
 			if entry.layer_name == HIDDEN_LAYER_NAME and layer_name == WATER_LAYER_NAME:
 				continue

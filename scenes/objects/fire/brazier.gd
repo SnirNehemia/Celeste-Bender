@@ -34,6 +34,15 @@ extends Switch
 ## ROOMS: a steady fire lights a larger area than a passing fireball (its flames'
 ## light is dark_brazier_light_scale bigger, FlameMerge.light_scale). A timed brazier
 ## that starts lit still runs out.
+##
+## FIRE SIZE (`fire_size`): how big its flames burn, 1 = the normal fire. The fire grows
+## AS A WHOLE, rooted in the bowl: each tongue gets taller and its body wider by the same
+## factor, like one bigger flame. The FEET of the tongues don't move or widen (they stay
+## on the coals, inside the bowl), so the fire never overflows the physical brazier:
+## it flares out only above the rim. A fire's light in a dark room is worked
+## out from its flames (FlameMerge.get_dark_lights: the glow's radius follows the
+## tongues' length and spread), so a bigger fire lights a wider circle. The bowl, the
+## post and the catch area stay the same, so it stays on the tile grid.
 
 const BOWL_COLOR: Color = Color(0.24, 0.24, 0.27)
 const RIM_COLOR: Color = Color(0.45, 0.45, 0.5)
@@ -66,6 +75,9 @@ const SMALLEST_FLAME_SCALE: float = 0.35
 		queue_redraw()
 ## Already lit when the room starts and after every reset (see the header).
 @export var starts_lit: bool = false
+## How big the fire burns (see FIRE SIZE in the header): scales the flames, and with
+## them the area it lights in a dark room. 1 = normal.
+@export_range(0.5, 3.0, 0.1) var fire_size: float = 1.0
 ## Height of the post (from the floor to the bottom of the bowl), px. 12 + the
 ## bowl's 4 = 2 tiles: keep it a tile multiple minus 4 to stay on the grid.
 @export var post_height: float = 12.0:
@@ -101,9 +113,11 @@ func _ready() -> void:
 	var flame_merge: FlameMerge = FlameMerge.make(self)
 	for flame_index: int in FLAME_LENGTHS.size():
 		var flame: FlameTongue = FlameTongue.new()
+		# A bigger fire: taller (every frame, in _process) and with a wider body by
+		# fire_size, the feet unchanged (see FIRE SIZE in the header).
 		flame.position = Vector2(FLAME_OFFSETS_X[flame_index], _get_bowl_top_y())
 		flame.base_width = 4.0
-		flame.fan_width = 5.0
+		flame.fan_width = 5.0 * fire_size
 		flame.flicker_speed = 0.7
 		flame.wobble_amount = 0.2
 		flame.breath_amount = 0.12
@@ -197,10 +211,10 @@ func _go_out(with_smoke: bool) -> void:
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint() or not is_on():
 		return
-	var flame_scale: float = 1.0
+	var flame_scale: float = fire_size
 	var flame_opacity: float = 1.0
 	if burn_time > 0.0:
-		flame_scale = lerpf(SMALLEST_FLAME_SCALE, 1.0, clampf(time_remaining / burn_time, 0.0, 1.0))
+		flame_scale *= lerpf(SMALLEST_FLAME_SCALE, 1.0, clampf(time_remaining / burn_time, 0.0, 1.0))
 		if time_remaining < GUTTER_TIME:
 			flame_scale *= randf_range(0.5, 1.0)
 			flame_opacity = randf_range(0.4, 1.0)
