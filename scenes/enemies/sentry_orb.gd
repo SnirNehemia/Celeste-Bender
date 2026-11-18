@@ -31,6 +31,18 @@ extends Area2D
 ##                              slowly (orb_sink_gravity, orb_water_drag). Soaked,
 ##                              it doesn't bounce: the next solid pops it. It still
 ##                              kills. Values in WaterTuning ("Water and projectiles")
+##   - TRACKING (a sentry with tracking_shots calls start_tracking): every frame a
+##                              fixed steering push (tracking_thrust) toward the
+##                              player, divided by tracking_mass, changes its velocity,
+##                              capped at tracking_top_speed. It never brakes on
+##                              purpose, so it keeps its momentum: a late dodge makes
+##                              it overshoot and swing back. Reflected or soaked, it
+##                              stops tracking. Drawn yellow with a thick black outline
+##   - GUST-PROOF (Sentry.gust_proof_orbs calls make_gust_proof): gusts pass through
+##                              it (it leaves the Pushable group). Every unreflected
+##                              orb has a thick outline that says which it is:
+##                              BLACK = a gust sends it back, WHITE (with a thin black
+##                              rim, so it shows on pale skies too) = gusts do nothing
 ##   - after max_lifetime     -> pops
 ##   - leaves its room         -> pops (after Stage E7: orbs never fly into the next room)
 ##
@@ -57,6 +69,14 @@ const REFLECTED_COLOR: Color = Color(1.0, 0.9, 0.55)
 const REFLECTED_CORE_COLOR: Color = Color(1.0, 1.0, 1.0)
 ## Mixed into the colors once it's soaked by water.
 const SOAKED_TINT: Color = Color("#7FC8FF")
+## A tracking orb: yellow (its outline is the same as every orb's, below).
+const TRACKING_COLOR: Color = Color(1.0, 0.88, 0.1)
+const TRACKING_CORE_COLOR: Color = Color(1.0, 1.0, 0.7)
+## Every unreflected orb's thick outline: black = a gust reflects it, white = it
+## ignores gusts (the white ring gets a 1 px black rim outside it).
+const GUSTABLE_OUTLINE_COLOR: Color = Color.BLACK
+const GUST_PROOF_OUTLINE_COLOR: Color = Color.WHITE
+const OUTLINE_WIDTH: float = 1.5
 ## Drawn radius, px. The hitbox is smaller (fair, like the spikes).
 const DRAW_RADIUS: float = 3.0
 const HITBOX_RADIUS: float = 2.0
@@ -69,6 +89,10 @@ const HITBOX_RADIUS: float = 2.0
 @export var max_lifetime: float = 8.0
 ## Bounces off walls, floors and the Shell before the next solid pops it (Stage F12).
 @export var max_bounces: int = 3
+## Tracking: the steering push toward the player, as px/s² for a mass of 1. The
+## acceleration is this divided by the orb's mass (F = m a), so a heavy orb turns
+## slowly and overshoots far; a light one corners tightly.
+@export var tracking_thrust: float = 220.0
 
 var velocity: Vector2 = Vector2.ZERO
 var is_reflected: bool = false
@@ -84,6 +108,12 @@ var is_soaked: bool = false
 ## The room's water, looked up on the first frame (null: a room without water).
 var water_world: WaterWorld = null
 var has_looked_for_water: bool = false
+## Tracking (see the header): on, its top speed (px/s) and its mass.
+var is_tracking: bool = false
+var tracking_top_speed: float = 0.0
+var tracking_mass: float = 1.0
+## Gusts pass through it (see the header).
+var is_gust_proof: bool = false
 
 
 func _ready() -> void:
@@ -106,10 +136,27 @@ func launch(world_position: Vector2, start_velocity: Vector2, fired_by: Sentry) 
 	lifetime_remaining = max_lifetime
 
 
+## Gusts pass through it from now on: out of the Pushable group, so the gust's
+## search doesn't even count it.
+func make_gust_proof() -> void:
+	is_gust_proof = true
+	remove_from_group(Pushable.GROUP)
+	queue_redraw()
+
+
+## Makes it a homing orb (Sentry.tracking_shots): see the header.
+func start_tracking(top_speed: float, mass: float) -> void:
+	is_tracking = true
+	tracking_top_speed = top_speed
+	tracking_mass = maxf(mass, 0.05)  # a mass of 0 would mean infinite turning
+	queue_redraw()
+
+
 func _physics_process(delta: float) -> void:
 	if is_popped:
 		return
 	var previous_position: Vector2 = global_position
+	_steer_toward_player(delta)
 	_update_water(delta)
 	global_position += velocity * delta
 	lifetime_remaining -= delta
@@ -118,6 +165,21 @@ func _physics_process(delta: float) -> void:
 		return
 	_check_hits(previous_position)
 	queue_redraw()
+
+
+## Tracking: push toward the player, a = F / m, then cap the speed. Only the push
+## changes the velocity (no drag, no turning the velocity vector directly), so the
+## orb keeps its momentum: what it was doing a moment ago still carries it.
+func _steer_toward_player(delta: float) -> void:
+	if not is_tracking or is_reflected or is_soaked:
+		return
+	var target: Player = get_tree().get_first_node_in_group(Player.GROUP) as Player
+	if target == null or target.is_dead():
+		return
+	var to_target: Vector2 = (target.get_center() - global_position).normalized()
+	var acceleration: float = tracking_thrust / tracking_mass
+	velocity += to_target * acceleration * delta
+	velocity = velocity.limit_length(tracking_top_speed)
 
 
 ## Water (after W3 play-test 3): the first touch of any water soaks the orb (it
@@ -224,7 +286,7 @@ func receive_gust(direction: Vector2, strength: float) -> void:
 
 ## The Pushable contract: a gust hit us. Reflect.
 func receive_gust_from(direction: Vector2, _strength: float, _source_position: Vector2) -> void:
-	if is_popped:
+	if is_popped or is_gust_proof:
 		return
 	var new_direction: Vector2 = _find_assisted_direction(direction)
 	# Keep the original launch speed, not the gust's push strength: reflect, then speed up.
@@ -283,7 +345,7 @@ func pop() -> void:
 	sparks.gravity = Vector2.ZERO
 	sparks.initial_velocity_min = 30.0
 	sparks.initial_velocity_max = 60.0
-	sparks.color = REFLECTED_COLOR if is_reflected else ORB_COLOR
+	sparks.color = REFLECTED_COLOR if is_reflected else (TRACKING_COLOR if is_tracking else ORB_COLOR)
 	get_parent().add_child(sparks)
 	sparks.global_position = global_position
 	sparks.emitting = true
@@ -300,6 +362,17 @@ func reset() -> void:
 func _draw() -> void:
 	var outer: Color = REFLECTED_COLOR if is_reflected else ORB_COLOR
 	var core: Color = REFLECTED_CORE_COLOR if is_reflected else ORB_CORE_COLOR
+	if is_tracking and not is_reflected:
+		outer = TRACKING_COLOR
+		core = TRACKING_CORE_COLOR
+	if not is_reflected:
+		# The thick outline first, the orb on top of it. White = gust-proof, with a
+		# thin black rim outside so it still shows against a bright sky.
+		if is_gust_proof:
+			draw_circle(Vector2.ZERO, DRAW_RADIUS + OUTLINE_WIDTH + 1.0, GUSTABLE_OUTLINE_COLOR)
+			draw_circle(Vector2.ZERO, DRAW_RADIUS + OUTLINE_WIDTH, GUST_PROOF_OUTLINE_COLOR)
+		else:
+			draw_circle(Vector2.ZERO, DRAW_RADIUS + OUTLINE_WIDTH, GUSTABLE_OUTLINE_COLOR)
 	if is_soaked:
 		# Doused: duller, with a blue sheen (still orange enough to read as danger).
 		outer = outer.lerp(SOAKED_TINT, 0.4)

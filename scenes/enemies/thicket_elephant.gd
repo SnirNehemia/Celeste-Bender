@@ -150,8 +150,9 @@ const MAX_FALL_SPEED: float = 300.0
 ## Which way it starts walking: 1 = right, -1 = left.
 @export_enum("Left:-1", "Right:1") var start_direction: int = 1:
 	set(value):
-		start_direction = value
-		facing = float(value)
+		# 0 (saved by the old property panel when Left was picked) means Left.
+		start_direction = -1 if value <= 0 else 1
+		facing = float(start_direction)
 		_apply_facing_to_shapes()
 		queue_redraw()
 ## What each kind of hit does to it. Empty = the table in _make_immunity().

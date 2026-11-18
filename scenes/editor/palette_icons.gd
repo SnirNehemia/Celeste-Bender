@@ -384,6 +384,14 @@ static func _draw_icon(image: Image, entry: PaletteCatalog.Entry) -> void:
 			_rect(image, 0, 7, 10, 2, BLUE_GRAY.darkened(0.2))
 			for row: int in 5:
 				_rect(image, 4, 2 + row, row + 1, 1, CREAM)
+		&"sky_ship":
+			# A mast with a sail each side over a brown hull, wider on top.
+			_rect(image, 4, 0, 1, 7, CRATE_BROWN.darkened(0.3))
+			_rect(image, 1, 1, 3, 5, CREAM)
+			_rect(image, 5, 1, 3, 5, CREAM)
+			_rect(image, 0, 7, 10, 1, CRATE_BROWN)
+			_rect(image, 1, 8, 8, 1, CRATE_BROWN)
+			_rect(image, 2, 9, 6, 1, CRATE_BROWN.darkened(0.3))
 		&"boulder":
 			_rect(image, 2, 2, 6, 7, GRAY)
 			_rect(image, 1, 4, 8, 4, GRAY)

@@ -19,6 +19,16 @@ extends StaticBody2D
 ## hostile so it kills the player it touches (Fireball.make_hostile). Gusts don't
 ## reflect a fireball: beat a fire sentry with your own fireball or a big rock.
 ## Its body is painted ember orange instead of purple, so you can tell before it shoots.
+## With `automatic` on it fires on a clock, whether it sees you or not, always in
+## `fire_direction` (one of 8 ways): a hazard you time, not an enemy that aims.
+## Its body is painted GREY so you can tell (the base strip keeps the kind's color).
+## With `tracking_shots` on its orbs HOME IN on the player (SentryOrb.start_tracking):
+## yellow with a thick black outline. They steer with a limited push against their own
+## `tracking_mass`, so they keep their momentum: dodge late and they overshoot, swing
+## wide and come back. A gust still reflects them (they stop tracking). fire_orbs wins
+## over tracking_shots (a fireball never tracks).
+## With `gust_proof_orbs` on, gusts pass through its orbs (SentryOrb.make_gust_proof):
+## the outline is WHITE instead of black, so you can tell which orbs you can send back.
 ##
 ## Firing rhythm, fair and readable:
 ##   - it only counts down while the player is in the same room, within
@@ -45,6 +55,8 @@ const EYE_CHARGED_COLOR: Color = Color(1.0, 0.6, 0.15)
 ## A fire-orb sentry's body: ember orange, darker at the base (Fire_bending.md §9.1).
 const FIRE_BODY_COLOR: Color = Color("#E8431A")
 const FIRE_BODY_DARK_COLOR: Color = Color("#8A2410")
+## An automatic sentry's body: machine grey (it fires on a clock, it doesn't watch you).
+const AUTOMATIC_BODY_COLOR: Color = Color(0.5, 0.5, 0.53)
 ## How far the mounting plate reaches into the floor, ceiling or wall, px.
 const BASE_SINK: float = 3.0
 ## Preloaded once: the orb scene to instance for every shot.
@@ -82,6 +94,30 @@ signal defeated
 	set(value):
 		fire_orbs = value
 		queue_redraw()
+## Fires on a clock, no player needed, toward fire_direction (painted grey).
+@export var automatic: bool = false:
+	set(value):
+		automatic = value
+		queue_redraw()
+## Automatic only: which way it fires (one of 8 directions; the editor's picker).
+@export var fire_direction: Vector2 = Vector2.LEFT:
+	set(value):
+		fire_direction = value.normalized() if value != Vector2.ZERO else Vector2.LEFT
+		aim_direction = fire_direction
+		queue_redraw()
+## Its orbs home in on the player (yellow, black outline), keeping their momentum.
+@export var tracking_shots: bool = false:
+	set(value):
+		tracking_shots = value
+		queue_redraw()
+## Tracking shots only: their top speed, px/s.
+@export var tracking_speed: float = 70.0
+## Tracking shots only: how heavy they are. Heavier = turns slower, overshoots more
+## (a fixed steering push divided by this mass, SentryOrb.tracking_thrust).
+@export var tracking_mass: float = 1.0
+## Its orbs IGNORE gusts: no reflecting them, so beat it with fire or a rock.
+## Drawn with a white outline instead of the black one gust-able orbs have.
+@export var gust_proof_orbs: bool = false
 ## Turret size, px.
 @export var body_size: Vector2 = Vector2(16, 16):  # 2x2 tiles, so its wall reads at a glance
 	set(value):
@@ -132,6 +168,9 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint() or is_destroyed or not can_fire:
 		return
+	if automatic:
+		_run_automatic(delta)
+		return
 	var target: Player = get_tree().get_first_node_in_group(Player.GROUP) as Player
 	can_see_player = target != null and _can_see(target)
 	if can_see_player:
@@ -144,6 +183,23 @@ func _physics_process(delta: float) -> void:
 		# Lost sight: hold off, but never stay mid-glow, and when it spots you again
 		# you get at least the first-shot delay.
 		time_until_shot = maxf(time_until_shot, first_shot_delay)
+	queue_redraw()
+
+
+## The automatic rhythm: counts down while the player is in this sentry's room
+## (sentries in other rooms stay quiet), fires toward fire_direction.
+## can_see_player is used as "charging" for the eye's glow, so it's set true here.
+func _run_automatic(delta: float) -> void:
+	aim_direction = fire_direction
+	var is_awake: bool = GameState.current_room == null or GameState.current_room.is_ancestor_of(self)
+	can_see_player = is_awake
+	if not is_awake:
+		time_until_shot = maxf(time_until_shot, first_shot_delay)
+		return
+	time_until_shot -= delta
+	if time_until_shot <= 0.0:
+		_fire()
+		time_until_shot = fire_interval
 	queue_redraw()
 
 
@@ -200,7 +256,12 @@ func _fire() -> void:
 	# The orb lives in the room (our parent), not under us, so the room's reset can
 	# find it and it keeps flying if we're destroyed.
 	get_parent().add_child(orb)
-	orb.launch(get_eye_position(), aim_direction * orb_speed, self)
+	var speed: float = tracking_speed if tracking_shots else orb_speed
+	orb.launch(get_eye_position(), aim_direction * speed, self)
+	if tracking_shots:
+		orb.start_tracking(tracking_speed, tracking_mass)
+	if gust_proof_orbs:
+		orb.make_gust_proof()
 
 
 ## A fire sentry's shot: the player's Fireball, thrown from just outside the eye
@@ -291,8 +352,10 @@ func _spawn_burst() -> void:
 	get_tree().create_timer(burst.lifetime + 0.1, false).timeout.connect(burst.queue_free)
 
 
-## Purple, or ember orange for a fire-orb sentry.
+## Grey when automatic, else purple, or ember orange for a fire-orb sentry.
 func _get_body_color() -> Color:
+	if automatic:
+		return AUTOMATIC_BODY_COLOR
 	return FIRE_BODY_COLOR if fire_orbs else BODY_COLOR
 
 
@@ -329,6 +392,6 @@ func _draw() -> void:
 		draw_arc(eye_center, 2.0, 0.0, TAU, 12, body_color, 1.0)
 		return
 	# The pupil looks at the player while it can see them.
-	var pupil_offset: Vector2 = (aim_direction * 1.5).round() if can_see_player else Vector2.ZERO
+	var pupil_offset: Vector2 = (aim_direction * 1.5).round() if can_see_player or automatic else Vector2.ZERO
 	draw_rect(Rect2(eye_center + pupil_offset - Vector2.ONE, Vector2(2, 2)),
 		Color.WHITE if charge > 0.0 else body_color)

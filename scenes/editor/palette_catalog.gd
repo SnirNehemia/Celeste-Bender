@@ -234,7 +234,7 @@ const TAB_OF: Dictionary = {
 	&"cracked_wall": "Breakable", &"stone_wall": "Breakable", &"thicket": "Breakable",
 	&"overgrown_grass": "Breakable", &"overgrown_thicket": "Breakable",
 	&"rail_platform": "Activated",
-	&"crate": "Objects", &"leaf_platform": "Objects", &"sail_platform": "Objects", &"boulder": "Objects",
+	&"crate": "Objects", &"leaf_platform": "Objects", &"sail_platform": "Objects", &"sky_ship": "Objects", &"boulder": "Objects",
 	&"loose_rock": "Objects", &"vine": "Objects", &"hanging_platform": "Objects", &"leaf_pile": "Objects",
 	&"water_source": "Objects", &"water_sink": "Objects", &"current_zone": "Objects",
 }
@@ -404,6 +404,14 @@ static func _build() -> void:
 	sail_platform.editable_properties = [&"deck_width", &"rail_start", &"rail_end"]
 	sail_platform.point_properties = [&"rail_start", &"rail_end"]
 	sail_platform.start_positions = {&"rail_start_position": &"rail_start", &"rail_end_position": &"rail_end"}
+
+	# The origin is the bottom-middle of the keel: 56 px across the deck, the mast's
+	# top 72 px above the keel.
+	var sky_ship: Entry = _add_object(&"sky_ship", "Sky ship", "Air", preload("res://scenes/objects/sky_ship.tscn"))
+	sky_ship.hint = "A big wooden ship that flies freely on the wind. Stand on its deck or the crow's nest and gust: sideways sails it, up lifts it, down brings it down, neutral brakes. Wind zones carry it; it sinks slowly with nothing lifting it and stays in its room. Its hull is solid."
+	sky_ship.bounds = Bounds.FIXED
+	sky_ship.local_rect = Rect2(-28, -72, 56, 72)
+	sky_ship.placement = Placement.ON_FLOOR
 
 	var door: Entry = _add_object(&"door", "Door", "Air", preload("res://scenes/objects/door.tscn"))
 	door.hint = "Opens or closes by its linked switches (L): pressure plates, windmills. Any or all of them, or inverted. Won't close on you or a crate."
@@ -852,14 +860,14 @@ static func _build() -> void:
 	leaf_wisp.editable_properties = [&"start_direction", &"patrol_speed", &"at_edges"]
 
 	var sentry: Entry = _add_object(&"sentry", "Sentry", "Enemies", preload("res://scenes/enemies/sentry.tscn"))
-	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It bolts itself to the nearest wall, ceiling or floor; select it to see its sight range. It can never fire (a target for an enemy gate), throw fireballs like yours (Fire Orbs: painted orange), fire on a clock in a fixed direction (Automatic: painted grey), or fire homing orbs that keep their momentum (Tracking Shots: yellow, heavier = wider overshoot)."
+	sentry.hint = "A turret that fires slow orbs when it sees you. Gust an orb back into it to beat it. It bolts itself to the nearest wall, ceiling or floor; select it to see its sight range. It can never fire (a target for an enemy gate), throw fireballs like yours (Fire Orbs: painted orange), fire on a clock in a fixed direction (Automatic: painted grey), fire homing orbs that keep their momentum (Tracking Shots: yellow, heavier = wider overshoot), or fire orbs gusts can't reflect (Gust Proof Orbs: white outline instead of black; beat it with fire or a rock)."
 	sentry.bounds = Bounds.SIZE_BOTTOM_CENTER
 	sentry.size_property = &"body_size"
 	sentry.hang_property = &"mounted_on_ceiling"
 	sentry.snaps_to_ground = true
 	sentry.placement = Placement.ON_FLOOR
 	sentry.editable_properties = [&"can_fire", &"fire_orbs", &"automatic", &"fire_direction", &"tracking_shots",
-		&"tracking_speed", &"tracking_mass", &"fire_interval", &"first_shot_delay", &"sight_range"]
+		&"tracking_speed", &"tracking_mass", &"gust_proof_orbs", &"fire_interval", &"first_shot_delay", &"sight_range"]
 	sentry.direction_properties = [&"fire_direction"]
 	sentry.shown_when = {&"fire_direction": &"automatic",
 		&"tracking_speed": &"tracking_shots", &"tracking_mass": &"tracking_shots"}

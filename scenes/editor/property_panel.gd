@@ -203,7 +203,10 @@ func refresh() -> void:
 				(widget["control"] as CheckBox).set_pressed_no_signal(value)
 			"enum":
 				var option_button: OptionButton = widget["control"]
-				option_button.select(option_button.get_item_index(int(value)))
+				for index: int in option_button.item_count:
+					if int(option_button.get_item_metadata(index)) == int(value):
+						option_button.select(index)
+						break
 			"number":
 				(widget["control"] as SpinBox).set_value_no_signal(value)
 			"text":
@@ -233,12 +236,15 @@ func _make_widget(property: StringName, info: Dictionary, is_direction: bool) ->
 		TYPE_INT when info["hint"] == PROPERTY_HINT_ENUM:
 			var option_button: OptionButton = OptionButton.new()
 			option_button.focus_mode = Control.FOCUS_NONE
-			# hint_string "Up:0,Down:1,...": name and value per choice.
+			# hint_string "Up:0,Down:1,...": name and value per choice. The value goes in
+			# the item's METADATA, not its id: add_item treats an id of -1 as "no id"
+			# and uses the index, so "Left:-1" would come back as 0.
 			for choice: String in String(info["hint_string"]).split(","):
 				var parts: PackedStringArray = choice.split(":")
 				var value: int = int(parts[1]) if parts.size() > 1 else option_button.item_count
-				option_button.add_item(parts[0].capitalize(), value)
-			option_button.item_selected.connect(func(index: int) -> void: emit.call(option_button.get_item_id(index)))
+				option_button.add_item(parts[0].capitalize())
+				option_button.set_item_metadata(option_button.item_count - 1, value)
+			option_button.item_selected.connect(func(index: int) -> void: emit.call(option_button.get_item_metadata(index)))
 			widgets[property] = {"kind": "enum", "control": option_button}
 			return option_button
 		TYPE_INT, TYPE_FLOAT:

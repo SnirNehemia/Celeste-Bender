@@ -123,7 +123,8 @@ const SMOLDER_SMOKE_INTERVAL: float = 0.3
 ## Which way it starts running: 1 = right, -1 = left.
 @export_enum("Left:-1", "Right:1") var start_direction: int = 1:
 	set(value):
-		start_direction = value
+		# 0 (saved by the old property panel when Left was picked) means Left.
+		start_direction = -1 if value <= 0 else 1
 		queue_redraw()
 ## On: it hops gaps on its route (see the header). Off: it turns at every ledge.
 @export var hops_gaps: bool = true

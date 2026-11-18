@@ -727,6 +727,14 @@ func _check_l5_properties() -> void:
 	retract_box.select(retract_box.get_item_index(Door.RetractToward.DOWN))
 	retract_box.item_selected.emit(retract_box.selected)
 	_check(door.retract_toward == Door.RetractToward.DOWN, "the dropdown sets the enum")
+	# A NEGATIVE choice ("Left:-1"): OptionButton ids can't hold -1, so the value
+	# lives in the item's metadata. Picking Left must give -1, not 0.
+	var wisp: Wisp = editor.place_object(PaletteCatalog.get_entry(&"wisp"), room, Vector2i(10, 10)) as Wisp
+	var direction_box: OptionButton = panel.widgets[&"start_direction"]["control"]
+	direction_box.item_selected.emit(0)  # the first choice, Left
+	_check(wisp.start_direction == -1, "the dropdown's Left gives -1, got %d" % wisp.start_direction)
+	_check(direction_box.selected == 0, "the panel shows Left after refreshing")
+	editor.select(door)
 	(panel.widgets[&"open_when_off"]["control"] as CheckBox).button_pressed = true
 	_check(door.open_when_off, "the checkbox sets the bool")
 

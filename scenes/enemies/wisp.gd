@@ -8,7 +8,10 @@ extends CharacterBody2D
 ## same as the player and the crate).
 ##
 ## It has three states:
-##   PATROL   walks at patrol_speed, turns around at walls and at ledges. Deadly to touch.
+##   PATROL   walks at patrol_speed, turns around at walls and at ledges (or, with
+##            at_edges = FALL_OFF, walks off ledges, drops and walks on where it
+##            lands; it's defeated once it falls out of the bottom of its room).
+##            Deadly to touch.
 ##            On top of an Earth Column it does NOT turn at the edge: a pillar is no
 ##            patrol route, so it walks off and drops back to the ground.
 ##   STUNNED  knocked back by a gust and dizzy for stun_time.
@@ -60,6 +63,8 @@ extends CharacterBody2D
 ## (layer 3, spikes).
 
 enum State { PATROL, STUNNED, DEFEATED }
+## What a patrolling wisp does at a ledge.
+enum EdgeRule { TURN_AROUND, FALL_OFF }
 
 ## Emitted once when the wisp is defeated (by spikes, a pit, fire, a rock or a
 ## reflected orb). EnemyGate listens to it to open "beat every enemy" doors.
@@ -82,7 +87,13 @@ const DIZZY_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
 		_resize_shapes()
 		queue_redraw()
 ## Which way it starts walking: 1 = right, -1 = left.
-@export_enum("Left:-1", "Right:1") var start_direction: int = 1
+@export_enum("Left:-1", "Right:1") var start_direction: int = 1:
+	set(value):
+		# 0 (saved by the old property panel when Left was picked) means Left.
+		start_direction = -1 if value <= 0 else 1
+		queue_redraw()
+## At a ledge: turn around (the classic patrol) or walk off it and fall.
+@export var at_edges: EdgeRule = EdgeRule.TURN_AROUND
 ## Walking speed, px/s. Slow: the player has time to read its route.
 @export var patrol_speed: float = 30.0
 ## Same gravity and max fall speed as the player and crate, so knockbacks arc the
@@ -122,6 +133,9 @@ var home_room: Room = null
 var start_position: Vector2
 ## Seconds since start; drives the bob and dizzy-stars animations.
 var animation_time: float = 0.0
+## Made at run time by a WispGenerator, not placed in the level: a room reset (or
+## its defeat) frees it instead of putting it back.
+var is_spawned: bool = false
 
 var hitbox: CollisionShape2D
 var contact_area: Area2D
@@ -177,7 +191,7 @@ func _physics_process(delta: float) -> void:
 			_be_stunned(delta)
 
 	_keep_inside_room()
-	if global_position.y > start_position.y + fall_out_distance:
+	if _has_fallen_out():
 		defeat()
 		return
 	_check_contacts()
@@ -188,7 +202,7 @@ func _patrol(delta: float) -> void:
 	_apply_gravity(delta)
 	# Turn BEFORE stepping off a ledge, so it never walks off by itself (except off
 	# a pillar, see the header).
-	if is_on_floor() and not _has_floor_ahead() and not _is_standing_on_column():
+	if at_edges == EdgeRule.TURN_AROUND and is_on_floor() and not _has_floor_ahead() 			and not _is_standing_on_column():
 		patrol_direction = -patrol_direction
 	velocity.x = patrol_direction * patrol_speed
 	move_and_slide()
@@ -240,6 +254,16 @@ func _has_floor_ahead() -> bool:
 		Vector2(front_x, global_position.y - 2.0), Vector2(front_x, global_position.y + 4.0), 1)
 	query.exclude = [get_rid()]
 	return not get_world_2d().direct_space_state.intersect_ray(query).is_empty()
+
+
+## Fallen into a pit? A wisp that falls off edges (or a spawned one, which starts
+## anywhere) drops through its room on purpose, so for it only leaving the bottom of
+## the room counts; the classic patrol keeps the old rule (fall_out_distance below
+## where it was placed).
+func _has_fallen_out() -> bool:
+	if (at_edges == EdgeRule.FALL_OFF or is_spawned) and home_room != null:
+		return global_position.y - body_size.y > home_room.get_bounds().end.y
+	return global_position.y > start_position.y + fall_out_distance
 
 
 ## The wisp's row of the §7.2 table: fire, big and perfect rocks, spikes, crushing,
@@ -419,6 +443,8 @@ func defeat() -> void:
 	FX.shake(2.0, 0.12)
 	FX.play_sfx(&"wisp_defeated")
 	defeated.emit()
+	if is_spawned:
+		queue_free()  # nothing to bring back: its generator makes new ones
 
 
 ## The room's left and right edges act as walls: if our body pokes past one, it's
@@ -453,6 +479,9 @@ func is_valid_orb_target() -> bool:
 
 ## Called by Room.reset_objects() when the player dies or restarts the room.
 func reset() -> void:
+	if is_spawned:
+		queue_free()  # a generator's wisp: the generator starts over instead
+		return
 	global_position = start_position
 	velocity = Vector2.ZERO
 	patrol_direction = float(start_direction)
