@@ -2,8 +2,8 @@ extends Node
 ## Headless smoke test for the small features added after the level tools: the
 ## signpost, the timed step pad, the lantern, the one-way teleport doors, the pause
 ## menu's "Restart level" and options page (AssistOptions: game speed, extra coyote
-## time), the ghost of each room's fastest run (GhostRuns), and Room.grass_burns
-## (grass that burns with Fire off). Not part of the game.
+## time), the ghost of each room's fastest run (GhostRuns), Room.grass_burns
+## (grass that burns with Fire off) and the sky ship (SkyShip). Not part of the game.
 ##
 ## It builds a two-room level in memory with LevelKit (tools/level_kit.gd), packs it
 ## the way the editor does for a play-test, and plays it:
@@ -11,6 +11,8 @@ extends Node
 ##          entrance and a red one (red has no exit).
 ##   Room2: to the right, DARK, the blue teleport exit, a strip of grass that can't burn.
 ##   Room3: apart, a grass floor with Grass Burns on and Fire off.
+##   Room4: apart, the sky ship in mid-air over a floor, a wall on the right, and a
+##          tiny wind zone in a corner (grown to fill the room for the wind check).
 ## The options and the ghosts are written to throwaway files in user://, never the
 ## player's real ones.
 ## Prints PASS/FAIL lines and quits. Run it with:
@@ -42,6 +44,7 @@ func _ready() -> void:
 	await _check_ghost()
 	await _check_teleport()
 	await _check_grass_burns()
+	await _check_sky_ship()
 	# Leave the global switches as we found them.
 	AssistOptions.game_speed = 1.0
 	AssistOptions.extra_coyote_time = 0.0
@@ -81,6 +84,15 @@ func _open_level() -> void:
 	third.grass_burns = true
 	# Room2 gets grass too, but burns nothing (neither switch on).
 	kit.fill(second, &"grass", 30, 20, 4, 1)
+	# Room4, apart too: the sky ship, keel 48 px over the floor, and a wall on the right.
+	var fourth: Room = kit.add_room("Room4", "Sky ship", Vector2(0, ROOM_SIZE.y * 6), ROOM_SIZE)
+	fourth.air_allowed = true
+	kit.fill(fourth, &"ground", 0, 21, 40, 2)
+	kit.fill(fourth, &"ground", 38, 0, 2, 21)
+	kit.set_spawn(fourth, 3, 20)
+	kit.place(fourth, &"sky_ship", "Ship", Vector2(120, FLOOR_Y - 48))
+	kit.place(fourth, &"wind_zone", "ShipWind", Vector2(0, 0),
+		{&"zone_size": Vector2(8, 8), &"wind_direction": Vector2.LEFT, &"wind_strength": 80.0})
 	kit.set_start_room(first)
 	# An object is matched to its palette entry by its scene: the two pads and the
 	# two door ends must not be mixed up.
@@ -279,6 +291,192 @@ func _check_grass_burns() -> void:
 	_check(grid.ignite_at(floor_point, 2.0, null), "grass burns: the grass catches fire")
 	await _wait(0.5)
 	_check(grid.is_burning(), "grass burns: and burns")
+
+
+## The sky ship: it sinks slowly, a gust from aboard sails it (sideways and up) and
+## carries the rider, the room's wall stops it, a wind zone carries it, it never
+## crushes the player, and a reset puts it back.
+func _check_sky_ship() -> void:
+	var ship_room: Room = level.get_node("Room4") as Room
+	var ship: SkyShip = ship_room.get_node("Ship") as SkyShip
+	_check(PaletteCatalog.get_entry(&"sky_ship") != null and PaletteCatalog.get_entry(&"sky_ship").hint != "", "sky ship: has a palette entry with a hint")
+	level.jump_to_room(ship_room)
+	await _frames(2)
+	var home: Vector2 = ship.global_position
+	await _wait(1.0)
+	_check(ship.global_position.y > home.y + 4.0 and ship.global_position.y < home.y + 20.0,
+		"sky ship: sinks slowly with nothing lifting it (%.1f px in 1 s)" % (ship.global_position.y - home.y))
+
+	# Aboard: stand on the crow's nest (its top is 44 px above the keel).
+	ship_room.reset_objects()
+	player.global_position = ship.global_position + Vector2(0.0, -44.0)
+	player.velocity = Vector2.ZERO
+	await _frames(4)
+	_check(player.get_floor_body() == ship, "sky ship: the player stands on the crow's nest")
+	await _gust_toward("move_right")
+	_check(ship.velocity.x > 20.0, "sky ship: a sideways gust from aboard sails it that way (%.0f px/s)" % ship.velocity.x)
+	var ship_x_before: float = ship.global_position.x
+	var player_x_before: float = player.global_position.x
+	await _wait(0.5)
+	var ship_moved: float = ship.global_position.x - ship_x_before
+	_check(ship_moved > 8.0 and absf((player.global_position.x - player_x_before) - ship_moved) < 2.0,
+		"sky ship: it carries the rider along (ship %.1f px, player %.1f px)" % [ship_moved, player.global_position.x - player_x_before])
+	_check(player.get_floor_body() == ship, "sky ship: the rider stays aboard while it sails")
+	await _gust_toward("move_up")
+	_check(ship.velocity.y < -10.0, "sky ship: an up gust from aboard lifts it (%.0f px/s)" % ship.velocity.y)
+
+	# Jumping off a moving ship keeps its speed (after the second play-test): with no
+	# arrow held you keep pace with it; holding the arrow, you run ahead of it.
+	for arrow: String in ["", "move_right"]:
+		ship_room.reset_objects()
+		await _board_ship(ship, 16.0)
+		ship.velocity = Vector2(100.0, 0.0)
+		await _wait(0.2)
+		var ship_start_x: float = ship.global_position.x
+		var player_start_x: float = player.global_position.x
+		if arrow != "":
+			Input.action_press(arrow)
+		Input.action_press("jump")
+		await _frames(3)
+		Input.action_release("jump")
+		await _frames(24)  # 0.4 s, counted in physics frames: timers were flaky here
+		if arrow != "":
+			Input.action_release(arrow)
+		var ship_moved_x: float = ship.global_position.x - ship_start_x
+		var player_moved_x: float = player.global_position.x - player_start_x
+		if arrow == "":
+			_check(absf(player_moved_x - ship_moved_x) < 6.0,
+				"sky ship: jumping off it, you keep its speed (ship %.1f px, you %.1f px)" % [ship_moved_x, player_moved_x])
+		else:
+			_check(player_moved_x > ship_moved_x + 10.0,
+				"sky ship: jumping off holding the arrow, you run on top of its speed (ship %.1f px, you %.1f px)" % [ship_moved_x, player_moved_x])
+
+	# The lips: walking right on the nest for a second doesn't take you off its end.
+	ship_room.reset_objects()
+	await _board_ship(ship, 44.0)
+	Input.action_press("move_right")
+	await _wait(1.0)
+	Input.action_release("move_right")
+	await _frames(2)
+	_check(player.get_floor_body() == ship, "sky ship: the crow's nest's lip stops you walking off its end")
+	ship_room.reset_objects()
+	await _board_ship(ship, 16.0)
+	Input.action_press("move_left")
+	await _wait(1.5)
+	Input.action_release("move_left")
+	await _frames(2)
+	_check(player.get_floor_body() == ship, "sky ship: the deck's lip stops you walking off its end")
+
+	# The crow's nest pushes harder than the deck (nest_push_multiplier).
+	ship_room.reset_objects()
+	await _board_ship(ship, 16.0)
+	ship.velocity = Vector2.ZERO
+	ship.absorb_gust_recoil(Vector2.RIGHT, player.tuning.gust_push_strength)
+	var deck_push: float = ship.velocity.x
+	ship_room.reset_objects()
+	await _board_ship(ship, 44.0)
+	ship.velocity = Vector2.ZERO
+	ship.absorb_gust_recoil(Vector2.RIGHT, player.tuning.gust_push_strength)
+	_check(ship.velocity.x > deck_push * 1.2, "sky ship: a gust from the crow's nest pushes harder than from the deck (%.0f vs %.0f px/s)" % [ship.velocity.x, deck_push])
+
+	# A barrage of gusts every way, diagonals too (after the first play-test: the
+	# rider kept losing the floor and their own gust threw them off). Never off the
+	# ship for more than a couple of frames, and still aboard at the end.
+	ship_room.reset_objects()
+	await _board_ship(ship, 44.0)
+	var longest_off: int = 0
+	var off_run: int = 0
+	for arrows: String in ["move_right", "move_right", "move_up", "move_up+move_right", "move_up", "move_down+move_left",
+			"move_down", "move_left", "move_left", "move_up+move_left", "move_down", "move_right"]:
+		for part: String in arrows.split("+"):
+			Input.action_press(part)
+		for frame: int in 12:
+			if frame == 2:
+				Input.action_press("gust")
+			elif frame == 5:
+				Input.action_release("gust")
+			elif frame == 7:
+				for part: String in arrows.split("+"):
+					Input.action_release(part)
+			await get_tree().physics_frame
+			off_run = 0 if player.get_floor_body() == ship else off_run + 1
+			longest_off = maxi(longest_off, off_run)
+	await _frames(10)
+	_check(longest_off <= 3 and player.get_floor_body() == ship and not player.is_dead(),
+		"sky ship: twelve quick gusts every way and the rider stays aboard (off at most %d frames in a row)" % longest_off)
+
+	# The wall on the right stops it: sailing fast at it, it ends up against it.
+	ship_room.reset_objects()
+	player.global_position = ship_room.global_position + Vector2(24, FLOOR_Y)
+	player.velocity = Vector2.ZERO
+	ship.velocity = Vector2(110.0, 0.0)
+	var wall_left: float = ship_room.global_position.x + 38.0 * 8.0
+	var furthest_right: float = -INF
+	for frame: int in 150:
+		await get_tree().physics_frame
+		furthest_right = maxf(furthest_right, ship.global_position.x + 28.0)
+	_check(furthest_right <= wall_left + 1.0 and furthest_right > wall_left - 2.0,
+		"sky ship: a wall stops it (hull's right side got to %.1f, wall %.1f)" % [furthest_right, wall_left])
+	_check(ship.velocity.x <= 0.0, "sky ship: and it bounces back off it or stops (%.0f px/s)" % ship.velocity.x)
+
+	# A wind zone over the room's upper part (the player on the floor stays out of
+	# it), blowing left, carries it left.
+	ship_room.reset_objects()
+	var wind: WindZone = ship_room.get_node("ShipWind") as WindZone
+	wind.zone_size = Vector2(300, 130)
+	await _wait(1.5)
+	_check(ship.velocity.x < -20.0 and ship.global_position.x < home.x - 10.0,
+		"sky ship: a wind zone carries it (%.0f px/s)" % ship.velocity.x)
+	wind.zone_size = Vector2(8, 8)
+
+	# Never crushed: the player stands against the wall, the ship sails into them.
+	ship_room.reset_objects()
+	# Resting on the floor, its hull's right side 14 px from the player's middle (the
+	# player is 8 px wide), sliding at them faster than the ground's friction stops it.
+	var player_x: float = 38.0 * 8.0 - 5.0
+	ship.exact_position = Vector2(player_x - 14.0 - 28.0, FLOOR_Y)
+	ship.position = ship.exact_position
+	player.global_position = ship_room.global_position + Vector2(player_x, FLOOR_Y)
+	player.velocity = Vector2.ZERO
+	await _frames(2)
+	ship.velocity = Vector2(100.0, 0.0)
+	await _wait(1.5)
+	_check(not player.is_dead(), "sky ship: sailing into the player against a wall doesn't kill them")
+	# The player is 7.6 px wide; the ship bumps off them a little, like off a wall.
+	var hull_right: float = ship.global_position.x + 28.0
+	var player_left: float = player.global_position.x - 3.8
+	_check(hull_right <= player_left + 0.6 and hull_right > player_left - 6.0 and player.global_position.x + 3.8 <= wall_left + 0.1,
+		"sky ship: it stops against the player instead of passing through (hull %.1f, player's left side %.1f)" % [hull_right, player_left])
+
+	ship_room.reset_objects()
+	# An AnimatableBody2D synced to physics shows a new position after the next
+	# physics step, so look a moment later (it has sunk a fraction of a pixel by then).
+	await _frames(2)
+	_check(ship.position.distance_to(ship.home_position) <= 1.0 and ship.velocity.length() < 2.0,
+		"sky ship: a reset puts it back where it was placed, at rest")
+
+
+## Puts the player on the ship, feet `height` px above its keel (16 = the deck, 44 =
+## the crow's nest), at rest, and lets them settle.
+func _board_ship(ship: SkyShip, height: float) -> void:
+	await _frames(2)
+	player.global_position = ship.global_position + Vector2(0.0, -height)
+	player.velocity = Vector2.ZERO
+	await _frames(4)
+
+
+## Gusts with an arrow held: press the arrow, tap gust (hold-to-aim fires on release),
+## let go of the arrow.
+func _gust_toward(arrow_action: String) -> void:
+	Input.action_press(arrow_action)
+	await _frames(2)
+	Input.action_press("gust")
+	await _frames(3)
+	Input.action_release("gust")
+	await _frames(3)
+
+	Input.action_release(arrow_action)
+	await _frames(2)
 
 
 # --- Helpers -----------------------------------------------------------------------

@@ -149,6 +149,9 @@ var is_invincible: bool = false
 ## Counts down after leaving the ground. While > 0 a ground jump is still allowed.
 ## Refilled to tuning.coyote_time every frame we stand on the floor.
 var coyote_time_remaining: float = 0.0
+## The wind-catching floor (a sail, a raft, a sky ship) we stood on last frame, or
+## null. Kept through coyote time: see get_wind_catching_floor().
+var last_wind_catcher: Object = null
 ## Counts down after the jump button is pressed. While > 0 the press is "remembered"
 ## and any state that can jump will do so.
 var jump_buffer_remaining: float = 0.0
@@ -179,6 +182,14 @@ var carries_ice_speed: bool = false
 ## Seconds left in which a mid-air gust's sideways shove above run speed fades gently
 ## (tuning.gust_overspeed_time, set by GustRecoil). 0 on the ground.
 var gust_overspeed_remaining: float = 0.0
+## A moving floor's sideways speed we keep after leaving it (a sky ship: jump off and
+## you don't fall behind it), px/s. Counted like a tailwind in
+## apply_horizontal_movement: no arrow held, you keep this speed; an arrow held, you
+## run on top of it. Held for floor_carry_hold_remaining s, then fades at
+## floor_carry_fade px/s². Landing, a wall or a respawn ends it. See start_floor_carry().
+var floor_carry_speed_x: float = 0.0
+var floor_carry_hold_remaining: float = 0.0
+var floor_carry_fade: float = 0.0
 ## A neutral gust GRIPS the next landing on ice (after the sailing play-test): set by
 ## GustRecoil's brake, used and cleared on the next landing (see _physics_process), or
 ## cleared by an aimed gust. Landing on ice (a raft most of all) you'd keep your speed
@@ -255,6 +266,7 @@ func _update_timers(delta: float) -> void:
 	# is_on_floor() reports the result of LAST frame's move_and_slide().
 	if is_on_floor():
 		coyote_time_remaining = tuning.coyote_time + AssistOptions.extra_coyote_time  # the assist option (pause menu)
+		last_wind_catcher = _get_wind_catching_floor_below()
 	else:
 		coyote_time_remaining = maxf(coyote_time_remaining - delta, 0.0)
 	# Ice: what we stand on, and whether a long jump off it is still carrying us.
@@ -268,6 +280,7 @@ func _update_timers(delta: float) -> void:
 	elif is_on_floor() or absf(velocity.x) <= tuning.max_run_speed:
 		carries_ice_speed = false
 	gust_overspeed_remaining = 0.0 if is_on_floor() else maxf(gust_overspeed_remaining - delta, 0.0)
+	_update_floor_carry(delta)
 	# Landing clears the same-wall rule: every airtime starts with both walls allowed.
 	if is_on_floor():
 		last_wall_jump_side = 0.0
@@ -334,6 +347,7 @@ func respawn_at(spawn_position: Vector2) -> void:
 	jump_buffer_remaining = 0.0
 	wall_jump_lock_remaining = 0.0
 	last_wall_jump_side = 0.0
+	floor_carry_speed_x = 0.0
 	glide.refill()
 	gust.reset()
 	# Fire pips are per room: back to what this room starts you with.
@@ -802,9 +816,51 @@ func get_floor_body() -> Object:
 ## The floor we stand on if it CATCHES WIND (has WIND_CATCHER_METHOD), else null.
 ## Such a floor takes the sideways recoil of our gusts (GustRecoil state) and
 ## shelters us from wind zones (get_wind_velocity). SailPlatform is one, an ice raft
-## another (Stage W7a). A floor that can be either also has is_catching_wind() (ice:
-## only a raft catches the gust).
+## another (Stage W7a), the SkyShip a third. A floor that can be either also has
+## is_catching_wind() (ice: only a raft catches the gust).
+## COYOTE TIME counts too (after the sky ship play-test): a moving floor can lose
+## touch with your feet for a frame (it rises into you, it drops away a little), and
+## a gust in that frame threw YOU off the ship, or boosted you up like a mid-air
+## down-gust. So for coyote time after leaving one without jumping (a jump clears
+## coyote time), it still takes your gusts.
 func get_wind_catching_floor() -> Object:
+	var floor_below: Object = _get_wind_catching_floor_below()
+	if floor_below != null:
+		return floor_below
+	if coyote_time_remaining > 0.0 and not is_on_floor() and is_instance_valid(last_wind_catcher):
+		return last_wind_catcher
+	return null
+
+
+## Called by a moving floor we just left (SkyShip): keep its sideways speed `speed_x`
+## for `hold_time` s, then fade it out at `fade` px/s² (see floor_carry_speed_x).
+func start_floor_carry(speed_x: float, hold_time: float, fade: float) -> void:
+	floor_carry_speed_x = speed_x
+	floor_carry_hold_remaining = hold_time
+	floor_carry_fade = fade
+
+
+## The carried speed runs out: held, then fading. Against a wall (it would only press
+## us into it), it's over. Landing ends it too, and takes it back OUT of our speed:
+## landing back on the moving ship, our speed is counted on top of its deck's, and
+## with the carry still in it we ran off its front. So you land standing still on it
+## (or, on the ground, keep only your own running speed).
+func _update_floor_carry(delta: float) -> void:
+	if floor_carry_speed_x == 0.0:
+		return
+	if is_on_floor():
+		velocity.x -= floor_carry_speed_x
+		floor_carry_speed_x = 0.0
+	elif is_on_wall():
+		floor_carry_speed_x = 0.0
+	elif floor_carry_hold_remaining > 0.0:
+		floor_carry_hold_remaining -= delta
+	else:
+		floor_carry_speed_x = move_toward(floor_carry_speed_x, 0.0, floor_carry_fade * delta)
+
+
+## The wind-catching floor under our feet right now (no coyote time), or null.
+func _get_wind_catching_floor_below() -> Object:
 	var floor_body: Object = get_floor_body()
 	if floor_body != null and floor_body.has_method(WIND_CATCHER_METHOD) \
 			and (not floor_body.has_method(&"is_catching_wind") or floor_body.call(&"is_catching_wind")):
@@ -909,7 +965,8 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 		return
 
 	var input_direction: float = 0.0 if ignore_input else get_move_input()
-	var wind_x: float = get_wind_velocity().x
+	# A moving floor's speed we just left counts like wind (start_floor_carry).
+	var wind_x: float = get_wind_velocity().x + floor_carry_speed_x
 	# A long jump off ice (Stage W5): the speed above run speed fades gently.
 	if carries_ice_speed and not is_on_floor() and overspeed_deceleration < 0.0:
 		overspeed_deceleration = water_tuning.ice_air_overspeed_fade
@@ -953,7 +1010,7 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 	# still in a 50 px/s current you drift at 50 px/s; running against it you make
 	# 90 - 50 = 40 px/s; with it, 140 px/s. Air control still decides how fast we
 	# get there, so wind catches you gradually.
-	var wind_speed_x: float = get_wind_velocity().x
+	var wind_speed_x: float = wind_x
 
 	if input_direction != 0.0:
 		# Speed up toward full speed in the held direction. Reversing direction passes

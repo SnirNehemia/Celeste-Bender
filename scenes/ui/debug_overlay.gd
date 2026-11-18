@@ -56,7 +56,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_save_tuning()
 
 
-## Writes the player's live tuning resources (Player, Earth, Fire, Water) to their .tres
+## Writes the player's live tuning resources (Player, Earth, Fire, Water) and the sky
+## ships' ShipTuning to their .tres
 ## files. The panel and the Remote tab edit these same in-memory objects, so
 ## whatever you tuned is what gets saved.
 ## ResourceSaver.save() serializes a Resource to disk; with no path it uses the
@@ -68,7 +69,7 @@ func _save_tuning() -> void:
 		return
 	var saved_names: PackedStringArray = []
 	var failed_names: PackedStringArray = []
-	for resource: Resource in [player.tuning, player.earth_tuning, player.fire_tuning, player.water_tuning]:
+	for resource: Resource in [player.tuning, player.earth_tuning, player.fire_tuning, player.water_tuning, TuningPanel.SHIP_TUNING]:
 		if resource == null:
 			continue
 		var file_name: String = resource.resource_path.get_file()

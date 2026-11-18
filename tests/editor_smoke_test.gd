@@ -557,7 +557,7 @@ func _check_l4_air_objects() -> void:
 		if entry.element == "Air" and entry.family != "Enemies":
 			air_ids.append(entry.id)
 	_check(air_ids == [&"wind_zone", &"wind_crystal", &"gust_diamond", &"crate", &"windmill", &"leaf_platform",
-		&"sail_platform", &"door", &"pressure_plate", &"step_pad", &"switch_wall", &"no_glide_zone"], "Air has all twelve objects, got %s" % [air_ids])
+		&"sail_platform", &"sky_ship", &"door", &"pressure_plate", &"step_pad", &"switch_wall", &"no_glide_zone"], "Air has all thirteen objects, got %s" % [air_ids])
 
 	var path: String = LevelStorage.create_level("Air Level")
 	LevelEditor.path_to_open = path
@@ -579,6 +579,7 @@ func _check_l4_air_objects() -> void:
 		&"crate": Vector2i(10, 20), &"windmill": Vector2i(33, 12), &"leaf_platform": Vector2i(15, 12),
 		&"sail_platform": Vector2i(26, 5), &"door": Vector2i(30, 10), &"pressure_plate": Vector2i(25, 20),
 		&"no_glide_zone": Vector2i(12, 2), &"step_pad": Vector2i(8, 20), &"switch_wall": Vector2i(18, 14),
+		&"sky_ship": Vector2i(35, 21),
 	}
 	var placed: Dictionary = {}
 	var all_found: bool = true
@@ -592,7 +593,7 @@ func _check_l4_air_objects() -> void:
 		if not found:
 			print("    %s: not found under its own outline %s" % [id, outline])
 		all_found = all_found and found
-	_check(all_found, "all twelve Air objects are placed, recognised and picked under the mouse")
+	_check(all_found, "all thirteen Air objects are placed, recognised and picked under the mouse")
 
 	# Where they land: outlines snapped to the grid, the way each object stands.
 	_check((placed[&"crate"] as Node2D).position == Vector2(88, 168), "the crate stands on the floor, its 2-tile width on tile lines, got %s" % (placed[&"crate"] as Node2D).position)

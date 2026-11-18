@@ -96,7 +96,10 @@ func enter() -> void:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward
 		# speed so it also works mid-fall; minf keeps a faster rise you already had.
 		# No separate boost count: the gust charge (spent in begin_gust) is the limit.
-		if not player.is_on_floor():
+		# Not when a wind-catching floor took the gust (it can count in coyote time,
+		# a frame off the floor: Player.get_wind_catching_floor): that boost threw you
+		# off a sky ship you were standing on.
+		if not player.is_on_floor() and wind_catcher == null:
 			player.velocity.y = minf(player.velocity.y, -tuning.gust_down_boost_speed * direction.y)
 	elif direction.y < 0.0:
 		# Up-gust: shoved down. maxf keeps a faster fall you already had.

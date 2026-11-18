@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="ShipTuning" format=3]
+
+[ext_resource type="Script" path="res://resources/ship_tuning.gd" id="1_ship_tuning"]
+
+[resource]
+script = ExtResource("1_ship_tuning")
+max_side_speed = 200.0
+max_rise_speed = 100.0
+max_fall_speed = 110.0

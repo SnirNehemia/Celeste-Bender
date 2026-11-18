@@ -2,7 +2,8 @@ class_name TuningPanel
 extends CanvasLayer
 ## In-game tuning panel (Fire_bending.md §10, PROMPTS.md Stage F2). F5
 ## (`debug_tuning_panel`) opens it over the paused game; it edits the player's tuning
-## resources (PlayerTuning, EarthTuning, FireTuning, WaterTuning), one tab each.
+## resources (PlayerTuning, EarthTuning, FireTuning, WaterTuning) and the sky ships'
+## ShipTuning, one tab each.
 ##
 ## It is GENERIC: it never names a tuning value. It asks each resource for its
 ## property list (get_property_list()) and shows every `@export` var under its
@@ -45,6 +46,9 @@ var player: Player
 const VISIBLE_ROWS: int = 13
 ## Shown for values the panel can't edit (Curves, Colors, ...).
 const READ_ONLY_NOTE: String = "edit in Inspector"
+## The sky ships' shared tuning (SkyShip.ship_tuning preloads the same file, and
+## Godot hands both the same cached Resource): the "Ship" tab.
+const SHIP_TUNING: ShipTuning = preload("res://resources/ship_tuning.tres")
 
 ## One tab per resource: display name + the live Resource the player holds.
 var tab_names: Array[String] = []
@@ -164,6 +168,9 @@ func _collect_resources() -> void:
 		"Earth": player.earth_tuning,
 		"Fire": player.fire_tuning,
 		"Water": player.water_tuning,
+		# Not the player's: every SkyShip shares this one resource (preloaded, so
+		# the panel edits the same object the ships read).
+		"Ship": SHIP_TUNING,
 	}
 	for tab_name: String in candidates:
 		var resource: Resource = candidates[tab_name]
