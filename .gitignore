@@ -5,3 +5,7 @@
 
 # Web export output (published to the gh-pages branch by tools/publish_web.ps1)
 build/
+
+# Local game exports and screenshot folders (too big for git)
+Export/
+.claude/shots/
