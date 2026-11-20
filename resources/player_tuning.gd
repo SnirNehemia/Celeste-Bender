@@ -219,6 +219,27 @@ enum BodyStyle { BACKPACK, PLAIN_RECTANGLE }
 ## Hold the remaining key longer than this to really switch to it. 0 = off.
 @export var gust_diagonal_grace_time: float = 0.12
 
+@export_group("Gust: Tuck (experimental)")
+## EXPERIMENT: a gust aimed with Up in it (up, up-left, up-right) shoves you down,
+## and you curl up: the hitbox is half as tall (the belly slide's tuck,
+## Player.set_tucked) for gust_tuck_time. Half height fits a 1-tile tunnel, and a
+## shot at standing height passes over you. Off = gusts never tuck you.
+@export var gust_tuck_enabled: bool = true
+## Seconds the tuck lasts after the gust. Under a low ceiling it lasts longer: you
+## stand up only once there's room (Player._has_room_to_stand).
+@export var gust_tuck_time: float = 0.35
+## Run speed while tucked (not belly-sliding), as a share of max_run_speed: moving
+## curled up through a low tunnel is slower. Gust shoves aren't scaled, only running.
+@export_range(0.1, 1.0) var tucked_run_scale: float = 0.6
+## The TUCK SLIDE: an up-diagonal gust ON THE GROUND throws you sideways at this
+## speed, px/s, instead of the weak, hard-braked ground recoil (other ground gusts
+## keep that, so you stay planted near a ledge). Made to carry you through a
+## 2-tile tunnel from its mouth: distance = speed² / (2 × friction), 32 px here.
+@export var gust_tuck_slide_speed: float = 160.0
+## The slide's braking, px/s², in place of gust_ground_recoil_friction. It lasts
+## speed / friction seconds (0.4 s here); the arrows don't steer until it ends.
+@export var gust_tuck_slide_friction: float = 400.0
+
 @export_group("Gust: Hold to Aim (experimental)")
 ## EXPERIMENT: when on, pressing gust slows time and the arrows only AIM (you don't
 ## move); releasing gust fires. A quick tap fires almost at once, like the normal

@@ -307,6 +307,10 @@ func _make_spin_box(is_int: bool, info: Dictionary) -> SpinBox:
 		var limits: PackedStringArray = String(info["hint_string"]).split(",")
 		spin_box.min_value = float(limits[0])
 		spin_box.max_value = float(limits[1])
+		# A third value is the step (@export_range(0.1, 30.0, 0.1)): finer than FLOAT_STEP
+		# where a setting needs it, like a sentry's fire interval.
+		if limits.size() > 2 and limits[2].is_valid_float():
+			spin_box.step = float(limits[2])
 	return spin_box
 
 

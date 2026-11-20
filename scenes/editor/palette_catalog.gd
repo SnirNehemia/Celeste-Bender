@@ -867,19 +867,24 @@ static func _build() -> void:
 	sentry.snaps_to_ground = true
 	sentry.placement = Placement.ON_FLOOR
 	sentry.editable_properties = [&"can_fire", &"fire_orbs", &"automatic", &"fire_direction", &"tracking_shots",
-		&"tracking_speed", &"tracking_mass", &"gust_proof_orbs", &"fire_interval", &"first_shot_delay", &"sight_range"]
+		&"tracking_speed", &"tracking_mass", &"gust_proof_orbs", &"fire_interval", &"first_shot_delay", &"sight_range", &"large_body"]
 	sentry.direction_properties = [&"fire_direction"]
 	sentry.shown_when = {&"fire_direction": &"automatic",
 		&"tracking_speed": &"tracking_shots", &"tracking_mass": &"tracking_shots"}
 
+	# The wisps and the machine that makes them: one dropdown button.
+	wisp.menu_group = "Wisp"
+	leaf_wisp.menu_group = "Wisp"
+
 	# Spawns wisps (made after the Fire chapter, by request): a source, not an enemy.
 	var wisp_generator: Entry = _add_object(&"wisp_generator", "Wisp generator", "Enemies", preload("res://scenes/enemies/wisp_generator.tscn"))
-	wisp_generator.hint = "A machine that makes a wisp every Spawn Interval seconds while you're in its room, walking out the Direction side. At most Max Wisps alive (0 = no limit). Its wisps fall off ledges or turn at them (At Edges). It can't be hurt; wisps walk through it."
+	wisp_generator.hint = "A machine that makes a wisp every Spawn Interval seconds while you're in its room, walking out the Direction side. At most Max Wisps alive (0 = no limit). Its wisps fall off ledges or turn at them (At Edges). Leaf Wisps: it makes leaf wisps (green trim), which only fire beats. It can't be hurt; wisps walk through it."
 	wisp_generator.bounds = Bounds.SIZE_BOTTOM_CENTER
 	wisp_generator.size_property = &"body_size"
 	wisp_generator.placement = Placement.ON_FLOOR
+	wisp_generator.menu_group = "Wisp"
 	wisp_generator.editable_properties = [&"direction", &"spawn_interval", &"first_spawn_delay", &"max_wisps",
-		&"patrol_speed", &"at_edges"]
+		&"patrol_speed", &"at_edges", &"leaf_wisps"]
 
 	var wall_spider: Entry = _add_object(&"wall_spider", "Wall spider", "Enemies", preload("res://scenes/enemies/wall_spider.tscn"))
 	wall_spider.hint = "Crawls round whatever it touches (floor, walls, ceiling), wrapping round edges and corners, so it circles a platform forever. Walks over spikes. Touch kills. A gust knocks it off (it crawls on where it lands); fire, a big rock or a reflected orb beats it. Clockwise = walks right on a floor."

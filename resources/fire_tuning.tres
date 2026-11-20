@@ -6,6 +6,11 @@
 script = ExtResource("1_fire_tuning")
 fireball_max_range = 300.0
 fireball_gravity_scale = 0.05
+fireball_aim_time_scale = 0.15
+fireball_aim_max_real_time = 3.0
+fireball_aim_sweep_speed = 100.0
+fireball_aim_sweep_max_speed = 600.0
+fireball_aim_sweep_ramp_time = 0.15
 fireball_trail_embers_per_second = 50.0
 grass_tongues_per_tile = 4
 grass_flame_length = 4.0

@@ -12,6 +12,8 @@ extends Node2D
 ## The box is a Label child (a Control node: Godot's UI building block, which also
 ## works inside the 2D world). It is kept inside what the camera shows (and the
 ## room), so a sign near a wall or the top of the screen doesn't push its text off it.
+## It's drawn as a comic SPEECH BUBBLE (SignBubble, a child of the Label drawn
+## behind its letters, its tail pointing at the board), tinted by the room's backdrop.
 ## Keep sign texts short: about 60 characters, three lines at most.
 ## Nothing to reset: the sign has no state a death could change.
 ##
@@ -32,17 +34,14 @@ const BOARD_EDGE_COLOR: Color = Color(0.36, 0.25, 0.14)
 const WRITING_COLOR: Color = Color(0.25, 0.17, 0.1)
 ## The area the player must stand in, relative to the origin, px.
 const READ_RECT: Rect2 = Rect2(-16, -24, 32, 24)
-## The text box: its widest, how far above the board, and its colors.
+## The text box (a speech bubble, SignBubble): its widest, and how far above the
+## board (the bubble's tail fills that gap, pointing at the board).
 const TEXT_BOX_WIDTH: float = 144.0
-const TEXT_BOX_GAP: float = 4.0
-const TEXT_COLOR: Color = Color(1.0, 0.97, 0.88)
-const TEXT_SHADOW_COLOR: Color = Color(0.0, 0.0, 0.0, 1.0)
+const TEXT_BOX_GAP: float = 7.0
 ## Extra px between wrapped lines.
 const TEXT_LINE_SPACING: int = 2
 ## How close the box may come to the edge of the screen, px.
 const TEXT_SCREEN_MARGIN: float = 2.0
-## Nearly opaque, so the backdrop behind doesn't show through the letters.
-const TEXT_BACK_COLOR: Color = Color(0.08, 0.07, 0.12, 0.94)
 const TEXT_FONT_SIZE: int = PixelFont.FONT_SIZE
 ## How fast the box fades in and out, per second.
 const FADE_SPEED: float = 6.0
@@ -51,6 +50,11 @@ const FADE_SPEED: float = 6.0
 const TEXT_Z_INDEX: int = 40
 
 var text_label: Label
+## The bubble's tail (and colors), a child of text_label.
+var bubble: SignBubble
+## True once the bubble has its colors: they come from the room's backdrop, which
+## RoomManager sets up after the rooms' _ready, so they're picked at the first showing.
+var has_bubble_colors: bool = false
 var read_area: Area2D
 ## 0 = hidden, 1 = fully shown.
 var shown_amount: float = 0.0
@@ -73,8 +77,8 @@ func _ready() -> void:
 	_build_label()
 
 
-## The text box: a Label with a dark, rounded-off background (a StyleBoxFlat is a
-## plain colored box a Control can draw behind itself).
+## The text box: a Label for the letters, with the speech bubble (SignBubble) as a
+## child drawn behind them. Neutral colors until _pick_bubble_colors runs.
 func _build_label() -> void:
 	text_label = Label.new()
 	text_label.text = text
@@ -83,22 +87,38 @@ func _build_label() -> void:
 	# Whole pixels only (PixelFont): the box is part of the 320x180 world.
 	text_label.add_theme_font_override("font", PixelFont.get_font())
 	text_label.add_theme_font_size_override("font_size", TEXT_FONT_SIZE)
-	text_label.add_theme_color_override("font_color", TEXT_COLOR)
-	# A hard 1-px shadow under every letter and a pixel more between lines: the
-	# letters stand off the box instead of running together when the box is see-through.
-	text_label.add_theme_color_override("font_shadow_color", TEXT_SHADOW_COLOR)
-	text_label.add_theme_constant_override("shadow_offset_x", 1)
-	text_label.add_theme_constant_override("shadow_offset_y", 1)
 	text_label.add_theme_constant_override("line_spacing", TEXT_LINE_SPACING)
-	var back: StyleBoxFlat = StyleBoxFlat.new()
-	back.bg_color = TEXT_BACK_COLOR
-	back.set_content_margin_all(3.0)
-	text_label.add_theme_stylebox_override("normal", back)
 	text_label.z_index = TEXT_Z_INDEX
 	text_label.z_as_relative = false
 	text_label.modulate.a = 0.0
 	text_label.visible = false
 	add_child(text_label)
+	bubble = SignBubble.new()
+	bubble.name = "Bubble"
+	text_label.add_child(bubble)
+	_apply_bubble_colors(SignBubble.get_colors(Backdrop.Look.NONE, Backdrop.Altitude.SURFACE))
+
+
+## Paints the bubble [fill, ink]: the body, the tail, and the letters in ink.
+func _apply_bubble_colors(colors: Array[Color]) -> void:
+	text_label.add_theme_stylebox_override("normal", SignBubble.get_label_style())
+	text_label.add_theme_color_override("font_color", colors[1])
+	bubble.set_colors(colors[0], colors[1])
+
+
+## The bubble's colors from this sign's room's backdrop look and altitude (the
+## altitude of an AUTO room is measured from the level's start room, which the
+## RoomManager's Backdrop knows). A sign outside a level keeps the neutral ones.
+func _pick_bubble_colors() -> void:
+	has_bubble_colors = true
+	var room: Room = Room.find_room_of(self)
+	if room == null:
+		return
+	var manager: RoomManager = room.get_parent() as RoomManager
+	var start_room: Room = null
+	if manager != null and manager.backdrop != null:
+		start_room = manager.backdrop.start_room
+	_apply_bubble_colors(SignBubble.get_colors(room.get_backdrop_theme(), room.get_backdrop_altitude(start_room)))
 
 
 func _process(delta: float) -> void:
@@ -109,6 +129,8 @@ func _process(delta: float) -> void:
 	text_label.modulate.a = shown_amount
 	text_label.visible = shown_amount > 0.0
 	if text_label.visible:
+		if not has_bubble_colors:
+			_pick_bubble_colors()
 		_place_label()
 
 
@@ -125,7 +147,8 @@ func _is_player_reading() -> bool:
 ## out (a sign near the top of the screen used to put its box above the screen).
 func _place_label() -> void:
 	var font: Font = text_label.get_theme_font("font")
-	var one_line_width: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, TEXT_FONT_SIZE).x + 8.0
+	var one_line_width: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, TEXT_FONT_SIZE).x \
+		+ text_label.get_theme_stylebox("normal").get_minimum_size().x + 1.0  # the margins, and a pixel to spare
 	text_label.size = Vector2(minf(one_line_width, TEXT_BOX_WIDTH), 0.0)
 	text_label.size = Vector2(text_label.size.x, text_label.get_minimum_size().y)
 	var box_position: Vector2 = Vector2(-text_label.size.x / 2.0, BOARD_RECT.position.y - TEXT_BOX_GAP - text_label.size.y)
@@ -143,6 +166,10 @@ func _place_label() -> void:
 	box_position.x += maxf(view.position.x - (global_position.x + box_position.x), 0.0)
 	box_position.y += maxf(view.position.y - (global_position.y + box_position.y), 0.0)
 	text_label.position = box_position.round()
+	# The tail points at the board's middle (x 0) and reaches its top. Pushed down
+	# onto the board (a sign at the very top of the screen), the bubble has no tail.
+	var board_top_below_bubble: int = roundi(BOARD_RECT.position.y - (text_label.position.y + text_label.size.y))
+	bubble.point_at(text_label.size, -text_label.position.x, maxi(board_top_below_bubble - 1, 0))
 
 
 func _draw() -> void:

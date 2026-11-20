@@ -3,7 +3,8 @@ extends Node
 ## signpost, the timed step pad, the lantern, the one-way teleport doors, the pause
 ## menu's "Restart level" and options page (AssistOptions: game speed, extra coyote
 ## time), the ghost of each room's fastest run (GhostRuns), Room.grass_burns
-## (grass that burns with Fire off) and the sky ship (SkyShip). Not part of the game.
+## (grass that burns with Fire off), the sky ship (SkyShip) and the gust's tuck
+## (an Up-aimed gust curls you to half height). Not part of the game.
 ##
 ## It builds a two-room level in memory with LevelKit (tools/level_kit.gd), packs it
 ## the way the editor does for a play-test, and plays it:
@@ -13,6 +14,9 @@ extends Node
 ##   Room3: apart, a grass floor with Grass Burns on and Fire off.
 ##   Room4: apart, the sky ship in mid-air over a floor, a wall on the right, and a
 ##          tiny wind zone in a corner (grown to fill the room for the wind check).
+##   Room5: apart, a floor and low blocks over it leaving 1-tile tunnels
+##          (x 160..208 px, and a 2-tile one at 256..272 for the tuck slide; the gap
+##          is the tile row just above the floor).
 ## The options and the ghosts are written to throwaway files in user://, never the
 ## player's real ones.
 ## Prints PASS/FAIL lines and quits. Run it with:
@@ -45,6 +49,7 @@ func _ready() -> void:
 	await _check_teleport()
 	await _check_grass_burns()
 	await _check_sky_ship()
+	await _check_gust_tuck()
 	# Leave the global switches as we found them.
 	AssistOptions.game_speed = 1.0
 	AssistOptions.extra_coyote_time = 0.0
@@ -93,6 +98,20 @@ func _open_level() -> void:
 	kit.place(fourth, &"sky_ship", "Ship", Vector2(120, FLOOR_Y - 48))
 	kit.place(fourth, &"wind_zone", "ShipWind", Vector2(0, 0),
 		{&"zone_size": Vector2(8, 8), &"wind_direction": Vector2.LEFT, &"wind_strength": 80.0})
+	# Room5, apart: a 1-tile-high tunnel (tile rows 0-19 solid over columns 20-25, row
+	# 20 open, the floor at row 21) for the gust's tuck.
+	var fifth: Room = kit.add_room("Room5", "Gust tuck", Vector2(0, ROOM_SIZE.y * 9), ROOM_SIZE)
+	fifth.air_allowed = true
+	kit.fill(fifth, &"ground", 0, 21, 40, 2)
+	kit.fill(fifth, &"ground", 20, 0, 6, 20)
+	# A short one, 2 tiles long (x 256..272 px), for the tuck slide.
+	kit.fill(fifth, &"ground", 32, 0, 2, 20)
+	kit.set_spawn(fifth, 3, 20)
+	# Room6, apart: an ice floor, for a tuck slide on ice.
+	var sixth: Room = kit.add_room("Room6", "Ice slide", Vector2(0, ROOM_SIZE.y * 12), ROOM_SIZE)
+	sixth.air_allowed = true
+	kit.fill(sixth, &"ice", 0, 21, 40, 2)
+	kit.set_spawn(sixth, 3, 20)
 	kit.set_start_room(first)
 	# An object is matched to its palette entry by its scene: the two pads and the
 	# two door ends must not be mixed up.
@@ -458,6 +477,112 @@ func _check_sky_ship() -> void:
 
 ## Puts the player on the ship, feet `height` px above its keel (16 = the deck, 44 =
 ## the crow's nest), at rest, and lets them settle.
+## The gust's tuck (PlayerTuning.gust_tuck_*): an Up-aimed gust halves the hitbox;
+## under a 1-tile ceiling you stay tucked and run slower; out of it you stand up.
+func _check_gust_tuck() -> void:
+	var tuck_room: Room = level.get_node("Room5") as Room
+	level.jump_to_room(tuck_room)
+	await _frames(2)
+	var tunnel_left: float = tuck_room.global_position.x + 160.0
+	var tunnel_right: float = tuck_room.global_position.x + 208.0
+	var standing_height: float = player.standing_shape.size.y
+
+	# Standing, the tunnel is a wall.
+	_stand(Vector2(120.0, FLOOR_Y))
+	await _frames(2)
+	Input.action_press("move_right")
+	await _wait(0.6)
+	Input.action_release("move_right")
+	_check(player.global_position.x < tunnel_left and not player.is_tucked,
+		"gust tuck: standing, the 1-tile tunnel blocks you (x %.1f)" % (player.global_position.x - tuck_room.global_position.x))
+
+	# A straight up-gust on open ground: tucked, then standing again.
+	_stand(Vector2(60.0, FLOOR_Y))
+	await _frames(2)
+	await _gust_toward("move_up")
+	_check(player.is_tucked and player.get_hitbox_rect().size.y < standing_height,
+		"gust tuck: an up-gust curls you to half height")
+	await _wait(player.tuning.gust_tuck_time + 0.2)
+	_check(not player.is_tucked, "gust tuck: with room overhead you stand up when the tuck ends")
+
+	# Tucked at the tunnel's mouth: run in, slower, and stay tucked under the ceiling.
+	_stand(Vector2(150.0, FLOOR_Y))
+	await _frames(2)
+	await _gust_toward("move_up")
+	Input.action_press("move_right")
+	await _wait(0.5)
+	var inside_x: float = player.global_position.x
+	var speed_inside: float = player.velocity.x
+	_check(inside_x > tunnel_left + 4.0 and player.is_tucked,
+		"gust tuck: tucked, you run into the 1-tile tunnel and stay tucked past the tuck time")
+	var expected_speed: float = player.tuning.max_run_speed * player.tuning.tucked_run_scale
+	_check(absf(speed_inside - expected_speed) < 2.0,
+		"gust tuck: tucked running is slower (%.0f px/s, expected %.0f)" % [speed_inside, expected_speed])
+	await _wait(1.6)
+	Input.action_release("move_right")
+	await _frames(4)
+	_check(player.global_position.x > tunnel_right and not player.is_tucked,
+		"gust tuck: out the far end you stand up again")
+
+	# A diagonal up-gust in the air shoots you sideways into the tunnel.
+	_stand(Vector2(140.0, FLOOR_Y - 10.0))
+	await _frames(1)
+	await _gust_diagonal("move_up", "move_left")
+	await _wait(0.2)
+	_check(player.global_position.x > tunnel_left + 4.0 and player.is_tucked,
+		"gust tuck: a diagonal up-gust in the air shoots you into the tunnel (x %.1f)" % (player.global_position.x - tuck_room.global_position.x))
+
+	# The tuck slide: an up-diagonal gust on the ground, at the mouth of the 2-tile
+	# tunnel, carries you through it and out the far end in one go.
+	_stand(Vector2(251.0, FLOOR_Y))
+	await _wait(0.4)
+	await _gust_diagonal("move_up", "move_left")
+	await _wait(0.5)
+	var slide_x: float = player.global_position.x - tuck_room.global_position.x
+	_check(slide_x > 276.0, "gust tuck: a tuck slide crosses a 2-tile tunnel (x %.1f, exit at 272)" % slide_x)
+	await _wait(0.3)
+	_check(not player.is_tucked, "gust tuck: and you stand up past it")
+	# Holding the arrow the slide goes: it slows only to run speed and you run on.
+	_stand(Vector2(40.0, FLOOR_Y))
+	await _wait(0.4)
+	await _gust_diagonal("move_up", "move_left")
+	Input.action_press("move_right")
+	await _wait(0.6)
+	var run_on_speed: float = player.velocity.x
+	Input.action_release("move_right")
+	_check(run_on_speed > player.tuning.max_run_speed * player.tuning.tucked_run_scale - 1.0,
+		"gust tuck: holding on, the slide flows into a run (%.0f px/s after 0.6 s)" % run_on_speed)
+
+	# A plain sideways ground gust still barely moves you.
+	_stand(Vector2(60.0, FLOOR_Y))
+	await _wait(0.4)
+	await _gust_toward("move_left")
+	await _wait(0.3)
+	var plain_x: float = player.global_position.x - tuck_room.global_position.x
+	_check(plain_x < 70.0, "gust tuck: a plain sideways ground gust still keeps you planted (%.1f px)" % (plain_x - 60.0))
+
+	# On ice the slide keeps going (the ice's own overspeed rules).
+	var ice_room: Room = level.get_node("Room6") as Room
+	level.jump_to_room(ice_room)
+	await _frames(2)
+	_stand(Vector2(40.0, FLOOR_Y))
+	await _wait(0.4)
+	await _gust_diagonal("move_up", "move_left")
+	await _wait(0.5)
+	_check(player.velocity.x > player.tuning.max_run_speed,
+		"gust tuck: a tuck slide on ice keeps its speed (%.0f px/s after 0.5 s)" % player.velocity.x)
+	level.jump_to_room(tuck_room)
+	await _frames(2)
+
+	# Off switch: no tuck.
+	player.tuning.gust_tuck_enabled = false
+	_stand(Vector2(60.0, FLOOR_Y))
+	await _wait(player.tuning.gust_tuck_time + 0.1)
+	await _gust_toward("move_up")
+	_check(not player.is_tucked, "gust tuck: gust_tuck_enabled off, an up-gust doesn't tuck")
+	player.tuning.gust_tuck_enabled = true
+
+
 func _board_ship(ship: SkyShip, height: float) -> void:
 	await _frames(2)
 	player.global_position = ship.global_position + Vector2(0.0, -height)
@@ -476,6 +601,20 @@ func _gust_toward(arrow_action: String) -> void:
 	await _frames(3)
 
 	Input.action_release(arrow_action)
+	await _frames(2)
+
+
+## A gust aimed at a diagonal: both arrows held through it.
+func _gust_diagonal(first_action: String, second_action: String) -> void:
+	Input.action_press(first_action)
+	Input.action_press(second_action)
+	await _frames(2)
+	Input.action_press("gust")
+	await _frames(3)
+	Input.action_release("gust")
+	await _frames(3)
+	Input.action_release(first_action)
+	Input.action_release(second_action)
 	await _frames(2)
 
 

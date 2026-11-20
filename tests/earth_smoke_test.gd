@@ -1837,22 +1837,38 @@ func _check_hover_aim(world: RoomManager, player: Player) -> void:
 	var offset: Vector2 = rock.global_position - player.get_center()
 	_check(rock.is_hovering and offset.x > 0.0 and absf(offset.y) < 1.0,
 		"hover aim: it hovers beside the player at chest height (offset %s)" % offset)
-	# Continuous aim: Up+Right TURNS the aim toward the diagonal. Let go after 3 ticks
-	# (18 degrees at 360 per second) and it stays there, between Right and the diagonal.
-	tuning.boulder_aim_sweep_speed = 360.0
-	Input.action_press(&"move_right")
+	# Continuous aim: Up (90 degrees from Right) TURNS the aim up; let go after 3 ticks
+	# and it stays part-way (a few degrees at the slow start of the ramp).
 	Input.action_press(&"move_up")
 	await _wait_physics_frames(3)
-	Input.action_release(&"move_right")
 	Input.action_release(&"move_up")
-	await _wait_physics_frames(6)
+	await _wait_physics_frames(1)
 	var part_way_degrees: float = rad_to_deg(-player.boulder.hover_aim.angle())
-	_check(part_way_degrees > 5.0 and part_way_degrees < 40.0,
-		"hover aim: the aim sweeps, and stops part-way when the arrows are let go (%.1f degrees up)" % part_way_degrees)
+	_check(part_way_degrees > 2.0 and part_way_degrees < 40.0,
+		"hover aim: the aim turns and stops part-way when the arrows are let go (%.1f degrees up)" % part_way_degrees)
+	# The turn speeds up the longer the arrows are held (the AimSweep on its own).
+	var ramp: AimSweep = AimSweep.new()
+	ramp.enabled = true
+	ramp.start_speed = 120.0
+	ramp.max_speed = 720.0
+	ramp.ramp_time = 0.3
+	var early_aim: Vector2 = ramp.step(Vector2.RIGHT, Vector2.LEFT, 1.0)
+	var early_turn: float = absf(Vector2.RIGHT.angle_to(early_aim))
+	var late_aim: Vector2 = early_aim
+	# 15 more ticks (about 110 degrees round): still turning, not yet arrived at Left.
+	for tick: int in 15:
+		late_aim = ramp.step(late_aim, Vector2.LEFT, 1.0)
+	var before_last: Vector2 = late_aim
+	late_aim = ramp.step(late_aim, Vector2.LEFT, 1.0)
+	var late_turn: float = absf(before_last.angle_to(late_aim))
+	_check(late_turn > early_turn * 3.0 and early_aim.y < 0.0,
+		"aim sweep: the turn ramps up (first tick %.3f rad, later %.3f) and a half turn goes over the top" % [early_turn, late_turn])
 	# Held until it arrives: exactly the diagonal, and it sticks after letting go.
 	Input.action_press(&"move_right")
 	Input.action_press(&"move_up")
-	await _wait_physics_frames(8)
+	# About 36 degrees to go, which the ramp covers in 10 ticks (kept short: the rock's
+	# perfect-throw window is checked below).
+	await _wait_physics_frames(10)
 	Input.action_release(&"move_right")
 	Input.action_release(&"move_up")
 	await _wait_physics_frames(2)

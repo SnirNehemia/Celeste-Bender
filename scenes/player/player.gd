@@ -108,6 +108,9 @@ const WIND_CATCHER_METHOD: StringName = &"absorb_gust_recoil"
 ## The group the player joins, so enemies (Sentry) can find it without a NodePath:
 ## get_tree().get_first_node_in_group(Player.GROUP).
 const GROUP: StringName = &"player"
+## How far inside the standing hitbox the "room to stand?" check looks, px per side
+## (stand_check_shape): so touching the floor or a wall is not "no room".
+const STAND_CHECK_SKIN: float = 0.5
 ## Element names for is_element_allowed().
 const ELEMENT_AIR: StringName = &"air"
 const ELEMENT_EARTH: StringName = &"earth"
@@ -200,12 +203,20 @@ var has_ice_landing_grip: bool = false
 ## reads 0 (after the third sailing play-test: holding the diagonal's arrow on, you
 ## steered away from the hopping raft and slipped off its ice deck).
 var sail_aim_arrow: float = 0.0
-## Belly-sliding (Stage W6): the hitbox is the low TUCK one (see set_tucked).
+## Belly-sliding (Stage W6) or curled up after an Up-aimed gust: the hitbox is the
+## low TUCK one (see set_tucked).
 var is_tucked: bool = false
+## Seconds left of a gust's tuck (start_gust_tuck). When it runs out you stand up,
+## as soon as there's room: under a low ceiling you stay tucked (and run slower).
+var gust_tuck_remaining: float = 0.0
 ## The standing hitbox's shape and its tucked twin (half as tall), and where each sits.
 var standing_shape: RectangleShape2D
 var tucked_shape: RectangleShape2D
 var standing_hitbox_position: Vector2
+## The standing hitbox shrunk by STAND_CHECK_SKIN on every side, for the "room to
+## stand?" check: the full shape counts merely TOUCHING the floor under your feet
+## (or a wall you lean on) as no room, and you'd never stand up again.
+var stand_check_shape: RectangleShape2D
 
 
 func _ready() -> void:
@@ -225,6 +236,8 @@ func _ready() -> void:
 	standing_hitbox_position = hitbox.position
 	tucked_shape = RectangleShape2D.new()
 	tucked_shape.size = Vector2(standing_shape.size.x, standing_shape.size.y / 2.0)
+	stand_check_shape = RectangleShape2D.new()
+	stand_check_shape.size = standing_shape.size - Vector2.ONE * STAND_CHECK_SKIN * 2.0
 
 
 ## _physics_process runs at a fixed rate (60 times/s by default), independent of the
@@ -272,8 +285,11 @@ func _update_timers(delta: float) -> void:
 	# Ice: what we stand on, and whether a long jump off it is still carrying us.
 	# An icy coat on wet ground (Stage W8b) is ice too.
 	is_on_ice = is_on_floor() and is_floor_ice()
-	# Out of the Sliding state, a belly slide stands back up (once there's room).
-	if is_tucked and state_machine.current_state.name != &"Sliding":
+	# Out of the Sliding state, a belly slide (or a gust's tuck, once its time is up)
+	# stands back up. set_tucked(false) refuses while a ceiling is too low, so this
+	# simply retries every frame until there's room to stand.
+	gust_tuck_remaining = maxf(gust_tuck_remaining - delta, 0.0)
+	if is_tucked and gust_tuck_remaining <= 0.0 and not is_belly_sliding():
 		set_tucked(false)
 	if is_on_ice:
 		carries_ice_speed = true
@@ -348,6 +364,9 @@ func respawn_at(spawn_position: Vector2) -> void:
 	wall_jump_lock_remaining = 0.0
 	last_wall_jump_side = 0.0
 	floor_carry_speed_x = 0.0
+	# A gust's tuck ends with the life: stand up at the spawn (there's always room).
+	gust_tuck_remaining = 0.0
+	set_tucked(false)
 	glide.refill()
 	gust.reset()
 	# Fire pips are per room: back to what this room starts you with.
@@ -637,10 +656,29 @@ func set_tucked(tucked: bool) -> bool:
 	return true
 
 
+## An Up-aimed gust curls you up (PlayerTuning.gust_tuck_enabled): tucked for
+## gust_tuck_time, then until there's room to stand. Called by GustRecoil.
+func start_gust_tuck() -> void:
+	if not tuning.gust_tuck_enabled:
+		return
+	gust_tuck_remaining = tuning.gust_tuck_time
+	set_tucked(true)
+
+
+func is_belly_sliding() -> bool:
+	return state_machine.current_state.name == &"Sliding"
+
+
+## Run speed share while tucked: tuning.tucked_run_scale curled up, 1 otherwise.
+## The belly slide has its own speeds (WaterTuning.belly_slide_scale), so not there.
+func get_tucked_speed_multiplier() -> float:
+	return tuning.tucked_run_scale if is_tucked and not is_belly_sliding() else 1.0
+
+
 ## Would the standing hitbox fit where we are? (Asked before un-tucking.)
 func _has_room_to_stand() -> bool:
 	var query: PhysicsShapeQueryParameters2D = PhysicsShapeQueryParameters2D.new()
-	query.shape = standing_shape
+	query.shape = stand_check_shape
 	query.transform = Transform2D(0.0, global_position + standing_hitbox_position)
 	query.collision_mask = collision_mask
 	query.exclude = [get_rid()]
@@ -1016,7 +1054,7 @@ func apply_horizontal_movement(delta: float, ignore_input: bool = false,
 		# Speed up toward full speed in the held direction. Reversing direction passes
 		# through zero, so turning around happens at the same acceleration rate.
 		# Water holds us back by how much of us is in it (1 on dry land), and mud too.
-		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() 			* mud.get_speed_multiplier() * top_speed_scale 			+ wind_speed_x
+		var target_speed: float = input_direction * tuning.max_run_speed * swim.get_speed_multiplier() 			* mud.get_speed_multiplier() * top_speed_scale * get_tucked_speed_multiplier() 			+ wind_speed_x
 		var is_beyond_target: bool = signf(velocity.x - wind_speed_x) == input_direction 			and absf(velocity.x - wind_speed_x) > absf(target_speed - wind_speed_x)
 		if is_on_ice and is_on_floor() and is_beyond_target:
 			# On ice, running the way you slide doesn't slow you to run speed: only

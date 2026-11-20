@@ -10,7 +10,8 @@ extends Node2D
 ## feet, like a wisp or a crate). It isn't solid and can't be hurt: it's a source,
 ## the wisps are the danger. They walk through it.
 ##
-## The wisps it makes are ordinary Wisp scenes (wisp.tscn) with:
+## The wisps it makes are ordinary Wisp scenes (wisp.tscn), or LeafWisps
+## (leaf_wisp.tscn) with leaf_wisps on (its trim turns leaf green), with:
 ##   - start_direction = direction, patrol_speed and at_edges copied from here
 ##     (Wisp.EdgeRule: turn at ledges, or walk off them and drop)
 ##   - is_spawned = true: a room reset or a defeat FREES them (Wisp.reset/defeat),
@@ -29,12 +30,21 @@ const MOUTH_COLOR: Color = Color(0.08, 0.03, 0.12)
 const GLOW_COLOR: Color = Color(0.82, 0.6, 1.0)
 ## The wisp scene it makes.
 const WISP_SCENE: PackedScene = preload("res://scenes/enemies/wisp.tscn")
+## The scene it makes with leaf_wisps on (LeafWisp extends Wisp, so the rest is the same).
+const LEAF_WISP_SCENE: PackedScene = preload("res://scenes/enemies/leaf_wisp.tscn")
+## With leaf_wisps on, the trim is leaf green so you can tell what comes out.
+const LEAF_TRIM_COLOR: Color = Color(0.42, 0.68, 0.28)
 
 ## Which way its wisps walk out: -1 = left, 1 = right.
 @export_enum("Left:-1", "Right:1") var direction: int = 1:
 	set(value):
 		# 0 (saved by the old property panel when Left was picked) means Left.
 		direction = -1 if value <= 0 else 1
+		queue_redraw()
+## Makes LEAF wisps instead (LeafWisp: only fire beats them; gusts just ruffle them).
+@export var leaf_wisps: bool = false:
+	set(value):
+		leaf_wisps = value
 		queue_redraw()
 ## Seconds between wisps (its rate).
 @export var spawn_interval: float = 3.0
@@ -108,7 +118,8 @@ func _count_alive() -> int:
 ## set BEFORE add_child, because Wisp._ready() reads them (start_direction,
 ## start_position).
 func _spawn_wisp() -> void:
-	var wisp: Wisp = WISP_SCENE.instantiate() as Wisp
+	var scene: PackedScene = LEAF_WISP_SCENE if leaf_wisps else WISP_SCENE
+	var wisp: Wisp = scene.instantiate() as Wisp
 	wisp.is_spawned = true
 	wisp.start_direction = direction
 	wisp.patrol_speed = patrol_speed
@@ -139,8 +150,9 @@ func _draw() -> void:
 	var box: Rect2 = get_local_outline()
 	draw_rect(box, BODY_COLOR)
 	# A lighter roof strip and feet, so it reads as a machine, not a wall block.
-	draw_rect(Rect2(box.position, Vector2(box.size.x, 3.0)), TRIM_COLOR)
-	draw_rect(Rect2(box.position.x, box.end.y - 2.0, box.size.x, 2.0), TRIM_COLOR)
+	var trim_color: Color = LEAF_TRIM_COLOR if leaf_wisps else TRIM_COLOR
+	draw_rect(Rect2(box.position, Vector2(box.size.x, 3.0)), trim_color)
+	draw_rect(Rect2(box.position.x, box.end.y - 2.0, box.size.x, 2.0), trim_color)
 	# The mouth: an opening on the side its wisps walk out of. It glows up over the
 	# last half second before a wisp comes.
 	var mouth_size: Vector2 = Vector2(4.0, box.size.y * 0.55)

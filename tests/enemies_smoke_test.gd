@@ -147,6 +147,19 @@ func _check_generator() -> void:
 	_check(left_wisps.size() == 1 and left_wisps[0].global_position.x < start_x - 10.0,
 		"generator: and walks left")
 	left_generator.queue_free()
+	for wisp: Wisp in _find_spawned_wisps():
+		wisp.queue_free()
+	await _frames(2)
+	# Leaf Wisps on: it makes LeafWisps.
+	var leaf_generator: WispGenerator = GENERATOR_SCENE.instantiate() as WispGenerator
+	leaf_generator.first_spawn_delay = 0.1
+	leaf_generator.leaf_wisps = true
+	leaf_generator.position = Vector2(720, 0)
+	add_child(leaf_generator)
+	await _wait(0.15)
+	var leaf_wisps: Array[Wisp] = _find_spawned_wisps()
+	_check(leaf_wisps.size() == 1 and leaf_wisps[0] is LeafWisp, "generator: with Leaf Wisps on it makes leaf wisps")
+	leaf_generator.queue_free()
 
 
 func _find_spawned_wisps() -> Array[Wisp]:

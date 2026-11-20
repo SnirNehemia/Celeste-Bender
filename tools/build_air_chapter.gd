@@ -19,9 +19,19 @@ extends Node
 ##   Room7 The Windward Court (the hub): five Key lights, the depth gate, an updraft
 ##     as the elevator, and five ledges where the wings will open.
 ##   RoomSanctum, one depth behind the hub: the Grand door and the Goal.
-## STILL TO COME: the wings (Currents, Gust-work, Slipstream, Wildfire, Storm
-## Watch), their Key orbs, the Summit, and relic slots 2 and 3. Until then the Grand door stays shut
-## and find_problems() reports the unfinished relic.
+## Stage 3, wing 1 CURRENTS (blue), off the hub's lowest ledge (right wall), climbing
+## up and to the right over open void (no floors: a fall is death):
+##     CurrentsRoom1 Crosswinds     two tailwind bands carry a glide over gaps too long without them
+##     CurrentsRoom2 Chimneys       two updrafts capped by storm clouds: leave before the top
+##     CurrentsRoom3 Dead Air       lifts between dead air; a crystal at each lift's top
+##     CurrentsRoom4 The High Road  exam: crumbling perches in dead air, a sail ride on a
+##                                  current (shard 2 above it), a capped lift to the
+##                                  blue Key orb, a teleport door home
+## STILL TO COME: the wings Gust-work, Slipstream, Wildfire and Storm Watch, the
+## Summit, and relic slot 3. Until then the Grand door stays shut and
+## find_problems() reports the unfinished relic.
+## The hub's LEFT wall is behind Room6 (Still Air) from row 14 down, so only its top
+## ledge can open on the left; the other wings' ways out are still to be decided.
 ##
 ## Run it from the project folder (console build):
 ##   godot --headless --path . res://tools/build_air_chapter.tscn
@@ -55,6 +65,8 @@ const WINGS: Array[String] = ["Currents", "Gust-work", "Slipstream", "Wildfire",
 const KEY_COLORS: Array[KeyColors.Name] = [
 	KeyColors.Name.BLUE, KeyColors.Name.ORANGE, KeyColors.Name.YELLOW, KeyColors.Name.RED, KeyColors.Name.GREEN,
 ]
+## The hub's lowest ledge (its floor row), on the right wall: the way into Currents.
+const CURRENTS_LEDGE_ROW: int = 48
 
 var kit: LevelKit = null
 ## Where the next room of the run-in goes: its left edge on the map (px), and the
@@ -72,7 +84,8 @@ func _ready() -> void:
 	_build_second_wind()
 	_build_kickback()
 	_build_still_air()
-	_build_hub()
+	var hub: Room = _build_hub()
+	_build_currents(hub)
 	kit.set_start_room(start_room)
 	for problem: String in kit.find_problems():
 		print("[BuildAirChapter] PROBLEM: %s" % problem)
@@ -160,6 +173,22 @@ func _updraft(room: Room, node_name: String, column: int, top_row: int, bottom_r
 		&"zone_size": Vector2(UPDRAFT_COLUMNS * TILE, (bottom_row - top_row + 1) * TILE),
 		&"wind_direction": Vector2.UP, &"wind_strength": UPDRAFT_STRENGTH,
 	})
+
+
+## A sideways current (a WindZone) over a rectangle of tiles, blowing `direction`
+## at `strength` px/s. It shifts the speed you settle at: with it you go faster,
+## against it slower. Keep it off floors you stand on (it pushes you there too).
+func _current(room: Room, node_name: String, column: int, row: int, width: int, height: int,
+		direction: Vector2, strength: float) -> void:
+	kit.place(room, &"wind_zone", node_name, Vector2(column * TILE, row * TILE), {
+		&"zone_size": Vector2(width * TILE, height * TILE),
+		&"wind_direction": direction, &"wind_strength": strength,
+	})
+
+
+## Storm cloud over a rectangle of tiles: kills on touch, not solid.
+func _storm(room: Room, column: int, row: int, width: int, height: int) -> void:
+	kit.fill(room, &"storm_cloud", column, row, width, height)
 
 
 ## Dead air (a NoGlideZone) over a rectangle of tiles: no gliding inside.
@@ -301,24 +330,30 @@ func _build_still_air() -> void:
 
 ## Room7 "The Windward Court": the hub, 40 x 60 tiles. Five Key lights and the depth
 ## gate stand on the floor; an updraft up the middle is the elevator. Five ledges,
-## alternating sides from the lowest wing (Currents) to the highest (Storm Watch),
-## are where the wings will open (their wall gaps are still closed; a sign on each
-## says so). Riding the lift past the top ledge reaches an alcove in the ceiling
-## with relic shard 4. Leaf piles on the floor show the gusts.
-func _build_hub() -> void:
+## alternating sides from the lowest wing (Currents, right) to the highest (Storm
+## Watch), are where the wings open: Currents' gap is open, the others still closed
+## (a sign on each says so). Riding the lift past the top ledge reaches an alcove in
+## the ceiling with relic shard 4. Leaf piles on the floor show the gusts. Each
+## finished wing comes home through a teleport exit of its color on the floor.
+func _build_hub() -> Room:
 	var hub: Room = _chain_room("Room7", "The Windward Court", 40, 60, 56, Backdrop.Altitude.SURFACE)
 	_ground(hub, 0, 0, 40, 4)                     # a thick ceiling, with the alcove cut into it
 	kit.clear(hub, 18, 1, 4, 3)
 	_grass(hub, 1, 56, 38, 4)
 	_updraft(hub, "Lift", 17, 1, 55)
 	# Each wing's ledge (WINGS order, lowest first): [left column, floor row, the
-	# sign's column]. Left and right in turn, 9 rows apart.
-	var wing_ledges: Array = [[1, 48, 3], [34, 39, 37], [1, 30, 3], [34, 21, 37], [1, 12, 3]]
+	# sign's column]. Right and left in turn, 9 rows apart.
+	var wing_ledges: Array = [[34, CURRENTS_LEDGE_ROW, 36], [1, 39, 3], [34, 30, 37], [1, 21, 3], [34, 12, 37]]
 	for wing_index: int in WINGS.size():
 		var ledge: Array = wing_ledges[wing_index]
 		_grass(hub, ledge[0], ledge[1], 5, 2)
-		_sign(hub, "Sign%s" % WINGS[wing_index].replace(" ", "").replace("-", ""), ledge[2], ledge[1],
-			"The %s wing. Not open yet." % WINGS[wing_index])
+		var text: String = "The %s wing. Not open yet." % WINGS[wing_index]
+		if wing_index == 0:
+			text = "The Currents wing: winds, lifts and dead air, over open sky."
+		_sign(hub, "Sign%s" % WINGS[wing_index].replace(" ", "").replace("-", ""), ledge[2], ledge[1], text)
+	kit.clear(hub, 39, CURRENTS_LEDGE_ROW - GAP_HEIGHT, 1, GAP_HEIGHT)
+	kit.place(hub, &"teleport_exit", "CurrentsExit", Vector2(35 * TILE, 56 * TILE - TeleportDoor.DOOR_SIZE.y),
+		{&"door_color": KEY_COLORS[0], &"is_exit": true})
 	_leaves(hub, "LeafPileLeft", 6, 56)
 	_leaves(hub, "LeafPileRight", 30, 56)
 	var lights: Array = []
@@ -345,3 +380,107 @@ func _build_hub() -> void:
 	kit.link(door, &"switches", lights)
 	kit.place(sanctum, &"goal", "Goal", Vector2(33 * TILE, floor_row * TILE - GOAL_SIZE.y), {&"goal_size": GOAL_SIZE})
 	kit.set_spawn(sanctum, 16, floor_row - 1)
+	return hub
+
+
+# --- Wing 1: Currents (blue) -----------------------------------------------------------
+
+## The wing's four rooms, a chain going right from the hub's lowest right ledge and
+## climbing (each room's exit is higher than its entry). No room has a floor: the
+## bottom is open sky, and falling out of it is death. Highlands, the hills altitude.
+func _build_currents(hub: Room) -> void:
+	chain_left_px = hub.position.x + hub.room_size.x
+	chain_floor_px = hub.position.y + CURRENTS_LEDGE_ROW * TILE
+	_build_crosswinds()
+	_build_chimneys()
+	_build_dead_air()
+	_build_high_road()
+
+
+## CurrentsRoom1 "Crosswinds" (60 x 31): wind that blows sideways. Two tailwind bands,
+## each over a gap too long for a plain glide (15.5 tiles in still air; with a 60 px/s
+## tailwind a glide flies about 26): 16 tiles to island B, then 22 to island C, 2 rows
+## lower. Two steps up (3 rows each) to the exit.
+## (A HEADWIND version was tried and dropped: walking off a ledge costs about 35 px of
+## height before a glide can start, and a jump rises into the band, so no honest route
+## under it fitted in a 31-row room.)
+func _build_crosswinds() -> void:
+	var room: Room = _chain_room("CurrentsRoom1", "Crosswinds", 60, 31, 26, Backdrop.Altitude.SURFACE)
+	_grass(room, 1, 26, 8, 3)                     # island A (columns 1-8), where you come in
+	_current(room, "Tailwind1", 9, 12, 16, 14, Vector2.RIGHT, 60.0)    # columns 9-24
+	_grass(room, 25, 26, 6, 3)                    # island B (columns 25-30)
+	_current(room, "Tailwind2", 31, 12, 22, 14, Vector2.RIGHT, 60.0)   # columns 31-52
+	_grass(room, 53, 28, 6, 3)                    # island C (columns 53-58), 2 rows lower
+	_grass(room, 56, 25, 3, 6)                    # the step up to the exit floor
+	kit.set_spawn(room, 2, 25)
+	_sign(room, "SignTailwind", 4, 26, "Wind blowing your way carries a glide much further.")
+	_exit_right(room, 25)
+
+
+## CurrentsRoom2 "Chimneys" (40 x 44): updrafts chained up a tall room, each one
+## running up INTO a storm cloud cap, so riding a lift to its top kills. Leave it
+## sideways in time: the ledge beside each lift is 7 rows under its cap (about half
+## a second of rising to steer out). A 3-tile gap between each lift and the next ledge.
+func _build_chimneys() -> void:
+	var room: Room = _chain_room("CurrentsRoom2", "Chimneys", 40, 44, 40, Backdrop.Altitude.SURFACE)
+	_grass(room, 1, 40, 6, 3)                     # the ledge you come in on (columns 1-6)
+	_updraft(room, "Chimney1", 8, 14, 43)
+	_storm(room, 7, 14, 8, 2)                     # its cap: rows 14-15
+	_grass(room, 17, 22, 5, 2)                    # ledge 1 (columns 17-21)
+	_updraft(room, "Chimney2", 23, 2, 43)
+	_storm(room, 22, 2, 8, 2)                     # its cap: rows 2-3
+	_grass(room, 31, 10, 8, 3)                    # the exit ledge (columns 31-38)
+	kit.set_spawn(room, 2, 39)
+	_sign(room, "SignChimney", 3, 40, "This wind runs into the storm. Leave it before the top.")
+	_exit_right(room, 10)
+
+
+## CurrentsRoom3 "Dead Air" (60 x 31): two lifts in clear air, with dead air between
+## them, so no glide carries you across: jump + down-gust over the first stretch
+## (12 tiles; the lift catches you anywhere down to the bottom). A wind crystal at the
+## top of each lift and one halfway across the second stretch (16 tiles) give back the
+## gust: down-gust, crystal, down-gust again.
+func _build_dead_air() -> void:
+	var room: Room = _chain_room("CurrentsRoom3", "Dead Air", 60, 31, 26, Backdrop.Altitude.SURFACE)
+	_grass(room, 1, 26, 7, 3)                     # the ledge you come in on (columns 1-7)
+	_dead_air(room, "DeadAir1", 8, 1, 10, 30)     # columns 8-17: 10 tiles, 80% of a down-gust's 12
+	_updraft(room, "Lift1", 18, 8, 30)            # columns 18-23
+	kit.place(room, &"wind_crystal", "CrystalLift1", Vector2(21 * TILE, 7 * TILE))
+	_dead_air(room, "DeadAir2", 24, 1, 18, 30)    # columns 24-41: two down-gusts' worth
+	kit.place(room, &"wind_crystal", "CrystalMidway", Vector2(32 * TILE, 9 * TILE))
+	_updraft(room, "Lift2", 42, 4, 30)
+	_grass(room, 50, 8, 9, 3)                     # the exit ledge (columns 50-58)
+	kit.set_spawn(room, 2, 25)
+	_sign(room, "SignDeadAirLifts", 3, 26, "No gliding in dead air, so no lift. Gust across.")
+	_exit_right(room, 8)
+
+
+## CurrentsRoom4 "The High Road" (100 x 31), the exam, everything at once:
+##   - three crumbling perches over dead air, 8 tiles apart and 2 rows up each time:
+##     a down-gust per hop, and no standing still (they go 2 s after you land);
+##   - a sail on a 30-tile rail inside a current: it carries you; a storm cloud tuft
+##     on its path is hopped; relic shard 2 floats 10 rows above the ride (jump +
+##     down-gust from the deck);
+##   - a lift capped by storm cloud, with the blue Key orb near its top, and the
+##     ledge with the teleport door home.
+func _build_high_road() -> void:
+	var room: Room = _chain_room("CurrentsRoom4", "The High Road", 100, 31, 24, Backdrop.Altitude.SURFACE)
+	_grass(room, 1, 24, 6, 3)                     # the ledge you come in on (columns 1-6)
+	_dead_air(room, "DeadAir", 7, 1, 34, 30)      # columns 7-40
+	kit.fill(room, &"crumble_rock", 15, 24, 3, 1)  # perch 1 (columns 15-17)
+	kit.fill(room, &"crumble_rock", 26, 22, 3, 1)  # perch 2 (columns 26-28), 2 rows up
+	kit.fill(room, &"crumble_rock", 37, 20, 3, 1)  # perch 3 (columns 37-39), 2 more
+	kit.place(room, &"sail_platform", "Sail", Vector2(46 * TILE, 22 * TILE), {
+		&"deck_width": 32.0, &"rail_start": Vector2.ZERO, &"rail_end": Vector2(30 * TILE, 0.0),
+	})
+	_current(room, "Current", 41, 8, 38, 16, Vector2.RIGHT, 50.0)  # columns 41-78, over the whole ride
+	_storm(room, 58, 21, 1, 1)                    # the tuft on the deck's path: hop it
+	_shard(room, 2, 62, 12)
+	_grass(room, 80, 22, 6, 3)                    # island C at the rail's end (columns 80-85)
+	_updraft(room, "Lift", 87, 2, 30)
+	_storm(room, 86, 2, 8, 2)                     # its cap: rows 2-3
+	kit.place(room, &"key_orb", "KeyOrb", LevelKit.corner(90, 8), {&"key_color": KEY_COLORS[0]})
+	_grass(room, 94, 9, 5, 3)                     # the last ledge (columns 94-98)
+	kit.place(room, &"teleport_door", "WayHome", Vector2(96 * TILE, 9 * TILE - TeleportDoor.DOOR_SIZE.y),
+		{&"door_color": KEY_COLORS[0]})
+	kit.set_spawn(room, 2, 23)

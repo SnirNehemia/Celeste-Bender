@@ -1,0 +1,215 @@
+[gd_scene format=4]
+
+[ext_resource type="Script" path="res://scenes/rooms/room_manager.gd" id="1_viems"]
+[ext_resource type="Script" path="res://scenes/rooms/room_base.gd" id="2_ff31x"]
+[ext_resource type="TileSet" path="res://resources/tiles/placeholder_tileset.tres" id="3_sou4f"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/wall_spider.tscn" id="4_6nhf4"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="4_shj75"]
+[ext_resource type="Script" path="res://scenes/enemies/wall_spider.gd" id="5_6yrh0"]
+[ext_resource type="Script" path="res://scenes/player/player.gd" id="5_jhol1"]
+[ext_resource type="Resource" path="res://resources/player_tuning.tres" id="6_hv1sr"]
+[ext_resource type="Script" path="res://scenes/enemies/element_immunity.gd" id="6_td47m"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/sentry.tscn" id="7_a2pvm"]
+[ext_resource type="Resource" path="res://resources/earth_tuning.tres" id="7_v56la"]
+[ext_resource type="Resource" path="res://resources/fire_tuning.tres" id="8_ossfq"]
+[ext_resource type="Script" path="res://scenes/enemies/sentry.gd" id="8_rewfy"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/wisp_generator.tscn" id="9_qjfge"]
+[ext_resource type="Resource" path="res://resources/water_tuning.tres" id="9_r3yq2"]
+[ext_resource type="Script" path="res://scenes/rooms/room_camera.gd" id="10_6nhf4"]
+[ext_resource type="Script" path="res://scenes/enemies/wisp_generator.gd" id="10_c7s5t"]
+[ext_resource type="PackedScene" path="res://scenes/ui/debug_overlay.tscn" id="11_6yrh0"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/wisp.tscn" id="11_qcfis"]
+[ext_resource type="Script" path="res://scenes/enemies/wisp.gd" id="12_g2exb"]
+[ext_resource type="Script" path="res://scenes/ui/debug_overlay.gd" id="12_td47m"]
+[ext_resource type="PackedScene" path="res://scenes/ui/room_picker.tscn" id="13_a2pvm"]
+[ext_resource type="Script" path="res://scenes/objects/water/falling_ice_layer.gd" id="14_c7s5t"]
+[ext_resource type="PackedScene" path="res://scenes/objects/sky_ship.tscn" id="14_qjfge"]
+[ext_resource type="Script" path="res://scenes/ui/room_picker.gd" id="14_rewfy"]
+[ext_resource type="Script" path="res://scenes/objects/sky_ship.gd" id="15_c7s5t"]
+[ext_resource type="TileSet" path="res://resources/tiles/ice_tileset.tres" id="15_qcfis"]
+[ext_resource type="PackedScene" path="res://scenes/ui/end_screen.tscn" id="15_qjfge"]
+[ext_resource type="Script" path="res://scenes/ui/end_screen.gd" id="16_c7s5t"]
+[ext_resource type="Script" path="res://scenes/objects/water/crumble_ice_layer.gd" id="16_g2exb"]
+[ext_resource type="Script" path="res://scenes/objects/water/ice_layer.gd" id="17_ma5i3"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="17_qcfis"]
+[ext_resource type="Script" path="res://scenes/ui/pause_menu.gd" id="18_g2exb"]
+[ext_resource type="Script" path="res://scenes/editor/level_info.gd" id="19_ma5i3"]
+
+[sub_resource type="Resource" id="Resource_4w1am"]
+script = ExtResource("6_td47m")
+fireball = 3
+flame = 3
+big_rock = 3
+perfect_rock = 3
+small_rock = 1
+earth_push = 1
+crush = 3
+gust = 1
+reflected_orb = 3
+whip = 3
+
+[sub_resource type="Resource" id="Resource_xvxl6"]
+script = ExtResource("6_td47m")
+fireball = 3
+big_rock = 3
+perfect_rock = 3
+reflected_orb = 3
+
+[sub_resource type="Resource" id="Resource_stvcx"]
+script = ExtResource("6_td47m")
+fireball = 3
+big_rock = 3
+perfect_rock = 3
+reflected_orb = 3
+
+[sub_resource type="Resource" id="Resource_ldrbl"]
+script = ExtResource("6_td47m")
+fireball = 3
+flame = 3
+big_rock = 3
+perfect_rock = 3
+small_rock = 1
+earth_push = 1
+crush = 3
+gust = 1
+reflected_orb = 3
+whip = 3
+spikes = 3
+
+[node name="Level" type="Node2D" unique_id=1001035572 node_paths=PackedStringArray("player", "camera")]
+script = ExtResource("1_viems")
+player = NodePath("Player")
+camera = NodePath("RoomCamera")
+
+[node name="Room1" type="Node2D" parent="." unique_id=686177832]
+script = ExtResource("2_ff31x")
+display_title = "Room 1"
+fire_allowed = true
+fire_start_pips = 2
+painted_ground = true
+
+[node name="Tiles" type="TileMapLayer" parent="Room1" unique_id=1221425164]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA4AAAAAAAAAAAAAAA8AAAAAAAAAAAAAABAAAAAAAAAAAAAAABEAAAAAAAAAAAAAABIAAAAAAAAAAAAAABMAAAAAAAAAAAAAABQAAAAAAAAAAAAAABUAAAAAAAAAAAAAABYAAAAAAAAAAAABAAAAAAAAAAAAAAABABUAAAABAAAAAAABABYAAAAAAAAAAAACAAAAAAAAAAAAAAACABUAAAABAAAAAAACABYAAAAAAAAAAAADAAAAAAAAAAAAAAADABUAAAABAAAAAAADABYAAAAAAAAAAAAEAAAAAAAAAAAAAAAEABUAAAABAAAAAAAEABYAAAAAAAAAAAAFAAAAAAAAAAAAAAAFABUAAAABAAAAAAAFABYAAAAAAAAAAAAGAAAAAAAAAAAAAAAGABUAAAABAAAAAAAGABYAAAAAAAAAAAAHAAAAAAAAAAAAAAAHABUAAAABAAAAAAAHABYAAAAAAAAAAAAIAAAAAAAAAAAAAAAIABUAAAABAAAAAAAIABYAAAAAAAAAAAAJAAAAAAAAAAAAAAAJABUAAAABAAAAAAAJABYAAAAAAAAAAAAKAAAAAAAAAAAAAAAKABUAAAABAAAAAAAKABYAAAAAAAAAAAALAAAAAAAAAAAAAAALABUAAAABAAAAAAALABYAAAAAAAAAAAAMAAAAAAAAAAAAAAAMABUAAAABAAAAAAAMABYAAAAAAAAAAAANAAAAAAAAAAAAAAANABUAAAABAAAAAAANABYAAAAAAAAAAAAOAAAAAAAAAAAAAAAOABUAAAABAAAAAAAOABYAAAAAAAAAAAAPAAAAAAAAAAAAAAAPABUAAAABAAAAAAAPABYAAAAAAAAAAAAQAAAAAAAAAAAAAAAQABUAAAABAAAAAAAQABYAAAAAAAAAAAARAAAAAAAAAAAAAAARABUAAAABAAAAAAARABYAAAAAAAAAAAASAAAAAAAAAAAAAAASABUAAAABAAAAAAASABYAAAAAAAAAAAATAAAAAAAAAAAAAAATABUAAAABAAAAAAATABYAAAAAAAAAAAAUAAAAAAAAAAAAAAAUABUAAAABAAAAAAAUABYAAAAAAAAAAAAVAAAAAAAAAAAAAAAVABUAAAABAAAAAAAVABYAAAAAAAAAAAAWAAAAAAAAAAAAAAAWABUAAAABAAAAAAAWABYAAAAAAAAAAAAXAAAAAAAAAAAAAAAXABUAAAABAAAAAAAXABYAAAAAAAAAAAAYAAAAAAAAAAAAAAAYABUAAAABAAAAAAAYABYAAAAAAAAAAAAZAAAAAAAAAAAAAAAZABUAAAABAAAAAAAZABYAAAAAAAAAAAAaAAAAAAAAAAAAAAAaABUAAAABAAAAAAAaABYAAAAAAAAAAAAbAAAAAAAAAAAAAAAbABUAAAABAAAAAAAbABYAAAAAAAAAAAAcAAAAAAAAAAAAAAAcABUAAAABAAAAAAAcABYAAAAAAAAAAAAdAAAAAAAAAAAAAAAdABUAAAABAAAAAAAdABYAAAAAAAAAAAAeAAAAAAAAAAAAAAAeABUAAAABAAAAAAAeABYAAAAAAAAAAAAfAAAAAAAAAAAAAAAfABUAAAABAAAAAAAfABYAAAAAAAAAAAAgAAAAAAAAAAAAAAAgABUAAAABAAAAAAAgABYAAAAAAAAAAAAhAAAAAAAAAAAAAAAhABUAAAABAAAAAAAhABYAAAAAAAAAAAAiAAAAAAAAAAAAAAAiABUAAAABAAAAAAAiABYAAAAAAAAAAAAjAAAAAAAAAAAAAAAjABUAAAABAAAAAAAjABYAAAAAAAAAAAAkAAAAAAAAAAAAAAAkABUAAAABAAAAAAAkABYAAAAAAAAAAAAlAAAAAAAAAAAAAAAlABUAAAABAAAAAAAlABYAAAAAAAAAAAAmAAAAAAAAAAAAAAAmABUAAAABAAAAAAAmABYAAAAAAAAAAAAnAAAAAAAAAAAAAAAnAAEAAAAAAAAAAAAnAAIAAAAAAAAAAAAnAAMAAAAAAAAAAAAnAAQAAAAAAAAAAAAnAAUAAAAAAAAAAAAnAAYAAAAAAAAAAAAnAAcAAAAAAAAAAAAnAAgAAAAAAAAAAAAnAAkAAAAAAAAAAAAnAAoAAAAAAAAAAAAnAAsAAAAAAAAAAAAnAAwAAAAAAAAAAAAnAA0AAAAAAAAAAAAnAA4AAAAAAAAAAAAnAA8AAAAAAAAAAAAnABAAAAAAAAAAAAAnABEAAAAAAAAAAAAnABIAAAAAAAAAAAAnABMAAAAAAAAAAAAnABQAAAAAAAAAAAAnABUAAAAAAAAAAAAnABYAAAAAAAAAAAAfAAwAAAABAAAAAAAfAA0AAAAAAAAAAAAgAA0AAAAAAAAAAAAgAA4AAAAAAAAAAAAhAA4AAAAAAAAAAAAhAA0AAAAAAAAAAAAhAAwAAAABAAAAAAAgAAwAAAABAAAAAAAmAAYAAAABAAAAAAAlAAYAAAABAAAAAAAkAAYAAAABAAAAAAAjAAYAAAABAAAAAAAjAAcAAAAAAAAAAAAkAAcAAAAAAAAAAAAkAAgAAAAAAAAAAAAlAAgAAAAAAAAAAAAlAAcAAAAAAAAAAAAmAAcAAAAAAAAAAAAmAAgAAAAAAAAAAAAiAAcAAAAAAAAAAAAhAAcAAAAAAAAAAAAhAAYAAAABAAAAAAAiAAYAAAABAAAAAAAgAAYAAAABAAAAAAABAAkAAAABAAAAAAACAAkAAAABAAAAAAADAAkAAAABAAAAAAAEAAkAAAABAAAAAAAFAAkAAAABAAAAAAABAAoAAAAAAAAAAAACAAoAAAAAAAAAAAADAAoAAAAAAAAAAAA=")
+tile_set = ExtResource("3_sou4f")
+
+[node name="SpawnPoint" type="Marker2D" parent="Room1" unique_id=341017665]
+position = Vector2(20, 168)
+
+[node name="WallSpider" type="CharacterBody2D" parent="Room1" unique_id=326100214 instance=ExtResource("4_6nhf4")]
+position = Vector2(260, 92)
+collision_layer = 24
+collision_mask = 0
+script = ExtResource("5_6yrh0")
+immunity = SubResource("Resource_4w1am")
+
+[node name="Sentry" type="StaticBody2D" parent="Room1" unique_id=10931223 instance=ExtResource("7_a2pvm")]
+position = Vector2(128, 8)
+collision_layer = 17
+collision_mask = 0
+script = ExtResource("8_rewfy")
+mounted_on_ceiling = true
+fire_direction = Vector2(0.7071068, 0.7071068)
+tracking_shots = true
+immunity = SubResource("Resource_xvxl6")
+
+[node name="Sentry2" type="StaticBody2D" parent="Room1" unique_id=1352490631 instance=ExtResource("7_a2pvm")]
+position = Vector2(64, 8)
+collision_layer = 17
+collision_mask = 0
+script = ExtResource("8_rewfy")
+mounted_on_ceiling = true
+tracking_shots = true
+tracking_mass = 3.0
+gust_proof_orbs = true
+immunity = SubResource("Resource_stvcx")
+
+[node name="WispGenerator" type="Node2D" parent="Room1" unique_id=115415034 instance=ExtResource("9_qjfge")]
+position = Vector2(280, 24)
+script = ExtResource("10_c7s5t")
+direction = -1
+leaf_wisps = true
+spawn_interval = 2.0
+
+[node name="Wisp" type="CharacterBody2D" parent="Room1" unique_id=131800887 instance=ExtResource("11_qcfis")]
+position = Vector2(12, 72)
+collision_layer = 24
+script = ExtResource("12_g2exb")
+immunity = SubResource("Resource_ldrbl")
+at_edges = 1
+
+[node name="LevelInfo" type="Node" parent="." unique_id=867875147 node_paths=PackedStringArray("start_room")]
+script = ExtResource("19_ma5i3")
+level_title = "test1"
+start_room = NodePath("../Room1")
+
+[node name="Room2" type="Node2D" parent="." unique_id=1247506307]
+position = Vector2(320, -400)
+script = ExtResource("2_ff31x")
+display_title = "Room 2"
+room_size = Vector2(888, 580)
+painted_ground = true
+
+[node name="FallingIce" type="TileMapLayer" parent="Room2" unique_id=1026178799]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAALADcAAAAAAAAAAAAMADcAAAAAAAAAAAANADcAAAAAAAAAAAAOADcAAAAAAAAAAAAOADgAAAAAAAAAAAAOADkAAAAAAAAAAAAOADoAAAAAAAAAAAANADoAAAAAAAAAAAAMADoAAAAAAAAAAAAMADkAAAAAAAAAAAALADkAAAAAAAAAAAALADgAAAAAAAAAAAAMADgAAAAAAAAAAAANADgAAAAAAAAAAAANADkAAAAAAAAAAAA=")
+tile_set = ExtResource("3_sou4f")
+script = ExtResource("14_c7s5t")
+
+[node name="CrumbleIce" type="TileMapLayer" parent="Room2" unique_id=1964471275]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAARADcAAAAAAAAAAAASADcAAAAAAAAAAAATADcAAAAAAAAAAAATADgAAAAAAAAAAAATADkAAAAAAAAAAAATADoAAAAAAAAAAAASADoAAAAAAAAAAAASADkAAAAAAAAAAAASADgAAAAAAAAAAAARADgAAAAAAAAAAAARADkAAAAAAAAAAAARADoAAAAAAAAAAAA=")
+tile_set = ExtResource("15_qcfis")
+script = ExtResource("16_g2exb")
+
+[node name="Ice" type="TileMapLayer" parent="Room2" unique_id=846458014]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAAbAEIAAAAAAAAAAAAGADcAAAAAAAAAAAAHADcAAAAAAAAAAAAIADgAAAAAAAAAAAAIADkAAAAAAAAAAAAIADoAAAAAAAAAAAAHADoAAAAAAAAAAAAGADkAAAAAAAAAAAAGADgAAAAAAAAAAAAFADgAAAAAAAAAAAAFADcAAAAAAAAAAAAHADgAAAAAAAAAAAAHADkAAAAAAAAAAAAFADkAAAAAAAAAAAAFADoAAAAAAAAAAAAGADoAAAAAAAAAAAAcAEIAAAAAAAAAAAAdAEIAAAAAAAAAAAAeAEIAAAAAAAAAAAAfAEIAAAAAAAAAAAAgAEIAAAAAAAAAAAAhAEIAAAAAAAAAAAAiAEIAAAAAAAAAAAAjAEIAAAAAAAAAAAAkAEIAAAAAAAAAAAAlAEIAAAAAAAAAAAAfAEMAAAAAAAAAAAAeAEMAAAAAAAAAAAAdAEMAAAAAAAAAAAA=")
+tile_set = ExtResource("15_qcfis")
+script = ExtResource("17_ma5i3")
+
+[node name="Tiles" type="TileMapLayer" parent="Room2" unique_id=1053105235]
+self_modulate = Color(1, 1, 1, 0)
+tile_map_data = PackedByteArray("AAADAEcAAAABAAAAAAACAEcAAAABAAAAAAABAEcAAAABAAAAAAAAAEcAAAABAAAAAAABAEgAAAAAAAAAAAAAAEgAAAAAAAAAAAAhADEAAAAAAAAAAAAgADAAAAAAAAAAAAAgAC8AAAAAAAAAAAAgAC4AAAABAAAAAAAhAC4AAAABAAAAAAAiAC4AAAABAAAAAAAiAC8AAAAAAAAAAAAhAC8AAAAAAAAAAAAhADAAAAAAAAAAAAA8ACgAAAABAAAAAAAgAB8AAAABAAAAAAAwADMAAAABAAAAAAApAD8AAAABAAAAAAAqABsAAAABAAAAAAAqABwAAAAAAAAAAAAqAB0AAAAAAAAAAAApAB0AAAABAAAAAAApAB4AAAAAAAAAAAApAB8AAAAAAAAAAAApACAAAAAAAAAAAAApACEAAAAAAAAAAAApACIAAAAAAAAAAAAoACMAAAABAAAAAAAoACQAAAAAAAAAAAAoACUAAAAAAAAAAAAoACYAAAAAAAAAAAAoACcAAAAAAAAAAAAoACgAAAAAAAAAAAApACgAAAAAAAAAAAAqACcAAAAAAAAAAAArACcAAAABAAAAAAAsACYAAAAAAAAAAAAsACUAAAABAAAAAAAtACQAAAAAAAAAAAAtACMAAAAAAAAAAAAtACIAAAAAAAAAAAAtACEAAAAAAAAAAAAtACAAAAAAAAAAAAAtAB8AAAAAAAAAAAAtAB4AAAAAAAAAAAAtAB0AAAAAAAAAAAAtABwAAAAAAAAAAAAtABsAAAAAAAAAAAAtABoAAAAAAAAAAAAtABkAAAABAAAAAAAsABoAAAAAAAAAAAAsABsAAAAAAAAAAAAsABwAAAAAAAAAAAAsAB0AAAAAAAAAAAAsAB4AAAAAAAAAAAAsAB8AAAAAAAAAAAAsACAAAAAAAAAAAAArACEAAAAAAAAAAAArACIAAAAAAAAAAAArACMAAAAAAAAAAAArACQAAAAAAAAAAAArACUAAAAAAAAAAAArACAAAAAAAAAAAAArAB8AAAAAAAAAAAArAB4AAAAAAAAAAAArAB0AAAAAAAAAAAArABwAAAAAAAAAAAArABsAAAAAAAAAAAArABoAAAAAAAAAAAArABkAAAAAAAAAAAAsABgAAAAAAAAAAAAsABcAAAAAAAAAAAAsABYAAAAAAAAAAAAsABUAAAAAAAAAAAAsABQAAAAAAAAAAAAsABMAAAAAAAAAAAAsABIAAAAAAAAAAAAsABEAAAABAAAAAAArABAAAAAAAAAAAAArAA8AAAAAAAAAAAArAA4AAAAAAAAAAAArAA0AAAAAAAAAAAArAAwAAAABAAAAAAAqAAwAAAABAAAAAAAqAA0AAAAAAAAAAAAqAA4AAAAAAAAAAAAqAA8AAAAAAAAAAAAqABAAAAAAAAAAAAAqABEAAAAAAAAAAAAqABIAAAAAAAAAAAAqABMAAAAAAAAAAAArABQAAAABAAAAAAArABUAAAAAAAAAAAArABYAAAAAAAAAAAArABcAAAAAAAAAAAArABgAAAAAAAAAAAAuABwAAAAAAAAAAAAuABsAAAAAAAAAAAAuABoAAAABAAAAAAAvABkAAAAAAAAAAAAvABgAAAAAAAAAAAAvABcAAAABAAAAAAAwABYAAAAAAAAAAAAwABUAAAAAAAAAAAAwABQAAAABAAAAAAAxABMAAAAAAAAAAAAxABIAAAAAAAAAAAAxABEAAAAAAAAAAAAxABAAAAAAAAAAAAAxAA8AAAABAAAAAAAwAA8AAAAAAAAAAAAwAA4AAAABAAAAAAAvAA0AAAABAAAAAAAvAA4AAAAAAAAAAAAuAA8AAAABAAAAAAAuABAAAAAAAAAAAAAuABEAAAAAAAAAAAAuABIAAAAAAAAAAAAuABMAAAAAAAAAAAAtABQAAAABAAAAAAAtABUAAAAAAAAAAAAtABYAAAAAAAAAAAAtABcAAAAAAAAAAAAsABkAAAAAAAAAAAAsACEAAAAAAAAAAAAsACIAAAAAAAAAAAAsACMAAAAAAAAAAAAqACYAAAAAAAAAAAApACcAAAAAAAAAAAApACYAAAAAAAAAAAApACUAAAAAAAAAAAApACQAAAAAAAAAAAApACMAAAAAAAAAAAAqACAAAAAAAAAAAAAqAB8AAAABAAAAAAAqACEAAAAAAAAAAAAqACIAAAAAAAAAAAAqACMAAAAAAAAAAAAqACQAAAAAAAAAAAAqACUAAAAAAAAAAAAaAEIAAAABAAAAAAAaAEMAAAAAAAAAAAAbAEMAAAABAAAAAAAcAEAAAAAAAAAAAAAdAEAAAAAAAAAAAAAeAEAAAAAAAAAAAAAfAEAAAAAAAAAAAAAgAEAAAAAAAAAAAAAhAEAAAAAAAAAAAAAiAD8AAAAAAAAAAAAiAD4AAAAAAAAAAAAhAD0AAAAAAAAAAAAgADwAAAABAAAAAAAfADwAAAABAAAAAAAeADwAAAABAAAAAAAdADwAAAABAAAAAAAcADwAAAABAAAAAAAbADwAAAABAAAAAAAbAD0AAAAAAAAAAAAcAD0AAAAAAAAAAAAcAD4AAAAAAAAAAAAdAD4AAAAAAAAAAAAeAD4AAAAAAAAAAAAfAD4AAAAAAAAAAAAgAD4AAAAAAAAAAAAhAD4AAAAAAAAAAAAhAD8AAAAAAAAAAAAgAD8AAAAAAAAAAAAcAD8AAAAAAAAAAAAdAD8AAAAAAAAAAAAeAD0AAAAAAAAAAAAfAD0AAAAAAAAAAAAgAD0AAAAAAAAAAAAfAD8AAAAAAAAAAAAeAD8AAAAAAAAAAAAdAD0AAAAAAAAAAAAfADoAAAAAAAAAAAAfADkAAAAAAAAAAAAgADgAAAAAAAAAAAAgADcAAAABAAAAAAAfADgAAAAAAAAAAAAeADgAAAAAAAAAAAAeADcAAAAAAAAAAAAeADYAAAABAAAAAAAdADYAAAABAAAAAAAfADYAAAABAAAAAAAfADcAAAAAAAAAAAAhADwAAAABAAAAAAAiADwAAAABAAAAAAAjADwAAAABAAAAAAAkADwAAAABAAAAAAAjAD0AAAAAAAAAAAAiAD0AAAAAAAAAAAAgADoAAAAAAAAAAAAgADkAAAAAAAAAAAAhADgAAAABAAAAAAA=")
+tile_set = ExtResource("3_sou4f")
+
+[node name="SpawnPoint" type="Marker2D" parent="Room2" unique_id=320249843]
+position = Vector2(20, 568)
+
+[node name="SkyShip" type="AnimatableBody2D" parent="Room2" unique_id=136618061 instance=ExtResource("14_qjfge")]
+position = Vector2(68, 576)
+collision_layer = 9
+collision_mask = 0
+script = ExtResource("15_c7s5t")
+
+[node name="Player" type="CharacterBody2D" parent="." unique_id=1671262880 instance=ExtResource("4_shj75")]
+position = Vector2(20, 168)
+collision_layer = 2
+script = ExtResource("5_jhol1")
+tuning = ExtResource("6_hv1sr")
+earth_tuning = ExtResource("7_v56la")
+fire_tuning = ExtResource("8_ossfq")
+water_tuning = ExtResource("9_r3yq2")
+
+[node name="RoomCamera" type="Camera2D" parent="." unique_id=79961097]
+script = ExtResource("10_6nhf4")
+
+[node name="DebugOverlay" type="CanvasLayer" parent="." unique_id=1822739329 node_paths=PackedStringArray("player") instance=ExtResource("11_6yrh0")]
+layer = 10
+visible = false
+script = ExtResource("12_td47m")
+player = NodePath("../Player")
+
+[node name="RoomPicker" type="CanvasLayer" parent="." unique_id=188817877 node_paths=PackedStringArray("room_manager") instance=ExtResource("13_a2pvm")]
+process_mode = 3
+layer = 20
+script = ExtResource("14_rewfy")
+room_manager = NodePath("..")
+
+[node name="EndScreen" type="CanvasLayer" parent="." unique_id=1150630027 node_paths=PackedStringArray("player") instance=ExtResource("15_qjfge")]
+script = ExtResource("16_c7s5t")
+player = NodePath("../Player")
+
+[node name="PauseMenu" type="CanvasLayer" parent="." unique_id=1398267603 node_paths=PackedStringArray("room_manager") instance=ExtResource("17_qcfis")]
+script = ExtResource("18_g2exb")
+room_manager = NodePath("..")

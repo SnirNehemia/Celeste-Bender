@@ -9,7 +9,9 @@ extends PlayerState
 ##   RECOIL (aimed gust, an arrow held)
 ##     enter():  shoved the opposite way at gust_recoil_speed; a down-gust in mid-air
 ##               is an "extra jump" (it spends the airtime's gust charge, like any air gust);
-##               an up-gust pushes you down. A diagonal's sideways shove is
+##               an up-gust pushes you down and TUCKS you (half height,
+##               Player.start_gust_tuck); an up-diagonal one ON THE GROUND is a
+##               TUCK SLIDE (gust_tuck_slide_*: fast, lightly braked). A diagonal's sideways shove is
 ##               gust_diagonal_recoil_share of the full one (not the unit vector's
 ##               0.71), and in mid-air a shove above run speed fades gently for
 ##               gust_overspeed_time. On the ground the sideways shove is
@@ -43,6 +45,10 @@ enum Phase { RECOIL, BRAKE, FLOAT }
 var phase: Phase = Phase.RECOIL
 ## Seconds left in the current phase.
 var phase_time_remaining: float = 0.0
+## True for a TUCK SLIDE (an up-diagonal gust on the ground, PlayerTuning
+## gust_tuck_slide_*): the RECOIL brakes with the slide's lighter friction and lasts
+## until the slide stops.
+var is_tuck_slide: bool = false
 
 
 func enter() -> void:
@@ -66,6 +72,7 @@ func enter() -> void:
 	player.has_ice_landing_grip = false  # an aimed gust: you meant to move
 	phase = Phase.RECOIL
 	phase_time_remaining = tuning.gust_recoil_input_lock_time
+	is_tuck_slide = false
 	# Horizontal recoil SETS the speed (not adds): the gust always throws you at the
 	# same speed, whatever you were doing. Purely vertical gusts leave x alone.
 	var wind_catcher: Object = player.get_wind_catching_floor()
@@ -91,6 +98,14 @@ func enter() -> void:
 		# 0.71: the harder-to-aim diagonal gets more reach.
 		var sideways_share: float = tuning.gust_diagonal_recoil_share if direction.y != 0.0 else 1.0
 		player.velocity.x = -signf(direction.x) * recoil_speed * sideways_share
+		if player.is_on_floor() and direction.y < 0.0 and tuning.gust_tuck_enabled:
+			# The TUCK SLIDE: an up-diagonal gust on the ground shoots you along the floor,
+			# curled up, far enough to cross a 2-tile tunnel (the plain ground recoil
+			# stops within ~4 px). The phase lasts as long as the slide.
+			is_tuck_slide = true
+			player.velocity.x = -signf(direction.x) * tuning.gust_tuck_slide_speed
+			phase_time_remaining = maxf(phase_time_remaining,
+				tuning.gust_tuck_slide_speed / tuning.gust_tuck_slide_friction)
 
 	if direction.y > 0.0:
 		# Down-gust (straight or diagonal) in mid-air: the extra jump. It sets the upward
@@ -104,6 +119,32 @@ func enter() -> void:
 	elif direction.y < 0.0:
 		# Up-gust: shoved down. maxf keeps a faster fall you already had.
 		player.velocity.y = maxf(player.velocity.y, -direction.y * tuning.gust_recoil_speed)
+		# ...and you curl up (half height) for a moment: a diagonal one shoots you
+		# sideways into a 1-tile tunnel, a straight one ducks a shot.
+		player.start_gust_tuck()
+		# A slide stays tucked to its end (and longer under a ceiling, as always).
+		if is_tuck_slide:
+			player.gust_tuck_remaining = maxf(player.gust_tuck_remaining, phase_time_remaining)
+
+
+## One frame of a tuck slide on the floor. It brakes with gust_tuck_slide_friction,
+## but only down to RUN speed while you hold the arrow the slide goes, and then hands
+## over to running (the phase ends): slide into a run with no stop. On ice the ice's
+## own rules take over at once (Player.apply_horizontal_movement keeps speed above
+## the ice's top speed), so a slide on ice carries on.
+func _update_tuck_slide(delta: float) -> void:
+	if player.is_on_ice:
+		phase_time_remaining = 0.0
+		player.apply_horizontal_movement(delta)
+		return
+	var slide_direction: float = signf(player.velocity.x)
+	var is_holding_on: bool = slide_direction != 0.0 and player.get_move_input() == slide_direction
+	var run_speed: float = player.tuning.max_run_speed * player.get_tucked_speed_multiplier()
+	var floor_speed: float = slide_direction * run_speed if is_holding_on else 0.0
+	player.velocity.x = move_toward(player.velocity.x, floor_speed,
+		player.tuning.gust_tuck_slide_friction * delta)
+	if is_holding_on and absf(player.velocity.x) <= run_speed:
+		phase_time_remaining = 0.0  # down to run speed: you're running now
 
 
 func physics_update(delta: float) -> void:
@@ -116,6 +157,8 @@ func physics_update(delta: float) -> void:
 			# extra friction (on the ground); after it, normal control.
 			if phase_time_remaining <= 0.0:
 				player.apply_horizontal_movement(delta)
+			elif player.is_on_floor() and is_tuck_slide:
+				_update_tuck_slide(delta)
 			elif player.is_on_floor():
 				player.velocity.x = move_toward(player.velocity.x, 0.0,
 					player.tuning.gust_ground_recoil_friction * delta)

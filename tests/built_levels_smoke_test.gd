@@ -333,6 +333,55 @@ func _check_windward_moves() -> void:
 	await _jump_then(&"move_right", [&"move_left"])
 	await _glide(&"move_right", 200)
 	_check_landed("Room5", 208.0, 192.0, "windward: gust left + glide crosses Kickback's pit")
+	await _check_windward_currents()
+
+
+## Stage 3, wing 1 Currents: the hub's ledge leads in; each room's key move played
+## with simulated keys (and the headwind shown to stall a jump); shard 2; the blue
+## key and the teleport door home lighting the hub's blue light.
+func _check_windward_currents() -> void:
+	# The hub's lowest ledge (right wall, floor row 48): walk right through its gap.
+	_stand("Room7", Vector2(290, 384))
+	await _hold(&"move_right", 1.0)
+	_check(level.current_room == level.get_node("CurrentsRoom1"), "windward: the hub's lowest right ledge leads into Crosswinds")
+	# Crosswinds: from island A's edge, a glide in the tailwind crosses 16 tiles to B.
+	_stand("CurrentsRoom1", Vector2(64, 208))
+	await _frames(SETTLE_FRAMES)
+	await _jump_then(&"move_right", [])
+	# Only 40 frames: holding on longer would walk off island B's far edge into the void.
+	await _glide(&"move_right", 40)
+	_check_landed("CurrentsRoom1", 200.0, 208.0, "windward: a glide in Crosswinds' first tailwind crosses to island B")
+	# From B's edge the 22-tile gap needs the second tailwind: the glide lands on island C.
+	_stand("CurrentsRoom1", Vector2(240, 208))
+	await _frames(SETTLE_FRAMES)
+	await _jump_then(&"move_right", [])
+	await _glide(&"move_right", 85)
+	_check_landed("CurrentsRoom1", 424.0, 224.0, "windward: a glide in Crosswinds' second tailwind crosses to island C")
+	# Dead Air: jump + down-gust over the first stretch, then a glide into Lift1 rises.
+	_stand("CurrentsRoom3", Vector2(56, 208))
+	await _frames(SETTLE_FRAMES)
+	await _jump_then(&"move_right", [&"move_down"])
+	var dead_air_room: Room = level.get_node("CurrentsRoom3") as Room
+	for frame: int in 90:
+		if level.player.global_position.x - dead_air_room.global_position.x >= 152.0:
+			break
+		await _frames(1)
+	Input.action_release(&"move_right")
+	await _glide(&"move_up", 150)
+	var feet: Vector2 = level.player.global_position - dead_air_room.global_position
+	_check(feet.y < 120.0, "windward: a down-gust over Dead Air's first stretch reaches Lift1, which lifts (feet at %d, %d)" % [int(feet.x), int(feet.y)])
+	# The High Road: shard 2 over the ride, the blue key, the door home.
+	await _take_shard("CurrentsRoom4", "RelicShard2", Vector2(664, 176))
+	await _take_key("CurrentsRoom4", "KeyOrb")
+	var door: TeleportDoor = level.get_node("CurrentsRoom4/WayHome") as TeleportDoor
+	_stand("CurrentsRoom4", door.position + Vector2(8, 24))
+	await _frames(SETTLE_FRAMES)
+	await _hold(&"move_up", 0.3)
+	await _wait(1.0)
+	var hub: Room = level.get_node("Room7") as Room
+	_check(level.current_room == hub, "windward: The High Road's teleport door goes home to the hub")
+	await _wait(3.0)
+	_check((hub.get_node("KeyLight1") as KeyLight).is_on(), "windward: the blue key lights the hub's blue light")
 
 
 ## A full-height jump while holding `move_action`; at its top, a gust aimed with

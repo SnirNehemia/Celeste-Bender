@@ -56,6 +56,9 @@ const EYE_CHARGED_COLOR: Color = Color(1.0, 0.6, 0.15)
 const FIRE_BODY_COLOR: Color = Color("#E8431A")
 const FIRE_BODY_DARK_COLOR: Color = Color("#8A2410")
 ## An automatic sentry's body: machine grey (it fires on a clock, it doesn't watch you).
+## The two body sizes large_body picks between, px (2x2 and 3x3 tiles).
+const SMALL_BODY_SIZE: Vector2 = Vector2(16, 16)
+const LARGE_BODY_SIZE: Vector2 = Vector2(24, 24)
 const AUTOMATIC_BODY_COLOR: Color = Color(0.5, 0.5, 0.53)
 ## How far the mounting plate reaches into the floor, ceiling or wall, px.
 const BASE_SINK: float = 3.0
@@ -124,8 +127,16 @@ signal defeated
 		body_size = value
 		_resize_hitbox()
 		queue_redraw()
+## 3x3 tiles instead of 2x2. Shots leave the body's MIDDLE, which for a 3x3 body sits
+## in the middle of a tile (not on a tile line), so an automatic sentry's line of fire
+## can be lined up with a 1-tile gap. Sets body_size (LARGE_BODY_SIZE or SMALL_BODY_SIZE).
+@export var large_body: bool = false:
+	set(value):
+		large_body = value
+		body_size = LARGE_BODY_SIZE if value else SMALL_BODY_SIZE
 ## Seconds between shots (GAME_DESIGN.md §7: 2 s).
-@export var fire_interval: float = 2.0
+## The editor steps it by 0.1 (the range's third value, PropertyPanel._make_spin_box).
+@export_range(0.1, 30.0, 0.1) var fire_interval: float = 2.0
 ## Seconds from first spotting the player to the first shot.
 @export var first_shot_delay: float = 1.0
 ## Seconds the eye glows before each shot.
